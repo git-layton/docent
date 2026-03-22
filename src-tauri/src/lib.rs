@@ -60,8 +60,9 @@ fn get_ram_stats() -> serde_json::Value {
     let mut sys = System::new_all();
     sys.refresh_memory();
     let total_mb = sys.total_memory() / 1024 / 1024;
-    let available_mb = sys.available_memory() / 1024 / 1024;
-    let used_mb = total_mb.saturating_sub(available_mb);
+    let used_mb = sys.used_memory() / 1024 / 1024;
+    // available_memory() returns 0 on macOS in sysinfo v0.30; derive it instead
+    let available_mb = total_mb.saturating_sub(used_mb);
     serde_json::json!({
         "total_mb": total_mb,
         "used_mb": used_mb,

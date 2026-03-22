@@ -233,6 +233,7 @@ export default function App() {
   const [showConsole, setShowConsole] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [ramStats, setRamStats] = useState<{ total_mb: number; used_mb: number; available_mb: number } | null>(null);
+  const [llamaServerPid, setLlamaServerPid] = useState<number | null>(null);
   const [llamaPaused, setLlamaPaused] = useState(false);
   const [llamaCoolingDown, setLlamaCoolingDown] = useState(false);
   const [nukeShieldPending, setNukeShieldPending] = useState<{ path: string; content: string; deletions: number; existingLines: number; diffStat: string } | null>(null);
@@ -402,35 +403,42 @@ export default function App() {
     };
     boot();
 
-    // RAM polling — every 2s
+    // RAM polling — every 2s (reaper only fires if a llama-server was actually spawned)
     const ramInterval = setInterval(async () => {
       try {
         const stats = await invoke<{ total_mb: number; used_mb: number; available_mb: number }>('get_ram_stats');
         setRamStats(stats);
 
-        setLlamaCoolingDown(prev => {
-          if (stats.available_mb < 1500 && stats.available_mb >= 800 && !prev && !llamaPaused) {
-            showToast('⚠️ RAM pressure — LLaMA will pause after this response');
-            return true;
-          }
-          return prev;
-        });
+        // All reaper logic is gated on llamaServerPid being set
+        setLlamaServerPid(pid => {
+          if (pid === null) return pid;
 
-        setLlamaPaused(prev => {
-          if (stats.available_mb < 800 && !prev) {
-            abortControllerRef.current?.abort();
-            setIsGenerating(false);
-            setLlamaCoolingDown(false);
-            invoke('sigstop_llama_server').catch(() => {});
-            showToast('🚨 LLaMA force-hibernated — RAM critical');
-            return true;
-          }
-          if (stats.available_mb > 2500 && prev) {
-            invoke('sigcont_llama_server').catch(() => {});
-            showToast('✅ LLaMA resumed — RAM recovered');
-            return false;
-          }
-          return prev;
+          setLlamaCoolingDown(prev => {
+            if (stats.available_mb < 1500 && stats.available_mb >= 800 && !prev && !llamaPaused) {
+              showToast('⚠️ RAM pressure — LLaMA will pause after this response');
+              return true;
+            }
+            return prev;
+          });
+
+          setLlamaPaused(prev => {
+            if (stats.available_mb < 800 && !prev) {
+              abortControllerRef.current?.abort();
+              setIsGenerating(false);
+              setLlamaCoolingDown(false);
+              invoke('sigstop_llama_server').catch(() => {});
+              showToast('🚨 LLaMA force-hibernated — RAM critical');
+              return true;
+            }
+            if (stats.available_mb > 2500 && prev) {
+              invoke('sigcont_llama_server').catch(() => {});
+              showToast('✅ LLaMA resumed — RAM recovered');
+              return false;
+            }
+            return prev;
+          });
+
+          return pid;
         });
       } catch (e) { /* Tauri not available in browser dev */ }
     }, 2000);
@@ -440,13 +448,13 @@ export default function App() {
 
   // Soft-reaper: when cooling down and generation finishes naturally → apply SIGSTOP
   useEffect(() => {
-    if (llamaCoolingDown && !isGenerating && !llamaPaused) {
+    if (llamaServerPid !== null && llamaCoolingDown && !isGenerating && !llamaPaused) {
       setLlamaCoolingDown(false);
       setLlamaPaused(true);
       invoke('sigstop_llama_server').catch(() => {});
       showToast('🛑 LLaMA hibernated — RAM low');
     }
-  }, [llamaCoolingDown, isGenerating, llamaPaused]);
+  }, [llamaServerPid, llamaCoolingDown, isGenerating, llamaPaused]);
 
   const persistState = useCallback(() => {
     if (!isDbLoaded) return;
@@ -1446,14 +1454,12 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-1">
-                {ramStats && (
-                  <div className={`text-xs font-mono px-2 py-1 rounded-md flex items-center gap-1 mr-1 ${
-                    ramStats.available_mb < 1200 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 font-bold' :
-                    ramStats.available_mb < 2000 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                    'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
-                  }`}>
-                    {ramStats.available_mb < 1200 && <span>CRITICAL ·</span>}
-                    {(ramStats.available_mb / 1024).toFixed(1)}GB free
+                {ramStats && ramStats.available_mb < 2000 && (
+                  <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
+                    ramStats.available_mb < 1200 ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
+                    'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+                  }`} title={`${(ramStats.available_mb / 1024).toFixed(1)}GB free of ${(ramStats.total_mb / 1024).toFixed(0)}GB`}>
+                    {(ramStats.available_mb / 1024).toFixed(1)}GB
                   </div>
                 )}
                 <button onClick={() => setShowConsole(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showConsole ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : hasErrorLogs ? 'text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`} title="Open App Console">
@@ -1747,13 +1753,13 @@ export default function App() {
                       </div>
                     </div>
 
-                    {llamaPaused && (
+                    {llamaServerPid !== null && llamaPaused && (
                       <div className="px-4 py-2 mb-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between">
                         <span>🛑 LLaMA hibernating — waiting for RAM to recover</span>
                         <button onClick={() => { invoke('sigcont_llama_server').catch(() => {}); setLlamaPaused(false); }} className="text-xs underline ml-3 shrink-0">Resume manually</button>
                       </div>
                     )}
-                    {llamaCoolingDown && !llamaPaused && (
+                    {llamaServerPid !== null && llamaCoolingDown && !llamaPaused && (
                       <div className="px-4 py-2 mb-2 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-800 rounded-xl text-yellow-800 dark:text-yellow-300 text-xs">
                         ⚠️ RAM pressure — LLaMA will pause after this response
                       </div>
@@ -1761,7 +1767,7 @@ export default function App() {
                     <div className={`relative bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
                       <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
                         placeholder={models.length === 0 ? 'Connect an LLM to start...' : generationMode === 'code' ? 'What application should I build?' : generationMode === 'doc' ? 'What document should I draft?' : generationMode === 'image' ? 'Describe the image you want to generate...' : `Message ${activeAssistant?.name ?? 'Assistant'}...`}
-                        className="w-full bg-transparent p-4 pr-32 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || llamaPaused || models.length === 0} />
+                        className="w-full bg-transparent p-4 pr-32 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
                       <div className="absolute right-2 bottom-2 flex items-center gap-1.5 bg-white/90 dark:bg-neutral-950/90 backdrop-blur px-1.5 py-1 rounded-xl">
                         {!isGenerating && models.length > 0 && <button onClick={toggleListening} className={`p-2 transition-colors rounded-lg ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-4 h-4 ${isListening ? 'animate-bounce' : ''}`} /></button>}
                         <button onClick={() => setIsDeepThinking(v => !v)} className={`p-2 rounded-lg transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8] dark:bg-[#9EADC8]/20 dark:text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-4 h-4" /></button>
@@ -1770,7 +1776,7 @@ export default function App() {
                         <input type="file" ref={fileInputRef} onChange={handleChatFileUpload} className="hidden" />
                         <button
                           onClick={isGenerating ? handleStop : handleSendMessage}
-                          disabled={llamaPaused || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0))}
+                          disabled={(llamaServerPid !== null && llamaPaused) || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0))}
                           className={`p-2.5 rounded-xl transition-all ${isGenerating ? 'bg-[#C98A8A] text-white shadow-lg animate-pulse hover:bg-[#B57070]' : 'bg-[#9EADC8] text-[#2C3E50] shadow-lg hover:bg-[#899AB5] active:scale-90 disabled:opacity-50'}`}>
                           {isGenerating ? <Square className="w-4 h-4 fill-[#2C3E50]" /> : <Send className="w-4 h-4" />}
                         </button>
