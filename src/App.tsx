@@ -9,73 +9,8 @@ import {
   MessageSquare, GripVertical, Link, Edit3, BookOpen, UserCog, Mic, Volume2, VolumeX, Copy, Database, Download
 } from 'lucide-react';
 
-// ─── Native PDF Parser (Dynamic Loader) ──────────────────────────────────────
-
-const loadPDFJS = async (): Promise<any> => {
-  if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    script.onload = () => {
-      (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      resolve((window as any).pdfjsLib);
-    };
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-};
-
-const extractTextFromPDF = async (file: File) => {
-    const pdfjs = await loadPDFJS();
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-    let fullText = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-       const page = await pdf.getPage(i);
-       const textContent = await page.getTextContent();
-       fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n';
-    }
-    return fullText;
-};
-
-// ─── Bulletproof Database Helper (Tauri + LocalStorage Mirror) ───────────────
-const db = {
-  store: null as any,
-  async init() {
-    try {
-      if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
-        const { load } = await import('@tauri-apps/plugin-store');
-        if (load) {
-          this.store = await load('agent_forge_db.bin', { autoSave: true, defaults: {} });
-        }
-      }
-    } catch (e) {
-      console.warn("[Agent Forge] Tauri Store plugin missing or failed.", e);
-    }
-  },
-  async get(key: string, defaultVal: any) {
-    try {
-      if (this.store) {
-        const val = await this.store.get(key);
-        if (val !== null && val !== undefined) {
-           localStorage.setItem(key, JSON.stringify(val));
-           return val;
-        }
-      }
-      const localVal = localStorage.getItem(key);
-      return localVal ? JSON.parse(localVal) : defaultVal;
-    } catch { return defaultVal; }
-  },
-  async set(key: string, val: any) {
-    try {
-      localStorage.setItem(key, JSON.stringify(val));
-      if (this.store) {
-        await this.store.set(key, val);
-        if (this.store.save) await this.store.save();
-      }
-    } catch (e) { console.error("DB Save Error:", e); }
-  }
-};
+import { db } from './services/database';
+import { loadPDFJS, extractTextFromPDF } from './services/pdfParser';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
