@@ -1,5 +1,5 @@
 [package]
-name = "my-local-ai"
+name = "my-agent-forge"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
