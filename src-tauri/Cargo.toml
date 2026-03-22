@@ -26,4 +26,5 @@ tauri-plugin-shell = "2"
 tauri-plugin-http = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-store = "2"
+sysinfo = "0.30"
 
