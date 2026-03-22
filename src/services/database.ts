@@ -1,13 +1,13 @@
-// ─── Bulletproof Database Helper (Tauri + LocalStorage Mirror) ───────────────
 export const db = {
   store: null as any,
+  _initialized: false,
   async init() {
+    if (this._initialized) return;
+    this._initialized = true;
     try {
       if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
         const { load } = await import('@tauri-apps/plugin-store');
-        if (load) {
-          this.store = await load('agent_forge_db.bin', { autoSave: true, defaults: {} });
-        }
+        this.store = await load('agent_forge_db.bin', { autoSave: true, defaults: {} });
       }
     } catch (e) {
       console.warn("[Agent Forge] Tauri Store plugin missing or failed.", e);
