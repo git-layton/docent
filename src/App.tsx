@@ -15,6 +15,9 @@ import { extractTextFromPDF } from './services/pdfParser';
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
 import { invoke } from '@tauri-apps/api/core';
 import { NukeShieldModal } from './components/NukeShieldModal';
+import { MemmoPanel } from './components/MemmoPanel';
+import { MemoComposeModal } from './components/MemoComposeModal';
+import { SourcesTray } from './components/SourcesTray';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -232,15 +235,22 @@ export default function App() {
   const [logs, setLogs] = useState<any[]>([]);
   const [showConsole, setShowConsole] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [ramStats, setRamStats] = useState<{ total_mb: number; used_mb: number; available_mb: number } | null>(null);
   const [llamaServerPid, setLlamaServerPid] = useState<number | null>(null);
   const [llamaPaused, setLlamaPaused] = useState(false);
   const [llamaCoolingDown, setLlamaCoolingDown] = useState(false);
   const [nukeShieldPending, setNukeShieldPending] = useState<{ path: string; content: string; deletions: number; existingLines: number; diffStat: string } | null>(null);
 
-  const showToast = (msg: string) => {
+  // Memmo Engine states
+  const [showMemmoPanel, setShowMemmoPanel] = useState(false);
+  const [showMemoCompose, setShowMemoCompose] = useState(false);
+  const [agentForgePath, setAgentForgePath] = useState('');
+
+  const showToast = (msg: string, action?: { label: string; onClick: () => void }) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    setToastAction(action ?? null);
+    setTimeout(() => { setToastMessage(null); setToastAction(null); }, 4000);
   };
 
   useEffect(() => {
@@ -397,6 +407,7 @@ export default function App() {
       try {
         const kc = await invoke<{ initialized: boolean; path: string }>('init_knowledge_core');
         if (kc.initialized) showToast(`📚 Knowledge Core initialized at ${kc.path}`);
+        if (kc.path) setAgentForgePath(kc.path);
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
       } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { setIsDbLoaded(true); }
@@ -543,8 +554,16 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Cmd+Shift+M — Omni-Capture (opens Memo Compose from anywhere)
+      if (e.metaKey && e.shiftKey && e.key === 'M') {
+        e.preventDefault();
+        setShowMemoCompose(true);
+        return;
+      }
       if (e.key === 'Escape') {
-        if (showAssistantSettings) setShowAssistantSettings(false);
+        if (showMemoCompose) setShowMemoCompose(false);
+        else if (showMemmoPanel) setShowMemmoPanel(false);
+        else if (showAssistantSettings) setShowAssistantSettings(false);
         else if (showProfileSettings) {
             setShowProfileSettings(false);
             setImageTestState({ loading: false, error: null, successUrl: null });
@@ -556,7 +575,7 @@ export default function App() {
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [showAssistantSettings, showProfileSettings, showModelWizard, showSaveModal, taskToDiscuss]);
+  }, [showMemoCompose, showMemmoPanel, showAssistantSettings, showProfileSettings, showModelWizard, showSaveModal, taskToDiscuss]);
 
   const fetchImageModels = async () => {
      setIsFetchingImageModels(true);
@@ -822,8 +841,19 @@ export default function App() {
         showToast("Parsing PDF locally... this might take a moment.");
         try {
            const text = await extractTextFromPDF(file);
+           if (!text || text.trim().length < 10) {
+             showToast("This PDF appears to be scanned images (no selectable text). Please run it through an OCR tool first, or use a text-based PDF.");
+             e.target.value = '';
+             return;
+           }
+           const MAX_ALWAYS_ON_CHARS = 25_000;
+           if (text.length > MAX_ALWAYS_ON_CHARS) {
+             showToast(`File too large for Always-On Context (${text.length.toLocaleString()} chars). Drop massive files in the Memmo Panel Library (RAG) instead.`);
+             e.target.value = '';
+             return;
+           }
            setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: [...(prev.trainingDocs ?? []), { id: generateId('doc'), name: file.name, content: text, type: 'text/plain' }] }));
-           showToast("PDF added to Knowledge Base!");
+           showToast(`PDF added! (${text.length.toLocaleString()} chars)`);
         } catch (err) {
            showToast("Failed to parse PDF.");
            console.error(err);
@@ -990,19 +1020,16 @@ export default function App() {
         
         if (toolUsed === 'Workspace RAG') {
              try {
-                 let ragData = "No context found.";
-                 // Wire this up to the Rust Backend
+                 let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
-                     try {
-                         const { invoke } = await import('@tauri-apps/api/core');
-                         // This connects directly to LanceDB in the Rust memory.rs file
-                         ragData = await invoke('query_lance_db', { query: userMsg.content });
-                     } catch (tauriErr: any) {
-                         console.warn("Tauri RAG failed:", tauriErr);
-                         ragData = `Error communicating with local LanceDB backend: ${tauriErr.message || tauriErr}`;
+                     const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
+                         'search_knowledge', { query: userMsg.content }
+                     );
+                     const hits = kcResult.results ?? [];
+                     if (hits.length > 0) {
+                         ragData = hits.map((h, i) => `[${i + 1}] ${h.title}\n${h.snippet}`).join('\n\n---\n\n');
+                         hits.forEach(h => foundSources.push({ title: h.title, path: h.path, snippet: h.snippet }));
                      }
-                 } else {
-                     ragData = `(Mocked RAG Data: LanceDB is not running in the web preview. In your Tauri app, this will return local file chunks.)`;
                  }
                  toolData += `\n\n[SYSTEM NOTE: LOCAL WORKSPACE RAG RESULTS]\n${ragData}\n[END SEARCH]`;
              } catch (e: any) {
@@ -1013,46 +1040,58 @@ export default function App() {
             try {
                 const query = userMsg.content.replace(/search( for)?|who is|what is|find/gi, '').trim() || userMsg.content;
                 
-                // Bullet-proof Tavily Fetch
-                if (integrations.tavily?.enabled && integrations.tavily?.apiKey) {
-                    const tvRes = await fetch('https://api.tavily.com/search', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            api_key: integrations.tavily.apiKey, 
-                            query, 
-                            max_results: 3,
-                            search_depth: "advanced",
-                            include_answer: true
-                        })
-                    });
-                    if (tvRes.ok) {
-                        const tvData = await tvRes.json();
-                        if (tvData.results) {
-                            tvData.results.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.content }));
-                        }
-                        if (tvData.answer) {
-                            toolData += `\n[TAVILY AI SUMMARY]\n${tvData.answer}\n`;
-                        }
+                // Tavily Fetch — via Tauri HTTP backend to bypass WebView CORS
+                if (integrations.tavily?.enabled) {
+                    if (!integrations.tavily?.apiKey) {
+                        showToast("Tavily API key missing. Please add it in Settings → Integrations.");
                     } else {
-                        console.warn("Tavily search returned a non-200 status code.");
+                        try {
+                            const tvData = await fetchWithRetry(
+                                'https://api.tavily.com/search',
+                                {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        api_key: integrations.tavily.apiKey,
+                                        query,
+                                        max_results: 3,
+                                        search_depth: "advanced",
+                                        include_answer: true
+                                    })
+                                },
+                                1
+                            );
+                            if (tvData.results) {
+                                tvData.results.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.content }));
+                            }
+                            if (tvData.answer) {
+                                toolData += `\n[TAVILY AI SUMMARY]\n${tvData.answer}\n`;
+                            }
+                        } catch (tvErr: any) {
+                            console.warn("Tavily search failed:", tvErr);
+                        }
                     }
                 }
-                
-                // Bullet-proof Wiki Fetch
+
+                // Wikipedia Fetch — via Tauri HTTP backend
                 const wikiQuery = query.split(' ').slice(0, 4).join(' ').trim();
                 if (wikiQuery) {
-                    const wikiRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`);
-                    if (wikiRes.ok) {
-                        const wikiData = await wikiRes.json();
-                        if (wikiData && wikiData.query && wikiData.query.search) {
+                    try {
+                        const wikiData = await fetchWithRetry(
+                            `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`,
+                            { method: 'GET' },
+                            1
+                        );
+                        if (wikiData?.query?.search) {
                             wikiData.query.search.slice(0, 2).forEach((s: any) => {
                                 const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`;
-                                if (!foundSources.some(x => x.url === url)) {
+                                if (!foundSources.some((x: any) => x.url === url)) {
                                     foundSources.push({ title: `Wikipedia: ${s.title}`, url, snippet: s.snippet.replace(/<[^>]*>?/gm, '') });
                                 }
                             });
                         }
+                    } catch (wikiErr: any) {
+                        console.warn("Wikipedia search failed:", wikiErr);
                     }
                 }
                 
@@ -1302,19 +1341,7 @@ export default function App() {
     
     // --- Render Sources Shelf ---
     if (sources && sources.length > 0 && msg.role === 'bot') {
-       elements.push(
-          <div key={`sources-${msg.id}`} className="mt-5 pt-4 border-t border-neutral-200 dark:border-neutral-700/50 flex flex-col gap-2">
-             <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><Globe className="w-3 h-3" /> Sources Referenced</span>
-             <div className="flex flex-wrap gap-2">
-                {sources.map((src: any, idx: number) => (
-                   <a key={idx} href={src.url} target="_blank" rel="noreferrer" className="group/src flex items-center gap-2 p-1.5 px-2.5 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl hover:border-[#6A829E] hover:bg-white dark:hover:bg-neutral-800 transition-all max-w-[200px] shadow-sm hover:shadow-md">
-                      <img src={`https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(src.url)}`} className="w-4 h-4 rounded-sm object-cover bg-white" alt="" />
-                      <span className="text-[10px] font-bold text-neutral-600 dark:text-neutral-300 truncate group-hover/src:text-[#4A5D75] dark:group-hover/src:text-[#9EADC8]">{src.title.replace('Wiki: ', '')}</span>
-                   </a>
-                ))}
-             </div>
-          </div>
-       );
+       elements.push(<SourcesTray key={`sources-${msg.id}`} sources={sources} />);
     }
 
     return elements;
@@ -1350,10 +1377,51 @@ export default function App() {
         />
       )}
 
+      <MemmoPanel
+        isOpen={showMemmoPanel}
+        onClose={() => setShowMemmoPanel(false)}
+        pinnedMessages={activeAgentPinnedMessageObjects}
+        onUnpin={(chatId, msgId) =>
+          setMessages(prev => ({
+            ...prev,
+            [chatId]: (prev[chatId] ?? []).map(m =>
+              m.id === msgId ? { ...m, isPinned: false } : m
+            ),
+          }))
+        }
+        onCompose={() => { setShowMemmoPanel(false); setShowMemoCompose(true); }}
+        agentForgePath={agentForgePath}
+        onToast={showToast}
+      />
+
+      {showMemoCompose && (
+        <MemoComposeModal
+          agentForgePath={agentForgePath}
+          onSave={({ commitHash, category }) => {
+            setShowMemoCompose(false);
+            showToast(`Memmo saved to ${category}.`, {
+              label: 'Undo',
+              onClick: () => {
+                if (commitHash) invoke('revert_memory_commit', { commitHash }).catch(() => {});
+              },
+            });
+          }}
+          onClose={() => setShowMemoCompose(false)}
+        />
+      )}
+
       {toastMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300] bg-[#2C3E50] text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 font-bold text-xs uppercase tracking-widest">
            <AlertTriangle className="w-4 h-4 text-[#D4AA7D]" />
            {toastMessage}
+           {toastAction && (
+             <button
+               onClick={() => { toastAction.onClick(); setToastMessage(null); setToastAction(null); }}
+               className="ml-1 underline underline-offset-2 text-[#D4AA7D] hover:text-white transition-colors"
+             >
+               {toastAction.label}
+             </button>
+           )}
         </div>
       )}
 
@@ -1473,6 +1541,18 @@ export default function App() {
                 <button onClick={() => setShowPlanner(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showPlanner ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}>
                   <CalendarDays className="w-5 h-5" />
                   {tasks.filter(t => !t.completed).length > 0 && <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#6A829E] text-white text-[9px] font-black">{tasks.filter(t => !t.completed).length}</span>}
+                </button>
+                <button
+                  onClick={() => setShowMemmoPanel(v => !v)}
+                  className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
+                  title="Memos & Memory (⌘⇧M)"
+                >
+                  <BookOpen className="w-5 h-5" />
+                  {activeAgentPinnedMessageObjects.length > 0 && (
+                    <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#D4AA7D] text-white text-[9px] font-black">
+                      {activeAgentPinnedMessageObjects.length}
+                    </span>
+                  )}
                 </button>
                 <div className="w-px h-6 bg-neutral-200 dark:bg-neutral-800 mx-1" />
                 <button onClick={() => setShowProfileSettings(true)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg text-neutral-400"><Settings className="w-5 h-5" /></button>
@@ -1959,13 +2039,16 @@ export default function App() {
                      {/* Knowledge Base List */}
                      <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
                         <div className="flex items-center justify-between mb-4">
-                           <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Static Knowledge Base</label>
+                           <div>
+                             <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Always-On Docs</label>
+                             <p className="text-[9px] text-neutral-400 mt-0.5">Always injected into this agent's context · max 25K chars</p>
+                           </div>
                            <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest">{editingAssistant.trainingDocs?.length ?? 0} Docs</span>
                         </div>
                         <div className="space-y-2 mb-4 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
                            {editingAssistant.trainingDocs?.map((doc: any) => (
                               <div key={doc.id} className="flex items-center justify-between p-2.5 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700">
-                                 <div className="flex items-center gap-2 truncate"><FileText className="w-4 h-4 text-[#6A829E] shrink-0" /><span className="text-xs font-bold truncate">{doc.name}</span></div>
+                                 <div className="flex items-center gap-2 truncate"><FileText className="w-4 h-4 text-[#6A829E] shrink-0" /><span className="text-xs font-bold truncate">{doc.name}</span><span className="text-[10px] text-neutral-400 shrink-0">{(doc.content?.length ?? 0).toLocaleString()} chars</span></div>
                                  <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: prev.trainingDocs.filter((d: any) => d.id !== doc.id) }))} className="p-1 text-neutral-400 hover:text-[#C98A8A]"><X className="w-4 h-4" /></button>
                               </div>
                            ))}

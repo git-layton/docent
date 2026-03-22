@@ -175,7 +175,7 @@ fn init_knowledge_core() -> serde_json::Value {
         return serde_json::json!({ "initialized": false, "path": root.to_string_lossy() });
     }
 
-    for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research"] {
+    for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "library"] {
         let _ = std::fs::create_dir_all(root.join(subdir));
     }
 
@@ -269,6 +269,132 @@ fn write_memory(
     })
 }
 
+// ─── 3.1 Knowledge Retrieval ─────────────────────────────────────────────────
+
+fn walk_md_files(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, String> {
+    let mut out = Vec::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Ok(mut sub) = walk_md_files(&path) {
+                out.append(&mut sub);
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
+            out.push(path);
+        }
+    }
+    Ok(out)
+}
+
+fn strip_frontmatter(content: &str) -> String {
+    if content.starts_with("---") {
+        if let Some(end) = content[3..].find("---") {
+            return content[3 + end + 3..].trim_start().to_string();
+        }
+    }
+    content.to_string()
+}
+
+fn extract_title(content: &str, path: &std::path::Path) -> String {
+    // Try `title:` in frontmatter
+    if content.starts_with("---") {
+        for line in content.lines() {
+            if line == "---" { break; }
+            if let Some(v) = line.strip_prefix("title:") {
+                return v.trim().trim_matches('"').to_string();
+            }
+        }
+    }
+    // Try first markdown heading
+    for line in content.lines() {
+        if let Some(h) = line.strip_prefix("# ") {
+            return h.trim().to_string();
+        }
+    }
+    // Fallback: filename stem
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .to_string()
+}
+
+#[tauri::command]
+fn search_knowledge(query: String) -> serde_json::Value {
+    let root = knowledge_core_path();
+    let query_lower = query.to_lowercase();
+    let keywords: Vec<&str> = query_lower.split_whitespace().collect();
+
+    let mut results: Vec<serde_json::Value> = Vec::new();
+
+    for subdir in &["library", "memory"] {
+        let dir = root.join(subdir);
+        if !dir.exists() { continue; }
+        let Ok(files) = walk_md_files(&dir) else { continue };
+
+        for path in files {
+            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let body = strip_frontmatter(&content);
+            let body_lower = body.to_lowercase();
+
+            let score: usize = keywords.iter()
+                .map(|kw| body_lower.matches(*kw).count())
+                .sum();
+
+            if score == 0 { continue; }
+
+            let title = extract_title(&content, &path);
+            let snippet: String = body.chars().take(400).collect();
+
+            results.push(serde_json::json!({
+                "path": path.to_string_lossy(),
+                "title": title,
+                "snippet": snippet,
+                "score": score
+            }));
+        }
+    }
+
+    results.sort_by(|a, b| b["score"].as_u64().cmp(&a["score"].as_u64()));
+    results.truncate(5);
+
+    serde_json::json!({ "results": results })
+}
+
+// ─── 2.1 Memmo Engine ────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn append_task(text: String) -> serde_json::Value {
+    let repo_root = knowledge_core_path();
+    let tasks_path = repo_root.join("memory/tasks.md");
+
+    let existing = std::fs::read_to_string(&tasks_path)
+        .unwrap_or_else(|_| "# Tasks\n".to_string());
+    let new_content = format!("{}- [ ] {}\n", existing, text);
+
+    if let Err(e) = std::fs::write(&tasks_path, &new_content) {
+        return serde_json::json!({ "commit": null, "error": e.to_string() });
+    }
+
+    let _ = run_git(&["add", "memory/tasks.md"], &repo_root);
+    let short = &text[..text.len().min(50)];
+    let msg = format!("task: {}", short);
+    let commit_out = run_git(&["commit", "-m", &msg], &repo_root).unwrap_or_default();
+    let commit_hash = commit_out
+        .lines()
+        .find(|l| l.starts_with('['))
+        .map(|l| l.to_string());
+
+    serde_json::json!({ "commit": commit_hash })
+}
+
+#[tauri::command]
+fn revert_memory_commit(commit_hash: String) -> serde_json::Value {
+    let repo_root = knowledge_core_path();
+    let result = run_git(&["revert", "--no-edit", &commit_hash], &repo_root);
+    serde_json::json!({ "ok": result.is_ok(), "output": result.unwrap_or_default() })
+}
+
 // ─── Legacy ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -310,6 +436,9 @@ pub fn run() {
             rollback_file,
             init_knowledge_core,
             write_memory,
+            append_task,
+            revert_memory_commit,
+            search_knowledge,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
