@@ -1016,7 +1016,7 @@ export default function App() {
           toolUsed = 'Knowledge Search';
       } else if (forcedTool === 'search') {
           toolUsed = 'Web Search';
-      } else if (activeAssistant.tools?.local_workspace && /code|file|folder|project|repository|read|workspace|local/i.test(inputLower)) {
+      } else if (activeAssistant.tools?.local_workspace && /code|file|folder|project|repository|read|workspace|local|note|notes|memo|memos|memory|know|remember|recall|saved|wrote|knowledge|goal|goals|decision|research/i.test(inputLower)) {
           toolUsed = 'Knowledge Search';
       } else if (activeAssistant.tools?.web_search && /search|weather|news|who is|what is|find|how/i.test(inputLower)) {
           toolUsed = 'Web Search';
@@ -1036,7 +1036,7 @@ export default function App() {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge', { query: userMsg.content, extraPath: activeAssistant.tools?.local_workspace_path || null }
+                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), extraPath: activeAssistant.tools?.local_workspace_path || null }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
@@ -1044,7 +1044,7 @@ export default function App() {
                          hits.forEach(h => foundSources.push({ title: h.title, path: h.path, snippet: h.snippet }));
                      }
                  }
-                 toolData += `\n\n[SYSTEM NOTE: LOCAL WORKSPACE RAG RESULTS]\n${ragData}\n[END SEARCH]`;
+                 toolData += `\n\n[SYSTEM NOTE: KNOWLEDGE SEARCH RESULTS]\n${ragData}\n[END SEARCH]`;
              } catch (e: any) {
                  console.error('Local RAG failed:', e);
                  toolData += `\n\n[SYSTEM NOTE: LOCAL RAG FAILED]\nError: ${e.message}\n[END SEARCH]`;
