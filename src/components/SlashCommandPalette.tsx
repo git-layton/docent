@@ -21,10 +21,20 @@ interface Props {
   highlightIndex: number;
   onSelect: (cmd: SlashCommand) => void;
   onHighlight: (index: number) => void;
+  enabledTools?: Record<string, boolean>;
 }
 
-export function SlashCommandPalette({ query, highlightIndex, onSelect, onHighlight }: Props) {
-  const filtered = SLASH_COMMANDS.filter(c =>
+const TOOL_GATE: Record<string, string> = {
+  search:    'web_search',
+  workspace: 'local_workspace',
+};
+
+export function SlashCommandPalette({ query, highlightIndex, onSelect, onHighlight, enabledTools }: Props) {
+  const available = SLASH_COMMANDS.filter(c => {
+    const gate = TOOL_GATE[c.cmd];
+    return !gate || enabledTools?.[gate];
+  });
+  const filtered = available.filter(c =>
     c.cmd.startsWith(query.toLowerCase()) || c.label.toLowerCase().startsWith(query.toLowerCase())
   );
 

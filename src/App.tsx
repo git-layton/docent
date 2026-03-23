@@ -1952,6 +1952,7 @@ export default function App() {
                           highlightIndex={slashHighlight}
                           onSelect={cmd => handleSlashCommand(cmd)}
                           onHighlight={setSlashHighlight}
+                          enabledTools={activeAssistant?.tools ?? {}}
                         />
                       )}
                     <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
@@ -1960,7 +1961,9 @@ export default function App() {
                         onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
                         onKeyDown={e => {
                           const showPalette = input.startsWith('/') && !input.includes(' ');
-                          const filtered = showPalette ? SLASH_COMMANDS.filter(c => c.cmd.startsWith(input.slice(1).toLowerCase()) || c.label.toLowerCase().startsWith(input.slice(1).toLowerCase())) : [];
+                          const toolGate: Record<string, string> = { search: 'web_search', workspace: 'local_workspace' };
+                          const available = SLASH_COMMANDS.filter(c => { const g = toolGate[c.cmd]; return !g || activeAssistant?.tools?.[g]; });
+                          const filtered = showPalette ? available.filter(c => c.cmd.startsWith(input.slice(1).toLowerCase()) || c.label.toLowerCase().startsWith(input.slice(1).toLowerCase())) : [];
                           if (showPalette && filtered.length > 0) {
                             if (e.key === 'ArrowDown') { e.preventDefault(); setSlashHighlight(h => (h + 1) % filtered.length); return; }
                             if (e.key === 'ArrowUp')   { e.preventDefault(); setSlashHighlight(h => (h - 1 + filtered.length) % filtered.length); return; }
