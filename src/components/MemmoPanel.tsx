@@ -15,6 +15,7 @@ interface Props {
   onUnpin: (chatId: string, msgId: string) => void;
   onCompose: () => void;
   agentForgePath: string;
+  agentId: string;
   onToast: (msg: string) => void;
 }
 
@@ -25,7 +26,7 @@ interface FileEntry {
   path: string;
 }
 
-export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, onToast }: Props) {
+export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, agentId, onToast }: Props) {
   const [tab, setTab] = useState<Tab>('pins');
   const [memos, setMemos] = useState<FileEntry[]>([]);
   const [library, setLibrary] = useState<FileEntry[]>([]);
@@ -57,7 +58,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
         }
       }
 
-      await collect(`${agentForgePath}/memory`);
+      await collect(`${agentForgePath}/memory/${agentId}`);
       setMemos(files.sort((a, b) => b.name.localeCompare(a.name)));
     } catch (e: any) {
       const msg: string = e?.message ?? String(e);

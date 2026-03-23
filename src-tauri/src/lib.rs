@@ -322,16 +322,22 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
 }
 
 #[tauri::command]
-fn search_knowledge(query: String, extra_path: Option<String>) -> serde_json::Value {
+fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>) -> serde_json::Value {
     let root = knowledge_core_path();
     let query_lower = query.to_lowercase();
     let keywords: Vec<&str> = query_lower.split_whitespace().collect();
 
     let mut results: Vec<serde_json::Value> = Vec::new();
 
+    let memory_dir = if let Some(ref aid) = agent_id {
+        root.join("memory").join(aid)
+    } else {
+        root.join("memory")
+    };
+
     let mut dirs_to_search: Vec<std::path::PathBuf> = vec![
         root.join("library"),
-        root.join("memory"),
+        memory_dir,
     ];
     if let Some(ref ep) = extra_path {
         let p = std::path::PathBuf::from(ep);
@@ -374,9 +380,17 @@ fn search_knowledge(query: String, extra_path: Option<String>) -> serde_json::Va
 // ─── 2.1 Memmo Engine ────────────────────────────────────────────────────────
 
 #[tauri::command]
-fn append_task(text: String) -> serde_json::Value {
+fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
     let repo_root = knowledge_core_path();
-    let tasks_path = repo_root.join("memory/tasks.md");
+    let tasks_path = if let Some(ref aid) = agent_id {
+        repo_root.join("memory").join(aid).join("tasks.md")
+    } else {
+        repo_root.join("memory").join("tasks.md")
+    };
+
+    if let Some(parent) = tasks_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let existing = std::fs::read_to_string(&tasks_path)
         .unwrap_or_else(|_| "# Tasks\n".to_string());
@@ -386,7 +400,8 @@ fn append_task(text: String) -> serde_json::Value {
         return serde_json::json!({ "commit": null, "error": e.to_string() });
     }
 
-    let _ = run_git(&["add", "memory/tasks.md"], &repo_root);
+    let rel_path = tasks_path.strip_prefix(&repo_root).unwrap_or(&tasks_path);
+    let _ = run_git(&["add", &rel_path.to_string_lossy()], &repo_root);
     let short = &text[..text.len().min(50)];
     let msg = format!("task: {}", short);
     let commit_out = run_git(&["commit", "-m", &msg], &repo_root).unwrap_or_default();

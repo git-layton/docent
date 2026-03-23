@@ -1043,7 +1043,7 @@ export default function App() {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), extraPath: activeAssistant.tools?.local_workspace_path || null }
+                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), extraPath: activeAssistant.tools?.local_workspace_path || null, agentId: activeAssistant?.id ?? null }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
@@ -1431,6 +1431,49 @@ export default function App() {
   }
 
   // ── LibraryFileList sub-component ─────────────────────────────────────────
+  function AgentMemosSection({ forgePath, agentId, onCompose }: { forgePath: string; agentId: string; onCompose: () => void }) {
+    const [memos, setMemos] = useState<string[]>([]);
+    useEffect(() => {
+      if (!forgePath || !agentId) return;
+      async function load() {
+        const { readDir } = await import('@tauri-apps/plugin-fs');
+        const files: string[] = [];
+        async function collect(dir: string) {
+          const entries = await readDir(dir).catch(() => []);
+          for (const e of entries as any[]) {
+            if (e.isFile && e.name?.endsWith('.md') && e.name !== 'tasks.md') {
+              files.push(e.name.replace('.md', ''));
+            } else if (e.isDirectory) {
+              await collect(`${dir}/${e.name}`);
+            }
+          }
+        }
+        await collect(`${forgePath}/memory/${agentId}`);
+        setMemos(files.sort((a, b) => b.localeCompare(a)));
+      }
+      load();
+    }, [forgePath, agentId]);
+    return (
+      <div>
+        {memos.length === 0 ? (
+          <p className="text-[10px] text-neutral-400 text-center py-4">No memos yet for this agent.</p>
+        ) : (
+          <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar mb-3">
+            {memos.map(f => (
+              <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700">
+                <FileText className="w-3.5 h-3.5 text-[#D4AA7D] shrink-0" />
+                <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 truncate">{f}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <button onClick={onCompose} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 text-[10px] font-bold text-neutral-500 hover:border-[#4A5D75] hover:text-[#4A5D75] transition-all">
+          + New Memo
+        </button>
+      </div>
+    );
+  }
+
   function LibraryFileList({ path }: { path: string }) {
     const [files, setFiles] = useState<string[]>([]);
     useEffect(() => {
@@ -1481,6 +1524,7 @@ export default function App() {
         isOpen={showMemmoPanel}
         onClose={() => setShowMemmoPanel(false)}
         pinnedMessages={activeAgentPinnedMessageObjects}
+        agentId={activeAssistant?.id ?? 'default'}
         onUnpin={(chatId, msgId) =>
           setMessages(prev => ({
             ...prev,
@@ -1497,6 +1541,7 @@ export default function App() {
       {showMemoCompose && (
         <MemoComposeModal
           agentForgePath={agentForgePath}
+          agentId={activeAssistant?.id ?? 'default'}
           onSave={({ commitHash, category }) => {
             setShowMemoCompose(false);
             showToast(`Memmo saved to ${category}.`, {
@@ -1539,7 +1584,7 @@ export default function App() {
         <div className="w-72 h-full flex flex-col">
           <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3 bg-[#2C3E50]">
             <div className="p-2 bg-[#9EADC8] rounded-xl shadow-md shrink-0"><Bot className="w-5 h-5 text-[#2C3E50]" /></div>
-            <div><span className="text-sm font-black tracking-tighter uppercase text-white block">Agent Forge</span><span className="text-[9px] font-bold uppercase tracking-widest text-[#9EADC8]">Workspace</span></div>
+            <div><span className="text-sm font-black tracking-tighter uppercase text-white block">Agent Forge</span><span className="text-[9px] font-bold uppercase tracking-widest text-[#9EADC8]">Local AI Studio</span></div>
           </div>
 
           <div className="flex p-1 gap-1 mx-4 mt-4 bg-neutral-100 dark:bg-neutral-800 rounded-xl shrink-0">
@@ -2222,6 +2267,18 @@ export default function App() {
                         <button onClick={() => trainingDocUploadRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 border-2 border-[#D6E0EA] dark:border-[#1E2B38] text-[#4A5D75] dark:text-[#899AB5] rounded-xl hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all text-[10px] font-black uppercase tracking-widest bg-white dark:bg-neutral-900 shadow-sm"><Paperclip className="w-4 h-4" /> Upload Document</button>
                      </div>
                      
+                     {/* Agent Memos */}
+                     <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
+                       <div className="flex items-center justify-between mb-3">
+                         <div>
+                           <label className="text-[10px] font-black uppercase tracking-widest text-[#D4AA7D] flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Agent Memos</label>
+                           <p className="text-[9px] text-neutral-400 mt-0.5">Notes saved for this agent · searched when Knowledge Search is active</p>
+                         </div>
+                         <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">View →</button>
+                       </div>
+                       <AgentMemosSection forgePath={agentForgePath} agentId={editingAssistant?.id ?? 'default'} onCompose={() => { setShowAssistantSettings(false); setShowMemoCompose(true); }} />
+                     </div>
+
                      {/* Knowledge Library */}
                      <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
                        <div className="flex items-center justify-between mb-3">

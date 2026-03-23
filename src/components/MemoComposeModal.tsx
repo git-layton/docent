@@ -12,14 +12,15 @@ interface Props {
   onSave: (result: MemoSaveResult) => void;
   onClose: () => void;
   agentForgePath: string;
+  agentId: string;
 }
 
 const CATEGORIES: { value: Category; label: string; dir: string; hint: string }[] = [
-  { value: 'goals',     label: 'Goal',        dir: 'memory/goals',     hint: 'Long-term objectives & milestones'   },
-  { value: 'decisions', label: 'Decision',    dir: 'memory/decisions', hint: 'Key choices & their rationale'       },
-  { value: 'research',  label: 'Research',    dir: 'memory/research',  hint: 'Notes, references & findings'        },
-  { value: 'memos',     label: 'General',     dir: 'memory/memos',     hint: 'Freeform notes & ideas'              },
-  { value: 'todo',      label: 'Action Item', dir: 'memory/tasks',     hint: 'Appended as a task to tasks.md'      },
+  { value: 'goals',     label: 'Goal',        dir: 'goals',     hint: 'Long-term objectives & milestones'   },
+  { value: 'decisions', label: 'Decision',    dir: 'decisions', hint: 'Key choices & their rationale'       },
+  { value: 'research',  label: 'Research',    dir: 'research',  hint: 'Notes, references & findings'        },
+  { value: 'memos',     label: 'General',     dir: 'memos',     hint: 'Freeform notes & ideas'              },
+  { value: 'todo',      label: 'Action Item', dir: 'tasks',     hint: 'Appended as a task to tasks.md'      },
 ];
 
 function slugify(text: string): string {
@@ -47,7 +48,7 @@ function buildFrontmatter(title: string, category: Category): string {
   ].join('\n');
 }
 
-export function MemoComposeModal({ onSave, onClose, agentForgePath }: Props) {
+export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: Props) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [category, setCategory] = useState<Category>('memos');
@@ -67,13 +68,13 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath }: Props) {
 
       if (isTodo) {
         const taskText = title.trim() + (body.trim() ? ` — ${body.trim()}` : '');
-        const result = await invoke<{ commit: string | null }>('append_task', { text: taskText });
+        const result = await invoke<{ commit: string | null }>('append_task', { text: taskText, agentId });
         onSave({ commitHash: result.commit, category: 'Action Item' });
       } else {
         const catMeta = CATEGORIES.find(c => c.value === category)!;
         const slug = slugify(title) || 'memo';
         const ts = Date.now();
-        const path = `${agentForgePath}/${catMeta.dir}/${slug}-${ts}.md`;
+        const path = `${agentForgePath}/memory/${agentId}/${catMeta.dir}/${slug}-${ts}.md`;
         const content = buildFrontmatter(title, category) + body;
 
         const result = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
