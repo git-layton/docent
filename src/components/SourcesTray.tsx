@@ -10,9 +10,10 @@ interface Source {
 
 interface Props {
   sources: Source[];
+  onOpenFile?: (path: string) => void;
 }
 
-export function SourcesTray({ sources }: Props) {
+export function SourcesTray({ sources, onOpenFile }: Props) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const webSources = sources.filter(s => s.url);
@@ -64,8 +65,8 @@ export function SourcesTray({ sources }: Props) {
               return (
                 <div key={src.path || idx}>
                   <button
-                    onClick={() => setExpandedIdx(isExpanded ? null : idx)}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-[#6A829E] hover:bg-white dark:hover:bg-neutral-800 transition-all text-left max-w-xs"
+                    onClick={() => { setExpandedIdx(isExpanded ? null : idx); if (!isExpanded && onOpenFile && src.path) onOpenFile(src.path); }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-[#D4AA7D] hover:bg-white dark:hover:bg-neutral-800 transition-all text-left max-w-xs cursor-pointer"
                   >
                     <FileText className="w-3 h-3 text-[#6A829E] shrink-0" />
                     <span className="text-[10px] font-bold text-neutral-600 dark:text-neutral-300 truncate flex-1">

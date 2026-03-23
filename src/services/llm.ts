@@ -159,7 +159,7 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   }
 
   if (agent.trainingDocs?.length > 0) prompt += `\n\n${agent.trainingDocs.map((d: any) => `[KNOWLEDGE BASE: ${d.name}]\n${d.content}`).join('\n\n')}`;
-  prompt += `\n[CITATIONS]\nIf you use web search or external data, cite your sources inline using this exact format: [Source: Website Name](URL)`;
+  prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\nNever fabricate a citation. If the answer is not in the provided context, say so explicitly.`;
 
   return prompt;
 };

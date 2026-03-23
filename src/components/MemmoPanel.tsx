@@ -169,6 +169,10 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Pins tab ── */}
           {tab === 'pins' && (
             <div className="p-4 space-y-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#D4AA7D]/10 dark:bg-[#D4AA7D]/5 border border-[#D4AA7D]/30 rounded-xl">
+                <span className="text-[10px]">📌</span>
+                <span className="text-[10px] font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">Always in context — injected into every message</span>
+              </div>
               {pinnedMessages.length === 0 ? (
                 <div className="text-center py-12 text-neutral-400">
                   <Pin className="w-8 h-8 mx-auto mb-3 opacity-30" />
@@ -201,6 +205,10 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Memos tab ── */}
           {tab === 'memos' && (
             <div className="p-4 space-y-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
+                <span className="text-[10px]">🔍</span>
+                <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — retrieved by Knowledge Search</span>
+              </div>
               <button
                 onClick={onCompose}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 text-xs font-bold text-neutral-500 dark:text-neutral-400 hover:border-[#4A5D75] hover:text-[#4A5D75] transition-all mb-4"
@@ -253,6 +261,10 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Library tab ── */}
           {tab === 'library' && (
             <div className="p-4 space-y-3">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
+                <span className="text-[10px]">🔍</span>
+                <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — shared across all agents</span>
+              </div>
               <KnowledgeDropZone
                 agentForgePath={agentForgePath}
                 onFileIngested={() => loadLibrary()}

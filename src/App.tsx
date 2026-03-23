@@ -123,10 +123,10 @@ const ThoughtProcess = ({ content, isStreaming }: any) => {
   );
 };
 
-// Detects: 1. Bold, 2. [Source: Name](url), 3. Markdown links, 4. Raw URLs
-const INLINE_FORMAT_REGEX = /(\*\*.*?\*\*)|(\[Source:\s*.*?\]\(.*?\))|(\[.*?\]\(.*?\))|(https?:\/\/[a-zA-Z0-9-._~:/?#[\]@!$&'()*+,;=%]+)/g;
+// Detects: 1. Bold, 2. [Source: Name](url), 3. Markdown links, 4. Raw URLs, 5. [[LocalFile]]
+const INLINE_FORMAT_REGEX = /(\*\*.*?\*\*)|(\[Source:\s*.*?\]\(.*?\))|(\[.*?\]\(.*?\))|(https?:\/\/[a-zA-Z0-9-._~:/?#[\]@!$&'()*+,;=%]+)|(\[\[.*?\]\])/g;
 
-const FormattedText = ({ text, onSaveImage, onViewImage }: any) => {
+const FormattedText = ({ text, sources, onSaveImage, onViewImage, onOpenFile }: any) => {
   if (!text || typeof text !== 'string') return null;
   try {
     const renderInlines = (textStr: string) => {
@@ -138,20 +138,62 @@ const FormattedText = ({ text, onSaveImage, onViewImage }: any) => {
       while ((match = regex.exec(textStr)) !== null) {
         if (match.index > lastIdx) tokens.push(textStr.slice(lastIdx, match.index));
         
-        if (match[1]) { 
+        if (match[1]) {
           // Bold
           tokens.push(<strong key={match.index} className="font-black text-neutral-900 dark:text-white">{match[1].slice(2, -2)}</strong>);
-        } else if (match[2]) { 
-          // Source Citation
+        } else if (match[2]) {
+          // Web Source Citation [Source: Title](URL) — with hover snippet card
           const sub = match[2].match(/\[Source:\s*(.+?)\]\((.+?)\)/);
-          if (sub) tokens.push(<a key={match.index} href={sub[2]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] rounded-md text-[10px] font-bold mx-1 hover:underline"><Globe className="w-3 h-3" /> {sub[1]}</a>);
-        } else if (match[3]) { 
+          if (sub) {
+            const [, title, url] = sub;
+            const matched = sources?.find((s: any) => s.url === url || s.title === title);
+            tokens.push(
+              <span key={match.index} className="relative inline-flex group/cite">
+                <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] rounded-md text-[10px] font-bold mx-1 hover:bg-[#4A5D75]/20 transition-colors"><Globe className="w-3 h-3" /> {title}</a>
+                {matched?.snippet && (
+                  <div className="absolute bottom-full left-0 mb-2 w-64 hidden group-hover/cite:flex flex-col z-50 pointer-events-none">
+                    <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-[#6A829E]/10 text-[#6A829E] dark:text-[#9EADC8] rounded-md">Web</span>
+                        <span className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 truncate">{title}</span>
+                      </div>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed italic line-clamp-4">"{matched.snippet}"</p>
+                    </div>
+                  </div>
+                )}
+              </span>
+            );
+          }
+        } else if (match[3]) {
           // Standard Markdown Link
           const sub = match[3].match(/\[(.*?)\]\((.*?)\)/);
           if (sub) tokens.push(<a key={match.index} href={sub[2]} target="_blank" rel="noreferrer" className="text-[#6A829E] hover:underline font-bold transition-colors">{sub[1]}</a>);
-        } else if (match[4]) { 
+        } else if (match[4]) {
           // Raw URL
           tokens.push(<a key={match.index} href={match[4]} target="_blank" rel="noreferrer" className="text-[#6A829E] hover:underline font-bold break-all transition-colors">{match[4]}</a>);
+        } else if (match[5]) {
+          // Local Knowledge Core citation [[Title]] — amber pill with hover snippet card
+          const fileName = match[5].slice(2, -2);
+          const matchedLocal = sources?.find((s: any) =>
+            s.title === fileName ||
+            s.path?.split('/').pop()?.replace(/\.md$/i, '') === fileName
+          );
+          tokens.push(
+            <span key={match.index} className="relative inline-flex group/cite">
+              <span onClick={() => { if (matchedLocal?.path) onOpenFile?.(matchedLocal.path); }} className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#D4AA7D]/15 text-[#9C7A3C] dark:text-[#D4AA7D] rounded-md text-[10px] font-bold mx-1 cursor-pointer hover:bg-[#D4AA7D]/25 transition-colors"><FileText className="w-3 h-3" /> {fileName}</span>
+              {matchedLocal?.snippet && (
+                <div className="absolute bottom-full left-0 mb-2 w-64 hidden group-hover/cite:flex flex-col z-50 pointer-events-none">
+                  <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-[#D4AA7D]/20 text-[#9C7A3C] dark:text-[#D4AA7D] rounded-md">Local</span>
+                      <span className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 truncate">{fileName}</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed italic line-clamp-4">"{matchedLocal.snippet}"</p>
+                  </div>
+                </div>
+              )}
+            </span>
+          );
         }
         lastIdx = regex.lastIndex;
       }
@@ -1053,7 +1095,7 @@ export default function App() {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), extraPath: activeAssistant.tools?.local_workspace_path || null, agentId: activeAssistant?.id ?? null, maxResults: hwProfile?.rag_results ?? 5, snippetChars: hwProfile?.rag_snippet_chars ?? 400 }
+                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: activeAssistant?.id ?? null, maxResults: hwProfile?.rag_results ?? 5, snippetChars: hwProfile?.rag_snippet_chars ?? 400 }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
@@ -1318,7 +1360,7 @@ export default function App() {
     const elements = [];
     if (attachedFiles?.length > 0) elements.push(<div key="files" className="flex flex-wrap gap-2 mb-3">{attachedFiles.map((f: any, i: number) => f.isImage ? <img key={i} src={f.content} alt={f.name} className="h-32 object-cover rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700" /> : <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-white/20 rounded-xl border border-white/30 text-[10px] font-bold text-white shadow-sm"><FileText className="w-3.5 h-3.5" />{f.name}</div>)}</div>);
     if (typeof rawText !== 'string') return elements;
-    if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} onViewImage={viewImageInCanvas} /></div>;
+    if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={() => setShowMemmoPanel(true)} /></div>;
 
     // --- Deep Thinking Parser ---
     let displayContent = rawText;
@@ -1340,7 +1382,7 @@ export default function App() {
     const regex = /```(\w+)?\n([\s\S]*?)```/g;
     let lastIndex = 0, match;
     while ((match = regex.exec(displayContent)) !== null) {
-      if (match.index > lastIndex) elements.push(<FormattedText key={`t-${match.index}`} text={displayContent.slice(lastIndex, match.index)} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} />);
+      if (match.index > lastIndex) elements.push(<FormattedText key={`t-${match.index}`} text={displayContent.slice(lastIndex, match.index)} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={() => setShowMemmoPanel(true)} />);
       const lang = (match[1] ?? 'text').toLowerCase(), code = match[2].trim();
       
       if (lang === 'task' || lang === 'todo') {
@@ -1384,11 +1426,11 @@ export default function App() {
       }
       lastIndex = regex.lastIndex;
     }
-    if (lastIndex < displayContent.length) elements.push(<FormattedText key="t-end" text={displayContent.slice(lastIndex)} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} />);
+    if (lastIndex < displayContent.length) elements.push(<FormattedText key="t-end" text={displayContent.slice(lastIndex)} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={() => setShowMemmoPanel(true)} />);
     
     // --- Render Sources Shelf ---
     if (sources && sources.length > 0 && msg.role === 'bot') {
-       elements.push(<SourcesTray key={`sources-${msg.id}`} sources={sources} />);
+       elements.push(<SourcesTray key={`sources-${msg.id}`} sources={sources} onOpenFile={() => setShowMemmoPanel(true)} />);
     }
 
     return elements;
@@ -2225,33 +2267,6 @@ export default function App() {
                                     <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'right-0.5' : 'left-0.5'}`} />
                                     </button>
                                  </div>
-                                 {tool.id === 'local_workspace' && enabled && (
-                                   <div className="px-3 pb-3 pt-2 border-t border-neutral-200 dark:border-neutral-700/50">
-                                     <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-1 block">Project Folder Path</label>
-                                     <div className="flex gap-2">
-                                       <input
-                                         type="text"
-                                         placeholder="/Users/you/my-project"
-                                         value={editingAssistant.tools?.local_workspace_path ?? ''}
-                                         onChange={e => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), local_workspace_path: e.target.value } }))}
-                                         className="flex-1 text-[11px] font-mono bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-neutral-700 dark:text-neutral-300 focus:outline-none focus:border-[#4A5D75]"
-                                       />
-                                       <button
-                                         onClick={async () => {
-                                           const { open } = await import('@tauri-apps/plugin-dialog');
-                                           const selected = await open({ directory: true, multiple: false, title: 'Select Project Folder' });
-                                           if (typeof selected === 'string') {
-                                             setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), local_workspace_path: selected } }));
-                                           }
-                                         }}
-                                         className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-600 dark:text-neutral-300 shrink-0"
-                                       >
-                                         Browse…
-                                       </button>
-                                     </div>
-                                     <p className="text-[9px] text-neutral-400 mt-1">Leave empty to search Knowledge Core only</p>
-                                   </div>
-                                 )}
                               </div>
                               );
                            })}
@@ -2266,7 +2281,7 @@ export default function App() {
                         <div className="flex items-center justify-between mb-4">
                            <div>
                              <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Always-On Docs</label>
-                             <p className="text-[9px] text-neutral-400 mt-0.5">Always injected into this agent's context · max 25K chars</p>
+                             <p className="text-[9px] text-neutral-400 mt-0.5">📌 Always injected into every message · max 25K chars</p>
                            </div>
                            <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest">{editingAssistant.trainingDocs?.length ?? 0} Docs</span>
                         </div>
@@ -2290,7 +2305,7 @@ export default function App() {
                        <div className="flex items-center justify-between mb-3">
                          <div>
                            <label className="text-[10px] font-black uppercase tracking-widest text-[#D4AA7D] flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Agent Memos</label>
-                           <p className="text-[9px] text-neutral-400 mt-0.5">Notes saved for this agent · searched when Knowledge Search is active</p>
+                           <p className="text-[9px] text-neutral-400 mt-0.5">🔍 Searched when relevant — not always injected</p>
                          </div>
                          <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">View →</button>
                        </div>
@@ -2302,7 +2317,7 @@ export default function App() {
                        <div className="flex items-center justify-between mb-3">
                          <div>
                            <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Knowledge Library</label>
-                           <p className="text-[9px] text-neutral-400 mt-0.5">Global library · retrieved on demand when Knowledge Search is active</p>
+                           <p className="text-[9px] text-neutral-400 mt-0.5">🔍 Searched when relevant — shared across all agents</p>
                          </div>
                          <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">Manage →</button>
                        </div>
@@ -2312,7 +2327,10 @@ export default function App() {
                      {/* Pinned Memories List */}
                      <div className="p-5 bg-[#F9F4EE] dark:bg-[#5C452E]/10 rounded-2xl border border-[#EEDCC4] dark:border-[#5C452E]/30">
                         <div className="flex items-center justify-between mb-4">
-                           <label className="text-[10px] font-black uppercase tracking-widest text-[#D4AA7D] flex items-center gap-2"><Pin className="w-3.5 h-3.5" /> Pinned Memories</label>
+                           <div>
+                             <label className="text-[10px] font-black uppercase tracking-widest text-[#D4AA7D] flex items-center gap-2"><Pin className="w-3.5 h-3.5" /> Pinned Memories</label>
+                             <p className="text-[9px] text-neutral-400 mt-0.5">📌 Always in context — injected into every message</p>
+                           </div>
                            <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest">{editingAgentPins.length} Facts</span>
                         </div>
                         <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-1">
