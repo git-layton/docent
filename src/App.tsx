@@ -46,7 +46,7 @@ const BOT_COLORS = [
 
 const AVAILABLE_TOOLS = [
   { id: 'web_search', name: 'Web Search', icon: Globe, desc: 'Allow agent to search the live internet.' },
-  { id: 'local_workspace', name: 'Workspace RAG', icon: Database, desc: 'Agent searches your Knowledge Core + a local project folder you choose.' },
+  { id: 'local_workspace', name: 'Knowledge Search', icon: Database, desc: "Search your agent's memos, notes, and local project files." },
   { id: 'calendar_sync', name: 'Local Planner', icon: CalendarDays, desc: 'Agent can add events & reminders to your local tasks.md planner.' }
 ];
 
@@ -285,6 +285,8 @@ export default function App() {
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isDeepThinking, setIsDeepThinking] = useState(false);
+  const [forcedTool, setForcedTool] = useState<string | null>(null);
+  const [isPlanMode, setIsPlanMode] = useState(false);
   const [attachedDocs, setAttachedDocs] = useState<any[]>([]);
   
   // App Settings Integration
@@ -1009,22 +1011,27 @@ export default function App() {
       let toolData = "";
       let foundSources: any[] = [];
 
-      // Improved Tool Routing
-      if (activeAssistant.tools?.local_workspace && /code|file|folder|project|repository|read|workspace|local/i.test(inputLower)) {
-          toolUsed = 'Workspace RAG';
+      // Forced tool from slash command takes priority over keyword detection
+      if (forcedTool === 'workspace') {
+          toolUsed = 'Knowledge Search';
+      } else if (forcedTool === 'search') {
+          toolUsed = 'Web Search';
+      } else if (activeAssistant.tools?.local_workspace && /code|file|folder|project|repository|read|workspace|local/i.test(inputLower)) {
+          toolUsed = 'Knowledge Search';
       } else if (activeAssistant.tools?.web_search && /search|weather|news|who is|what is|find|how/i.test(inputLower)) {
           toolUsed = 'Web Search';
       } else if (activeAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
           toolUsed = 'Calendar';
       }
-      
+      if (forcedTool) setForcedTool(null);
+
       let messagesForLLM = [...history];
 
       if (toolUsed) {
         const toolMsgId = generateId('tool');
         setMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false }] }));
         
-        if (toolUsed === 'Workspace RAG') {
+        if (toolUsed === 'Knowledge Search') {
              try {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
@@ -1247,9 +1254,15 @@ export default function App() {
         }
 
         const currentHistory = messages[chatId] ?? [];
-        setInput(''); setAttachedDocs([]); 
-        
-        await processChatRequest(chatId, userMsg, currentHistory);
+        setInput(''); setAttachedDocs([]);
+
+        let msgForProcessing = userMsg;
+        if (isPlanMode) {
+          msgForProcessing = { ...userMsg, content: `[PLANNING MODE — Respond with a detailed structured plan, broken into clear phases/steps with headings]\n\n${userMsg.content}` };
+          setIsPlanMode(false);
+        }
+
+        await processChatRequest(chatId, msgForProcessing, currentHistory);
     }
   };
   
@@ -1384,10 +1397,19 @@ export default function App() {
         showToast('Deep thinking ON for next message');
         break;
       case 'search':
-        setInput('Search: ');
+        setForcedTool('search');
+        setInput('');
+        showToast('Next message will force Web Search');
         break;
       case 'workspace':
-        setInput('Workspace: ');
+        setForcedTool('workspace');
+        setInput('');
+        showToast('Next message will force Knowledge Search');
+        break;
+      case 'plan':
+        setIsPlanMode(true);
+        setInput('');
+        showToast('Plan mode ON for next message');
         break;
       case 'memo':
         setShowMemoCompose(true);
@@ -1915,6 +1937,13 @@ export default function App() {
                         ⚠️ RAM pressure — LLaMA will pause after this response
                       </div>
                     )}
+                    {forcedTool && (
+                      <div className="px-4 py-1.5 mb-2 flex items-center gap-2 bg-[#F0F4F8] dark:bg-[#1E2B38]/40 border border-[#9EADC8]/40 rounded-xl text-[10px] font-bold text-[#4A5D75] dark:text-[#9EADC8]">
+                        {forcedTool === 'workspace' ? <Database className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
+                        Next message will force {forcedTool === 'workspace' ? 'Knowledge Search' : 'Web Search'}
+                        <button onClick={() => setForcedTool(null)} className="ml-auto text-neutral-400 hover:text-neutral-600"><X className="w-3 h-3" /></button>
+                      </div>
+                    )}
                     <div className="relative">
                       {/* Slash command palette — outside overflow-hidden so it's not clipped */}
                       {input.startsWith('/') && !input.includes(' ') && (
@@ -1945,6 +1974,7 @@ export default function App() {
                       <div className="absolute right-2 bottom-2 flex items-center gap-1.5 bg-white/90 dark:bg-neutral-950/90 backdrop-blur px-1.5 py-1 rounded-xl">
                         {!isGenerating && models.length > 0 && <button onClick={toggleListening} className={`p-2 transition-colors rounded-lg ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-4 h-4 ${isListening ? 'animate-bounce' : ''}`} /></button>}
                         <button onClick={() => setIsDeepThinking(v => !v)} className={`p-2 rounded-lg transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8] dark:bg-[#9EADC8]/20 dark:text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-4 h-4" /></button>
+                        <button onClick={() => setIsPlanMode(v => !v)} className={`p-2 rounded-lg transition-all ${isPlanMode ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-4 h-4" /></button>
                         {!isGenerating && input.trim() && models.length > 0 && <button onClick={handleEnhancePrompt} disabled={isEnhancing} className={`p-2 text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20 rounded-lg transition-all ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-4 h-4" /></button>}
                         {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-[#6A829E] transition-colors" title="Attach Document"><Paperclip className="w-4 h-4" /></button>}
                         <input type="file" ref={fileInputRef} onChange={handleChatFileUpload} className="hidden" />
@@ -2125,13 +2155,27 @@ export default function App() {
                                  {tool.id === 'local_workspace' && enabled && (
                                    <div className="px-3 pb-3 pt-2 border-t border-neutral-200 dark:border-neutral-700/50">
                                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-1 block">Project Folder Path</label>
-                                     <input
-                                       type="text"
-                                       placeholder="/Users/you/my-project"
-                                       value={editingAssistant.tools?.local_workspace_path ?? ''}
-                                       onChange={e => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), local_workspace_path: e.target.value } }))}
-                                       className="w-full text-[11px] font-mono bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-neutral-700 dark:text-neutral-300 focus:outline-none focus:border-[#4A5D75]"
-                                     />
+                                     <div className="flex gap-2">
+                                       <input
+                                         type="text"
+                                         placeholder="/Users/you/my-project"
+                                         value={editingAssistant.tools?.local_workspace_path ?? ''}
+                                         onChange={e => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), local_workspace_path: e.target.value } }))}
+                                         className="flex-1 text-[11px] font-mono bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-neutral-700 dark:text-neutral-300 focus:outline-none focus:border-[#4A5D75]"
+                                       />
+                                       <button
+                                         onClick={async () => {
+                                           const { open } = await import('@tauri-apps/plugin-dialog');
+                                           const selected = await open({ directory: true, multiple: false, title: 'Select Project Folder' });
+                                           if (typeof selected === 'string') {
+                                             setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), local_workspace_path: selected } }));
+                                           }
+                                         }}
+                                         className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-600 dark:text-neutral-300 shrink-0"
+                                       >
+                                         Browse…
+                                       </button>
+                                     </div>
                                      <p className="text-[9px] text-neutral-400 mt-1">Leave empty to search Knowledge Core only</p>
                                    </div>
                                  )}
@@ -2173,7 +2217,7 @@ export default function App() {
                        <div className="flex items-center justify-between mb-3">
                          <div>
                            <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Knowledge Library</label>
-                           <p className="text-[9px] text-neutral-400 mt-0.5">Global RAG library · retrieved on demand via Workspace RAG tool</p>
+                           <p className="text-[9px] text-neutral-400 mt-0.5">Global library · retrieved on demand when Knowledge Search is active</p>
                          </div>
                          <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">Manage →</button>
                        </div>

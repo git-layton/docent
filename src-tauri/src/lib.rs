@@ -282,7 +282,7 @@ fn walk_md_files(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, Strin
             if let Ok(mut sub) = walk_md_files(&path) {
                 out.append(&mut sub);
             }
-        } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
+        } else if matches!(path.extension().and_then(|s| s.to_str()), Some("md") | Some("txt")) {
             out.push(path);
         }
     }
@@ -425,6 +425,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         // Clean Exit hook: SIGCONT + SIGKILL the llama sidecar on window destroy
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
