@@ -2,7 +2,11 @@ import { useState, useRef } from 'react';
 import { Upload, Loader2, FileText } from 'lucide-react';
 import { extractTextFromPDF } from '../services/pdfParser';
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const TEXT_EXTS = ['txt', 'md', 'csv', 'json', 'html', 'htm', 'xml', 'rtf'];
+const DOCX_EXTS = ['docx', 'doc'];
+const ALL_EXTS = ['pdf', ...TEXT_EXTS, ...DOCX_EXTS];
 
 interface Props {
   agentForgePath: string;
@@ -42,13 +46,13 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
 
   async function processFile(file: File) {
     if (file.size > MAX_FILE_SIZE) {
-      onError(`"${file.name}" exceeds 5MB limit.`);
+      onError(`"${file.name}" exceeds 10MB limit.`);
       return;
     }
 
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['pdf', 'txt', 'md'].includes(ext ?? '')) {
-      onError('Only PDF, TXT, and MD files are supported.');
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!ALL_EXTS.includes(ext)) {
+      onError(`"${file.name}" is not a supported type. Accepted: PDF, TXT, MD, DOCX, CSV, JSON, HTML, XML, RTF`);
       return;
     }
 
@@ -59,12 +63,22 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
       let text = '';
 
       if (ext === 'pdf') {
-        // Use PDF.js for extraction — already async/Promise-based, yields the event loop
         const pageCount = getPDFPageCount(file);
         setStatus(`Processing ${pageCount} page${pageCount !== 1 ? 's' : ''}...`);
         text = await extractTextFromPDF(file);
         if (!text || text.trim().length < 3) {
           onError('This PDF appears to be scanned images (no selectable text). Please run it through an OCR tool first, or use a text-based PDF.');
+          setStatus(null);
+          return;
+        }
+      } else if (DOCX_EXTS.includes(ext)) {
+        setStatus('Extracting document text...');
+        const mammoth = await import('mammoth');
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await (mammoth as any).extractRawText({ arrayBuffer });
+        text = result.value ?? '';
+        if (!text.trim()) {
+          onError(`"${file.name}" appears to be empty or has no extractable text.`);
           setStatus(null);
           return;
         }
@@ -128,7 +142,7 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.txt,.md"
+        accept=".pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.rtf,.docx,.doc"
         className="hidden"
         onChange={handleFileInput}
       />
@@ -142,12 +156,12 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
         <>
           <Upload className="w-6 h-6 text-neutral-400" />
           <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 text-center">
-            Drop PDF, TXT, or MD here
+            Drop a document to add to your library
           </p>
-          <p className="text-[10px] text-neutral-400 text-center">Saved to global library · available via Workspace RAG tool</p>
-          <p className="text-[10px] text-neutral-400 text-center">click to browse · 5MB max</p>
-          <div className="flex gap-2 mt-1">
-            {['PDF', 'TXT', 'MD'].map(t => (
+          <p className="text-[10px] text-neutral-400 text-center">Saved to ~/AgentForge/library/ · retrieved by agent on demand</p>
+          <p className="text-[10px] text-neutral-400 text-center">click to browse · 10MB max · text content only (no images)</p>
+          <div className="flex flex-wrap gap-1.5 mt-1 justify-center">
+            {['PDF', 'TXT', 'MD', 'DOCX', 'CSV', 'JSON', 'HTML', 'XML'].map(t => (
               <span key={t} className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 rounded-full">
                 <FileText className="w-2.5 h-2.5" />{t}
               </span>

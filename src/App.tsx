@@ -47,7 +47,7 @@ const BOT_COLORS = [
 const AVAILABLE_TOOLS = [
   { id: 'web_search', name: 'Web Search', icon: Globe, desc: 'Allow agent to search the live internet.' },
   { id: 'local_workspace', name: 'Workspace RAG', icon: Database, desc: 'Agent searches your Knowledge Core + a local project folder you choose.' },
-  { id: 'calendar_sync', name: 'Calendar Sync', icon: CalendarDays, desc: 'Allow agent to read and write to your Planner.' }
+  { id: 'calendar_sync', name: 'Local Planner', icon: CalendarDays, desc: 'Agent can add events & reminders to your local tasks.md planner.' }
 ];
 
 const DEFAULT_ASSISTANT = {
@@ -1015,6 +1015,8 @@ export default function App() {
           toolUsed = 'Workspace RAG';
       } else if (activeAssistant.tools?.web_search && /search|weather|news|who is|what is|find|how/i.test(inputLower)) {
           toolUsed = 'Web Search';
+      } else if (activeAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
+          toolUsed = 'Calendar';
       }
       
       let messagesForLLM = [...history];
@@ -1111,8 +1113,17 @@ export default function App() {
                 showToast("Web search failed. Check console logs.");
                 toolData += `\n\n[SYSTEM NOTE: WEB SEARCH FAILED]\nThe web search encountered an error: ${e.message}\n[END SEARCH]`;
             }
+        } else if (toolUsed === 'Calendar') {
+            try {
+                const taskText = userMsg.content.replace(/^(schedule|remind me to|add|calendar|set reminder for)\s*/i, '').trim();
+                await invoke('append_task', { text: taskText });
+                toolData += `\n\n[CALENDAR]\nAdded to local planner: "${taskText}"\nSaved to ~/AgentForge/memory/tasks.md`;
+                showToast(`Added to planner: ${taskText.slice(0, 60)}${taskText.length > 60 ? '…' : ''}`);
+            } catch (e: any) {
+                toolData += `\n\n[CALENDAR ERROR]\n${e?.message ?? e}`;
+            }
         }
-        
+
         await new Promise(r => setTimeout(r, 800));
         setMessages(prev => ({ ...prev, [chatId]: prev[chatId].filter(m => m.id !== toolMsgId) }));
         
@@ -1905,8 +1916,8 @@ export default function App() {
                         ⚠️ RAM pressure — LLaMA will pause after this response
                       </div>
                     )}
-                    <div className={`relative bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
-                      {/* Slash command palette */}
+                    <div className="relative">
+                      {/* Slash command palette — outside overflow-hidden so it's not clipped */}
                       {input.startsWith('/') && !input.includes(' ') && (
                         <SlashCommandPalette
                           query={input.slice(1)}
@@ -1915,6 +1926,7 @@ export default function App() {
                           onHighlight={setSlashHighlight}
                         />
                       )}
+                    <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
                       <textarea
                         value={input}
                         onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
@@ -1959,6 +1971,7 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+                    </div>{/* end relative wrapper for slash palette */}
                   </div>
                 </div>
               </div>
@@ -2395,16 +2408,17 @@ export default function App() {
                      )}
                   </div>
 
-                  {/* Calendar Connect */}
+                  {/* Local Planner */}
                   <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><CalendarDays className="w-5 h-5 text-[#D4AA7D]" /></div>
+                      <div className="p-3 bg-[#F9F4EE] dark:bg-[#5C452E]/20 rounded-xl shadow-sm border border-[#EEDCC4] dark:border-[#5C452E]/30"><CalendarDays className="w-5 h-5 text-[#D4AA7D]" /></div>
                       <div className="flex flex-col">
-                        <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Google Calendar</span>
-                        <span className="text-xs text-neutral-500 font-medium mt-0.5">Requires localhost OAuth loopback via Tauri.</span>
+                        <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Local Planner</span>
+                        <span className="text-xs text-neutral-500 font-medium mt-0.5">Events & reminders saved to <code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded text-[11px]">~/AgentForge/memory/tasks.md</code></span>
+                        <span className="text-[10px] text-neutral-400 mt-0.5">Enable the "Local Planner" tool on an agent to let it add tasks.</span>
                       </div>
                     </div>
-                    <button disabled className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-neutral-200 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed shadow-sm">Coming Soon</button>
+                    <span className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#9FBBAF]/20 text-[#7A9E8D] border border-[#9FBBAF]/30">Active</span>
                   </div>
 
                 </div>

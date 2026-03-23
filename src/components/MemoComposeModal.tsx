@@ -14,12 +14,12 @@ interface Props {
   agentForgePath: string;
 }
 
-const CATEGORIES: { value: Category; label: string; dir: string }[] = [
-  { value: 'goals',     label: 'Goal',        dir: 'memory/goals'     },
-  { value: 'decisions', label: 'Decision',     dir: 'memory/decisions' },
-  { value: 'research',  label: 'Research',     dir: 'memory/research'  },
-  { value: 'memos',     label: 'General',      dir: 'memory/memos'     },
-  { value: 'todo',      label: 'Action Item',  dir: 'memory/tasks'     },
+const CATEGORIES: { value: Category; label: string; dir: string; hint: string }[] = [
+  { value: 'goals',     label: 'Goal',        dir: 'memory/goals',     hint: 'Long-term objectives & milestones'   },
+  { value: 'decisions', label: 'Decision',    dir: 'memory/decisions', hint: 'Key choices & their rationale'       },
+  { value: 'research',  label: 'Research',    dir: 'memory/research',  hint: 'Notes, references & findings'        },
+  { value: 'memos',     label: 'General',     dir: 'memory/memos',     hint: 'Freeform notes & ideas'              },
+  { value: 'todo',      label: 'Action Item', dir: 'memory/tasks',     hint: 'Appended as a task to tasks.md'      },
 ];
 
 function slugify(text: string): string {
@@ -125,18 +125,19 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath }: Props) {
                 <button
                   key={c.value}
                   onClick={() => setCategory(c.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex flex-col items-start px-3 py-2 rounded-lg text-xs font-bold transition-all ${
                     category === c.value
                       ? 'bg-[#2C3E50] text-white'
                       : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
                   }`}
                 >
-                  {c.value === 'todo' ? (
-                    <span className="flex items-center gap-1.5">
-                      <CheckSquare className="w-3 h-3" />
-                      {c.label}
-                    </span>
-                  ) : c.label}
+                  <span className="flex items-center gap-1.5">
+                    {c.value === 'todo' && <CheckSquare className="w-3 h-3" />}
+                    {c.label}
+                  </span>
+                  <span className={`text-[9px] font-normal mt-0.5 ${category === c.value ? 'text-white/60' : 'text-neutral-400'}`}>
+                    {c.hint}
+                  </span>
                 </button>
               ))}
             </div>

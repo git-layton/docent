@@ -129,9 +129,12 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
       }`}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
-          <span className="text-xs font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">
-            Memos & Memory
-          </span>
+          <div>
+            <span className="text-xs font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">
+              Memos & Memory
+            </span>
+            <p className="text-[9px] text-neutral-400 mt-0.5">Notes saved to ~/AgentForge/ · searchable via Workspace RAG</p>
+          </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
             <X className="w-4 h-4" />
           </button>
@@ -208,9 +211,13 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
               {loadingFiles ? (
                 <div className="text-center py-8 text-neutral-400 text-xs">Loading...</div>
               ) : memos.length === 0 ? (
-                <div className="text-center py-12 text-neutral-400">
-                  <FileText className="w-8 h-8 mx-auto mb-3 opacity-30" />
-                  <p className="text-xs">No memos saved yet.</p>
+                <div className="text-center py-8 text-neutral-400 space-y-2">
+                  <FileText className="w-8 h-8 mx-auto opacity-30" />
+                  <p className="text-xs font-bold">No memos yet.</p>
+                  <p className="text-[10px] leading-relaxed opacity-80 px-2">
+                    Memos are markdown notes saved to your Knowledge Core (<code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded">~/AgentForge/memory/</code>). Your agent can search them when Workspace RAG is enabled.
+                  </p>
+                  <p className="text-[10px] opacity-60">Use ⌘⇧M or type /memo in chat to write one.</p>
                 </div>
               ) : (
                 memos.map(f => (
