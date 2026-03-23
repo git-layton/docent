@@ -6,7 +6,7 @@ import {
   CheckCircle2, Circle, Clock, ListTodo, ChevronLeft, ChevronRight, LayoutList,
   FileEdit, TerminalSquare, AlignLeft, ImageIcon, MapPin, Workflow, List, ShieldCheck,
   AlertTriangle, Loader2, PlusCircle, Edit2, Brain, Activity, Save, UserPlus,
-  MessageSquare, GripVertical, Link, Edit3, BookOpen, UserCog, Mic, Volume2, VolumeX, Copy, Database, Download
+  MessageSquare, GripVertical, Link, Edit3, BookOpen, UserCog, Mic, Volume2, VolumeX, Copy, Database, Download, Keyboard
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -18,6 +18,7 @@ import { NukeShieldModal } from './components/NukeShieldModal';
 import { MemmoPanel } from './components/MemmoPanel';
 import { MemoComposeModal } from './components/MemoComposeModal';
 import { SourcesTray } from './components/SourcesTray';
+import { SlashCommandPalette, SLASH_COMMANDS, type SlashCommand } from './components/SlashCommandPalette';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ const BOT_COLORS = [
 
 const AVAILABLE_TOOLS = [
   { id: 'web_search', name: 'Web Search', icon: Globe, desc: 'Allow agent to search the live internet.' },
-  { id: 'local_workspace', name: 'Workspace RAG', icon: Database, desc: 'Allow agent to search local project folders via LanceDB.' },
+  { id: 'local_workspace', name: 'Workspace RAG', icon: Database, desc: 'Agent searches your Knowledge Core + a local project folder you choose.' },
   { id: 'calendar_sync', name: 'Calendar Sync', icon: CalendarDays, desc: 'Allow agent to read and write to your Planner.' }
 ];
 
@@ -246,6 +247,10 @@ export default function App() {
   const [showMemmoPanel, setShowMemmoPanel] = useState(false);
   const [showMemoCompose, setShowMemoCompose] = useState(false);
   const [agentForgePath, setAgentForgePath] = useState('');
+
+  // Slash command palette
+  const [slashHighlight, setSlashHighlight] = useState(0);
+  const [showHotkeyRef, setShowHotkeyRef] = useState(false);
 
   const showToast = (msg: string, action?: { label: string; onClick: () => void }) => {
     setToastMessage(msg);
@@ -841,7 +846,7 @@ export default function App() {
         showToast("Parsing PDF locally... this might take a moment.");
         try {
            const text = await extractTextFromPDF(file);
-           if (!text || text.trim().length < 10) {
+           if (!text || text.trim().length < 3) {
              showToast("This PDF appears to be scanned images (no selectable text). Please run it through an OCR tool first, or use a text-based PDF.");
              e.target.value = '';
              return;
@@ -1023,7 +1028,7 @@ export default function App() {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge', { query: userMsg.content }
+                         'search_knowledge', { query: userMsg.content, extraPath: activeAssistant.tools?.local_workspace_path || null }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
@@ -1356,6 +1361,62 @@ export default function App() {
         <div className="p-4 bg-[#4A5D75] rounded-2xl shadow-2xl mb-6 shadow-[#6A829E]/20"><Bot className="w-8 h-8 text-white animate-pulse" /></div>
         <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">Agent Forge</h1>
         <div className="flex items-center gap-2 text-neutral-500 font-bold text-xs uppercase tracking-widest"><Loader2 className="w-4 h-4 animate-spin" /> Secure Storage Linking...</div>
+      </div>
+    );
+  }
+
+  // ── Slash command handler ──────────────────────────────────────────────────
+  function handleSlashCommand(cmd: SlashCommand) {
+    switch (cmd.cmd) {
+      case 'think':
+        setIsDeepThinking(true);
+        setInput('');
+        showToast('Deep thinking ON for next message');
+        break;
+      case 'search':
+        setInput('Search: ');
+        break;
+      case 'workspace':
+        setInput('Workspace: ');
+        break;
+      case 'memo':
+        setShowMemoCompose(true);
+        setInput('');
+        break;
+      case 'clear':
+        if (activeChatId) setMessages((prev: any) => ({ ...prev, [activeChatId]: [] }));
+        setInput('');
+        break;
+    }
+    setSlashHighlight(0);
+  }
+
+  // ── LibraryFileList sub-component ─────────────────────────────────────────
+  function LibraryFileList({ path }: { path: string }) {
+    const [files, setFiles] = useState<string[]>([]);
+    useEffect(() => {
+      if (!path) return;
+      import('@tauri-apps/plugin-fs').then(({ readDir }) =>
+        readDir(`${path}/library`)
+          .then(entries => setFiles(
+            entries.filter((e: any) => e.isFile && e.name?.endsWith('.md')).map((e: any) => e.name!.replace('.md', ''))
+          ))
+          .catch(() => setFiles([]))
+      );
+    }, [path]);
+    if (files.length === 0) return (
+      <p className="text-[10px] text-neutral-400 text-center py-4">
+        No library files yet. Drop files in the Memmo Panel Library tab.
+      </p>
+    );
+    return (
+      <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar">
+        {files.map(f => (
+          <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700">
+            <FileText className="w-3.5 h-3.5 text-[#6A829E] shrink-0" />
+            <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 truncate">{f}</span>
+          </div>
+        ))}
       </div>
     );
   }
@@ -1845,11 +1906,47 @@ export default function App() {
                       </div>
                     )}
                     <div className={`relative bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
-                      <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
-                        placeholder={models.length === 0 ? 'Connect an LLM to start...' : generationMode === 'code' ? 'What application should I build?' : generationMode === 'doc' ? 'What document should I draft?' : generationMode === 'image' ? 'Describe the image you want to generate...' : `Message ${activeAssistant?.name ?? 'Assistant'}...`}
+                      {/* Slash command palette */}
+                      {input.startsWith('/') && !input.includes(' ') && (
+                        <SlashCommandPalette
+                          query={input.slice(1)}
+                          highlightIndex={slashHighlight}
+                          onSelect={cmd => handleSlashCommand(cmd)}
+                          onHighlight={setSlashHighlight}
+                        />
+                      )}
+                      <textarea
+                        value={input}
+                        onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
+                        onKeyDown={e => {
+                          const showPalette = input.startsWith('/') && !input.includes(' ');
+                          const filtered = showPalette ? SLASH_COMMANDS.filter(c => c.cmd.startsWith(input.slice(1).toLowerCase()) || c.label.toLowerCase().startsWith(input.slice(1).toLowerCase())) : [];
+                          if (showPalette && filtered.length > 0) {
+                            if (e.key === 'ArrowDown') { e.preventDefault(); setSlashHighlight(h => (h + 1) % filtered.length); return; }
+                            if (e.key === 'ArrowUp')   { e.preventDefault(); setSlashHighlight(h => (h - 1 + filtered.length) % filtered.length); return; }
+                            if (e.key === 'Enter')     { e.preventDefault(); handleSlashCommand(filtered[slashHighlight % filtered.length]); return; }
+                            if (e.key === 'Escape')    { setInput(''); return; }
+                          }
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
+                        }}
+                        placeholder={models.length === 0 ? 'Connect an LLM to start...' : generationMode === 'code' ? 'What application should I build?' : generationMode === 'doc' ? 'What document should I draft?' : generationMode === 'image' ? 'Describe the image you want to generate...' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
                         className="w-full bg-transparent p-4 pr-32 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
                       <div className="absolute right-2 bottom-2 flex items-center gap-1.5 bg-white/90 dark:bg-neutral-950/90 backdrop-blur px-1.5 py-1 rounded-xl">
                         {!isGenerating && models.length > 0 && <button onClick={toggleListening} className={`p-2 transition-colors rounded-lg ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-4 h-4 ${isListening ? 'animate-bounce' : ''}`} /></button>}
+                        <div className="relative">
+                          <button onClick={() => setShowHotkeyRef(v => !v)} className={`p-2 rounded-lg transition-all ${showHotkeyRef ? 'bg-neutral-100 dark:bg-neutral-800 text-[#6A829E]' : 'text-neutral-300 hover:text-neutral-500 dark:hover:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Keyboard shortcuts"><Keyboard className="w-4 h-4" /></button>
+                          {showHotkeyRef && (
+                            <div className="absolute bottom-full right-0 mb-2 w-52 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl shadow-2xl p-3 z-50">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-2">Shortcuts</p>
+                              {[['/', 'Command palette'],['Enter', 'Send message'],['⇧Enter', 'New line'],['⌘⇧M', 'New memo'],['Esc', 'Dismiss palette']].map(([k, d]) => (
+                                <div key={k} className="flex items-center justify-between py-1">
+                                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{d}</span>
+                                  <kbd className="text-[9px] font-mono font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 px-1.5 py-0.5 rounded">{k}</kbd>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <button onClick={() => setIsDeepThinking(v => !v)} className={`p-2 rounded-lg transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8] dark:bg-[#9EADC8]/20 dark:text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-4 h-4" /></button>
                         {!isGenerating && input.trim() && models.length > 0 && <button onClick={handleEnhancePrompt} disabled={isEnhancing} className={`p-2 text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20 rounded-lg transition-all ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-4 h-4" /></button>}
                         {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-[#6A829E] transition-colors" title="Attach Document"><Paperclip className="w-4 h-4" /></button>}
@@ -2027,6 +2124,19 @@ export default function App() {
                                     <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'right-0.5' : 'left-0.5'}`} />
                                     </button>
                                  </div>
+                                 {tool.id === 'local_workspace' && enabled && (
+                                   <div className="px-3 pb-3 pt-2 border-t border-neutral-200 dark:border-neutral-700/50">
+                                     <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-1 block">Project Folder Path</label>
+                                     <input
+                                       type="text"
+                                       placeholder="/Users/you/my-project"
+                                       value={editingAssistant.tools?.local_workspace_path ?? ''}
+                                       onChange={e => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), local_workspace_path: e.target.value } }))}
+                                       className="w-full text-[11px] font-mono bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-neutral-700 dark:text-neutral-300 focus:outline-none focus:border-[#4A5D75]"
+                                     />
+                                     <p className="text-[9px] text-neutral-400 mt-1">Leave empty to search Knowledge Core only</p>
+                                   </div>
+                                 )}
                               </div>
                               );
                            })}
@@ -2060,6 +2170,18 @@ export default function App() {
                         <button onClick={() => trainingDocUploadRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 border-2 border-[#D6E0EA] dark:border-[#1E2B38] text-[#4A5D75] dark:text-[#899AB5] rounded-xl hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all text-[10px] font-black uppercase tracking-widest bg-white dark:bg-neutral-900 shadow-sm"><Paperclip className="w-4 h-4" /> Upload Document</button>
                      </div>
                      
+                     {/* Knowledge Library */}
+                     <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
+                       <div className="flex items-center justify-between mb-3">
+                         <div>
+                           <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Knowledge Library</label>
+                           <p className="text-[9px] text-neutral-400 mt-0.5">Global RAG library · retrieved on demand via Workspace RAG tool</p>
+                         </div>
+                         <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">Manage →</button>
+                       </div>
+                       <LibraryFileList path={agentForgePath} />
+                     </div>
+
                      {/* Pinned Memories List */}
                      <div className="p-5 bg-[#F9F4EE] dark:bg-[#5C452E]/10 rounded-2xl border border-[#EEDCC4] dark:border-[#5C452E]/30">
                         <div className="flex items-center justify-between mb-4">

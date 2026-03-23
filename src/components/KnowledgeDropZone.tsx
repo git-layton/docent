@@ -63,7 +63,7 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
         const pageCount = getPDFPageCount(file);
         setStatus(`Processing ${pageCount} page${pageCount !== 1 ? 's' : ''}...`);
         text = await extractTextFromPDF(file);
-        if (!text || text.trim().length < 10) {
+        if (!text || text.trim().length < 3) {
           onError('This PDF appears to be scanned images (no selectable text). Please run it through an OCR tool first, or use a text-based PDF.');
           setStatus(null);
           return;

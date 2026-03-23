@@ -18,10 +18,16 @@
         { "url": "https://api.anthropic.com/*" },
         { "url": "https://api.openai.com/*" },
         { "url": "https://generativelanguage.googleapis.com/*" },
+        { "url": "https://api.tavily.com/*" },
+        { "url": "https://en.wikipedia.org/*" },
+        { "url": "https://cdnjs.cloudflare.com/*" },
+        { "url": "https://www.google.com/*" },
         { "url": "http://127.0.0.1:*/*" },
         { "url": "http://localhost:*/*" }
       ]
     },
+    "fs:allow-home-read-recursive",
+    "fs:allow-home-write-recursive",
     "shell:default",
     {
       "identifier": "shell:allow-execute",

@@ -320,15 +320,23 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
 }
 
 #[tauri::command]
-fn search_knowledge(query: String) -> serde_json::Value {
+fn search_knowledge(query: String, extra_path: Option<String>) -> serde_json::Value {
     let root = knowledge_core_path();
     let query_lower = query.to_lowercase();
     let keywords: Vec<&str> = query_lower.split_whitespace().collect();
 
     let mut results: Vec<serde_json::Value> = Vec::new();
 
-    for subdir in &["library", "memory"] {
-        let dir = root.join(subdir);
+    let mut dirs_to_search: Vec<std::path::PathBuf> = vec![
+        root.join("library"),
+        root.join("memory"),
+    ];
+    if let Some(ref ep) = extra_path {
+        let p = std::path::PathBuf::from(ep);
+        if p.exists() { dirs_to_search.push(p); }
+    }
+
+    for dir in dirs_to_search {
         if !dir.exists() { continue; }
         let Ok(files) = walk_md_files(&dir) else { continue };
 

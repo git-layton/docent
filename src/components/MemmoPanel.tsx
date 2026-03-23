@@ -59,8 +59,8 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
 
       await collect(`${agentForgePath}/memory`);
       setMemos(files.sort((a, b) => b.name.localeCompare(a.name)));
-    } catch (e) {
-      console.warn('[Memmo] Could not read memory dir:', e);
+    } catch (e: any) {
+      onToast(`Could not load memos: ${e?.message ?? e}`);
     } finally {
       setLoadingFiles(false);
     }
@@ -75,8 +75,8 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
         .filter(e => e.isFile && e.name?.endsWith('.md'))
         .map(e => ({ name: e.name!.replace('.md', ''), path: `${agentForgePath}/library/${e.name}` }));
       setLibrary(files.sort((a, b) => b.name.localeCompare(a.name)));
-    } catch (e) {
-      console.warn('[Memmo] Could not read library dir:', e);
+    } catch (e: any) {
+      onToast(`Could not load library: ${e?.message ?? e}`);
     } finally {
       setLoadingFiles(false);
     }
