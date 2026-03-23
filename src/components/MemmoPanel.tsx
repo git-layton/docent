@@ -60,7 +60,10 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
       await collect(`${agentForgePath}/memory`);
       setMemos(files.sort((a, b) => b.name.localeCompare(a.name)));
     } catch (e: any) {
-      onToast(`Could not load memos: ${e?.message ?? e}`);
+      const msg: string = e?.message ?? String(e);
+      if (!msg.toLowerCase().includes('no such file') && !msg.includes('os error 2')) {
+        onToast(`Could not load memos: ${msg}`);
+      }
     } finally {
       setLoadingFiles(false);
     }
@@ -76,7 +79,10 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
         .map(e => ({ name: e.name!.replace('.md', ''), path: `${agentForgePath}/library/${e.name}` }));
       setLibrary(files.sort((a, b) => b.name.localeCompare(a.name)));
     } catch (e: any) {
-      onToast(`Could not load library: ${e?.message ?? e}`);
+      const msg: string = e?.message ?? String(e);
+      if (!msg.toLowerCase().includes('no such file') && !msg.includes('os error 2')) {
+        onToast(`Could not load library: ${msg}`);
+      }
     } finally {
       setLoadingFiles(false);
     }

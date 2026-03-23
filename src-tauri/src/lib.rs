@@ -171,12 +171,14 @@ fn rollback_file(path: String) -> serde_json::Value {
 #[tauri::command]
 fn init_knowledge_core() -> serde_json::Value {
     let root = knowledge_core_path();
-    if root.join(".git").exists() {
-        return serde_json::json!({ "initialized": false, "path": root.to_string_lossy() });
-    }
 
+    // Always ensure subdirectory structure exists (idempotent)
     for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "library"] {
         let _ = std::fs::create_dir_all(root.join(subdir));
+    }
+
+    if root.join(".git").exists() {
+        return serde_json::json!({ "initialized": false, "path": root.to_string_lossy() });
     }
 
     let _ = std::fs::write(
