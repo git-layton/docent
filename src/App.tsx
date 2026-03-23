@@ -566,6 +566,13 @@ export default function App() {
         setShowMemoCompose(true);
         return;
       }
+      // Cmd+Shift+K — Force Knowledge Search for next message
+      if (e.metaKey && e.shiftKey && e.key === 'K') {
+        e.preventDefault();
+        setForcedTool('workspace');
+        showToast('⌘⇧K — Next message will search Knowledge');
+        return;
+      }
       if (e.key === 'Escape') {
         if (showMemoCompose) setShowMemoCompose(false);
         else if (showMemmoPanel) setShowMemmoPanel(false);

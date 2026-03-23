@@ -10,7 +10,7 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: 'think',     label: 'Deep Thinking',   desc: 'Enable deep reasoning for next message',  icon: Brain    },
   { cmd: 'search',    label: 'Web Search',       desc: 'Force a live internet search',            icon: Globe    },
-  { cmd: 'workspace', label: 'Knowledge Search',    desc: "Search your agent's memos & project files", icon: Database },
+  { cmd: 'workspace', label: 'Knowledge Search',    desc: "Search your agent's memos & project files · ⌘⇧K", icon: Database },
   { cmd: 'memo',      label: 'New Memo',         desc: 'Open the memo compose panel',             icon: BookOpen },
   { cmd: 'plan',      label: 'Plan Mode',        desc: 'Agent responds with a structured plan',   icon: ListTodo },
   { cmd: 'clear',     label: 'Clear Chat',       desc: 'Remove all messages in this chat',        icon: Trash2   },
