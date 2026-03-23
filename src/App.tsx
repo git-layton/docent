@@ -6,7 +6,7 @@ import {
   CheckCircle2, Circle, Clock, ListTodo, ChevronLeft, ChevronRight, LayoutList,
   FileEdit, TerminalSquare, AlignLeft, ImageIcon, MapPin, Workflow, List, ShieldCheck,
   AlertTriangle, Loader2, PlusCircle, Edit2, Brain, Activity, Save, UserPlus,
-  MessageSquare, GripVertical, Link, Edit3, BookOpen, UserCog, Mic, Volume2, VolumeX, Copy, Database, Download, Keyboard
+  MessageSquare, GripVertical, Link, Edit3, BookOpen, UserCog, Mic, Volume2, VolumeX, Copy, Database, Download
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -250,7 +250,6 @@ export default function App() {
 
   // Slash command palette
   const [slashHighlight, setSlashHighlight] = useState(0);
-  const [showHotkeyRef, setShowHotkeyRef] = useState(false);
 
   const showToast = (msg: string, action?: { label: string; onClick: () => void }) => {
     setToastMessage(msg);
@@ -1945,20 +1944,6 @@ export default function App() {
                         className="w-full bg-transparent p-4 pr-32 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
                       <div className="absolute right-2 bottom-2 flex items-center gap-1.5 bg-white/90 dark:bg-neutral-950/90 backdrop-blur px-1.5 py-1 rounded-xl">
                         {!isGenerating && models.length > 0 && <button onClick={toggleListening} className={`p-2 transition-colors rounded-lg ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-4 h-4 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-                        <div className="relative">
-                          <button onClick={() => setShowHotkeyRef(v => !v)} className={`p-2 rounded-lg transition-all ${showHotkeyRef ? 'bg-neutral-100 dark:bg-neutral-800 text-[#6A829E]' : 'text-neutral-300 hover:text-neutral-500 dark:hover:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Keyboard shortcuts"><Keyboard className="w-4 h-4" /></button>
-                          {showHotkeyRef && (
-                            <div className="absolute bottom-full right-0 mb-2 w-52 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl shadow-2xl p-3 z-50">
-                              <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-2">Shortcuts</p>
-                              {[['/', 'Command palette'],['Enter', 'Send message'],['⇧Enter', 'New line'],['⌘⇧M', 'New memo'],['Esc', 'Dismiss palette']].map(([k, d]) => (
-                                <div key={k} className="flex items-center justify-between py-1">
-                                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{d}</span>
-                                  <kbd className="text-[9px] font-mono font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 px-1.5 py-0.5 rounded">{k}</kbd>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
                         <button onClick={() => setIsDeepThinking(v => !v)} className={`p-2 rounded-lg transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8] dark:bg-[#9EADC8]/20 dark:text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-4 h-4" /></button>
                         {!isGenerating && input.trim() && models.length > 0 && <button onClick={handleEnhancePrompt} disabled={isEnhancing} className={`p-2 text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20 rounded-lg transition-all ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-4 h-4" /></button>}
                         {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-[#6A829E] transition-colors" title="Attach Document"><Paperclip className="w-4 h-4" /></button>}
