@@ -39,7 +39,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
       if (tab === 'memos') loadMemos();
       if (tab === 'library') loadLibrary();
     }
-  }, [isOpen, tab, agentForgePath]);
+  }, [isOpen, tab, agentForgePath, agentId]);
 
   async function loadMemos() {
     setLoadingFiles(true);

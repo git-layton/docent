@@ -123,14 +123,16 @@ const ThoughtProcess = ({ content, isStreaming }: any) => {
   );
 };
 
+// Detects: 1. Bold, 2. [Source: Name](url), 3. Markdown links, 4. Raw URLs
+const INLINE_FORMAT_REGEX = /(\*\*.*?\*\*)|(\[Source:\s*.*?\]\(.*?\))|(\[.*?\]\(.*?\))|(https?:\/\/[a-zA-Z0-9-._~:/?#[\]@!$&'()*+,;=%]+)/g;
+
 const FormattedText = ({ text, onSaveImage, onViewImage }: any) => {
   if (!text || typeof text !== 'string') return null;
   try {
     const renderInlines = (textStr: string) => {
       const tokens = [];
       let lastIdx = 0;
-      // Regex detects: 1. Bold, 2. [Source: Name](url), 3. Markdown links, 4. Raw URLs
-      const regex = /(\*\*.*?\*\*)|(\[Source:\s*.*?\]\(.*?\))|(\[.*?\]\(.*?\))|(https?:\/\/[a-zA-Z0-9-._~:/?#[\]@!$&'()*+,;=%]+)/g;
+      const regex = new RegExp(INLINE_FORMAT_REGEX.source, 'g');
       
       let match;
       while ((match = regex.exec(textStr)) !== null) {
@@ -261,7 +263,7 @@ export default function App() {
     const originalLog = console.log, originalError = console.error, originalWarn = console.warn;
     const addLog = (level: string, ...args: any[]) => {
       const msg = args.map(a => (a instanceof Error ? a.message : typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
-      setLogs(prev => [...prev, { time: new Date().toLocaleTimeString([], {hour12: false}), level, msg }]);
+      setLogs(prev => [...prev.slice(-499), { time: new Date().toLocaleTimeString([], {hour12: false}), level, msg }]);
     };
     console.log = (...args) => { addLog('info', ...args); originalLog(...args); };
     console.error = (...args) => { addLog('error', ...args); originalError(...args); };
@@ -908,7 +910,7 @@ export default function App() {
     }
     const item = { ...finalCanvas, id, title: saveAppData.title || finalCanvas.title || 'Untitled', updatedAt: Date.now() };
     const exists = savedApps.some(a => a.id === id);
-    setSavedApps(prev => exists && !asNew ? prev.map(a => a.id === id ? item : a) : [item, ...prev]); setCanvasContent(item); setShowSaveModal(false);
+    setSavedApps(prev => exists && !asNew ? prev.map(a => a.id === id ? item : a) : [item, ...prev]); setCanvasContent(item); setShowSaveModal(false); showToast('Saved to Archives!');
   };
   const deleteSavedApp = (id: string) => { setSavedApps(prev => prev.filter(app => app.id !== id)); if (canvasContent?.id === id) setCanvasContent(null); };
   
@@ -1212,7 +1214,8 @@ export default function App() {
                      const curIdx = prev.historyIndex ?? 0;
                      if (curHist[curIdx]?.content !== code) {
                          const newHist = curHist.slice(0, curIdx + 1); newHist.push({ timestamp: Date.now(), content: code });
-                         return { ...prev, content: code, history: newHist, historyIndex: newHist.length - 1 };
+                         const capped = newHist.slice(-50);
+                         return { ...prev, content: code, history: capped, historyIndex: capped.length - 1 };
                      }
                      return prev;
                  });
@@ -1240,7 +1243,8 @@ export default function App() {
           if (curHist[curIdx]?.content !== prev.content) {
               const newHist = curHist.slice(0, curIdx + 1);
               newHist.push({ timestamp: Date.now(), content: prev.content });
-              return { ...prev, history: newHist, historyIndex: newHist.length - 1 };
+              const capped = newHist.slice(-50);
+              return { ...prev, history: capped, historyIndex: capped.length - 1 };
           }
           return prev;
       });
@@ -2030,6 +2034,12 @@ export default function App() {
                         {!isGenerating && models.length > 0 && <button onClick={toggleListening} className={`p-2 transition-colors rounded-lg ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-4 h-4 ${isListening ? 'animate-bounce' : ''}`} /></button>}
                         <button onClick={() => setIsDeepThinking(v => !v)} className={`p-2 rounded-lg transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8] dark:bg-[#9EADC8]/20 dark:text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-4 h-4" /></button>
                         <button onClick={() => setIsPlanMode(v => !v)} className={`p-2 rounded-lg transition-all ${isPlanMode ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-4 h-4" /></button>
+                        {activeAssistant?.tools?.local_workspace && (
+                          <button onClick={() => { setForcedTool(t => t === 'workspace' ? null : 'workspace'); }} className={`p-2 rounded-lg transition-all ${forcedTool === 'workspace' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Agent Knowledge (⌘⇧K)"><Database className="w-4 h-4" /></button>
+                        )}
+                        {activeAssistant?.tools?.web_search && (
+                          <button onClick={() => { setForcedTool(t => t === 'search' ? null : 'search'); }} className={`p-2 rounded-lg transition-all ${forcedTool === 'search' ? 'bg-[#6A829E] text-white' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Web"><Globe className="w-4 h-4" /></button>
+                        )}
                         {!isGenerating && input.trim() && models.length > 0 && <button onClick={handleEnhancePrompt} disabled={isEnhancing} className={`p-2 text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20 rounded-lg transition-all ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-4 h-4" /></button>}
                         {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-[#6A829E] transition-colors" title="Attach Document"><Paperclip className="w-4 h-4" /></button>}
                         <input type="file" ref={fileInputRef} onChange={handleChatFileUpload} className="hidden" />

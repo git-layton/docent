@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function NukeShieldModal({ path, deletions, existingLines, diffStat, onApprove, onRollback }: Props) {
-  const pct = existingLines > 0 ? Math.round((deletions / existingLines) * 100) : 100;
+  const pct = existingLines > 0 ? Math.round((deletions / existingLines) * 100) : 0;
   const filename = path.split('/').pop() ?? path;
 
   return (

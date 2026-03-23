@@ -31,7 +31,7 @@ export function SourcesTray({ sources }: Props) {
           <div className="flex flex-wrap gap-2">
             {webSources.map((src, idx) => (
               <a
-                key={idx}
+                key={src.url || idx}
                 href={src.url}
                 target="_blank"
                 rel="noreferrer"
@@ -62,7 +62,7 @@ export function SourcesTray({ sources }: Props) {
               const isExpanded = expandedIdx === idx;
               const stem = src.path?.split('/').pop()?.replace('.md', '') ?? src.title;
               return (
-                <div key={idx}>
+                <div key={src.path || idx}>
                   <button
                     onClick={() => setExpandedIdx(isExpanded ? null : idx)}
                     className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-[#6A829E] hover:bg-white dark:hover:bg-neutral-800 transition-all text-left max-w-xs"

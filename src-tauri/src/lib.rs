@@ -21,8 +21,10 @@ fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
         .current_dir(cwd)
         .output()
         .map_err(|e| e.to_string())?;
-    Ok(String::from_utf8_lossy(&output.stdout).to_string()
-        + &String::from_utf8_lossy(&output.stderr))
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 fn parse_deletions(diff_stat: &str) -> u32 {
