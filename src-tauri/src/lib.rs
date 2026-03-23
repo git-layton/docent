@@ -72,6 +72,42 @@ fn get_ram_stats() -> serde_json::Value {
     })
 }
 
+#[derive(serde::Serialize)]
+struct HardwareProfile {
+    total_mb: u64,
+    critical_mb: u64,
+    cooldown_mb: u64,
+    recovery_mb: u64,
+    hud_show_mb: u64,
+    hud_warn_mb: u64,
+    rag_results: usize,
+    rag_snippet_chars: usize,
+}
+
+#[tauri::command]
+fn get_hardware_profile() -> HardwareProfile {
+    let mut sys = System::new_all();
+    sys.refresh_memory();
+    let total_mb = sys.total_memory() / 1024 / 1024;
+    let total_gb = total_mb as f64 / 1024.0;
+
+    // Safety valve scales proportionally: ~10% of total RAM is the critical floor
+    let critical_mb = ((total_mb as f64 * 0.10) as u64).max(800);
+    let cooldown_mb = (critical_mb as f64 * 1.875) as u64;
+    let recovery_mb = (critical_mb as f64 * 3.125) as u64;
+
+    HardwareProfile {
+        total_mb,
+        critical_mb,
+        cooldown_mb,
+        recovery_mb,
+        hud_show_mb: (critical_mb as f64 * 2.5) as u64,
+        hud_warn_mb: (critical_mb as f64 * 1.5) as u64,
+        rag_results: (total_gb / 2.0).clamp(5.0, 12.0) as usize,
+        rag_snippet_chars: (total_gb * 25.0).clamp(400.0, 1000.0) as usize,
+    }
+}
+
 #[tauri::command]
 fn spawn_llama_server(
     args: Vec<String>,
@@ -324,10 +360,12 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
 }
 
 #[tauri::command]
-fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>) -> serde_json::Value {
+fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let root = knowledge_core_path();
     let query_lower = query.to_lowercase();
     let keywords: Vec<&str> = query_lower.split_whitespace().collect();
+    let max_results = max_results.unwrap_or(5);
+    let snippet_chars = snippet_chars.unwrap_or(400);
 
     let mut results: Vec<serde_json::Value> = Vec::new();
 
@@ -362,7 +400,7 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
             if score == 0 { continue; }
 
             let title = extract_title(&content, &path);
-            let snippet: String = body.chars().take(400).collect();
+            let snippet: String = body.chars().take(snippet_chars).collect();
 
             results.push(serde_json::json!({
                 "path": path.to_string_lossy(),
@@ -374,7 +412,7 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
     }
 
     results.sort_by(|a, b| b["score"].as_u64().cmp(&a["score"].as_u64()));
-    results.truncate(5);
+    results.truncate(max_results);
 
     serde_json::json!({ "results": results })
 }
@@ -467,6 +505,7 @@ pub fn run() {
             append_task,
             revert_memory_commit,
             search_knowledge,
+            get_hardware_profile,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

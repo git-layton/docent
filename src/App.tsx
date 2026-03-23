@@ -240,6 +240,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [ramStats, setRamStats] = useState<{ total_mb: number; used_mb: number; available_mb: number } | null>(null);
+  const [hwProfile, setHwProfile] = useState<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number } | null>(null);
   const [llamaServerPid, setLlamaServerPid] = useState<number | null>(null);
   const [llamaPaused, setLlamaPaused] = useState(false);
   const [llamaCoolingDown, setLlamaCoolingDown] = useState(false);
@@ -418,6 +419,11 @@ export default function App() {
         if (kc.path) setAgentForgePath(kc.path);
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
+      // Hardware profile — scale thresholds to total installed RAM
+      invoke<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number }>('get_hardware_profile')
+        .then(setHwProfile)
+        .catch(() => {});
+
       } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { setIsDbLoaded(true); }
     };
     boot();
@@ -432,8 +438,10 @@ export default function App() {
         setLlamaServerPid(pid => {
           if (pid === null) return pid;
 
+          const hw = hwProfile ?? { cooldown_mb: 1500, critical_mb: 800, recovery_mb: 2500 };
+
           setLlamaCoolingDown(prev => {
-            if (stats.available_mb < 1500 && stats.available_mb >= 800 && !prev && !llamaPaused) {
+            if (stats.available_mb < hw.cooldown_mb && stats.available_mb >= hw.critical_mb && !prev && !llamaPaused) {
               showToast('⚠️ RAM pressure — LLaMA will pause after this response');
               return true;
             }
@@ -441,7 +449,7 @@ export default function App() {
           });
 
           setLlamaPaused(prev => {
-            if (stats.available_mb < 800 && !prev) {
+            if (stats.available_mb < hw.critical_mb && !prev) {
               abortControllerRef.current?.abort();
               setIsGenerating(false);
               setLlamaCoolingDown(false);
@@ -449,7 +457,7 @@ export default function App() {
               showToast('🚨 LLaMA force-hibernated — RAM critical');
               return true;
             }
-            if (stats.available_mb > 2500 && prev) {
+            if (stats.available_mb > hw.recovery_mb && prev) {
               invoke('sigcont_llama_server').catch(() => {});
               showToast('✅ LLaMA resumed — RAM recovered');
               return false;
@@ -1045,7 +1053,7 @@ export default function App() {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), extraPath: activeAssistant.tools?.local_workspace_path || null, agentId: activeAssistant?.id ?? null }
+                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), extraPath: activeAssistant.tools?.local_workspace_path || null, agentId: activeAssistant?.id ?? null, maxResults: hwProfile?.rag_results ?? 5, snippetChars: hwProfile?.rag_snippet_chars ?? 400 }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
@@ -1671,9 +1679,9 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-1">
-                {ramStats && ramStats.available_mb < 2000 && (
+                {ramStats && ramStats.available_mb < (hwProfile?.hud_show_mb ?? 2000) && (
                   <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
-                    ramStats.available_mb < 1200 ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
+                    ramStats.available_mb < (hwProfile?.hud_warn_mb ?? 1200) ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
                     'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
                   }`} title={`${(ramStats.available_mb / 1024).toFixed(1)}GB free of ${(ramStats.total_mb / 1024).toFixed(0)}GB`}>
                     {(ramStats.available_mb / 1024).toFixed(1)}GB
