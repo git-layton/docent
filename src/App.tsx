@@ -46,7 +46,7 @@ const BOT_COLORS = [
 
 const AVAILABLE_TOOLS = [
   { id: 'web_search', name: 'Web Search', icon: Globe, desc: 'Allow agent to search the live internet.' },
-  { id: 'local_workspace', name: 'Knowledge Search', icon: Database, desc: "Search your agent's memos, notes, and local project files." },
+  { id: 'local_workspace', name: 'Knowledge Base', icon: Database, desc: "Search your Knowledge Base — memos, notes, and saved files." },
   { id: 'calendar_sync', name: 'Local Planner', icon: CalendarDays, desc: 'Agent can add events & reminders to your local tasks.md planner.' }
 ];
 
@@ -245,7 +245,7 @@ const FormattedText = ({ text, sources, onSaveImage, onViewImage, onOpenFile }: 
           }
           
           if (!line.trim()) return <div key={idx} className="h-2" /> ;
-          return <p key={idx}>{renderInlines(line)}</p>;
+          return <div key={idx}>{renderInlines(line)}</div>;
         })}
       </div>
     );
@@ -290,8 +290,12 @@ export default function App() {
 
   // Memmo Engine states
   const [showMemmoPanel, setShowMemmoPanel] = useState(false);
+  const [memmoPanelTab, setMemmoPanelTab] = useState<'pins' | 'memos' | 'library'>('pins');
   const [showMemoCompose, setShowMemoCompose] = useState(false);
   const [agentForgePath, setAgentForgePath] = useState('');
+
+  // Persistent pins (survive reload via Tauri Store)
+  const [globalPins, setGlobalPins] = useState<Array<{ id: string; chatId: string; msgId: string; agentId: string; content: string; savedAt: number }>>([]);
 
   // Slash command palette
   const [slashHighlight, setSlashHighlight] = useState(0);
@@ -300,6 +304,11 @@ export default function App() {
     setToastMessage(msg);
     setToastAction(action ?? null);
     setTimeout(() => { setToastMessage(null); setToastAction(null); }, 4000);
+  };
+
+  const saveGlobalPins = async (pins: typeof globalPins) => {
+    setGlobalPins(pins);
+    await db.set('globalPins', pins);
   };
 
   useEffect(() => {
@@ -439,6 +448,7 @@ export default function App() {
         setTasks(await db.get('tasks', []));
         setSavedApps(await db.get('savedApps', []));
         setUserProfile(await db.get('userProfile', ''));
+        setGlobalPins(await db.get('globalPins', []));
         
         const savedIntegrations = await db.get('integrations', {});
         setIntegrations((prev: any) => ({ ...prev, ...savedIntegrations }));
@@ -465,6 +475,9 @@ export default function App() {
       invoke<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number }>('get_hardware_profile')
         .then(setHwProfile)
         .catch(() => {});
+
+      // Start background file watcher for Knowledge Core indexing
+      invoke('init_file_watcher').catch(() => {});
 
       } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { setIsDbLoaded(true); }
     };
@@ -551,39 +564,18 @@ export default function App() {
   const activeMessages = useMemo(() => activeChatId ? (messages[activeChatId] ?? []) : [], [messages, activeChatId]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
   
-  // Extract pinned messages explicitly scoped to the active assistant for Prompt Generation
-  const activeAgentPinnedMessageObjects = useMemo(() => {
-     const pins: any[] = [];
-     Object.entries(messages).forEach(([cId, chatMsgs]) => {
-         const chatRecord = chats.find(c => c.id === cId);
-         if (chatRecord && chatRecord.folderId === activeAssistant.id) {
-             chatMsgs.forEach(m => {
-                 if (m.isPinned && m.role === 'user' && m.content) {
-                     pins.push({ chatId: cId, msgId: m.id, content: m.content });
-                 }
-             });
-         }
-     });
-     return pins;
-  }, [messages, chats, activeAssistant.id]);
+  // Extract pinned messages explicitly scoped to the active assistant — derived from globalPins (persistent)
+  const activeAgentPinnedMessageObjects = useMemo(() =>
+    globalPins.filter(p => p.agentId === activeAssistant.id),
+    [globalPins, activeAssistant.id]
+  );
   const agentPinnedMessagesForPrompt = useMemo(() => activeAgentPinnedMessageObjects.map(p => p.content), [activeAgentPinnedMessageObjects]);
 
   // Extract pinned messages explicitly scoped to the assistant currently being EDITED in settings
-  const editingAgentPins = useMemo(() => {
-    if (!editingAssistant) return [];
-    const pins: any[] = [];
-    Object.entries(messages).forEach(([cId, chatMsgs]) => {
-        const chatRecord = chats.find(c => c.id === cId);
-        if (chatRecord && chatRecord.folderId === editingAssistant.id) {
-            chatMsgs.forEach(m => {
-                if (m.isPinned && m.role === 'user' && m.content) {
-                    pins.push({ chatId: cId, msgId: m.id, content: m.content });
-                }
-            });
-        }
-    });
-    return pins;
- }, [messages, chats, editingAssistant?.id]);
+  const editingAgentPins = useMemo(() =>
+    editingAssistant ? globalPins.filter(p => p.agentId === editingAssistant.id) : [],
+    [globalPins, editingAssistant?.id]
+  );
 
   const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings }).length, [activeAssistant, userProfile, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings]);
 
@@ -622,7 +614,6 @@ export default function App() {
       if (e.metaKey && e.shiftKey && e.key === 'K') {
         e.preventDefault();
         setForcedTool('workspace');
-        showToast('⌘⇧K — Next message will search Knowledge');
         return;
       }
       if (e.key === 'Escape') {
@@ -1077,7 +1068,7 @@ export default function App() {
           toolUsed = 'Web Search';
       } else if (activeAssistant.tools?.local_workspace && /code|file|folder|project|repository|read|workspace|local|note|notes|memo|memos|memory|know|remember|recall|saved|wrote|knowledge|goal|goals|decision|research/i.test(inputLower)) {
           toolUsed = 'Knowledge Search';
-      } else if (activeAssistant.tools?.web_search && /search|weather|news|who is|what is|find|how/i.test(inputLower)) {
+      } else if (activeAssistant.tools?.web_search && /search|weather|news|who is|what is|find|how/i.test(inputLower) && !/\b(my|me|i |we |our |remember|nickname|about me|call me|for me|suggest.*for me|give me)\b/i.test(inputLower)) {
           toolUsed = 'Web Search';
       } else if (activeAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
           toolUsed = 'Calendar';
@@ -1095,7 +1086,7 @@ export default function App() {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: activeAssistant?.id ?? null, maxResults: hwProfile?.rag_results ?? 5, snippetChars: hwProfile?.rag_snippet_chars ?? 400 }
+                         'search_knowledge_semantic', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: activeAssistant?.id ?? null, maxResults: hwProfile?.rag_results ?? 5, snippetChars: hwProfile?.rag_snippet_chars ?? 400 }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
@@ -1193,10 +1184,7 @@ export default function App() {
         setMessages(prev => ({ ...prev, [chatId]: prev[chatId].filter(m => m.id !== toolMsgId) }));
         
         if (toolData) {
-            setMessages(prev => ({
-                ...prev,
-                [chatId]: prev[chatId].map(m => m.id === userMsg.id ? { ...m, content: m.content + toolData } : m)
-            }));
+            // Only inject toolData into the LLM payload — never into stored messages (avoids SYSTEM NOTE bleed in chat bubbles)
             messagesForLLM = history.map(m => m.id === userMsg.id ? { ...m, content: m.content + toolData } : m);
         }
       }
@@ -1360,7 +1348,8 @@ export default function App() {
     const elements = [];
     if (attachedFiles?.length > 0) elements.push(<div key="files" className="flex flex-wrap gap-2 mb-3">{attachedFiles.map((f: any, i: number) => f.isImage ? <img key={i} src={f.content} alt={f.name} className="h-32 object-cover rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700" /> : <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-white/20 rounded-xl border border-white/30 text-[10px] font-bold text-white shadow-sm"><FileText className="w-3.5 h-3.5" />{f.name}</div>)}</div>);
     if (typeof rawText !== 'string') return elements;
-    if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={() => setShowMemmoPanel(true)} /></div>;
+    const openFileInPanel = (path?: string) => { setShowMemmoPanel(true); setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'memos' : 'pins'); };
+    if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} /></div>;
 
     // --- Deep Thinking Parser ---
     let displayContent = rawText;
@@ -1382,7 +1371,7 @@ export default function App() {
     const regex = /```(\w+)?\n([\s\S]*?)```/g;
     let lastIndex = 0, match;
     while ((match = regex.exec(displayContent)) !== null) {
-      if (match.index > lastIndex) elements.push(<FormattedText key={`t-${match.index}`} text={displayContent.slice(lastIndex, match.index)} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={() => setShowMemmoPanel(true)} />);
+      if (match.index > lastIndex) elements.push(<FormattedText key={`t-${match.index}`} text={displayContent.slice(lastIndex, match.index)} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} />);
       const lang = (match[1] ?? 'text').toLowerCase(), code = match[2].trim();
       
       if (lang === 'task' || lang === 'todo') {
@@ -1426,11 +1415,11 @@ export default function App() {
       }
       lastIndex = regex.lastIndex;
     }
-    if (lastIndex < displayContent.length) elements.push(<FormattedText key="t-end" text={displayContent.slice(lastIndex)} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={() => setShowMemmoPanel(true)} />);
+    if (lastIndex < displayContent.length) elements.push(<FormattedText key="t-end" text={displayContent.slice(lastIndex)} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} />);
     
     // --- Render Sources Shelf ---
     if (sources && sources.length > 0 && msg.role === 'bot') {
-       elements.push(<SourcesTray key={`sources-${msg.id}`} sources={sources} onOpenFile={() => setShowMemmoPanel(true)} />);
+       elements.push(<SourcesTray key={`sources-${msg.id}`} sources={sources} onOpenFile={openFileInPanel} />);
     }
 
     return elements;
@@ -1455,22 +1444,18 @@ export default function App() {
       case 'think':
         setIsDeepThinking(true);
         setInput('');
-        showToast('Deep thinking ON for next message');
         break;
       case 'search':
         setForcedTool('search');
         setInput('');
-        showToast('Next message will force Web Search');
         break;
-      case 'workspace':
+      case 'knowledge':
         setForcedTool('workspace');
         setInput('');
-        showToast('Next message will force Knowledge Search');
         break;
       case 'plan':
         setIsPlanMode(true);
         setInput('');
-        showToast('Plan mode ON for next message');
         break;
       case 'memo':
         setShowMemoCompose(true);
@@ -1579,17 +1564,27 @@ export default function App() {
         onClose={() => setShowMemmoPanel(false)}
         pinnedMessages={activeAgentPinnedMessageObjects}
         agentId={activeAssistant?.id ?? 'default'}
-        onUnpin={(chatId, msgId) =>
+        onUnpin={async (chatId, msgId) => {
+          await saveGlobalPins(globalPins.filter(p => p.msgId !== msgId));
           setMessages(prev => ({
             ...prev,
             [chatId]: (prev[chatId] ?? []).map(m =>
               m.id === msgId ? { ...m, isPinned: false } : m
             ),
-          }))
-        }
+          }));
+        }}
         onCompose={() => { setShowMemmoPanel(false); setShowMemoCompose(true); }}
         agentForgePath={agentForgePath}
         onToast={showToast}
+        initialTab={memmoPanelTab}
+        pinnedTokenEstimate={Math.round(agentPinnedMessagesForPrompt.join('').length / 4)}
+        onDeleteFile={async (path) => {
+          const result = await invoke<{ ok: boolean; error?: string }>('delete_memory_file', { path });
+          if (!result.ok) {
+            showToast(`Delete failed: ${result.error}`);
+            throw new Error(result.error);
+          }
+        }}
       />
 
       {showMemoCompose && (
@@ -1949,7 +1944,15 @@ export default function App() {
                                   <button onClick={() => { navigator.clipboard.writeText(msg.content); showToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
                                   {msg.role === 'bot' && !isGenerating && <button onClick={() => toggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
                                   <button onClick={() => { addTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
-                                  <button onClick={() => setMessages(prev => ({ ...prev, [activeChatId as string]: prev[activeChatId as string].map(m => m.id === msg.id ? { ...m, isPinned: !m.isPinned } : m) }))} className={`p-1.5 rounded-md transition-all ${msg.isPinned ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Pin to Memory (Agent KB)"><Pin className="w-3.5 h-3.5" /></button>
+                                  <button onClick={async () => {
+                                    const isPinned = globalPins.some(p => p.msgId === msg.id);
+                                    if (!isPinned) {
+                                      await saveGlobalPins([...globalPins, { id: msg.id, chatId: activeChatId as string, msgId: msg.id, agentId: activeAssistant.id, content: msg.content, savedAt: Date.now() }]);
+                                    } else {
+                                      await saveGlobalPins(globalPins.filter(p => p.msgId !== msg.id));
+                                    }
+                                    setMessages(prev => ({ ...prev, [activeChatId as string]: prev[activeChatId as string].map(m => m.id === msg.id ? { ...m, isPinned: !isPinned } : m) }));
+                                  }} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Pin to Memory (Agent KB)"><Pin className="w-3.5 h-3.5" /></button>
                                </div>
                              )}
                           </div>
@@ -2061,6 +2064,7 @@ export default function App() {
                           enabledTools={activeAssistant?.tools ?? {}}
                         />
                       )}
+                    {/* Textarea */}
                     <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
                       <textarea
                         value={input}
@@ -2079,26 +2083,32 @@ export default function App() {
                           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
                         }}
                         placeholder={models.length === 0 ? 'Connect an LLM to start...' : generationMode === 'code' ? 'What application should I build?' : generationMode === 'doc' ? 'What document should I draft?' : generationMode === 'image' ? 'Describe the image you want to generate...' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
-                        className="w-full bg-transparent p-4 pr-32 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
+                        className="w-full bg-transparent p-4 pr-16 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
                       <div className="absolute right-2 bottom-2 flex items-center gap-1.5 bg-white/90 dark:bg-neutral-950/90 backdrop-blur px-1.5 py-1 rounded-xl">
-                        {!isGenerating && models.length > 0 && <button onClick={toggleListening} className={`p-2 transition-colors rounded-lg ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-4 h-4 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-                        <button onClick={() => setIsDeepThinking(v => !v)} className={`p-2 rounded-lg transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8] dark:bg-[#9EADC8]/20 dark:text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-4 h-4" /></button>
-                        <button onClick={() => setIsPlanMode(v => !v)} className={`p-2 rounded-lg transition-all ${isPlanMode ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-4 h-4" /></button>
-                        {activeAssistant?.tools?.local_workspace && (
-                          <button onClick={() => { setForcedTool(t => t === 'workspace' ? null : 'workspace'); }} className={`p-2 rounded-lg transition-all ${forcedTool === 'workspace' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Agent Knowledge (⌘⇧K)"><Database className="w-4 h-4" /></button>
-                        )}
-                        {activeAssistant?.tools?.web_search && (
-                          <button onClick={() => { setForcedTool(t => t === 'search' ? null : 'search'); }} className={`p-2 rounded-lg transition-all ${forcedTool === 'search' ? 'bg-[#6A829E] text-white' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Web"><Globe className="w-4 h-4" /></button>
-                        )}
                         {!isGenerating && input.trim() && models.length > 0 && <button onClick={handleEnhancePrompt} disabled={isEnhancing} className={`p-2 text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20 rounded-lg transition-all ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-4 h-4" /></button>}
-                        {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-[#6A829E] transition-colors" title="Attach Document"><Paperclip className="w-4 h-4" /></button>}
-                        <input type="file" ref={fileInputRef} onChange={handleChatFileUpload} className="hidden" />
                         <button
                           onClick={isGenerating ? handleStop : handleSendMessage}
                           disabled={(llamaServerPid !== null && llamaPaused) || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0))}
                           className={`p-2.5 rounded-xl transition-all ${isGenerating ? 'bg-[#C98A8A] text-white shadow-lg animate-pulse hover:bg-[#B57070]' : 'bg-[#9EADC8] text-[#2C3E50] shadow-lg hover:bg-[#899AB5] active:scale-90 disabled:opacity-50'}`}>
                           {isGenerating ? <Square className="w-4 h-4 fill-[#2C3E50]" /> : <Send className="w-4 h-4" />}
                         </button>
+                      </div>
+                    </div>
+
+                    {/* Mode bar + attachment — below textarea */}
+                    <div className="flex items-center gap-1 px-0.5 pt-1.5">
+                      <button onClick={() => setIsDeepThinking(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-3.5 h-3.5" /><span>Think</span></button>
+                      <button onClick={() => setIsPlanMode(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${isPlanMode ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-3.5 h-3.5" /><span>Plan</span></button>
+                      {activeAssistant?.tools?.local_workspace && (
+                        <button onClick={() => { setForcedTool(t => t === 'workspace' ? null : 'workspace'); }} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${forcedTool === 'workspace' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Knowledge Base Search (⌘⇧K)"><Database className="w-3.5 h-3.5" /><span>Knowledge</span></button>
+                      )}
+                      {activeAssistant?.tools?.web_search && (
+                        <button onClick={() => { setForcedTool(t => t === 'search' ? null : 'search'); }} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${forcedTool === 'search' ? 'bg-[#6A829E] text-white' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Web"><Globe className="w-3.5 h-3.5" /><span>Search</span></button>
+                      )}
+                      <div className="flex items-center gap-1 ml-auto">
+                        {models.length > 0 && <button onClick={toggleListening} className={`p-1.5 rounded-lg transition-all ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
+                        {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-1.5 text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
+                        <input type="file" ref={fileInputRef} onChange={handleChatFileUpload} className="hidden" />
                       </div>
                     </div>
                     </div>{/* end relative wrapper for slash palette */}
@@ -2340,7 +2350,7 @@ export default function App() {
                               editingAgentPins.map((pin: any, i: number) => (
                                  <div key={i} className="flex items-start justify-between p-3 rounded-xl border border-white dark:border-neutral-700 bg-white/50 dark:bg-neutral-800/50 group hover:border-[#D4AA7D] transition-all shadow-sm">
                                     <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300 pr-4 break-words">{pin.content}</p>
-                                    <button onClick={() => setMessages(prev => ({ ...prev, [pin.chatId]: prev[pin.chatId].map(m => m.id === pin.msgId ? { ...m, isPinned: false } : m) }))} className="p-1 text-neutral-400 hover:text-[#C98A8A] hover:bg-white dark:hover:bg-neutral-800 rounded-md opacity-0 group-hover:opacity-100 transition-all shrink-0" title="Delete Memory"><Trash2 className="w-4 h-4" /></button>
+                                    <button onClick={async () => { await saveGlobalPins(globalPins.filter(p => p.msgId !== pin.msgId)); setMessages(prev => ({ ...prev, [pin.chatId]: (prev[pin.chatId] ?? []).map(m => m.id === pin.msgId ? { ...m, isPinned: false } : m) })); }} className="p-1 text-neutral-400 hover:text-[#C98A8A] hover:bg-white dark:hover:bg-neutral-800 rounded-md opacity-0 group-hover:opacity-100 transition-all shrink-0" title="Delete Memory"><Trash2 className="w-4 h-4" /></button>
                                  </div>
                               ))
                            )}

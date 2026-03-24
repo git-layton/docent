@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Pin, PinOff, FileText, Pencil, FolderOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, Pin, PinOff, FileText, Pencil, FolderOpen, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { KnowledgeDropZone } from './KnowledgeDropZone';
 
 interface PinnedMessage {
@@ -17,6 +17,9 @@ interface Props {
   agentForgePath: string;
   agentId: string;
   onToast: (msg: string) => void;
+  initialTab?: Tab;
+  onDeleteFile?: (path: string) => Promise<void>;
+  pinnedTokenEstimate?: number;
 }
 
 type Tab = 'pins' | 'memos' | 'library';
@@ -26,13 +29,17 @@ interface FileEntry {
   path: string;
 }
 
-export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, agentId, onToast }: Props) {
-  const [tab, setTab] = useState<Tab>('pins');
+export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, agentId, onToast, initialTab, onDeleteFile, pinnedTokenEstimate }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'pins');
   const [memos, setMemos] = useState<FileEntry[]>([]);
   const [library, setLibrary] = useState<FileEntry[]>([]);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<Record<string, string>>({});
   const [loadingFiles, setLoadingFiles] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && initialTab) setTab(initialTab);
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (isOpen && agentForgePath) {
@@ -173,6 +180,12 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                 <span className="text-[10px]">📌</span>
                 <span className="text-[10px] font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">Always in context — injected into every message</span>
               </div>
+              {pinnedTokenEstimate !== undefined && pinnedTokenEstimate > 1500 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#C98A8A]/10 border border-[#C98A8A]/30 rounded-xl">
+                  <span className="text-[10px]">⚠️</span>
+                  <span className="text-[10px] font-bold text-[#C98A8A]">Context Bloat — ~{pinnedTokenEstimate.toLocaleString()} tokens pinned. Unpin some to reduce RAM pressure.</span>
+                </div>
+              )}
               {pinnedMessages.length === 0 ? (
                 <div className="text-center py-12 text-neutral-400">
                   <Pin className="w-8 h-8 mx-auto mb-3 opacity-30" />
@@ -231,18 +244,34 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
               ) : (
                 memos.map(f => (
                   <div key={f.path} className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-                    <button
-                      onClick={() => toggleFile(f.path)}
-                      className="w-full flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors"
-                    >
-                      {expandedFile === f.path
-                        ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                        : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                      }
-                      <span className="flex-1 text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate">
-                        {f.name}
-                      </span>
-                    </button>
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => toggleFile(f.path)}
+                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors min-w-0"
+                      >
+                        {expandedFile === f.path
+                          ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        }
+                        <span className="flex-1 text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate">
+                          {f.name}
+                        </span>
+                      </button>
+                      {onDeleteFile && (
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Permanently delete "${f.name}" from your Knowledge Base?\n\nThis removes it from the AI's memory and cannot be undone.`)) {
+                              setMemos(prev => prev.filter(m => m.path !== f.path));
+                              try { await onDeleteFile(f.path); } catch { loadMemos(); }
+                            }
+                          }}
+                          className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
+                          title="Delete memo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                     {expandedFile === f.path && (
                       <div className="px-4 pb-3 pt-0">
                         <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed whitespace-pre-wrap font-mono">
@@ -282,19 +311,35 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
               ) : (
                 library.map(f => (
                   <div key={f.path} className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-                    <button
-                      onClick={() => toggleFile(f.path)}
-                      className="w-full flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors"
-                    >
-                      {expandedFile === f.path
-                        ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                        : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                      }
-                      <FileText className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                      <span className="flex-1 text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate">
-                        {f.name}
-                      </span>
-                    </button>
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => toggleFile(f.path)}
+                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors min-w-0"
+                      >
+                        {expandedFile === f.path
+                          ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        }
+                        <FileText className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        <span className="flex-1 text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate">
+                          {f.name}
+                        </span>
+                      </button>
+                      {onDeleteFile && (
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Permanently delete "${f.name}" from your Knowledge Base?\n\nThis removes it from the AI's memory and cannot be undone.`)) {
+                              setLibrary(prev => prev.filter(l => l.path !== f.path));
+                              try { await onDeleteFile(f.path); } catch { loadLibrary(); }
+                            }
+                          }}
+                          className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
+                          title="Delete file"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                     {expandedFile === f.path && (
                       <div className="px-4 pb-3 pt-0">
                         <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed whitespace-pre-wrap font-mono">

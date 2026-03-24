@@ -28,4 +28,7 @@ tauri-plugin-fs = "2"
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 sysinfo = "0.30"
+notify = "6"
+rusqlite = { version = "0.31", features = ["bundled"] }
+fastembed = "4"
 
