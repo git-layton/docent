@@ -85,6 +85,29 @@ struct HardwareProfile {
     rag_snippet_chars: usize,
 }
 
+// ─── Dream Cycle Data Structures ─────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct DreamItem {
+    pub id: String,
+    pub r#type: String,              // "merged" | "updated" | "pruned"
+    pub description: String,
+    pub archive_paths: Vec<String>,
+    pub original_paths: Vec<String>, // parallel to archive_paths — where to restore
+    pub target_file: Option<String>,
+    pub git_commits: Vec<String>,
+    pub undone: bool,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct DreamLog {
+    pub timestamp: String,
+    pub dismissed: bool,
+    pub tokens_saved: u32,
+    pub items_count: u32,
+    pub items: Vec<DreamItem>,
+}
+
 #[tauri::command]
 fn get_hardware_profile() -> HardwareProfile {
     let mut sys = System::new_all();
@@ -222,7 +245,7 @@ fn init_knowledge_core() -> serde_json::Value {
 
     let _ = std::fs::write(
         root.join(".gitignore"),
-        ".DS_Store\n*.tmp\n.obsidian/workspace\n.obsidian/workspace.json\n.index.db\n.lancedb/\n.models/\n",
+        ".DS_Store\n*.tmp\n.obsidian/workspace\n.obsidian/workspace.json\n.index.db\n.lancedb/\n.models/\nworkspace/.dream_logs/\n",
     );
 
     let _ = std::fs::write(
@@ -318,6 +341,7 @@ fn walk_md_files(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, Strin
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
+            if path.file_name().map(|n| n == ".archive").unwrap_or(false) { continue; }
             if let Ok(mut sub) = walk_md_files(&path) {
                 out.append(&mut sub);
             }
@@ -558,6 +582,7 @@ fn walk_and_queue_dir(dir: &std::path::Path, conn: &rusqlite::Connection) -> u32
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         if name.starts_with('.') { continue; }
         if path.is_dir() {
+            if name == ".archive" { continue; }
             count += walk_and_queue_dir(&path, conn);
         } else if matches!(path.extension().and_then(|e| e.to_str()), Some("md") | Some("txt")) {
             if queue_file_for_index(conn, &path.to_string_lossy()).is_ok() {
@@ -665,6 +690,8 @@ fn init_file_watcher() {
                     for path in event.paths {
                         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
                         if name.starts_with('.') { continue; }
+                        // Skip files inside .archive/ — soft-deleted, not for indexing
+                        if path.components().any(|c| c.as_os_str() == ".archive") { continue; }
                         if matches!(path.extension().and_then(|e| e.to_str()), Some("md") | Some("txt")) {
                             debounce.insert(path, now);
                         }
@@ -685,6 +712,39 @@ fn init_file_watcher() {
             for path in ready {
                 debounce.remove(&path);
                 let _ = queue_file_for_index(&conn, &path.to_string_lossy());
+            }
+        }
+    });
+
+    // 7-day archive purge thread: hard-deletes files in .archive/ older than 7 days
+    let purge_root = knowledge_core_path();
+    std::thread::spawn(move || {
+        let seven_days = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+            let archive_dir = purge_root.join("memory").join(".archive");
+            if !archive_dir.exists() { continue; }
+            let Ok(entries) = std::fs::read_dir(&archive_dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() { continue; }
+                let Ok(meta) = path.metadata() else { continue };
+                let Ok(modified) = meta.modified() else { continue };
+                if modified.elapsed().unwrap_or_default() < seven_days { continue; }
+                // Remove from vector index
+                if let Ok(conn) = open_index_db() {
+                    let ps = path.to_string_lossy().to_string();
+                    let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path=?1", rusqlite::params![&ps]);
+                    let _ = conn.execute("DELETE FROM pending_index WHERE file_path=?1", rusqlite::params![&ps]);
+                }
+                // git rm + commit; fall back to fs::remove_file
+                if let Ok(rel) = path.strip_prefix(&purge_root) {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let git_ok = run_git(&["rm", "--force", &rel.to_string_lossy()], &purge_root)
+                        .and_then(|_| run_git(&["commit", "-m", &format!("purge: 7-day expiry {name}")], &purge_root))
+                        .is_ok();
+                    if !git_ok { let _ = std::fs::remove_file(&path); }
+                }
             }
         }
     });
@@ -845,6 +905,149 @@ fn delete_memory_file(path: String) -> serde_json::Value {
     serde_json::json!({ "ok": true, "method": "fs" })
 }
 
+// ─── 5.1 Dream Cycle: Archive / Restore / Log ────────────────────────────────
+
+#[tauri::command]
+fn archive_memory_file(path: String) -> serde_json::Value {
+    let file_path = std::path::Path::new(&path);
+    let repo_root = knowledge_core_path();
+
+    if !file_path.starts_with(&repo_root) {
+        return serde_json::json!({ "ok": false, "error": "Path outside Knowledge Core" });
+    }
+
+    let archive_dir = repo_root.join("memory").join(".archive");
+    let _ = std::fs::create_dir_all(&archive_dir);
+
+    let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("md");
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    let archive_name = format!("{}-{}.{}", stem, secs, ext);
+    let archive_path = archive_dir.join(&archive_name);
+
+    // Remove from vector index
+    if let Ok(conn) = open_index_db() {
+        let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&path]);
+        let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&path]);
+    }
+
+    if std::fs::rename(file_path, &archive_path).is_err() {
+        // Cross-device fallback
+        if let Err(e) = std::fs::copy(file_path, &archive_path) {
+            return serde_json::json!({ "ok": false, "error": e.to_string() });
+        }
+        let _ = std::fs::remove_file(file_path);
+    }
+
+    let archive_str = archive_path.to_string_lossy().to_string();
+    let _ = run_git(&["add", "-A"], &repo_root);
+    let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let commit_out = run_git(&["commit", "-m", &format!("archive: {name}")], &repo_root)
+        .unwrap_or_default();
+    let commit_hash = commit_out.lines().find(|l| l.starts_with('[')).map(|l| l.to_string());
+
+    serde_json::json!({ "ok": true, "archive_path": archive_str, "commit": commit_hash })
+}
+
+#[tauri::command]
+fn restore_archived_file(archive_path: String, original_path: String) -> serde_json::Value {
+    let src = std::path::Path::new(&archive_path);
+    let repo_root = knowledge_core_path();
+
+    if !src.starts_with(&repo_root) {
+        return serde_json::json!({ "ok": false, "error": "Path outside Knowledge Core" });
+    }
+
+    let dest = if original_path.is_empty() {
+        // Fallback: strip timestamp suffix, restore to memos/
+        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("restored");
+        let clean_stem = stem.rsplit_once('-').map(|(s, _)| s).unwrap_or(stem);
+        repo_root.join("memory").join("memos").join(format!("{}.md", clean_stem))
+    } else {
+        std::path::PathBuf::from(&original_path)
+    };
+
+    let _ = std::fs::create_dir_all(dest.parent().unwrap_or(&repo_root));
+
+    if std::fs::rename(src, &dest).is_err() {
+        if let Err(e) = std::fs::copy(src, &dest) {
+            return serde_json::json!({ "ok": false, "error": e.to_string() });
+        }
+        let _ = std::fs::remove_file(src);
+    }
+
+    // Re-queue for indexing
+    if let Ok(conn) = open_index_db() {
+        let p = dest.to_string_lossy().to_string();
+        let _ = queue_file_for_index(&conn, &p);
+    }
+
+    let _ = run_git(&["add", "-A"], &repo_root);
+    let name = dest.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let commit_out = run_git(&["commit", "-m", &format!("restore: {name}")], &repo_root)
+        .unwrap_or_default();
+    let commit_hash = commit_out.lines().find(|l| l.starts_with('[')).map(|l| l.to_string());
+
+    serde_json::json!({ "ok": true, "restored_path": dest.to_string_lossy(), "commit": commit_hash })
+}
+
+#[tauri::command]
+fn read_dream_log() -> serde_json::Value {
+    let log_path = knowledge_core_path()
+        .join("workspace").join(".dream_logs").join("latest.json");
+    if !log_path.exists() { return serde_json::json!({ "exists": false }); }
+    match std::fs::read_to_string(&log_path) {
+        Ok(s) => match serde_json::from_str::<serde_json::Value>(&s) {
+            Ok(v) => serde_json::json!({ "exists": true, "log": v }),
+            Err(_) => serde_json::json!({ "exists": false }),
+        },
+        Err(_) => serde_json::json!({ "exists": false }),
+    }
+}
+
+#[tauri::command]
+fn write_dream_log(log: serde_json::Value) -> serde_json::Value {
+    let log_dir = knowledge_core_path().join("workspace").join(".dream_logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let log_path = log_dir.join("latest.json");
+    match std::fs::write(&log_path, serde_json::to_string_pretty(&log).unwrap_or_default()) {
+        Ok(_) => serde_json::json!({ "ok": true }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+}
+
+#[tauri::command]
+fn list_archive_files() -> serde_json::Value {
+    let archive_dir = knowledge_core_path().join("memory").join(".archive");
+    if !archive_dir.exists() { return serde_json::json!({ "files": [] }); }
+
+    let mut files: Vec<serde_json::Value> = match std::fs::read_dir(&archive_dir) {
+        Ok(entries) => entries.flatten().filter_map(|e| {
+            let path = e.path();
+            if !path.is_file() { return None; }
+            let name = path.file_name()?.to_string_lossy().to_string();
+            let modified_secs = path.metadata().ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs()).unwrap_or(0);
+            Some(serde_json::json!({
+                "name": name,
+                "path": path.to_string_lossy(),
+                "modified_secs": modified_secs
+            }))
+        }).collect(),
+        Err(_) => vec![],
+    };
+
+    files.sort_by(|a, b| {
+        b["modified_secs"].as_u64().unwrap_or(0)
+            .cmp(&a["modified_secs"].as_u64().unwrap_or(0))
+    });
+
+    serde_json::json!({ "files": files })
+}
+
 // ─── Legacy ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -896,6 +1099,11 @@ pub fn run() {
             get_index_status,
             search_knowledge_semantic,
             delete_memory_file,
+            archive_memory_file,
+            restore_archived_file,
+            read_dream_log,
+            write_dream_log,
+            list_archive_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

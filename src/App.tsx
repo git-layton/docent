@@ -19,6 +19,10 @@ import { MemmoPanel } from './components/MemmoPanel';
 import { MemoComposeModal } from './components/MemoComposeModal';
 import { SourcesTray } from './components/SourcesTray';
 import { SlashCommandPalette, SLASH_COMMANDS, type SlashCommand } from './components/SlashCommandPalette';
+import { MorningBriefingBanner } from './components/MorningBriefingBanner';
+import { DreamDigestModal } from './components/DreamDigestModal';
+import type { DreamLog, DreamItem } from './components/DreamDigestModal';
+import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse } from './services/dreamer';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -290,9 +294,19 @@ export default function App() {
 
   // Memmo Engine states
   const [showMemmoPanel, setShowMemmoPanel] = useState(false);
-  const [memmoPanelTab, setMemmoPanelTab] = useState<'pins' | 'memos' | 'library'>('pins');
+  const [memmoPanelTab, setMemmoPanelTab] = useState<'pins' | 'memos' | 'library' | 'archive'>('pins');
   const [showMemoCompose, setShowMemoCompose] = useState(false);
   const [agentForgePath, setAgentForgePath] = useState('');
+
+  // Dream Cycle states
+  const [dreamLog, setDreamLog] = useState<DreamLog | null>(null);
+  const [showDreamBanner, setShowDreamBanner] = useState(false);
+  const [showDreamDigest, setShowDreamDigest] = useState(false);
+  const [isDreamRunning, setIsDreamRunning] = useState(false);
+  const isDreamRunningRef = useRef(false);
+  const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeAssistantRef = useRef<any>(null);
+  const selectedModelRef = useRef<any>(null);
 
   // Persistent pins (survive reload via Tauri Store)
   const [globalPins, setGlobalPins] = useState<Array<{ id: string; chatId: string; msgId: string; agentId: string; content: string; savedAt: number }>>([]);
@@ -471,6 +485,22 @@ export default function App() {
         if (kc.path) setAgentForgePath(kc.path);
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
+      // Check for undismissed Dream Cycle log from a previous cycle
+      try {
+        const logResult = await invoke<{ exists: boolean; log?: DreamLog }>('read_dream_log');
+        if (logResult.exists && logResult.log && !logResult.log.dismissed) {
+          setDreamLog(logResult.log);
+          setShowDreamBanner(true);
+        }
+      } catch (e) { console.warn('[AgentForge] Dream log check skipped:', e); }
+
+      // 24h Dream Cycle auto-timer
+      dreamTimerRef.current = setInterval(() => {
+        if (activeAssistantRef.current && selectedModelRef.current) {
+          runDreamCycle(activeAssistantRef.current, selectedModelRef.current);
+        }
+      }, 24 * 60 * 60 * 1000);
+
       // Hardware profile — scale thresholds to total installed RAM
       invoke<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number }>('get_hardware_profile')
         .then(setHwProfile)
@@ -525,7 +555,10 @@ export default function App() {
       } catch (e) { /* Tauri not available in browser dev */ }
     }, 2000);
 
-    return () => clearInterval(ramInterval);
+    return () => {
+      clearInterval(ramInterval);
+      if (dreamTimerRef.current) clearInterval(dreamTimerRef.current);
+    };
   }, []);
 
   // Soft-reaper: when cooling down and generation finishes naturally → apply SIGSTOP
@@ -563,7 +596,11 @@ export default function App() {
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const activeMessages = useMemo(() => activeChatId ? (messages[activeChatId] ?? []) : [], [messages, activeChatId]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
-  
+
+  // Keep dream cycle refs in sync (avoids stale closures in 24h timer)
+  useEffect(() => { activeAssistantRef.current = activeAssistant; }, [activeAssistant]);
+  useEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
+
   // Extract pinned messages explicitly scoped to the active assistant — derived from globalPins (persistent)
   const activeAgentPinnedMessageObjects = useMemo(() =>
     globalPins.filter(p => p.agentId === activeAssistant.id),
@@ -1038,6 +1075,206 @@ export default function App() {
     const result = await generateTextResponse({ messages: [{ id: generateId('msg'), role: 'user', content: text }], modelConfig: selectedModel, profile: '', attachedDocs: [], agent, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: agentPinnedMessagesForPrompt, onChunk: null, signal: null, appSettings, integrations, models });
     onResult(result.replace(/```[a-zA-Z]*\n/g, '').replace(/```/g, '').trim());
   };
+
+  // ─── Dream Cycle ─────────────────────────────────────────────────────────────
+
+  const runDreamCycle = useCallback(async (agent?: any, model?: any) => {
+    const activeAgent = agent ?? activeAssistant;
+    const activeModel = model ?? selectedModel;
+    if (isDreamRunningRef.current || !agentForgePath || !activeAgent || !activeModel) return;
+    isDreamRunningRef.current = true;
+    setIsDreamRunning(true);
+    showToast('🌙 Dream Cycle starting...');
+
+    try {
+      // Read all memory files for the active agent
+      const { readDir, readTextFile } = await import('@tauri-apps/plugin-fs');
+      const agentMemoryPath = `${agentForgePath}/memory/${activeAgent.id}`;
+      const memoryFiles: { path: string; name: string; content: string }[] = [];
+
+      async function collectFiles(dir: string): Promise<void> {
+        try {
+          const entries = await readDir(dir);
+          for (const e of entries) {
+            if (e.isFile && (e.name?.endsWith('.md') || e.name?.endsWith('.txt'))) {
+              const fullPath = `${dir}/${e.name}`;
+              const content = await readTextFile(fullPath).catch(() => '');
+              if (content.trim()) memoryFiles.push({ path: fullPath, name: e.name!, content });
+            } else if (e.isDirectory && e.name !== '.archive') {
+              await collectFiles(`${dir}/${e.name}`);
+            }
+          }
+        } catch { /* directory might not exist */ }
+      }
+      await collectFiles(agentMemoryPath);
+
+      if (memoryFiles.length < 2) {
+        showToast('🌙 Dream Cycle: Not enough files to consolidate yet.');
+        return;
+      }
+
+      // Token guard — cap context to 75% of model limit
+      const modelLimit = activeModel.contextLimit ?? 32000;
+      const maxChars = Math.floor(modelLimit * 0.75) * 4;
+
+      // Call the Dreamer LLM
+      const systemPrompt = buildDreamerSystemPrompt();
+      const userMessage = buildDreamerUserMessage(memoryFiles, activeAgent.name, maxChars);
+
+      const rawResponse = await generateTextResponse({
+        messages: [{ id: 'dream-1', role: 'user', content: userMessage }],
+        modelConfig: activeModel,
+        agent: { prompt: systemPrompt, tools: {}, trainingDocs: [] },
+        profile: '',
+        tasks: [],
+        attachedDocs: [],
+        agentPinnedMessages: [],
+        mode: 'text',
+        canvasContent: null,
+        isDeepThinking: false,
+        onChunk: null,
+        signal: null,
+        appSettings,
+        integrations,
+        models,
+      });
+
+      const plan = parseDreamerResponse(rawResponse);
+      if (!plan || plan.operations.length === 0) {
+        showToast('🌙 Dream Cycle: Nothing to consolidate right now.');
+        return;
+      }
+
+      // Validate paths — only operate on files we actually read
+      const knownPaths = new Set(memoryFiles.map(f => f.path));
+
+      const dreamItems: DreamItem[] = [];
+      let totalTokensSaved = 0;
+
+      for (const op of plan.operations) {
+        const id = `dream-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        try {
+          if (op.type === 'merge') {
+            // Validate all source paths exist
+            const validSources = op.source_paths.filter((p: string) => knownPaths.has(p));
+            if (validSources.length < 2) continue;
+
+            // Write merged content
+            const targetFullPath = op.target_path.startsWith('/') ? op.target_path : `${agentForgePath}/${op.target_path}`;
+            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
+              path: targetFullPath,
+              content: op.merged_content,
+              commit_message: `dream: merge — ${op.description}`,
+              agent_id: activeAgent.id,
+              context_tokens: null,
+              ram_state: null,
+            });
+            const gitCommits: string[] = [];
+            if (writeResult.commit) gitCommits.push(writeResult.commit);
+
+            // Archive source files
+            const archivePaths: string[] = [];
+            const originalPaths: string[] = [...validSources];
+            for (const srcPath of validSources) {
+              const ar = await invoke<{ ok: boolean; archive_path: string; commit: string }>('archive_memory_file', { path: srcPath });
+              if (ar.ok) {
+                archivePaths.push(ar.archive_path);
+                if (ar.commit) gitCommits.push(ar.commit);
+                const f = memoryFiles.find(m => m.path === srcPath);
+                totalTokensSaved += Math.round((f?.content.length ?? 0) / 4);
+              }
+            }
+            // Subtract tokens for merged file
+            totalTokensSaved = Math.max(0, totalTokensSaved - Math.round(op.merged_content.length / 4));
+
+            dreamItems.push({ id, type: 'merged', description: op.description, archive_paths: archivePaths, original_paths: originalPaths, target_file: targetFullPath, git_commits: gitCommits, undone: false });
+
+          } else if (op.type === 'prune') {
+            if (!knownPaths.has(op.source_path)) continue;
+            const ar = await invoke<{ ok: boolean; archive_path: string; commit: string }>('archive_memory_file', { path: op.source_path });
+            if (ar.ok) {
+              const f = memoryFiles.find(m => m.path === op.source_path);
+              totalTokensSaved += Math.round((f?.content.length ?? 0) / 4);
+              dreamItems.push({ id, type: 'pruned', description: op.description, archive_paths: [ar.archive_path], original_paths: [op.source_path], git_commits: ar.commit ? [ar.commit] : [], undone: false });
+            }
+
+          } else if (op.type === 'update') {
+            if (!knownPaths.has(op.target_path)) continue;
+            const f = memoryFiles.find(m => m.path === op.target_path);
+            const oldLen = f?.content.length ?? 0;
+            const newLen = op.updated_content.length;
+            // Skip if more than 50% smaller (risky update)
+            if (newLen < oldLen * 0.5) continue;
+            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
+              path: op.target_path,
+              content: op.updated_content,
+              commit_message: `dream: update — ${op.description}`,
+              agent_id: activeAgent.id,
+              context_tokens: null,
+              ram_state: null,
+            });
+            dreamItems.push({ id, type: 'updated', description: op.description, archive_paths: [], original_paths: [], target_file: op.target_path, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
+          }
+        } catch (opErr) {
+          console.warn('[DreamCycle] Operation failed:', opErr);
+        }
+      }
+
+      // Save dream log and show banner
+      const log: DreamLog = {
+        timestamp: new Date().toISOString(),
+        dismissed: false,
+        tokens_saved: totalTokensSaved,
+        items_count: dreamItems.length,
+        items: dreamItems,
+      };
+      await invoke('write_dream_log', { log });
+      setDreamLog(log);
+      setShowDreamBanner(true);
+      showToast(`🌙 Dream Cycle complete — ${dreamItems.length} change${dreamItems.length !== 1 ? 's' : ''} made`);
+
+    } catch (e: any) {
+      console.error('[DreamCycle] Error:', e);
+      showToast(`Dream Cycle failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setIsDreamRunning(false);
+      isDreamRunningRef.current = false;
+    }
+  }, [agentForgePath, activeAssistant, selectedModel, appSettings, integrations, models]);
+
+  const dismissDreamBanner = useCallback(async () => {
+    if (!dreamLog) return;
+    const updated = { ...dreamLog, dismissed: true };
+    setDreamLog(updated);
+    setShowDreamBanner(false);
+    await invoke('write_dream_log', { log: updated }).catch(() => {});
+  }, [dreamLog]);
+
+  const undoDreamItem = useCallback(async (itemId: string) => {
+    if (!dreamLog) return;
+    const item = dreamLog.items.find(i => i.id === itemId);
+    if (!item || item.undone) return;
+    try {
+      for (let i = 0; i < item.archive_paths.length; i++) {
+        const archivePath = item.archive_paths[i];
+        const originalPath = item.original_paths[i] ?? '';
+        await invoke('restore_archived_file', { archive_path: archivePath, original_path: originalPath });
+      }
+      // For merges: delete the merged target file
+      if (item.type === 'merged' && item.target_file) {
+        await invoke('delete_memory_file', { path: item.target_file }).catch(() => {});
+      }
+      const updatedItems = dreamLog.items.map(i => i.id === itemId ? { ...i, undone: true } : i);
+      const updatedLog = { ...dreamLog, items: updatedItems };
+      setDreamLog(updatedLog);
+      await invoke('write_dream_log', { log: updatedLog }).catch(() => {});
+      showToast('Undo applied — file restored.');
+    } catch (e: any) {
+      showToast(`Undo failed: ${e?.message ?? String(e)}`);
+    }
+  }, [dreamLog]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
 
   const handleEnhancePrompt = async () => {
     if (!input.trim() || isEnhancing || !selectedModel) return;
@@ -1559,6 +1796,22 @@ export default function App() {
         />
       )}
 
+      {showDreamBanner && dreamLog && (
+        <MorningBriefingBanner
+          log={dreamLog}
+          onViewDigest={() => { setShowDreamDigest(true); dismissDreamBanner(); }}
+          onDismiss={dismissDreamBanner}
+        />
+      )}
+
+      {showDreamDigest && dreamLog && (
+        <DreamDigestModal
+          log={dreamLog}
+          onClose={() => setShowDreamDigest(false)}
+          onUndo={undoDreamItem}
+        />
+      )}
+
       <MemmoPanel
         isOpen={showMemmoPanel}
         onClose={() => setShowMemmoPanel(false)}
@@ -1584,6 +1837,13 @@ export default function App() {
             showToast(`Delete failed: ${result.error}`);
             throw new Error(result.error);
           }
+        }}
+        onRestoreArchive={async (archivePath) => {
+          const result = await invoke<{ ok: boolean; error?: string }>('restore_archived_file', {
+            archive_path: archivePath,
+            original_path: '',
+          });
+          if (!result.ok) throw new Error(result.error ?? 'Restore failed');
         }}
       />
 
@@ -2320,6 +2580,16 @@ export default function App() {
                          <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">View →</button>
                        </div>
                        <AgentMemosSection forgePath={agentForgePath} agentId={editingAssistant?.id ?? 'default'} onCompose={() => { setShowAssistantSettings(false); setShowMemoCompose(true); }} />
+                       <button
+                         onClick={() => { setShowAssistantSettings(false); runDreamCycle(); }}
+                         disabled={isDreamRunning}
+                         className="w-full flex items-center justify-center gap-2 py-2.5 mt-3 rounded-xl border border-[#4A5D75]/30 text-xs font-bold text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#4A5D75]/10 transition-all disabled:opacity-50"
+                       >
+                         {isDreamRunning
+                           ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Dream Cycle Running...</>
+                           : <><Brain className="w-3.5 h-3.5" /> Run Dream Cycle</>
+                         }
+                       </button>
                      </div>
 
                      {/* Knowledge Library */}

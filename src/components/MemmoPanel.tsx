@@ -1,11 +1,18 @@
 import { useState, useEffect } from 'react';
-import { X, Pin, PinOff, FileText, Pencil, FolderOpen, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { X, Pin, PinOff, FileText, Pencil, FolderOpen, ChevronDown, ChevronRight, Trash2, RotateCcw, Archive } from 'lucide-react';
 import { KnowledgeDropZone } from './KnowledgeDropZone';
 
 interface PinnedMessage {
   chatId: string;
   msgId: string;
   content: string;
+}
+
+interface ArchiveEntry {
+  name: string;
+  path: string;
+  modified_secs: number;
 }
 
 interface Props {
@@ -20,22 +27,34 @@ interface Props {
   initialTab?: Tab;
   onDeleteFile?: (path: string) => Promise<void>;
   pinnedTokenEstimate?: number;
+  onRestoreArchive?: (archivePath: string) => Promise<void>;
 }
 
-type Tab = 'pins' | 'memos' | 'library';
+type Tab = 'pins' | 'memos' | 'library' | 'archive';
 
 interface FileEntry {
   name: string;
   path: string;
 }
 
-export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, agentId, onToast, initialTab, onDeleteFile, pinnedTokenEstimate }: Props) {
+function formatAge(modifiedSecs: number): string {
+  const diffSecs = Math.floor(Date.now() / 1000) - modifiedSecs;
+  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
+  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
+  const days = Math.floor(diffSecs / 86400);
+  return `${days}d ago`;
+}
+
+export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, agentId, onToast, initialTab, onDeleteFile, pinnedTokenEstimate, onRestoreArchive }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pins');
   const [memos, setMemos] = useState<FileEntry[]>([]);
   const [library, setLibrary] = useState<FileEntry[]>([]);
+  const [archiveFiles, setArchiveFiles] = useState<ArchiveEntry[]>([]);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<Record<string, string>>({});
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [restoringPath, setRestoringPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen && initialTab) setTab(initialTab);
@@ -45,6 +64,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
     if (isOpen && agentForgePath) {
       if (tab === 'memos') loadMemos();
       if (tab === 'library') loadLibrary();
+      if (tab === 'archive') loadArchive();
     }
   }, [isOpen, tab, agentForgePath, agentId]);
 
@@ -59,7 +79,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
         for (const e of entries) {
           if (e.isFile && e.name?.endsWith('.md') && e.name !== 'tasks.md') {
             files.push({ name: e.name.replace('.md', ''), path: `${dirPath}/${e.name}` });
-          } else if (e.isDirectory) {
+          } else if (e.isDirectory && e.name !== '.archive') {
             await collect(`${dirPath}/${e.name}`);
           }
         }
@@ -96,6 +116,18 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
     }
   }
 
+  async function loadArchive() {
+    setLoadingFiles(true);
+    try {
+      const result = await invoke<{ files: ArchiveEntry[] }>('list_archive_files');
+      setArchiveFiles(result.files ?? []);
+    } catch (e: any) {
+      onToast(`Could not load archive: ${e?.message ?? String(e)}`);
+    } finally {
+      setLoadingFiles(false);
+    }
+  }
+
   async function toggleFile(path: string) {
     if (expandedFile === path) { setExpandedFile(null); return; }
     setExpandedFile(path);
@@ -115,10 +147,25 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
     return content.slice(0, 100).replace(/\n/g, ' ').trim() + (content.length > 100 ? '…' : '');
   }
 
+  async function handleRestoreArchive(archivePath: string) {
+    if (!onRestoreArchive) return;
+    setRestoringPath(archivePath);
+    try {
+      await onRestoreArchive(archivePath);
+      setArchiveFiles(prev => prev.filter(f => f.path !== archivePath));
+      onToast('File restored from archive.');
+    } catch (e: any) {
+      onToast(`Restore failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setRestoringPath(null);
+    }
+  }
+
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'pins',    label: 'Pins',    count: pinnedMessages.length },
     { id: 'memos',   label: 'Memos'   },
     { id: 'library', label: 'Library' },
+    { id: 'archive', label: 'Archive', count: archiveFiles.length || undefined },
   ];
 
   return (
@@ -218,9 +265,12 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Memos tab ── */}
           {tab === 'memos' && (
             <div className="p-4 space-y-2">
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
-                <span className="text-[10px]">🔍</span>
-                <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — retrieved by Knowledge Search</span>
+              <div className="flex flex-col gap-0.5 px-2.5 py-1.5 mb-2 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px]">🔍</span>
+                  <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — retrieved by Knowledge Search</span>
+                </div>
+                <p className="text-[9px] text-neutral-400 pl-4">Deleting a memo removes it permanently from disk and from your agent's memory.</p>
               </div>
               <button
                 onClick={onCompose}
@@ -258,18 +308,31 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                         </span>
                       </button>
                       {onDeleteFile && (
-                        <button
-                          onClick={async () => {
-                            if (window.confirm(`Permanently delete "${f.name}" from your Knowledge Base?\n\nThis removes it from the AI's memory and cannot be undone.`)) {
-                              setMemos(prev => prev.filter(m => m.path !== f.path));
-                              try { await onDeleteFile(f.path); } catch { loadMemos(); }
-                            }
-                          }}
-                          className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
-                          title="Delete memo"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        pendingDelete === f.path ? (
+                          <div className="flex items-center gap-1 mr-2 shrink-0">
+                            <span className="text-[10px] font-bold text-red-400">Delete?</span>
+                            <button
+                              onClick={async () => {
+                                setPendingDelete(null);
+                                setMemos(prev => prev.filter(m => m.path !== f.path));
+                                try { await onDeleteFile(f.path); } catch { loadMemos(); }
+                              }}
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors"
+                            >Yes</button>
+                            <button
+                              onClick={() => setPendingDelete(null)}
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors"
+                            >No</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setPendingDelete(f.path)}
+                            className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
+                            title="Delete memo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )
                       )}
                     </div>
                     {expandedFile === f.path && (
@@ -290,9 +353,12 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Library tab ── */}
           {tab === 'library' && (
             <div className="p-4 space-y-3">
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
-                <span className="text-[10px]">🔍</span>
-                <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — shared across all agents</span>
+              <div className="flex flex-col gap-0.5 px-2.5 py-1.5 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px]">🔍</span>
+                  <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — shared across all agents</span>
+                </div>
+                <p className="text-[9px] text-neutral-400 pl-4">Deleting a file removes it permanently from disk and from all agents' memory.</p>
               </div>
               <KnowledgeDropZone
                 agentForgePath={agentForgePath}
@@ -326,17 +392,93 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                         </span>
                       </button>
                       {onDeleteFile && (
+                        pendingDelete === f.path ? (
+                          <div className="flex items-center gap-1 mr-2 shrink-0">
+                            <span className="text-[10px] font-bold text-red-400">Delete?</span>
+                            <button
+                              onClick={async () => {
+                                setPendingDelete(null);
+                                setLibrary(prev => prev.filter(l => l.path !== f.path));
+                                try { await onDeleteFile(f.path); } catch { loadLibrary(); }
+                              }}
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors"
+                            >Yes</button>
+                            <button
+                              onClick={() => setPendingDelete(null)}
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors"
+                            >No</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setPendingDelete(f.path)}
+                            className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
+                            title="Delete file"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )
+                      )}
+                    </div>
+                    {expandedFile === f.path && (
+                      <div className="px-4 pb-3 pt-0">
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed whitespace-pre-wrap font-mono">
+                          {fileContent[f.path]
+                            ? previewText(fileContent[f.path])
+                            : 'Loading...'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* ── Archive tab ── */}
+          {tab === 'archive' && (
+            <div className="p-4 space-y-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#C98A8A]/10 border border-[#C98A8A]/30 rounded-xl">
+                <span className="text-[10px]">🗂️</span>
+                <span className="text-[10px] font-bold text-[#C98A8A]">
+                  Soft-deleted by Dream Cycle — purged after 7 days
+                </span>
+              </div>
+
+              {loadingFiles ? (
+                <div className="text-center py-8 text-neutral-400 text-xs">Loading...</div>
+              ) : archiveFiles.length === 0 ? (
+                <div className="text-center py-12 text-neutral-400">
+                  <Archive className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                  <p className="text-xs">Archive is empty.</p>
+                  <p className="text-xs mt-1 opacity-70">Files archived by Dream Cycle appear here.</p>
+                </div>
+              ) : (
+                archiveFiles.map(f => (
+                  <div key={f.path} className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => toggleFile(f.path)}
+                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors min-w-0"
+                      >
+                        {expandedFile === f.path
+                          ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        }
+                        <span className="flex-1 text-xs font-bold text-neutral-500 dark:text-neutral-400 truncate">
+                          {f.name}
+                        </span>
+                        <span className="text-[9px] text-neutral-400 shrink-0 ml-1">
+                          {formatAge(f.modified_secs)}
+                        </span>
+                      </button>
+                      {onRestoreArchive && (
                         <button
-                          onClick={async () => {
-                            if (window.confirm(`Permanently delete "${f.name}" from your Knowledge Base?\n\nThis removes it from the AI's memory and cannot be undone.`)) {
-                              setLibrary(prev => prev.filter(l => l.path !== f.path));
-                              try { await onDeleteFile(f.path); } catch { loadLibrary(); }
-                            }
-                          }}
-                          className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
-                          title="Delete file"
+                          onClick={() => handleRestoreArchive(f.path)}
+                          disabled={restoringPath === f.path}
+                          className="p-2 mr-2 text-neutral-300 hover:text-emerald-500 transition-colors shrink-0 disabled:opacity-50"
+                          title="Restore file"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <RotateCcw className={`w-3.5 h-3.5 ${restoringPath === f.path ? 'animate-spin' : ''}`} />
                         </button>
                       )}
                     </div>
