@@ -96,7 +96,8 @@ export default function SpotlightBar() {
     const unsub = win.onFocusChanged(({ payload: focused }) => {
       if (focused) {
         inputRef.current?.focus();
-        // Tab was pre-fetched in Rust before window showed — fetch immediately
+        // Clear stale tab first — then populate from Rust cache (pre-fetched before show)
+        setTab(null);
         fetchTab();
       }
     });

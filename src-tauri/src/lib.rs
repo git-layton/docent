@@ -1100,20 +1100,28 @@ return txt"#;
     }
 
     // ── Safari fallback ───────────────────────────────────────────────────────
-    let safari = r#"tell application "Safari"
+    let safari_info = r#"tell application "Safari"
     set t to name of current tab of front window
     set u to URL of current tab of front window
+end tell
+return t & "|||URL|||" & u"#;
+
+    if let Some(raw) = run_osascript(safari_info) {
+        if let Some((title, url)) = raw.split_once("|||URL|||") {
+            let url = url.trim().to_string();
+            if !url.is_empty() {
+                // Best-effort: Safari requires Develop > Allow Remote Automation for JS
+                let safari_text = r#"tell application "Safari"
     set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
 end tell
-return t & "|||URL|||" & u & "|||TEXT|||" & txt"#;
-
-    if let Some(raw) = run_osascript(safari) {
-        let title = raw.split("|||URL|||").next().unwrap_or("").trim().to_string();
-        let rest = raw.split("|||URL|||").nth(1).unwrap_or("");
-        let url = rest.split("|||TEXT|||").next().unwrap_or("").trim().to_string();
-        let text = rest.split("|||TEXT|||").nth(1).unwrap_or("").trim().to_string();
-        if !url.is_empty() {
-            return serde_json::json!({ "title": title, "url": url, "text": text });
+return txt"#;
+                let text = run_osascript(safari_text).unwrap_or_default();
+                return serde_json::json!({
+                    "title": title.trim(),
+                    "url": url,
+                    "text": text,
+                });
+            }
         }
     }
 
