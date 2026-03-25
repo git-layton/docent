@@ -1057,32 +1057,52 @@ fn greet(name: &str) -> String {
 
 // ─── Spotlight Commands ───────────────────────────────────────────────────────
 
+fn try_browser_script(script: &str) -> Option<(String, String, String)> {
+    let output = std::process::Command::new("osascript")
+        .args(["-e", script])
+        .output()
+        .ok()?;
+    if !output.status.success() { return None; }
+    let raw = String::from_utf8_lossy(&output.stdout).to_string();
+    let title = raw.split("\n---URL---\n").next()?.trim().to_string();
+    let rest = raw.split("\n---URL---\n").nth(1).unwrap_or("");
+    let url = rest.split("\n---TEXT---\n").next().unwrap_or("").trim().to_string();
+    let text = rest.split("\n---TEXT---\n").nth(1).unwrap_or("").trim().to_string();
+    if url.is_empty() { return None; }
+    Some((title, url, text))
+}
+
 #[tauri::command]
 fn get_active_tab() -> serde_json::Value {
-    let script = r#"tell application "Google Chrome"
+    // Try Chrome first (supports JS text extraction)
+    let chrome = r#"tell application "Google Chrome"
     set t to title of active tab of front window
     set u to URL of active tab of front window
     set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
 end tell
 return t & "\n---URL---\n" & u & "\n---TEXT---\n" & txt"#;
-    let output = std::process::Command::new("osascript")
-        .args(["-e", script])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let raw = String::from_utf8_lossy(&o.stdout).to_string();
-            let title = raw.split("\n---URL---\n").next().unwrap_or("").trim().to_string();
-            let rest = raw.split("\n---URL---\n").nth(1).unwrap_or("");
-            let url = rest.split("\n---TEXT---\n").next().unwrap_or("").trim().to_string();
-            let text = rest.split("\n---TEXT---\n").nth(1).unwrap_or("").trim().to_string();
-            serde_json::json!({ "title": title, "url": url, "text": text })
+
+    // Arc fallback (no JS execution via AppleScript)
+    let arc = r#"tell application "Arc"
+    set t to title of active tab of front window
+    set u to URL of active tab of front window
+end tell
+return t & "\n---URL---\n" & u & "\n---TEXT---\n" & """#;
+
+    // Safari fallback (supports JS via do JavaScript)
+    let safari = r#"tell application "Safari"
+    set t to name of current tab of front window
+    set u to URL of current tab of front window
+    set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
+end tell
+return t & "\n---URL---\n" & u & "\n---TEXT---\n" & txt"#;
+
+    for script in [chrome, arc, safari] {
+        if let Some((title, url, text)) = try_browser_script(script) {
+            return serde_json::json!({ "title": title, "url": url, "text": text });
         }
-        Ok(o) => {
-            let err = String::from_utf8_lossy(&o.stderr).to_string();
-            serde_json::json!({ "title": "", "url": "", "text": "", "error": err })
-        }
-        Err(e) => serde_json::json!({ "title": "", "url": "", "text": "", "error": e.to_string() })
     }
+    serde_json::json!({ "title": "", "url": "", "text": "", "error": "no supported browser found" })
 }
 
 #[tauri::command]

@@ -57,7 +57,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   persist: async () => {
     const { chats, messages } = get();
-    await db.set('chats', chats);
-    await db.set('messages', messages);
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const activeChats = chats.filter(chat => {
+      const msgs = messages[chat.id] ?? [];
+      const last = msgs[msgs.length - 1];
+      const ts = last?.timestamp ?? last?.createdAt ?? Infinity;
+      return typeof ts === 'number' ? ts > cutoff : true;
+    });
+    const prunedMessages: Record<string, any[]> = {};
+    for (const chat of activeChats) {
+      prunedMessages[chat.id] = (messages[chat.id] ?? []).slice(-200);
+    }
+    await db.set('chats', activeChats);
+    await db.set('messages', prunedMessages);
   },
 }));
