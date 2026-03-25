@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit } from '@tauri-apps/api/event';
-import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw } from 'lucide-react';
+import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu } from 'lucide-react';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 
@@ -39,6 +39,9 @@ export default function SpotlightBar() {
   const [agents, setAgents] = useState<any[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const [models, setModels] = useState<any[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState('');
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const [isDeepThinking, setIsDeepThinking] = useState(false);
   const [mode, setMode] = useState<Mode>('text');
   const [useTab, setUseTab] = useState(true);
@@ -47,10 +50,12 @@ export default function SpotlightBar() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
 
   const activeChat = chats.find(c => c.id === activeChatId) ?? null;
   const activeMessages = activeChatId ? (messages[activeChatId] ?? []) : [];
   const selectedAgent = agents.find(a => a.id === selectedAgentId) ?? agents[0] ?? null;
+  const selectedModel = models.find(m => m.id === selectedModelId) ?? models[0] ?? null;
 
   const fetchTab = useCallback(async () => {
     setTabFetching(true);
@@ -72,12 +77,18 @@ export default function SpotlightBar() {
   useEffect(() => {
     (async () => {
       await db.init();
-      const [storedChats, storedMessages, storedAgents] = await Promise.all([
+      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings] = await Promise.all([
         db.get('chats', []),
         db.get('messages', {}),
         db.get('assistants', []),
+        db.get('models', []),
+        db.get('settings', {}),
       ]);
       if (storedAgents.length) { setAgents(storedAgents); setSelectedAgentId(storedAgents[0].id); }
+      if (storedModels.length) {
+        setModels(storedModels);
+        setSelectedModelId(storedSettings.selectedModelId || storedModels[0]?.id || '');
+      }
       setChats(storedChats);
       setMessages(storedMessages);
       if (storedChats.length) setActiveChatId(storedChats[0].id); // most recent first
@@ -107,6 +118,7 @@ export default function SpotlightBar() {
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (!agentPickerRef.current?.contains(e.target as Node)) setShowAgentPicker(false);
+      if (!modelPickerRef.current?.contains(e.target as Node)) setShowModelPicker(false);
       if (!historyRef.current?.contains(e.target as Node)) setShowHistory(false);
     };
     document.addEventListener('mousedown', h);
@@ -198,13 +210,7 @@ export default function SpotlightBar() {
         }
       } catch { if (useTab && tab) tabContext = `User was previously viewing: ${tab.title} (${tab.url})`; }
 
-      await db.init();
-      const [models, settings]: [any[], any] = await Promise.all([
-        db.get('models', []),
-        db.get('settings', {}),
-      ]);
-      const modelId = selectedAgent?.defaultModelId || settings.selectedModelId || '';
-      const modelConfig = models.find((m: any) => m.id === modelId) ?? models[0];
+      const modelConfig = selectedModel ?? models[0] ?? null;
       if (!modelConfig) throw new Error('No model configured — open Agent Forge settings first.');
 
       const basePrompt = selectedAgent?.prompt || 'You are a helpful AI assistant. Be concise and well-structured.';
@@ -291,8 +297,8 @@ export default function SpotlightBar() {
           boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
         }}
       >
-        {/* ── Header ── */}
-        <div data-tauri-drag-region className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.06] cursor-grab active:cursor-grabbing shrink-0">
+        {/* ── Row 1: Title bar ── */}
+        <div data-tauri-drag-region className="flex items-center gap-1.5 px-3 pt-2 pb-1.5 cursor-grab active:cursor-grabbing shrink-0">
 
           {/* Chat name + history */}
           <div className="relative flex items-center gap-1 min-w-0" ref={historyRef}>
@@ -307,7 +313,7 @@ export default function SpotlightBar() {
               </div>
             ) : (
               <button onClick={() => setShowHistory(v => !v)}
-                className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white px-1.5 py-1 rounded-lg hover:bg-white/5 transition-all max-w-[160px]">
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white px-1.5 py-1 rounded-lg hover:bg-white/5 transition-all max-w-[200px]">
                 <Clock className="w-3 h-3 text-slate-500 shrink-0" />
                 <span className="truncate">{activeChat?.name ?? 'Chats'}</span>
                 <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" />
@@ -358,15 +364,31 @@ export default function SpotlightBar() {
 
           <div className="flex-1" data-tauri-drag-region />
 
+          {/* New chat */}
+          <button onClick={startNewChat}
+            className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/20 transition-all shrink-0">
+            <Plus className="w-3 h-3" /> New chat
+          </button>
+
+          {/* Close */}
+          <button onClick={() => getCurrentWindow().hide()}
+            className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-950/30 transition-all">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* ── Row 2: Controls toolbar ── */}
+        <div className="flex items-center gap-1 px-3 pb-2 shrink-0 border-b border-white/[0.06] overflow-x-auto">
+
           {/* Agent picker */}
           <div className="relative shrink-0" ref={agentPickerRef}>
-            <button onClick={e => { e.stopPropagation(); setShowAgentPicker(v => !v); }}
-              className="flex items-center gap-1 text-[10px] font-bold text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-white/5 transition-all whitespace-nowrap">
-              {truncate(selectedAgent?.name ?? 'Agent', 14)}
-              <ChevronDown className="w-3 h-3" />
+            <button onClick={e => { e.stopPropagation(); setShowAgentPicker(v => !v); setShowModelPicker(false); }}
+              className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-white/5 transition-all whitespace-nowrap">
+              {truncate(selectedAgent?.name ?? 'Agent', 12)}
+              <ChevronDown className="w-3 h-3 opacity-50" />
             </button>
             {showAgentPicker && (
-              <div className="absolute right-0 top-full mt-1 w-52 rounded-xl overflow-hidden z-50 shadow-2xl"
+              <div className="absolute left-0 top-full mt-1 w-52 rounded-xl overflow-hidden z-50 shadow-2xl"
                 style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.35)' }}>
                 {agents.map(agent => (
                   <button key={agent.id} onClick={() => { setSelectedAgentId(agent.id); setShowAgentPicker(false); }}
@@ -379,9 +401,35 @@ export default function SpotlightBar() {
             )}
           </div>
 
+          <span className="text-slate-700 select-none shrink-0">·</span>
+
+          {/* Model picker */}
+          <div className="relative shrink-0" ref={modelPickerRef}>
+            <button onClick={e => { e.stopPropagation(); setShowModelPicker(v => !v); setShowAgentPicker(false); }}
+              className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-white/5 transition-all whitespace-nowrap">
+              <Cpu className="w-3 h-3 opacity-50" />
+              {truncate(selectedModel?.name ?? selectedModel?.id ?? 'Model', 14)}
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </button>
+            {showModelPicker && (
+              <div className="absolute left-0 top-full mt-1 w-56 rounded-xl overflow-hidden z-50 shadow-2xl"
+                style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.35)' }}>
+                {models.map(model => (
+                  <button key={model.id} onClick={() => { setSelectedModelId(model.id); setShowModelPicker(false); }}
+                    className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${model.id === selectedModelId ? 'text-indigo-300 bg-indigo-900/30' : 'text-slate-300 hover:bg-white/5'}`}>
+                    {model.name ?? model.id}
+                    {model.provider && <span className="block text-[10px] text-slate-500">{model.provider}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 shrink-0" />
+
           {/* Think */}
           <button onClick={() => setIsDeepThinking(v => !v)}
-            className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-all ${isDeepThinking ? 'text-violet-300 bg-violet-900/20 border-violet-700/30' : 'text-slate-600 border-transparent hover:text-slate-400 hover:bg-white/5'}`}>
+            className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-all shrink-0 ${isDeepThinking ? 'text-violet-300 bg-violet-900/20 border-violet-700/30' : 'text-slate-600 border-transparent hover:text-slate-400 hover:bg-white/5'}`}>
             <Brain className="w-3 h-3" /> Think
           </button>
 
@@ -394,18 +442,6 @@ export default function SpotlightBar() {
               </button>
             ))}
           </div>
-
-          {/* New chat */}
-          <button onClick={startNewChat}
-            className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/20 transition-all shrink-0">
-            <Plus className="w-3 h-3" /> New chat
-          </button>
-
-          {/* Close */}
-          <button onClick={() => getCurrentWindow().hide()}
-            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 hover:bg-white/5 transition-all">
-            <X className="w-3.5 h-3.5" />
-          </button>
         </div>
 
         {/* ── Messages ── */}

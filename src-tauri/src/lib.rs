@@ -1179,8 +1179,8 @@ pub fn run() {
                 .visible(false)
                 .skip_taskbar(true)
                 .center()
-                .inner_size(700.0, 420.0)
-                .min_inner_size(420.0, 220.0)
+                .inner_size(560.0, 400.0)
+                .min_inner_size(360.0, 200.0)
                 .resizable(true)
                 .build()?;
 
