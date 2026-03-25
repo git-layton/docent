@@ -9,6 +9,10 @@ struct LlamaState {
     pid: Mutex<Option<u32>>,
 }
 
+// Caches the active tab captured BEFORE the spotlight window steals OS focus
+#[derive(Default)]
+struct TabCache(Mutex<Option<serde_json::Value>>);
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn knowledge_core_path() -> std::path::PathBuf {
@@ -1057,52 +1061,73 @@ fn greet(name: &str) -> String {
 
 // ─── Spotlight Commands ───────────────────────────────────────────────────────
 
-fn try_browser_script(script: &str) -> Option<(String, String, String)> {
+fn run_osascript(script: &str) -> Option<String> {
     let output = std::process::Command::new("osascript")
         .args(["-e", script])
         .output()
         .ok()?;
     if !output.status.success() { return None; }
-    let raw = String::from_utf8_lossy(&output.stdout).to_string();
-    let title = raw.split("\n---URL---\n").next()?.trim().to_string();
-    let rest = raw.split("\n---URL---\n").nth(1).unwrap_or("");
-    let url = rest.split("\n---TEXT---\n").next().unwrap_or("").trim().to_string();
-    let text = rest.split("\n---TEXT---\n").nth(1).unwrap_or("").trim().to_string();
-    if url.is_empty() { return None; }
-    Some((title, url, text))
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-#[tauri::command]
-fn get_active_tab() -> serde_json::Value {
-    // Try Chrome first (supports JS text extraction)
-    let chrome = r#"tell application "Google Chrome"
+/// Detects the active browser tab. Called before the spotlight window is shown
+/// so the browser still has OS focus at the time of the call.
+fn detect_active_tab() -> serde_json::Value {
+    // ── Chrome: title+URL (no JS required) ───────────────────────────────────
+    let chrome_info = r#"tell application "Google Chrome"
     set t to title of active tab of front window
     set u to URL of active tab of front window
+end tell
+return t & "|||URL|||" & u"#;
+
+    if let Some(raw) = run_osascript(chrome_info) {
+        if let Some((title, url)) = raw.split_once("|||URL|||") {
+            let url = url.trim().to_string();
+            if !url.is_empty() {
+                // Best-effort: try to get page text via JS (disabled by default in Chrome)
+                let chrome_text = r#"tell application "Google Chrome"
     set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
 end tell
-return t & "\n---URL---\n" & u & "\n---TEXT---\n" & txt"#;
+return txt"#;
+                let text = run_osascript(chrome_text).unwrap_or_default();
+                return serde_json::json!({
+                    "title": title.trim(),
+                    "url": url,
+                    "text": text,
+                });
+            }
+        }
+    }
 
-    // Arc fallback (no JS execution via AppleScript)
-    let arc = r#"tell application "Arc"
-    set t to title of active tab of front window
-    set u to URL of active tab of front window
-end tell
-return t & "\n---URL---\n" & u & "\n---TEXT---\n" & """#;
-
-    // Safari fallback (supports JS via do JavaScript)
+    // ── Safari fallback ───────────────────────────────────────────────────────
     let safari = r#"tell application "Safari"
     set t to name of current tab of front window
     set u to URL of current tab of front window
     set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
 end tell
-return t & "\n---URL---\n" & u & "\n---TEXT---\n" & txt"#;
+return t & "|||URL|||" & u & "|||TEXT|||" & txt"#;
 
-    for script in [chrome, arc, safari] {
-        if let Some((title, url, text)) = try_browser_script(script) {
+    if let Some(raw) = run_osascript(safari) {
+        let title = raw.split("|||URL|||").next().unwrap_or("").trim().to_string();
+        let rest = raw.split("|||URL|||").nth(1).unwrap_or("");
+        let url = rest.split("|||TEXT|||").next().unwrap_or("").trim().to_string();
+        let text = rest.split("|||TEXT|||").nth(1).unwrap_or("").trim().to_string();
+        if !url.is_empty() {
             return serde_json::json!({ "title": title, "url": url, "text": text });
         }
     }
+
     serde_json::json!({ "title": "", "url": "", "text": "", "error": "no supported browser found" })
+}
+
+#[tauri::command]
+fn get_active_tab(cache: tauri::State<TabCache>) -> serde_json::Value {
+    // Return pre-fetched value from shortcut handler (captured before focus steal)
+    if let Some(cached) = cache.0.lock().unwrap().take() {
+        return cached;
+    }
+    // Fallback: live detection (used by the manual refresh button)
+    detect_active_tab()
 }
 
 #[tauri::command]
@@ -1128,6 +1153,7 @@ pub fn run() {
         .manage(LlamaState {
             pid: Mutex::new(None),
         })
+        .manage(TabCache::default())
         .setup(|app| {
             // ── Spotlight window ──────────────────────────────────────────────
             let spotlight_url = if cfg!(debug_assertions) {
@@ -1145,8 +1171,9 @@ pub fn run() {
                 .visible(false)
                 .skip_taskbar(true)
                 .center()
-                .inner_size(700.0, 80.0)
-                .resizable(false)
+                .inner_size(700.0, 420.0)
+                .min_inner_size(420.0, 220.0)
+                .resizable(true)
                 .build()?;
 
             // ── Global shortcut: Cmd+Shift+F ──────────────────────────────────
@@ -1161,6 +1188,9 @@ pub fn run() {
                             if w.is_visible().unwrap_or(false) {
                                 let _ = w.hide();
                             } else {
+                                // Capture active tab NOW — browser still has focus at this point
+                                let tab = detect_active_tab();
+                                *handle.state::<TabCache>().0.lock().unwrap() = Some(tab);
                                 let _ = w.show();
                                 let _ = w.set_focus();
                             }

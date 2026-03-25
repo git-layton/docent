@@ -5,9 +5,15 @@
   "windows": ["spotlight"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-size",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
     "store:default",
     "fs:allow-home-read-recursive",
     "fs:allow-home-write-recursive",
+    "http:default",
     {
       "identifier": "http:allow-fetch",
       "allow": [
