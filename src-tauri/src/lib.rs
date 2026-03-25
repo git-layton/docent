@@ -1055,6 +1055,51 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// ─── Spotlight Commands ───────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_active_tab() -> serde_json::Value {
+    let script = r#"tell application "Google Chrome"
+    set t to title of active tab of front window
+    set u to URL of active tab of front window
+    set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
+end tell
+return t & "\n---URL---\n" & u & "\n---TEXT---\n" & txt"#;
+    let output = std::process::Command::new("osascript")
+        .args(["-e", script])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let raw = String::from_utf8_lossy(&o.stdout).to_string();
+            let title = raw.split("\n---URL---\n").next().unwrap_or("").trim().to_string();
+            let rest = raw.split("\n---URL---\n").nth(1).unwrap_or("");
+            let url = rest.split("\n---TEXT---\n").next().unwrap_or("").trim().to_string();
+            let text = rest.split("\n---TEXT---\n").nth(1).unwrap_or("").trim().to_string();
+            serde_json::json!({ "title": title, "url": url, "text": text })
+        }
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr).to_string();
+            serde_json::json!({ "title": "", "url": "", "text": "", "error": err })
+        }
+        Err(e) => serde_json::json!({ "title": "", "url": "", "text": "", "error": e.to_string() })
+    }
+}
+
+#[tauri::command]
+fn show_spotlight(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("spotlight") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+#[tauri::command]
+fn hide_spotlight(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("spotlight") {
+        let _ = w.hide();
+    }
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1063,12 +1108,55 @@ pub fn run() {
         .manage(LlamaState {
             pid: Mutex::new(None),
         })
+        .setup(|app| {
+            // ── Spotlight window ──────────────────────────────────────────────
+            let spotlight_url = if cfg!(debug_assertions) {
+                tauri::WebviewUrl::External(
+                    "http://localhost:1420/?window=spotlight".parse().unwrap(),
+                )
+            } else {
+                tauri::WebviewUrl::App("/?window=spotlight".into())
+            };
+            tauri::WebviewWindowBuilder::new(app, "spotlight", spotlight_url)
+                .title("Forge Spotlight")
+                .transparent(true)
+                .decorations(false)
+                .always_on_top(true)
+                .visible(false)
+                .skip_taskbar(true)
+                .center()
+                .inner_size(700.0, 80.0)
+                .resizable(false)
+                .build()?;
+
+            // ── Global shortcut: Cmd+Shift+F ──────────────────────────────────
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            let handle = app.handle().clone();
+            app.global_shortcut().on_shortcut(
+                "CmdOrCtrl+Shift+F",
+                move |_app, _sc, event| {
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    if event.state() == ShortcutState::Pressed {
+                        if let Some(w) = handle.get_webview_window("spotlight") {
+                            if w.is_visible().unwrap_or(false) {
+                                let _ = w.hide();
+                            } else {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    }
+                },
+            )?;
+            Ok(())
+        })
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // Clean Exit hook: SIGCONT + SIGKILL the llama sidecar on window destroy
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -1104,6 +1192,9 @@ pub fn run() {
             read_dream_log,
             write_dream_log,
             list_archive_files,
+            get_active_tab,
+            show_spotlight,
+            hide_spotlight,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

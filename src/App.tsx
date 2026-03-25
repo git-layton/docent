@@ -1,16 +1,21 @@
 import './index.css';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Menu, Plus, Settings, Trash2, Send, Paperclip, X, RefreshCw, Bot, Wand2, Square, Code,
-  FileText, ChevronDown, Globe, Zap, Search, Pin, CalendarDays,
-  CheckCircle2, Circle, Clock, ListTodo, ChevronLeft, ChevronRight, LayoutList,
-  FileEdit, TerminalSquare, AlignLeft, ImageIcon, MapPin, Workflow, List, ShieldCheck,
-  AlertTriangle, Loader2, PlusCircle, Edit2, Brain, Activity, Save, UserPlus,
-  MessageSquare, GripVertical, Link, Edit3, BookOpen, UserCog, Mic, Volume2, VolumeX, Copy, Database, Download
+  X, Bot, Code,
+  FileText,
+  Clock, ListTodo,
+  AlignLeft, MapPin, Workflow,
+  AlertTriangle, Loader2, Activity, UserPlus,
 } from 'lucide-react';
 
 import { db } from './services/database';
 import { extractTextFromPDF } from './services/pdfParser';
+import { useChatStore } from './store/useChatStore';
+import { useAgentStore, DEFAULT_ASSISTANT } from './store/useAgentStore';
+import { useSettingsStore } from './store/useSettingsStore';
+import { useMemoryStore } from './store/useMemoryStore';
+import { useTaskStore } from './store/useTaskStore';
+import { useUIStore } from './store/useUIStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
 import { invoke } from '@tauri-apps/api/core';
@@ -18,418 +23,98 @@ import { NukeShieldModal } from './components/NukeShieldModal';
 import { MemmoPanel } from './components/MemmoPanel';
 import { MemoComposeModal } from './components/MemoComposeModal';
 import { SourcesTray } from './components/SourcesTray';
-import { SlashCommandPalette, SLASH_COMMANDS, type SlashCommand } from './components/SlashCommandPalette';
+import type { SlashCommand } from './components/SlashCommandPalette';
 import { MorningBriefingBanner } from './components/MorningBriefingBanner';
 import { DreamDigestModal } from './components/DreamDigestModal';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
 import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse } from './services/dreamer';
+import { AssistantSettingsModal } from './components/AssistantSettingsModal';
+import { ProfileSettingsModal } from './components/ProfileSettingsModal';
+import { ModelWizardModal } from './components/ModelWizardModal';
+import { AppSidebar } from './components/AppSidebar';
+import { CanvasPanel } from './components/CanvasPanel';
+import { ChatHeader } from './components/ChatHeader';
+import { PlannerPanel } from './components/PlannerPanel';
+import { MessageList } from './components/MessageList';
+import { ChatInputBar } from './components/ChatInputBar';
+import { TypingIndicator } from './components/ui/TypingIndicator';
+import { ThoughtProcess } from './components/ui/ThoughtProcess';
+import { FormattedText } from './components/ui/FormattedText';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB Limit
 
-const BOT_COLORS = [
-  { id: 'brand', bg: 'bg-[#2C3E50]', border: 'border-[#2C3E50]', text: 'text-[#9EADC8]' },
-  { id: 'amber', bg: 'bg-[#D4AA7D]', border: 'border-[#D4AA7D]', text: 'text-[#D4AA7D]' },
-  { id: 'rose', bg: 'bg-[#C98A8A]', border: 'border-[#C98A8A]', text: 'text-[#C98A8A]' },
-  { id: 'sage', bg: 'bg-[#9FBBAF]', border: 'border-[#9FBBAF]', text: 'text-[#9FBBAF]' },
-  { id: 'lavender', bg: 'bg-[#A89FBB]', border: 'border-[#A89FBB]', text: 'text-[#A89FBB]' },
-  { id: 'sky', bg: 'bg-[#9EADC8]', border: 'border-[#9EADC8]', text: 'text-[#9EADC8]' },
-  { id: 'mint', bg: 'bg-[#A9C8A1]', border: 'border-[#A9C8A1]', text: 'text-[#A9C8A1]' },
-  { id: 'peach', bg: 'bg-[#D9A098]', border: 'border-[#D9A098]', text: 'text-[#D9A098]' },
-  { id: 'slate', bg: 'bg-[#6A829E]', border: 'border-[#6A829E]', text: 'text-[#6A829E]' },
-  { id: 'blush', bg: 'bg-[#E3B5A4]', border: 'border-[#E3B5A4]', text: 'text-[#E3B5A4]' },
-  { id: 'sand', bg: 'bg-[#D4C3A3]', border: 'border-[#D4C3A3]', text: 'text-[#D4C3A3]' },
-  { id: 'olive', bg: 'bg-[#899C85]', border: 'border-[#899C85]', text: 'text-[#899C85]' },
-  { id: 'crimson', bg: 'bg-[#990000]', border: 'border-[#990000]', text: 'text-[#990000]' },
-  { id: 'teal', bg: 'bg-[#008080]', border: 'border-[#008080]', text: 'text-[#008080]' },
-  { id: 'indigo', bg: 'bg-[#4B0082]', border: 'border-[#4B0082]', text: 'text-[#4B0082]' },
-  { id: 'gold', bg: 'bg-[#DAA520]', border: 'border-[#DAA520]', text: 'text-[#DAA520]' },
-  { id: 'plum', bg: 'bg-[#DDA0DD]', border: 'border-[#DDA0DD]', text: 'text-[#DDA0DD]' },
-];
-
-const AVAILABLE_TOOLS = [
-  { id: 'web_search', name: 'Web Search', icon: Globe, desc: 'Allow agent to search the live internet.' },
-  { id: 'local_workspace', name: 'Knowledge Base', icon: Database, desc: "Search your Knowledge Base — memos, notes, and saved files." },
-  { id: 'calendar_sync', name: 'Local Planner', icon: CalendarDays, desc: 'Agent can add events & reminders to your local tasks.md planner.' }
-];
-
-const DEFAULT_ASSISTANT = {
-  id: 'f-default',
-  name: 'Assistant',
-  avatar: { type: 'color', color: 'brand' },
-  prompt: 'You are a helpful AI assistant.',
-  trainingDocs: [],
-  systemAccess: false,
-  tools: { web_search: false, calendar_sync: false, local_workspace: false },
-  defaultModelId: '',
-  defaultMode: 'text',
-  awareOfProfile: true,
-  isDefault: true,
-};
-
 // ─── Utility Helpers ──────────────────────────────────────────────────────────
 
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-const toLocalISODate = (dateObj: Date) => {
-  if (!dateObj) return null;
-  const offset = dateObj.getTimezoneOffset() * 60000;
-  return new Date(dateObj.getTime() - offset).toISOString().split('T')[0];
-};
 
-
-// ─── UI Sub-components ─────────────────────────────────────────────────────────
-
-const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
-  if (agent?.avatar?.type === 'image' && agent?.avatar?.value) {
-    return <img src={agent.avatar.value} alt={agent.name} className={`${containerClass} p-0 object-cover`} style={{ width: '2.25rem', height: '2.25rem' }} />;
-  }
-  const bg = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.bg ?? 'bg-[#4A5D75]';
-  return <div className={`${containerClass} ${bg} flex items-center justify-center shrink-0`}><Bot className={`${sizeClass} text-white`} /></div>;
-};
-
-const TypingIndicator = () => (
-  <div className="flex items-center gap-1.5 px-4 py-3 bg-neutral-100 dark:bg-neutral-800 rounded-2xl w-fit shadow-sm border border-neutral-200/50 dark:border-neutral-700/50 animate-in fade-in zoom-in duration-300">
-    {[0, 200, 400].map(delay => <div key={delay} className="w-1.5 h-1.5 bg-neutral-400 dark:bg-neutral-500 rounded-full" style={{ animation: `typingBounce 1.4s infinite ${delay}ms` }} />)}
-  </div>
-);
-
-const ThoughtProcess = ({ content, isStreaming }: any) => {
-  const [expanded, setExpanded] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (expanded && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [content, expanded]);
-
-  return (
-    <div className={`mb-4 rounded-2xl border transition-all duration-500 overflow-hidden ${isStreaming ? 'border-[#6A829E]/50 bg-neutral-50 dark:bg-neutral-800/50 shadow-sm' : 'border-neutral-200 dark:border-[#2C3E50] bg-neutral-50 dark:bg-[#1E2B38]'}`}>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-3.5 text-[11px] font-black uppercase tracking-widest text-neutral-500 hover:text-[#6A829E] transition-colors outline-none bg-transparent"
-      >
-        <div className="flex items-center gap-2.5">
-          {isStreaming ? <Loader2 className="w-4 h-4 animate-spin text-[#6A829E]" /> : <Brain className="w-4 h-4 text-[#9FBBAF]" />}
-          <span className={isStreaming ? 'animate-pulse text-[#6A829E]' : ''}>{isStreaming ? 'Thinking...' : 'Thought Process'}</span>
-        </div>
-        <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
-      </button>
-      {expanded && (
-        <div ref={scrollRef} className="p-4 pt-1 text-sm text-neutral-600 dark:text-[#899AB5] whitespace-pre-wrap leading-relaxed custom-scrollbar max-h-96 overflow-y-auto font-medium border-t border-transparent">
-          {content}
-          {isStreaming && <span className="inline-block w-2 h-4 ml-1 align-middle bg-neutral-400 dark:bg-neutral-500 animate-pulse" />}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Detects: 1. Bold, 2. [Source: Name](url), 3. Markdown links, 4. Raw URLs, 5. [[LocalFile]]
-const INLINE_FORMAT_REGEX = /(\*\*.*?\*\*)|(\[Source:\s*.*?\]\(.*?\))|(\[.*?\]\(.*?\))|(https?:\/\/[a-zA-Z0-9-._~:/?#[\]@!$&'()*+,;=%]+)|(\[\[.*?\]\])/g;
-
-const FormattedText = ({ text, sources, onSaveImage, onViewImage, onOpenFile }: any) => {
-  if (!text || typeof text !== 'string') return null;
-  try {
-    const renderInlines = (textStr: string) => {
-      const tokens = [];
-      let lastIdx = 0;
-      const regex = new RegExp(INLINE_FORMAT_REGEX.source, 'g');
-      
-      let match;
-      while ((match = regex.exec(textStr)) !== null) {
-        if (match.index > lastIdx) tokens.push(textStr.slice(lastIdx, match.index));
-        
-        if (match[1]) {
-          // Bold
-          tokens.push(<strong key={match.index} className="font-black text-neutral-900 dark:text-white">{match[1].slice(2, -2)}</strong>);
-        } else if (match[2]) {
-          // Web Source Citation [Source: Title](URL) — with hover snippet card
-          const sub = match[2].match(/\[Source:\s*(.+?)\]\((.+?)\)/);
-          if (sub) {
-            const [, title, url] = sub;
-            const matched = sources?.find((s: any) => s.url === url || s.title === title);
-            tokens.push(
-              <span key={match.index} className="relative inline-flex group/cite">
-                <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] rounded-md text-[10px] font-bold mx-1 hover:bg-[#4A5D75]/20 transition-colors"><Globe className="w-3 h-3" /> {title}</a>
-                {matched?.snippet && (
-                  <div className="absolute bottom-full left-0 mb-2 w-64 hidden group-hover/cite:flex flex-col z-50 pointer-events-none">
-                    <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-[#6A829E]/10 text-[#6A829E] dark:text-[#9EADC8] rounded-md">Web</span>
-                        <span className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 truncate">{title}</span>
-                      </div>
-                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed italic line-clamp-4">"{matched.snippet}"</p>
-                    </div>
-                  </div>
-                )}
-              </span>
-            );
-          }
-        } else if (match[3]) {
-          // Standard Markdown Link
-          const sub = match[3].match(/\[(.*?)\]\((.*?)\)/);
-          if (sub) tokens.push(<a key={match.index} href={sub[2]} target="_blank" rel="noreferrer" className="text-[#6A829E] hover:underline font-bold transition-colors">{sub[1]}</a>);
-        } else if (match[4]) {
-          // Raw URL
-          tokens.push(<a key={match.index} href={match[4]} target="_blank" rel="noreferrer" className="text-[#6A829E] hover:underline font-bold break-all transition-colors">{match[4]}</a>);
-        } else if (match[5]) {
-          // Local Knowledge Core citation [[Title]] — amber pill with hover snippet card
-          const fileName = match[5].slice(2, -2);
-          const matchedLocal = sources?.find((s: any) =>
-            s.title === fileName ||
-            s.path?.split('/').pop()?.replace(/\.md$/i, '') === fileName
-          );
-          tokens.push(
-            <span key={match.index} className="relative inline-flex group/cite">
-              <span onClick={() => { if (matchedLocal?.path) onOpenFile?.(matchedLocal.path); }} className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#D4AA7D]/15 text-[#9C7A3C] dark:text-[#D4AA7D] rounded-md text-[10px] font-bold mx-1 cursor-pointer hover:bg-[#D4AA7D]/25 transition-colors"><FileText className="w-3 h-3" /> {fileName}</span>
-              {matchedLocal?.snippet && (
-                <div className="absolute bottom-full left-0 mb-2 w-64 hidden group-hover/cite:flex flex-col z-50 pointer-events-none">
-                  <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-[#D4AA7D]/20 text-[#9C7A3C] dark:text-[#D4AA7D] rounded-md">Local</span>
-                      <span className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 truncate">{fileName}</span>
-                    </div>
-                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed italic line-clamp-4">"{matchedLocal.snippet}"</p>
-                  </div>
-                </div>
-              )}
-            </span>
-          );
-        }
-        lastIdx = regex.lastIndex;
-      }
-      if (lastIdx < textStr.length) tokens.push(textStr.slice(lastIdx));
-      return tokens;
-    };
-
-    return (
-      <div className="space-y-1.5 break-words text-sm">
-        {text.split('\n').map((line, idx) => {
-          if (line.startsWith('### ')) return <h3 key={idx} className="text-base font-black mt-4 mb-2 dark:text-white uppercase tracking-tight">{line.slice(4)}</h3>;
-          if (line.startsWith('## ')) return <h2 key={idx} className="text-lg font-black mt-5 mb-2 dark:text-white border-b border-neutral-200 dark:border-neutral-700 pb-1">{line.slice(3)}</h2>;
-          if (line.startsWith('# ')) return <h1 key={idx} className="text-xl font-black mt-6 mb-3 dark:text-white">{line.slice(2)}</h1>;
-          if (/^\s*[-*] /.test(line)) return <div key={idx} className="flex gap-2 ml-2"><span className="text-[#D4AA7D] font-bold">•</span><span>{renderInlines(line.replace(/^\s*[-*] /, ''))}</span></div>;
-          
-          if (line.match(/!\[.*?\]\((.*?)\)/)) {
-             const matchResult = line.match(/!\[.*?\]\((.*?)\)/);
-             if (matchResult) {
-               const src = matchResult[1];
-               return (
-                 <div key={idx} className="relative group/img flex flex-col gap-2 mt-3 mb-4 max-w-md w-full">
-                   <div className="overflow-hidden rounded-2xl shadow-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800">
-                      <img 
-                        src={src} 
-                        alt="Generated Artwork" 
-                        className="w-full h-auto object-cover cursor-pointer hover:scale-[1.02] transition-transform duration-300" 
-                        onClick={() => onViewImage && onViewImage(src)}
-                        title="Click to view full size"
-                      />
-                   </div>
-                   <div className="flex items-center gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity bg-white/50 dark:bg-neutral-900/50 p-1.5 rounded-xl w-fit backdrop-blur-sm border border-neutral-200/50 dark:border-neutral-700/50">
-                      {onSaveImage && (
-                        <button onClick={() => onSaveImage(src)} className="p-1.5 px-2.5 text-neutral-500 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest" title="Save to Archives">
-                          <Save className="w-3.5 h-3.5" /> Save
-                        </button>
-                      )}
-                      <button onClick={() => {
-                          const a = document.createElement('a');
-                          a.href = src;
-                          a.download = `generated_image_${Date.now()}.png`;
-                          a.click();
-                      }} className="p-1.5 px-2.5 text-neutral-500 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest" title="Download Image">
-                          <Download className="w-3.5 h-3.5" /> Download
-                      </button>
-                   </div>
-                 </div>
-               );
-             }
-          }
-          
-          if (!line.trim()) return <div key={idx} className="h-2" /> ;
-          return <div key={idx}>{renderInlines(line)}</div>;
-        })}
-      </div>
-    );
-  } catch {
-    return <div className="whitespace-pre-wrap text-sm">{text}</div>;
-  }
-};
-
-const WysiwygEditor = ({ html, onChange, disabled }: any) => {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (ref.current && html !== ref.current.innerHTML && document.activeElement !== ref.current) ref.current.innerHTML = html ?? '';
-  }, [html]);
-  return <div ref={ref} contentEditable={!disabled} onInput={e => onChange(e.currentTarget.innerHTML)} className="flex-1 p-8 lg:p-12 outline-none overflow-y-auto wysiwyg-editor text-base max-w-3xl mx-auto w-full custom-scrollbar dark:text-neutral-200" data-placeholder="Start writing your document here..." />;
-};
-
-const ContextMeter = ({ messages, systemPromptLen, limit }: any) => {
-  const used = useMemo(() => messages.reduce((n: number, m: any) => n + String(m.content ?? '').length, 0) + systemPromptLen, [messages, systemPromptLen]);
-  const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-  const color = pct > 95 ? 'bg-[#C98A8A]' : pct > 80 ? 'bg-[#D4AA7D]' : 'bg-[#9FBBAF]';
-  return (
-    <div className="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 shrink-0" title={`Context: ${used.toLocaleString()} / ${limit.toLocaleString()} chars`}>
-      <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
-    </div>
-  );
-};
+// ─── UI Sub-components moved to src/components/ui/ ────────────────────────────
+// AgentIcon, BOT_COLORS, TypingIndicator, ThoughtProcess, FormattedText,
+// INLINE_FORMAT_REGEX, WysiwygEditor, ContextMeter are imported above.
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [isDbLoaded, setIsDbLoaded] = useState(false);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [showConsole, setShowConsole] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
-  const [ramStats, setRamStats] = useState<{ total_mb: number; used_mb: number; available_mb: number } | null>(null);
-  const [hwProfile, setHwProfile] = useState<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number } | null>(null);
+  // ── Store subscriptions (reactive reads) ────────────────────────────────────
+  const messages = useChatStore(s => s.messages);
+  const activeChatId = useChatStore(s => s.activeChatId);
+
+  const assistants = useAgentStore(s => s.assistants);
+  const activeFolderId = useAgentStore(s => s.activeFolderId);
+  const editingAssistant = useAgentStore(s => s.editingAssistant);
+  const showAssistantSettings = useAgentStore(s => s.showAssistantSettings);
+
+  const models = useSettingsStore(s => s.models);
+  const selectedModelId = useSettingsStore(s => s.selectedModelId);
+  const appSettings = useSettingsStore(s => s.appSettings);
+  const userProfile = useSettingsStore(s => s.userProfile);
+  const showProfileSettings = useSettingsStore(s => s.showProfileSettings);
+  const showModelWizard = useSettingsStore(s => s.showModelWizard);
+
+  const globalPins = useMemoryStore(s => s.globalPins);
+  const dreamLog = useMemoryStore(s => s.dreamLog);
+  const showDreamBanner = useMemoryStore(s => s.showDreamBanner);
+  const showDreamDigest = useMemoryStore(s => s.showDreamDigest);
+  const agentForgePath = useMemoryStore(s => s.agentForgePath);
+  const showMemmoPanel = useMemoryStore(s => s.showMemmoPanel);
+  const memmoPanelTab = useMemoryStore(s => s.memmoPanelTab);
+  const showMemoCompose = useMemoryStore(s => s.showMemoCompose);
+
+  const tasks = useTaskStore(s => s.tasks);
+  const showPlanner = useTaskStore(s => s.showPlanner);
+
+  const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
+  const generationMode = useUIStore(s => s.generationMode);
+  const isDeepThinking = useUIStore(s => s.isDeepThinking);
+  const speakingId = useChatStore(s => s.speakingId);
+  const showConsole = useUIStore(s => s.showConsole);
+  const logs = useUIStore(s => s.logs);
+  const toastMessage = useUIStore(s => s.toastMessage);
+  const toastAction = useUIStore(s => s.toastAction);
+  const isDragging = useUIStore(s => s.isDragging);
+  const canvasContent = useUIStore(s => s.canvasContent);
+  const showSaveModal = useUIStore(s => s.showSaveModal);
+  const saveAppData = useUIStore(s => s.saveAppData);
+  const isDbLoaded = useUIStore(s => s.isDbLoaded);
+
+  // ── Local state (must stay in App.tsx) ──────────────────────────────────────
   const [llamaServerPid, setLlamaServerPid] = useState<number | null>(null);
   const [llamaPaused, setLlamaPaused] = useState(false);
   const [llamaCoolingDown, setLlamaCoolingDown] = useState(false);
   const [nukeShieldPending, setNukeShieldPending] = useState<{ path: string; content: string; deletions: number; existingLines: number; diffStat: string } | null>(null);
 
-  // Memmo Engine states
-  const [showMemmoPanel, setShowMemmoPanel] = useState(false);
-  const [memmoPanelTab, setMemmoPanelTab] = useState<'pins' | 'memos' | 'library' | 'archive'>('pins');
-  const [showMemoCompose, setShowMemoCompose] = useState(false);
-  const [agentForgePath, setAgentForgePath] = useState('');
-
-  // Dream Cycle states
-  const [dreamLog, setDreamLog] = useState<DreamLog | null>(null);
-  const [showDreamBanner, setShowDreamBanner] = useState(false);
-  const [showDreamDigest, setShowDreamDigest] = useState(false);
-  const [isDreamRunning, setIsDreamRunning] = useState(false);
-  const isDreamRunningRef = useRef(false);
-  const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeAssistantRef = useRef<any>(null);
-  const selectedModelRef = useRef<any>(null);
-
-  // Persistent pins (survive reload via Tauri Store)
-  const [globalPins, setGlobalPins] = useState<Array<{ id: string; chatId: string; msgId: string; agentId: string; content: string; savedAt: number }>>([]);
-
-  // Slash command palette
-  const [slashHighlight, setSlashHighlight] = useState(0);
-
-  const showToast = (msg: string, action?: { label: string; onClick: () => void }) => {
-    setToastMessage(msg);
-    setToastAction(action ?? null);
-    setTimeout(() => { setToastMessage(null); setToastAction(null); }, 4000);
-  };
-
-  const saveGlobalPins = async (pins: typeof globalPins) => {
-    setGlobalPins(pins);
-    await db.set('globalPins', pins);
-  };
-
-  useEffect(() => {
-    const originalLog = console.log, originalError = console.error, originalWarn = console.warn;
-    const addLog = (level: string, ...args: any[]) => {
-      const msg = args.map(a => (a instanceof Error ? a.message : typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
-      setLogs(prev => [...prev.slice(-499), { time: new Date().toLocaleTimeString([], {hour12: false}), level, msg }]);
-    };
-    console.log = (...args) => { addLog('info', ...args); originalLog(...args); };
-    console.error = (...args) => { addLog('error', ...args); originalError(...args); };
-    console.warn = (...args) => { addLog('warn', ...args); originalWarn(...args); };
-    return () => { console.log = originalLog; console.error = originalError; console.warn = originalWarn; };
-  }, []);
-
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [editingChatId, setEditingChatId] = useState<string | null>(null);
-  const [editingChatName, setEditingChatName] = useState('');
-  const [activeFolderId, setActiveFolderId] = useState('f-default');
-  
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [editingMessageContent, setEditingMessageContent] = useState('');
-  const [speakingId, setSpeakingId] = useState<string | null>(null);
-  const [isListening, setIsListening] = useState(false);
-
-  const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
-  const [isDeepThinking, setIsDeepThinking] = useState(false);
-  const [forcedTool, setForcedTool] = useState<string | null>(null);
-  const [isPlanMode, setIsPlanMode] = useState(false);
-  const [attachedDocs, setAttachedDocs] = useState<any[]>([]);
-  
-  // App Settings Integration
-  const [appSettings, setAppSettings] = useState({ 
-      allowProfileUpdates: true, 
-      imageProvider: 'none', 
-      imageModelId: '', 
-      imageEndpoint: '' 
-  });
-  const [uploadError, setUploadError] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
-  // Connection Test & Fetch State for Images
-  const [imageTestState, setImageTestState] = useState({ loading: false, error: null as string | null, successUrl: null as string | null });
-  const [imageEngineModels, setImageEngineModels] = useState<any[]>([]);
-  const [isFetchingImageModels, setIsFetchingImageModels] = useState(false);
-
-  const [generationMode, setGenerationMode] = useState('text');
-  const [canvasContent, setCanvasContent] = useState<any>(null);
-  const [canvasTab, setCanvasTab] = useState('preview');
-  const [viewMode, setViewMode] = useState('chat');
-  const [archiveSubView, setArchiveSubView] = useState('code');
-  const [archiveSearchQuery, setArchiveSearchQuery] = useState('');
-  const [chatSearchQuery, setChatSearchQuery] = useState('');
-  
-  const [showPlanner, setShowPlanner] = useState(false);
-  const [plannerView, setPlannerView] = useState('list');
-  const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
-  const [newTaskInput, setNewTaskInput] = useState('');
-  const [newTaskDate, setNewTaskDate] = useState('');
-  const [newTaskDetails, setNewTaskDetails] = useState('');
-  const [newTaskLocation, setNewTaskLocation] = useState('');
-  const [showTaskDetailsForm, setShowTaskDetailsForm] = useState(false);
-  const [taskToDiscuss, setTaskToDiscuss] = useState<any>(null);
-
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-  const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
-  const [showProfileSettings, setShowProfileSettings] = useState(false);
-  const [profileSettingsTab, setProfileSettingsTab] = useState('profile');
-  const [showModelWizard, setShowModelWizard] = useState(false);
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [saveAppData, setSaveAppData] = useState({ title: '' }); 
-  
-  // Assistant Config States
-  const [showAssistantSettings, setShowAssistantSettings] = useState(false);
-  const [editingAssistant, setEditingAssistant] = useState<any>(null);
-  const [assistantSettingsTab, setAssistantSettingsTab] = useState('config');
-
-  const [wizardStep, setWizardStep] = useState(3);
-  
-  const [editingModel, setEditingModel] = useState({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
-  const [fetchedModels, setFetchedModels] = useState<Array<{id: string, context: number}>>([]);
-  const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [isFetchingModels, setIsFetchingModels] = useState(false);
-  const [fetchModelsError, setFetchModelsError] = useState<string | null>(null);
-  const [modelValidation, setModelValidation] = useState<Record<string, string>>({});
-  const [pendingModelSelections, setPendingModelSelections] = useState<Array<{id: string, context: number}>>([]);
-
-  const [userProfile, setUserProfile] = useState('');
-  const [integrations, setIntegrations] = useState<any>({ 
-      tavily: { enabled: false, apiKey: '' },
-      googleCalendar: { connected: false },
-      openai: { apiKey: '' },
-      google: { apiKey: '' },
-      customImage: { apiKey: '' }
-  });
-  const [models, setModels] = useState<any[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState('');
-  const [assistants, setAssistants] = useState<any[]>([DEFAULT_ASSISTANT]);
-  const [chats, setChats] = useState<any[]>([]);
-  const [messages, setMessages] = useState<Record<string, any[]>>({});
-  const [savedApps, setSavedApps] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
-
-  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  // Store action shorthands (imperative, for use in callbacks/effects)
+  const showToast = useUIStore.getState().showToast;
+  const saveGlobalPins = useMemoryStore.getState().saveGlobalPins;
+  const setMessages = useChatStore.getState().setMessages;
+  const setShowSaveModal = useUIStore.getState().setShowSaveModal;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -439,58 +124,52 @@ export default function App() {
   const trainingDocUploadRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<any>(null);
+  const isDreamRunningRef = useRef(false);
+  const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeAssistantRef = useRef<any>(null);
+  const selectedModelRef = useRef<any>(null);
 
   const codeRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
 
-  // Dynamic Image Key Checking
-  const hasImplicitGoogleKey = models.some(m => m.provider === 'google' && m.apiKey);
-  const hasImplicitOpenAIKey = models.some(m => m.provider === 'openai' && m.apiKey);
-
-  const activeImageKey = appSettings.imageProvider === 'openai' ? (integrations.openai?.apiKey || models.find(m => m.provider === 'openai' && m.apiKey)?.apiKey) :
-                         appSettings.imageProvider === 'google' ? (integrations.google?.apiKey || models.find(m => m.provider === 'google' && m.apiKey)?.apiKey) :
-                         integrations.customImage?.apiKey || '';
+  // Console log capture → store
+  useEffect(() => {
+    const originalLog = console.log, originalError = console.error, originalWarn = console.warn;
+    const { addLog } = useUIStore.getState();
+    const capture = (level: string) => (...args: any[]) => {
+      const msg = args.map(a => (a instanceof Error ? a.message : typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+      addLog(level, msg);
+    };
+    console.log = (...args) => { capture('info')(...args); originalLog(...args); };
+    console.error = (...args) => { capture('error')(...args); originalError(...args); };
+    console.warn = (...args) => { capture('warn')(...args); originalWarn(...args); };
+    return () => { console.log = originalLog; console.error = originalError; console.warn = originalWarn; };
+  }, []);
 
   useEffect(() => {
     const boot = async () => {
       try {
         await db.init();
-        setModels(await db.get('models', []));
-        setChats(await db.get('chats', []));
-        setMessages(await db.get('messages', {}));
-        setAssistants(await db.get('assistants', [DEFAULT_ASSISTANT]));
-        setTasks(await db.get('tasks', []));
-        setSavedApps(await db.get('savedApps', []));
-        setUserProfile(await db.get('userProfile', ''));
-        setGlobalPins(await db.get('globalPins', []));
-        
-        const savedIntegrations = await db.get('integrations', {});
-        setIntegrations((prev: any) => ({ ...prev, ...savedIntegrations }));
-        
-        const settings = await db.get('settings', {});
-        if (settings.selectedModelId) setSelectedModelId(settings.selectedModelId);
-
-        const loadedSettings = await db.get('appSettings', { 
-            allowProfileUpdates: true, 
-            imageProvider: 'none', 
-            imageModelId: '', 
-            imageEndpoint: '' 
-        });
-        setAppSettings(loadedSettings);
+        await useChatStore.getState().hydrate();
+        await useAgentStore.getState().hydrate();
+        await useSettingsStore.getState().hydrate();
+        await useMemoryStore.getState().hydrate();
+        await useTaskStore.getState().hydrate();
+        await useUIStore.getState().hydrateSavedApps();
 
       // Init Knowledge Core (creates ~/AgentForge/ on first run)
       try {
         const kc = await invoke<{ initialized: boolean; path: string }>('init_knowledge_core');
-        if (kc.initialized) showToast(`📚 Knowledge Core initialized at ${kc.path}`);
-        if (kc.path) setAgentForgePath(kc.path);
+        if (kc.initialized) useUIStore.getState().showToast(`📚 Knowledge Core initialized at ${kc.path}`);
+        if (kc.path) useMemoryStore.getState().setAgentForgePath(kc.path);
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
       // Check for undismissed Dream Cycle log from a previous cycle
       try {
         const logResult = await invoke<{ exists: boolean; log?: DreamLog }>('read_dream_log');
         if (logResult.exists && logResult.log && !logResult.log.dismissed) {
-          setDreamLog(logResult.log);
-          setShowDreamBanner(true);
+          useMemoryStore.getState().setDreamLog(logResult.log!);
+          useMemoryStore.getState().setShowDreamBanner(true);
         }
       } catch (e) { console.warn('[AgentForge] Dream log check skipped:', e); }
 
@@ -503,13 +182,13 @@ export default function App() {
 
       // Hardware profile — scale thresholds to total installed RAM
       invoke<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number }>('get_hardware_profile')
-        .then(setHwProfile)
+        .then(profile => useUIStore.getState().setHwProfile(profile))
         .catch(() => {});
 
       // Start background file watcher for Knowledge Core indexing
       invoke('init_file_watcher').catch(() => {});
 
-      } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { setIsDbLoaded(true); }
+      } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { useUIStore.getState().setIsDbLoaded(true); }
     };
     boot();
 
@@ -517,17 +196,17 @@ export default function App() {
     const ramInterval = setInterval(async () => {
       try {
         const stats = await invoke<{ total_mb: number; used_mb: number; available_mb: number }>('get_ram_stats');
-        setRamStats(stats);
+        useUIStore.getState().setRamStats(stats);
 
         // All reaper logic is gated on llamaServerPid being set
         setLlamaServerPid(pid => {
           if (pid === null) return pid;
 
-          const hw = hwProfile ?? { cooldown_mb: 1500, critical_mb: 800, recovery_mb: 2500 };
+          const hw = useUIStore.getState().hwProfile ?? { cooldown_mb: 1500, critical_mb: 800, recovery_mb: 2500 };
 
           setLlamaCoolingDown(prev => {
             if (stats.available_mb < hw.cooldown_mb && stats.available_mb >= hw.critical_mb && !prev && !llamaPaused) {
-              showToast('⚠️ RAM pressure — LLaMA will pause after this response');
+              useUIStore.getState().showToast('⚠️ RAM pressure — LLaMA will pause after this response');
               return true;
             }
             return prev;
@@ -539,12 +218,12 @@ export default function App() {
               setIsGenerating(false);
               setLlamaCoolingDown(false);
               invoke('sigstop_llama_server').catch(() => {});
-              showToast('🚨 LLaMA force-hibernated — RAM critical');
+              useUIStore.getState().showToast('🚨 LLaMA force-hibernated — RAM critical');
               return true;
             }
             if (stats.available_mb > hw.recovery_mb && prev) {
               invoke('sigcont_llama_server').catch(() => {});
-              showToast('✅ LLaMA resumed — RAM recovered');
+              useUIStore.getState().showToast('✅ LLaMA resumed — RAM recovered');
               return false;
             }
             return prev;
@@ -567,30 +246,34 @@ export default function App() {
       setLlamaCoolingDown(false);
       setLlamaPaused(true);
       invoke('sigstop_llama_server').catch(() => {});
-      showToast('🛑 LLaMA hibernated — RAM low');
+      useUIStore.getState().showToast('🛑 LLaMA hibernated — RAM low');
     }
   }, [llamaServerPid, llamaCoolingDown, isGenerating, llamaPaused]);
 
   const persistState = useCallback(() => {
-    if (!isDbLoaded) return;
+    if (!useUIStore.getState().isDbLoaded) return;
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await db.set('models', models);
-        await db.set('chats', chats);
-        await db.set('messages', messages);
-        await db.set('assistants', assistants);
-        await db.set('tasks', tasks);
-        await db.set('savedApps', savedApps);
-        await db.set('userProfile', userProfile);
-        await db.set('integrations', integrations);
-        await db.set('settings', { selectedModelId });
-        await db.set('appSettings', appSettings);
+        await useChatStore.getState().persist();
+        await useAgentStore.getState().persist();
+        await useSettingsStore.getState().persist();
+        await useTaskStore.getState().persist();
+        await useUIStore.getState().persistSavedApps();
       } catch (err) { console.error('[AgentForge] Save error:', err); }
     }, 1500);
-  }, [isDbLoaded, models, chats, messages, assistants, tasks, savedApps, userProfile, integrations, selectedModelId, appSettings]);
+  }, []); // no deps needed — reads from store at call time
 
-  useEffect(() => { persistState(); }, [persistState]);
+  useEffect(() => {
+    const unsub1 = useChatStore.subscribe(() => persistState());
+    const unsub2 = useAgentStore.subscribe(() => persistState());
+    const unsub3 = useSettingsStore.subscribe(() => persistState());
+    const unsub4 = useTaskStore.subscribe(() => persistState());
+    const unsub5 = useUIStore.subscribe((s, prev) => {
+      if (s.savedApps !== prev.savedApps) useUIStore.getState().persistSavedApps();
+    });
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
+  }, [persistState]);
   useEffect(() => () => clearTimeout(saveTimerRef.current), []);
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
@@ -608,32 +291,25 @@ export default function App() {
   );
   const agentPinnedMessagesForPrompt = useMemo(() => activeAgentPinnedMessageObjects.map(p => p.content), [activeAgentPinnedMessageObjects]);
 
-  // Extract pinned messages explicitly scoped to the assistant currently being EDITED in settings
-  const editingAgentPins = useMemo(() =>
-    editingAssistant ? globalPins.filter(p => p.agentId === editingAssistant.id) : [],
-    [globalPins, editingAssistant?.id]
-  );
-
   const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings }).length, [activeAssistant, userProfile, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings]);
 
   // Sync mode when switching agents
   useEffect(() => {
     if (activeAssistant) {
       if (activeAssistant.defaultMode === 'image' && appSettings?.imageProvider === 'none') {
-         setGenerationMode('text');
+         useUIStore.getState().setGenerationMode('text');
       } else {
-         setGenerationMode(activeAssistant.defaultMode || 'text');
+         useUIStore.getState().setGenerationMode(activeAssistant.defaultMode || 'text');
       }
     }
   }, [activeFolderId, activeAssistant, appSettings?.imageProvider]);
 
-  useEffect(() => { if (canvasContent && isSidebarOpen) setIsSidebarOpen(false); }, [canvasContent]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [activeMessages, showPlanner]);
-  
+  useEffect(() => { if (canvasContent && isSidebarOpen) useUIStore.getState().setIsSidebarOpen(false); }, [canvasContent]);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setIsAgentDropdownOpen(false);
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) setIsModelDropdownOpen(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) useUIStore.getState().setIsAgentDropdownOpen(false);
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) useUIStore.getState().setIsModelDropdownOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -644,46 +320,56 @@ export default function App() {
       // Cmd+Shift+M — Omni-Capture (opens Memo Compose from anywhere)
       if (e.metaKey && e.shiftKey && e.key === 'M') {
         e.preventDefault();
-        setShowMemoCompose(true);
+        useMemoryStore.getState().setShowMemoCompose(true);
         return;
       }
       // Cmd+Shift+K — Force Knowledge Search for next message
       if (e.metaKey && e.shiftKey && e.key === 'K') {
         e.preventDefault();
-        setForcedTool('workspace');
+        useUIStore.getState().setForcedTool('workspace');
         return;
       }
       if (e.key === 'Escape') {
-        if (showMemoCompose) setShowMemoCompose(false);
-        else if (showMemmoPanel) setShowMemmoPanel(false);
-        else if (showAssistantSettings) setShowAssistantSettings(false);
-        else if (showProfileSettings) {
-            setShowProfileSettings(false);
-            setImageTestState({ loading: false, error: null, successUrl: null });
+        const mem = useMemoryStore.getState();
+        const ag = useAgentStore.getState();
+        const ss = useSettingsStore.getState();
+        const ui = useUIStore.getState();
+        const tk = useTaskStore.getState();
+        if (mem.showMemoCompose) mem.setShowMemoCompose(false);
+        else if (mem.showMemmoPanel) mem.setShowMemmoPanel(false);
+        else if (ag.showAssistantSettings) ag.setShowAssistantSettings(false);
+        else if (ss.showProfileSettings) {
+            ss.setShowProfileSettings(false);
+            ss.setImageTestState({ loading: false, error: null, successUrl: null });
         }
-        else if (showModelWizard) setShowModelWizard(false);
-        else if (showSaveModal) setShowSaveModal(false);
-        else if (taskToDiscuss) setTaskToDiscuss(null);
+        else if (ss.showModelWizard) ss.setShowModelWizard(false);
+        else if (ui.showSaveModal) ui.setShowSaveModal(false);
+        else if (tk.taskToDiscuss) tk.setTaskToDiscuss(null);
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [showMemoCompose, showMemmoPanel, showAssistantSettings, showProfileSettings, showModelWizard, showSaveModal, taskToDiscuss]);
+  }, []);
 
   const fetchImageModels = async () => {
+     const { setIsFetchingImageModels, setImageTestState, setImageEngineModels, setAppSettings } = useSettingsStore.getState();
+     const { appSettings: _appSettings } = useSettingsStore.getState();
+     const _activeImageKey = _appSettings.imageProvider === 'openai' ? (useSettingsStore.getState().integrations.openai?.apiKey || useSettingsStore.getState().models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey) :
+                            _appSettings.imageProvider === 'google' ? (useSettingsStore.getState().integrations.google?.apiKey || useSettingsStore.getState().models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey) :
+                            useSettingsStore.getState().integrations.customImage?.apiKey || '';
      setIsFetchingImageModels(true);
      setImageTestState({ loading: false, error: null, successUrl: null });
      try {
          let url, headers: any = {};
-         let provider = appSettings.imageProvider;
-         let key = activeImageKey;
-         
+         let provider = _appSettings.imageProvider;
+         let key = _activeImageKey;
+
          if (!key && provider !== 'custom') throw new Error("API Key required to fetch models.");
 
          if (provider === 'google') {
              url = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`;
          } else {
-             let base = appSettings.imageEndpoint || 'https://api.openai.com/v1';
+             let base = _appSettings.imageEndpoint || 'https://api.openai.com/v1';
              url = `${base.replace(/\/$/, '')}/models`;
              if (key) headers['Authorization'] = `Bearer ${key}`;
          }
@@ -695,42 +381,46 @@ export default function App() {
          } else {
              list = (res.data || res.models || []).map((m: any) => m.id || m.name);
          }
-         
+
          setImageEngineModels(list);
-         if (list.length > 0 && !appSettings.imageModelId) {
-             setAppSettings(prev => ({...prev, imageModelId: list.find(id => id.includes('dall-e') || id.includes('imagen')) || list[0]}));
+         if (list.length > 0 && !_appSettings.imageModelId) {
+             setAppSettings((prev: any) => ({...prev, imageModelId: list.find((id: string) => id.includes('dall-e') || id.includes('imagen')) || list[0]}));
          }
-         showToast("Models fetched successfully.");
+         useUIStore.getState().showToast("Models fetched successfully.");
      } catch (err: any) {
-         showToast("Failed to fetch models: " + err.message);
+         useUIStore.getState().showToast("Failed to fetch models: " + err.message);
      } finally {
          setIsFetchingImageModels(false);
      }
   };
 
   const viewImageInCanvas = useCallback((src: string) => {
-      setCanvasContent({ 
-          id: generateId('art'), 
-          title: `Image Preview`, 
-          type: 'image', 
-          language: 'image', 
-          content: src, 
-          isStandalone: false, 
-          history: [{ timestamp: Date.now(), content: src }], 
-          historyIndex: 0 
+      useUIStore.getState().setCanvasContent({
+          id: generateId('art'),
+          title: `Image Preview`,
+          type: 'image',
+          language: 'image',
+          content: src,
+          isStandalone: false,
+          history: [{ timestamp: Date.now(), content: src }],
+          historyIndex: 0
       });
-      setCanvasTab('preview');
-      setShowPlanner(false);
+      useUIStore.getState().setCanvasTab('preview');
+      useTaskStore.getState().setShowPlanner(false);
   }, []);
 
   const testImageEngine = async () => {
-      setImageTestState({ loading: true, error: null, successUrl: null });
+      const { appSettings: _appSettings, integrations: _integrations, models: _models } = useSettingsStore.getState();
+      const _activeImageKey = _appSettings.imageProvider === 'openai' ? (_integrations.openai?.apiKey || _models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey) :
+                             _appSettings.imageProvider === 'google' ? (_integrations.google?.apiKey || _models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey) :
+                             _integrations.customImage?.apiKey || '';
+      useSettingsStore.getState().setImageTestState({ loading: true, error: null, successUrl: null });
       try {
           let imageUrl = '';
           const promptText = "A cute cat wearing a yellow banana costume, high quality photorealistic.";
-          let provider = appSettings.imageProvider;
-          let modelId = appSettings.imageModelId || (provider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
-          let key = activeImageKey;
+          let provider = _appSettings.imageProvider;
+          let modelId = _appSettings.imageModelId || (provider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
+          let key = _activeImageKey;
 
           if (provider === 'google') {
               if (!key) throw new Error("Missing Google API Key.");
@@ -745,7 +435,7 @@ export default function App() {
               }
           } else if (provider === 'openai' || provider === 'custom') {
               if (!key && provider === 'openai') throw new Error("Missing OpenAI API Key.");
-              const baseEndpoint = (appSettings.imageEndpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
+              const baseEndpoint = (_appSettings.imageEndpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
               const url = `${baseEndpoint}/images/generations`;
               const body = { model: modelId, prompt: promptText, n: 1, size: '1024x1024' };
               const headers: any = { 'Content-Type': 'application/json' };
@@ -758,23 +448,23 @@ export default function App() {
                   throw new Error(data.error?.message || "Generation failed.");
               }
           }
-          setImageTestState({ loading: false, error: null, successUrl: imageUrl });
+          useSettingsStore.getState().setImageTestState({ loading: false, error: null, successUrl: imageUrl });
       } catch (err: any) {
-          setImageTestState({ loading: false, error: err.message || "Failed to generate image. Check your API key or network.", successUrl: null });
+          useSettingsStore.getState().setImageTestState({ loading: false, error: err.message || "Failed to generate image. Check your API key or network.", successUrl: null });
       }
   };
 
   const toggleSpeak = (msgId: string, text: string) => {
     if (speakingId === msgId) {
       window.speechSynthesis.cancel();
-      setSpeakingId(null);
+      useChatStore.getState().setSpeakingId(null);
     } else {
       window.speechSynthesis.cancel();
       const cleanText = text.replace(/[*#`_]/g, '').replace(/<think>[\s\S]*?<\/think>/gi, '');
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.onend = () => setSpeakingId(null);
-      utterance.onerror = () => setSpeakingId(null);
-      setSpeakingId(msgId);
+      utterance.onend = () => useChatStore.getState().setSpeakingId(null);
+      utterance.onerror = () => useChatStore.getState().setSpeakingId(null);
+      useChatStore.getState().setSpeakingId(msgId);
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -786,17 +476,18 @@ export default function App() {
     }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showToast("Speech recognition is not supported in this browser.");
+      useUIStore.getState().showToast("Speech recognition is not supported in this browser.");
       return;
     }
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
-    
+
     recognition.onstart = () => setIsListening(true);
     recognition.onresult = (event: any) => {
        const transcript = event.results[0][0].transcript;
-       setInput(prev => prev + (prev ? ' ' : '') + transcript);
+       const prev = useUIStore.getState().input;
+       useUIStore.getState().setInput(prev + (prev ? ' ' : '') + transcript);
     };
     recognition.onerror = (e: any) => {
        console.error("Speech recognition error", e);
@@ -807,7 +498,7 @@ export default function App() {
   };
 
   const handleHistoryNavigate = useCallback((direction: number) => {
-    setCanvasContent((prev: any) => {
+    useUIStore.getState().setCanvasContent((prev: any) => {
       if (!prev || !prev.history) return prev;
       const newIndex = (prev.historyIndex ?? 0) + direction;
       if (newIndex >= 0 && newIndex < prev.history.length) return { ...prev, historyIndex: newIndex, content: prev.history[newIndex].content };
@@ -817,44 +508,42 @@ export default function App() {
 
   const addTask = useCallback((title: string, dueDate: string | null = null, details = '', location = '') => {
     if (!title.trim()) return;
-    setTasks(prev => [{ id: generateId('t'), title: title.trim(), dueDate: dueDate || newTaskDate || null, details, location, completed: false }, ...prev]);
-  }, [newTaskDate]);
-  
-  const toggleTask = useCallback((id: string) => setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t)), []);
-  const deleteTask = useCallback((id: string) => setTasks(prev => prev.filter(t => t.id !== id)), []);
+    useTaskStore.getState().addTask(title, dueDate || useTaskStore.getState().newTaskDate || null, details, location);
+  }, []);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
-    setDraggedTaskId(id);
+    useTaskStore.getState().setDraggedTaskId(id);
     e.dataTransfer.effectAllowed = 'move';
   };
 
   // Main UI Drag and Drop validation flow
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(true);
+    useUIStore.getState().setIsDragging(true);
   };
 
   const handleDragLeave = () => {
-    setIsDragging(false);
+    useUIStore.getState().setIsDragging(false);
   };
 
   const handleDrop = async (e: React.DragEvent, targetId: string | null = null) => {
     e.preventDefault();
-    setIsDragging(false);
+    useUIStore.getState().setIsDragging(false);
 
     // If it's a task reorder drop
-    if (draggedTaskId) {
-      if (draggedTaskId === targetId) return;
-      setTasks(prevTasks => {
+    const currentDraggedTaskId = useTaskStore.getState().draggedTaskId;
+    if (currentDraggedTaskId) {
+      if (currentDraggedTaskId === targetId) return;
+      useTaskStore.getState().setTasks((prevTasks: any[]) => {
         const newTasks = [...prevTasks];
-        const draggedIdx = newTasks.findIndex(t => t.id === draggedTaskId);
+        const draggedIdx = newTasks.findIndex(t => t.id === currentDraggedTaskId);
         const targetIdx = newTasks.findIndex(t => t.id === targetId);
         if (draggedIdx === -1 || targetIdx === -1) return prevTasks;
         const [draggedItem] = newTasks.splice(draggedIdx, 1);
         newTasks.splice(targetIdx, 0, draggedItem);
         return newTasks;
       });
-      setDraggedTaskId(null);
+      useTaskStore.getState().setDraggedTaskId(null);
       return;
     }
 
@@ -866,38 +555,25 @@ export default function App() {
     }
   };
 
-  const handleManualTaskSubmit = (e: React.FormEvent) => {
-    e.preventDefault(); addTask(newTaskInput, newTaskDate, newTaskDetails, newTaskLocation);
-    setNewTaskInput(''); setNewTaskDate(''); setNewTaskDetails(''); setNewTaskLocation(''); setShowTaskDetailsForm(false);
-  };
-
-  const calendarDays = useMemo(() => {
-    const year = currentMonthDate.getFullYear(), month = currentMonthDate.getMonth();
-    const days = Array(new Date(year, month, 1).getDay()).fill(null);
-    for (let i = 1; i <= new Date(year, month + 1, 0).getDate(); i++) days.push(new Date(year, month, i));
-    return days;
-  }, [currentMonthDate]);
-  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
   const handleChatFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
-    
-    setUploadError('');
+    const ui = useUIStore.getState();
+    ui.setUploadError('');
     if (file.size > MAX_FILE_SIZE) {
-      setUploadError(`File is too large. Max 5MB allowed.`);
-      showToast("File is too large.");
+      ui.setUploadError(`File is too large. Max 5MB allowed.`);
+      ui.showToast("File is too large.");
       e.target.value = '';
       return;
     }
-    
+
     if (file.type === 'application/pdf') {
-        showToast("Parsing PDF locally... this might take a moment.");
+        ui.showToast("Parsing PDF locally... this might take a moment.");
         try {
            const text = await extractTextFromPDF(file);
-           setAttachedDocs(prev => [...prev, { name: file.name, content: text, type: 'text/plain', isImage: false }]);
-           showToast("PDF parsed successfully!");
+           ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: text, type: 'text/plain', isImage: false }]);
+           ui.showToast("PDF parsed successfully!");
         } catch (err) {
-           showToast("Failed to parse PDF.");
+           ui.showToast("Failed to parse PDF.");
            console.error(err);
         }
         e.target.value = '';
@@ -906,115 +582,130 @@ export default function App() {
 
     const reader = new FileReader();
     if (file.type.startsWith('image/')) {
-      reader.onloadend = () => setAttachedDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
+      reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
       reader.readAsDataURL(file);
     } else {
-      reader.onloadend = () => setAttachedDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
+      reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
       reader.readAsText(file);
     }
     e.target.value = '';
   };
-  
+
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     new Promise(res => { const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(file); })
-      .then(val => setEditingAssistant((prev: any) => ({ ...prev, avatar: { type: 'image', value: val } }))); e.target.value = '';
+      .then(val => useAgentStore.getState().setEditingAssistant((prev: any) => ({ ...prev, avatar: { type: 'image', value: val } }))); e.target.value = '';
   };
-  
+
   const handleTrainingDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
-    
+
     if (file.type.startsWith('image/')) {
-        showToast("Images cannot be added to the Knowledge Base. Use chat attachments instead.");
+        useUIStore.getState().showToast("Images cannot be added to the Knowledge Base. Use chat attachments instead.");
         e.target.value = '';
         return;
     }
 
     if (file.type === 'application/pdf') {
-        showToast("Parsing PDF locally... this might take a moment.");
+        useUIStore.getState().showToast("Parsing PDF locally... this might take a moment.");
         try {
            const text = await extractTextFromPDF(file);
            if (!text || text.trim().length < 3) {
-             showToast("This PDF appears to be scanned images (no selectable text). Please run it through an OCR tool first, or use a text-based PDF.");
+             useUIStore.getState().showToast("This PDF appears to be scanned images (no selectable text). Please run it through an OCR tool first, or use a text-based PDF.");
              e.target.value = '';
              return;
            }
            const MAX_ALWAYS_ON_CHARS = 25_000;
            if (text.length > MAX_ALWAYS_ON_CHARS) {
-             showToast(`File too large for Always-On Context (${text.length.toLocaleString()} chars). Drop massive files in the Memmo Panel Library (RAG) instead.`);
+             useUIStore.getState().showToast(`File too large for Always-On Context (${text.length.toLocaleString()} chars). Drop massive files in the Memmo Panel Library (RAG) instead.`);
              e.target.value = '';
              return;
            }
-           setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: [...(prev.trainingDocs ?? []), { id: generateId('doc'), name: file.name, content: text, type: 'text/plain' }] }));
-           showToast(`PDF added! (${text.length.toLocaleString()} chars)`);
+           useAgentStore.getState().setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: [...(prev.trainingDocs ?? []), { id: generateId('doc'), name: file.name, content: text, type: 'text/plain' }] }));
+           useUIStore.getState().showToast(`PDF added! (${text.length.toLocaleString()} chars)`);
         } catch (err) {
-           showToast("Failed to parse PDF.");
+           useUIStore.getState().showToast("Failed to parse PDF.");
            console.error(err);
         }
         e.target.value = '';
         return;
     }
-    
+
     new Promise(res => { const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsText(file); })
-      .then(content => setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: [...(prev.trainingDocs ?? []), { id: generateId('doc'), name: file.name, content, type: file.type }] }))); e.target.value = '';
+      .then(content => useAgentStore.getState().setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: [...(prev.trainingDocs ?? []), { id: generateId('doc'), name: file.name, content, type: file.type }] }))); e.target.value = '';
   };
 
   const saveAssistantConfig = () => {
-    if (editingAssistant.id === 'new') {
-      const bot = { ...editingAssistant, id: generateId('bot') };
-      setAssistants(prev => [...prev, bot]); 
-      setActiveFolderId(bot.id); 
-      setActiveChatId(null);
+    const ag = useAgentStore.getState();
+    const ea = ag.editingAssistant;
+    if (ea.id === 'new') {
+      const bot = { ...ea, id: generateId('bot') };
+      ag.setAssistants((prev: any[]) => [...prev, bot]);
+      ag.setActiveFolderId(bot.id);
+      useChatStore.getState().setActiveChatId(null);
     } else {
-      setAssistants(prev => prev.map(a => a.id === editingAssistant.id ? editingAssistant : a));
+      ag.setAssistants((prev: any[]) => prev.map((a: any) => a.id === ea.id ? ea : a));
     }
-    setShowAssistantSettings(false);
+    ag.setShowAssistantSettings(false);
   };
 
   const createBlankArtifact = (type: string) => {
     const initialContent = type === 'code' ? '\n' : '<h1>New Document</h1><p>Start writing here...</p>';
-    setCanvasContent({ id: generateId('art'), title: `Untitled ${type === 'code' ? 'App' : 'Document'}`, content: initialContent, language: 'html', type, isStandalone: false, history: [{ timestamp: Date.now(), content: initialContent }], historyIndex: 0 });
-    setGenerationMode(type); setCanvasTab(type === 'code' ? 'code' : 'preview'); setShowPlanner(false);
+    const ui = useUIStore.getState();
+    ui.setCanvasContent({ id: generateId('art'), title: `Untitled ${type === 'code' ? 'App' : 'Document'}`, content: initialContent, language: 'html', type, isStandalone: false, history: [{ timestamp: Date.now(), content: initialContent }], historyIndex: 0 });
+    ui.setGenerationMode(type); ui.setCanvasTab(type === 'code' ? 'code' : 'preview'); useTaskStore.getState().setShowPlanner(false);
   };
 
   const saveToLibrary = (asNew = false) => {
-    const id = (asNew || !canvasContent.id) ? generateId('art') : canvasContent.id;
-    let finalCanvas = { ...canvasContent };
+    const ui = useUIStore.getState();
+    const _canvasContent = ui.canvasContent;
+    const _savedApps = ui.savedApps;
+    const _saveAppData = ui.saveAppData;
+    const id = (asNew || !_canvasContent.id) ? generateId('art') : _canvasContent.id;
+    let finalCanvas = { ..._canvasContent };
     const curHist = finalCanvas.history || [{ timestamp: Date.now(), content: finalCanvas.content }];
     const curIdx = finalCanvas.historyIndex ?? 0;
     if (curHist[curIdx]?.content !== finalCanvas.content) {
         const newHist = curHist.slice(0, curIdx + 1); newHist.push({ timestamp: Date.now(), content: finalCanvas.content });
         finalCanvas.history = newHist; finalCanvas.historyIndex = newHist.length - 1;
     }
-    const item = { ...finalCanvas, id, title: saveAppData.title || finalCanvas.title || 'Untitled', updatedAt: Date.now() };
-    const exists = savedApps.some(a => a.id === id);
-    setSavedApps(prev => exists && !asNew ? prev.map(a => a.id === id ? item : a) : [item, ...prev]); setCanvasContent(item); setShowSaveModal(false); showToast('Saved to Archives!');
+    const item = { ...finalCanvas, id, title: _saveAppData.title || finalCanvas.title || 'Untitled', updatedAt: Date.now() };
+    const exists = _savedApps.some((a: any) => a.id === id);
+    ui.setSavedApps((prev: any[]) => exists && !asNew ? prev.map((a: any) => a.id === id ? item : a) : [item, ...prev]);
+    ui.setCanvasContent(item); ui.setShowSaveModal(false); ui.showToast('Saved to Archives!');
   };
-  const deleteSavedApp = (id: string) => { setSavedApps(prev => prev.filter(app => app.id !== id)); if (canvasContent?.id === id) setCanvasContent(null); };
-  
+  const deleteSavedApp = (id: string) => {
+    const ui = useUIStore.getState();
+    ui.setSavedApps((prev: any[]) => prev.filter((app: any) => app.id !== id));
+    if (ui.canvasContent?.id === id) ui.setCanvasContent(null);
+  };
+
   const saveImageToLibrary = useCallback((src: string) => {
      const item = { id: generateId('art'), title: 'Generated Image', type: 'image', content: src, updatedAt: Date.now() };
-     setSavedApps(prev => [item, ...prev]);
+     useUIStore.getState().setSavedApps((prev: any[]) => [item, ...prev]);
   }, []);
 
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const ss = useSettingsStore.getState();
     const provider = e.target.value; let endpoint = '';
     if (provider === 'ollama') endpoint = 'http://127.0.0.1:11434/v1';
     if (provider === 'lmstudio') endpoint = 'http://127.0.0.1:1234/v1';
     if (provider === 'native') endpoint = 'http://127.0.0.1:8080/v1';
     if (provider === 'huggingface') endpoint = 'https://api-inference.huggingface.co/v1';
-    const existingKey = models.find(m => m.provider === provider && m.apiKey)?.apiKey || '';
-    setEditingModel({ name: provider === 'native' ? 'Agent Forge Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
-    setFetchedModels([]); setPendingModelSelections([]); setFetchModelsError(null); setModelSearchQuery('');
+    const existingKey = ss.models.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
+    ss.setEditingModel({ name: provider === 'native' ? 'Agent Forge Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
+    ss.setFetchedModels([]); ss.setPendingModelSelections([]); ss.setFetchModelsError(null); ss.setModelSearchQuery('');
   };
 
   const handleFetchModels = async () => {
-    if (!editingModel.apiKey && !['custom', 'ollama', 'lmstudio', 'native'].includes(editingModel.provider)) { setFetchModelsError('Please enter your API Key first.'); return; }
-    setIsFetchingModels(true); setFetchModelsError(null); setFetchedModels([]); setModelSearchQuery('');
+    const ss = useSettingsStore.getState();
+    const _editingModel = ss.editingModel;
+    if (!_editingModel.apiKey && !['custom', 'ollama', 'lmstudio', 'native'].includes(_editingModel.provider)) { ss.setFetchModelsError('Please enter your API Key first.'); return; }
+    ss.setIsFetchingModels(true); ss.setFetchModelsError(null); ss.setFetchedModels([]); ss.setModelSearchQuery('');
     try {
       let url = '', hdrs: any = {};
-      const { provider, endpoint, apiKey } = editingModel;
-      
+      const { provider, endpoint, apiKey } = _editingModel;
+
       if (provider === 'google') {
         url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
       } else if (provider === 'anthropic') {
@@ -1030,7 +721,7 @@ export default function App() {
         url = `${(endpoint || defaultEndpoint).replace(/\/chat\/completions$/, '')}/models`;
         if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
       }
-      
+
       const data = await fetchWithRetry(url, { method: 'GET', headers: hdrs }, 1);
       let list: any[] = [];
       if (provider === 'google') {
@@ -1041,55 +732,70 @@ export default function App() {
           list = (data.data ?? data.models ?? []).map((m: any) => m.id ?? m.name);
       }
       if (list.length === 0) throw new Error('No models returned. API Key might be invalid.');
-      setFetchedModels(list.map(id => ({ id, context: getContextLimit(id) })));
+      ss.setFetchedModels(list.map((id: string) => ({ id, context: getContextLimit(id) })));
     } catch (e: any) {
-      setFetchModelsError(e.message.includes('CORS') ? e.message : `Fetch failed: ${e.message}`);
-    } finally { setIsFetchingModels(false); }
+      ss.setFetchModelsError(e.message.includes('CORS') ? e.message : `Fetch failed: ${e.message}`);
+    } finally { ss.setIsFetchingModels(false); }
   };
 
-  const toggleModelSelection = (m: any) => setPendingModelSelections(prev => prev.some(p => p.id === m.id) ? prev.filter(p => p.id !== m.id) : [...prev, m]);
+  const toggleModelSelection = (m: any) => {
+    const ss = useSettingsStore.getState();
+    ss.setPendingModelSelections((prev: any[]) => prev.some((p: any) => p.id === m.id) ? prev.filter((p: any) => p.id !== m.id) : [...prev, m]);
+  };
 
   const handleBulkAdd = () => {
-    const newModels = pendingModelSelections.map(m => ({ id: generateId('m'), name: m.id, provider: editingModel.provider, modelId: m.id, endpoint: editingModel.endpoint, apiKey: editingModel.apiKey, contextLimit: m.context, canImage: false }));
-    setModels(prev => [...prev, ...newModels]);
-    if (!selectedModelId && newModels.length > 0) setSelectedModelId(newModels[0].id);
-    setPendingModelSelections([]); setFetchedModels([]); setShowModelWizard(false); setWizardStep(3);
-    newModels.forEach(async (mdl) => {
-        setModelValidation(prev => ({ ...prev, [mdl.id]: 'pending' }));
+    const ss = useSettingsStore.getState();
+    const _editingModel = ss.editingModel;
+    const _pendingModelSelections = ss.pendingModelSelections;
+    const newModels = _pendingModelSelections.map((m: any) => ({ id: generateId('m'), name: m.id, provider: _editingModel.provider, modelId: m.id, endpoint: _editingModel.endpoint, apiKey: _editingModel.apiKey, contextLimit: m.context, canImage: false }));
+    ss.setModels((prev: any[]) => [...prev, ...newModels]);
+    if (!ss.selectedModelId && newModels.length > 0) ss.setSelectedModelId(newModels[0].id);
+    ss.setPendingModelSelections([]); ss.setFetchedModels([]); ss.setShowModelWizard(false); ss.setWizardStep(3);
+    newModels.forEach(async (mdl: any) => {
+        ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [mdl.id]: 'pending' }));
         const ok = await validateModel(mdl);
-        setModelValidation(prev => ({ ...prev, [mdl.id]: ok ? 'ok' : 'fail' }));
+        ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [mdl.id]: ok ? 'ok' : 'fail' }));
     });
   };
 
   const executeAddLLM = async (cfg: any) => {
+    const ss = useSettingsStore.getState();
     const id = generateId('m');
     const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: false };
-    setModels(prev => [...prev, mdl]); setSelectedModelId(id); setShowModelWizard(false); setWizardStep(3); setEditingModel({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
-    setModelValidation(prev => ({ ...prev, [id]: 'pending' }));
+    ss.setModels((prev: any[]) => [...prev, mdl]); ss.setSelectedModelId(id); ss.setShowModelWizard(false); ss.setWizardStep(3); ss.setEditingModel({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
+    ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [id]: 'pending' }));
     const ok = await validateModel(mdl);
-    setModelValidation(prev => ({ ...prev, [id]: ok ? 'ok' : 'fail' }));
+    ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [id]: ok ? 'ok' : 'fail' }));
   };
 
   const enhance = async (text: string, systemInstruction: string, onResult: (res: string) => void) => {
+    const { models: _models, appSettings: _appSettings, integrations: _integrations, selectedModelId: _selectedModelId } = useSettingsStore.getState();
+    const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
+    const _agentPinnedMessagesForPrompt = useMemoryStore.getState().globalPins.filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === useAgentStore.getState().activeFolderId) ?? useAgentStore.getState().assistants[0])?.id).map((p: any) => p.content);
     const agent = { prompt: systemInstruction, tools: {}, awareOfProfile: false, trainingDocs: [] };
-    const result = await generateTextResponse({ messages: [{ id: generateId('msg'), role: 'user', content: text }], modelConfig: selectedModel, profile: '', attachedDocs: [], agent, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: agentPinnedMessagesForPrompt, onChunk: null, signal: null, appSettings, integrations, models });
+    const result = await generateTextResponse({ messages: [{ id: generateId('msg'), role: 'user', content: text }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, onChunk: null, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models });
     onResult(result.replace(/```[a-zA-Z]*\n/g, '').replace(/```/g, '').trim());
   };
 
   // ─── Dream Cycle ─────────────────────────────────────────────────────────────
 
   const runDreamCycle = useCallback(async (agent?: any, model?: any) => {
-    const activeAgent = agent ?? activeAssistant;
-    const activeModel = model ?? selectedModel;
-    if (isDreamRunningRef.current || !agentForgePath || !activeAgent || !activeModel) return;
+    const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
+    const _activeAssistant = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
+    const { models: _models, selectedModelId: _selectedModelId, appSettings: _appSettings, integrations: _integrations } = useSettingsStore.getState();
+    const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
+    const _agentForgePath = useMemoryStore.getState().agentForgePath;
+    const activeAgent = agent ?? _activeAssistant;
+    const activeModel = model ?? _selectedModel;
+    if (isDreamRunningRef.current || !_agentForgePath || !activeAgent || !activeModel) return;
     isDreamRunningRef.current = true;
-    setIsDreamRunning(true);
-    showToast('🌙 Dream Cycle starting...');
+    useMemoryStore.getState().setIsDreamRunning(true);
+    useUIStore.getState().showToast('🌙 Dream Cycle starting...');
 
     try {
       // Read all memory files for the active agent
       const { readDir, readTextFile } = await import('@tauri-apps/plugin-fs');
-      const agentMemoryPath = `${agentForgePath}/memory/${activeAgent.id}`;
+      const agentMemoryPath = `${_agentForgePath}/memory/${activeAgent.id}`;
       const memoryFiles: { path: string; name: string; content: string }[] = [];
 
       async function collectFiles(dir: string): Promise<void> {
@@ -1109,7 +815,7 @@ export default function App() {
       await collectFiles(agentMemoryPath);
 
       if (memoryFiles.length < 2) {
-        showToast('🌙 Dream Cycle: Not enough files to consolidate yet.');
+        useUIStore.getState().showToast('🌙 Dream Cycle: Not enough files to consolidate yet.');
         return;
       }
 
@@ -1134,14 +840,14 @@ export default function App() {
         isDeepThinking: false,
         onChunk: null,
         signal: null,
-        appSettings,
-        integrations,
-        models,
+        appSettings: _appSettings,
+        integrations: _integrations,
+        models: _models,
       });
 
       const plan = parseDreamerResponse(rawResponse);
       if (!plan || plan.operations.length === 0) {
-        showToast('🌙 Dream Cycle: Nothing to consolidate right now.');
+        useUIStore.getState().showToast('🌙 Dream Cycle: Nothing to consolidate right now.');
         return;
       }
 
@@ -1160,7 +866,7 @@ export default function App() {
             if (validSources.length < 2) continue;
 
             // Write merged content
-            const targetFullPath = op.target_path.startsWith('/') ? op.target_path : `${agentForgePath}/${op.target_path}`;
+            const targetFullPath = op.target_path.startsWith('/') ? op.target_path : `${_agentForgePath}/${op.target_path}`;
             const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
               path: targetFullPath,
               content: op.merged_content,
@@ -1229,30 +935,32 @@ export default function App() {
         items: dreamItems,
       };
       await invoke('write_dream_log', { log });
-      setDreamLog(log);
-      setShowDreamBanner(true);
-      showToast(`🌙 Dream Cycle complete — ${dreamItems.length} change${dreamItems.length !== 1 ? 's' : ''} made`);
+      useMemoryStore.getState().setDreamLog(log);
+      useMemoryStore.getState().setShowDreamBanner(true);
+      useUIStore.getState().showToast(`🌙 Dream Cycle complete — ${dreamItems.length} change${dreamItems.length !== 1 ? 's' : ''} made`);
 
     } catch (e: any) {
       console.error('[DreamCycle] Error:', e);
-      showToast(`Dream Cycle failed: ${e?.message ?? String(e)}`);
+      useUIStore.getState().showToast(`Dream Cycle failed: ${e?.message ?? String(e)}`);
     } finally {
-      setIsDreamRunning(false);
+      useMemoryStore.getState().setIsDreamRunning(false);
       isDreamRunningRef.current = false;
     }
-  }, [agentForgePath, activeAssistant, selectedModel, appSettings, integrations, models]);
+  }, []); // reads all state from stores at call time
 
   const dismissDreamBanner = useCallback(async () => {
-    if (!dreamLog) return;
-    const updated = { ...dreamLog, dismissed: true };
-    setDreamLog(updated);
-    setShowDreamBanner(false);
+    const mem = useMemoryStore.getState();
+    if (!mem.dreamLog) return;
+    const updated = { ...mem.dreamLog, dismissed: true };
+    mem.setDreamLog(updated);
+    mem.setShowDreamBanner(false);
     await invoke('write_dream_log', { log: updated }).catch(() => {});
-  }, [dreamLog]);
+  }, []);
 
   const undoDreamItem = useCallback(async (itemId: string) => {
-    if (!dreamLog) return;
-    const item = dreamLog.items.find(i => i.id === itemId);
+    const mem = useMemoryStore.getState();
+    if (!mem.dreamLog) return;
+    const item = mem.dreamLog.items.find((i: any) => i.id === itemId);
     if (!item || item.undone) return;
     try {
       for (let i = 0; i < item.archive_paths.length; i++) {
@@ -1264,32 +972,53 @@ export default function App() {
       if (item.type === 'merged' && item.target_file) {
         await invoke('delete_memory_file', { path: item.target_file }).catch(() => {});
       }
-      const updatedItems = dreamLog.items.map(i => i.id === itemId ? { ...i, undone: true } : i);
-      const updatedLog = { ...dreamLog, items: updatedItems };
-      setDreamLog(updatedLog);
+      const updatedItems = mem.dreamLog.items.map((i: any) => i.id === itemId ? { ...i, undone: true } : i);
+      const updatedLog = { ...mem.dreamLog, items: updatedItems };
+      mem.setDreamLog(updatedLog);
       await invoke('write_dream_log', { log: updatedLog }).catch(() => {});
-      showToast('Undo applied — file restored.');
+      useUIStore.getState().showToast('Undo applied — file restored.');
     } catch (e: any) {
-      showToast(`Undo failed: ${e?.message ?? String(e)}`);
+      useUIStore.getState().showToast(`Undo failed: ${e?.message ?? String(e)}`);
     }
-  }, [dreamLog]);
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────────
 
   const handleEnhancePrompt = async () => {
-    if (!input.trim() || isEnhancing || !selectedModel) return;
+    const { input: _input } = useUIStore.getState();
+    const { models: _models, selectedModelId: _selId } = useSettingsStore.getState();
+    const _selectedModel = _models.find((m: any) => m.id === _selId) ?? _models[0] ?? null;
+    if (!_input.trim() || isEnhancing || !_selectedModel) return;
     setIsEnhancing(true);
-    try { await enhance(input, 'Enhance this user prompt to be more detailed, precise, and effective for an AI. Return ONLY the improved prompt.', setInput); }
+    try { await enhance(_input, 'Enhance this user prompt to be more detailed, precise, and effective for an AI. Return ONLY the improved prompt.', (v) => useUIStore.getState().setInput(v)); }
     catch { } finally { setIsEnhancing(false); }
   };
   const handleEnhanceSystemPrompt = async () => {
-    if (!editingAssistant?.prompt || isEnhancingPrompt || !selectedModel) return;
+    const { editingAssistant: _ea } = useAgentStore.getState();
+    const { models: _models, selectedModelId: _selId } = useSettingsStore.getState();
+    const _selectedModel = _models.find((m: any) => m.id === _selId) ?? _models[0] ?? null;
+    if (!_ea?.prompt || isEnhancingPrompt || !_selectedModel) return;
     setIsEnhancingPrompt(true);
-    try { await enhance(editingAssistant.prompt, 'Rewrite this AI system instruction to be professional and precise. Return ONLY the improved prompt.', val => setEditingAssistant((prev: any) => ({ ...prev, prompt: val }))); }
+    try { await enhance(_ea.prompt, 'Rewrite this AI system instruction to be professional and precise. Return ONLY the improved prompt.', val => useAgentStore.getState().setEditingAssistant((prev: any) => ({ ...prev, prompt: val }))); }
     catch { } finally { setIsEnhancingPrompt(false); }
   };
 
   const processChatRequest = async (chatId: string, userMsg: any, historyToPass: any[]) => {
+    // Read store state at call time (avoids stale closure issues)
+    const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
+    const _activeAssistant = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
+    const { models: _models, selectedModelId: _selectedModelId, appSettings: _appSettings, integrations: _integrations } = useSettingsStore.getState();
+    const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
+    const _hwProfile = useUIStore.getState().hwProfile;
+    const _forcedTool = useUIStore.getState().forcedTool;
+    const _globalPins = useMemoryStore.getState().globalPins;
+    const _agentPinnedMessagesForPrompt = _globalPins.filter((p: any) => p.agentId === _activeAssistant?.id).map((p: any) => p.content);
+    const _generationMode = useUIStore.getState().generationMode;
+    const _isDeepThinking = useUIStore.getState().isDeepThinking;
+    const _canvasContent = useUIStore.getState().canvasContent;
+    const _tasks = useTaskStore.getState().tasks;
+    const _userProfile = useSettingsStore.getState().userProfile;
+
     setIsGenerating(true);
     try {
       const history = [...historyToPass, userMsg];
@@ -1299,36 +1028,36 @@ export default function App() {
       let foundSources: any[] = [];
 
       // Forced tool from slash command takes priority over keyword detection
-      if (forcedTool === 'workspace') {
+      if (_forcedTool === 'workspace') {
           toolUsed = 'Knowledge Search';
-      } else if (forcedTool === 'search') {
+      } else if (_forcedTool === 'search') {
           toolUsed = 'Web Search';
-      } else if (activeAssistant.tools?.local_workspace && /code|file|folder|project|repository|read|workspace|local|note|notes|memo|memos|memory|know|remember|recall|saved|wrote|knowledge|goal|goals|decision|research/i.test(inputLower)) {
+      } else if (_activeAssistant.tools?.local_workspace && /\b(notes?|memos?|memory|knowledge base|goals?|decisions?|research|workspace|saved|wrote|remember|recall|pinned)\b/i.test(inputLower)) {
           toolUsed = 'Knowledge Search';
-      } else if (activeAssistant.tools?.web_search && /search|weather|news|who is|what is|find|how/i.test(inputLower) && !/\b(my|me|i |we |our |remember|nickname|about me|call me|for me|suggest.*for me|give me)\b/i.test(inputLower)) {
+      } else if (_activeAssistant.tools?.web_search && /\b(search for|look up|google|current (weather|news|price|score)|today.s (weather|news)|latest (news|update)|breaking news|weather (in|for)|stock (price|market)|news about|what.s happening)\b/i.test(inputLower)) {
           toolUsed = 'Web Search';
-      } else if (activeAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
+      } else if (_activeAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
           toolUsed = 'Calendar';
       }
-      if (forcedTool) setForcedTool(null);
+      if (_forcedTool) useUIStore.getState().setForcedTool(null);
 
       let messagesForLLM = [...history];
 
       if (toolUsed) {
         const toolMsgId = generateId('tool');
-        setMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false }] }));
-        
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false }] }));
+
         if (toolUsed === 'Knowledge Search') {
              try {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge_semantic', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: activeAssistant?.id ?? null, maxResults: hwProfile?.rag_results ?? 5, snippetChars: hwProfile?.rag_snippet_chars ?? 400 }
+                         'search_knowledge_semantic', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: _activeAssistant?.id ?? null, maxResults: _hwProfile?.rag_results ?? 5, snippetChars: _hwProfile?.rag_snippet_chars ?? 400 }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
-                         ragData = hits.map((h, i) => `[${i + 1}] ${h.title}\n${h.snippet}`).join('\n\n---\n\n');
-                         hits.forEach(h => foundSources.push({ title: h.title, path: h.path, snippet: h.snippet }));
+                         ragData = hits.map((h: any, i: number) => `[${i + 1}] ${h.title}\n${h.snippet}`).join('\n\n---\n\n');
+                         hits.forEach((h: any) => foundSources.push({ title: h.title, path: h.path, snippet: h.snippet }));
                      }
                  }
                  toolData += `\n\n[SYSTEM NOTE: KNOWLEDGE SEARCH RESULTS]\n${ragData}\n[END SEARCH]`;
@@ -1339,11 +1068,11 @@ export default function App() {
         } else if (toolUsed === 'Web Search') {
             try {
                 const query = userMsg.content.replace(/search( for)?|who is|what is|find/gi, '').trim() || userMsg.content;
-                
+
                 // Tavily Fetch — via Tauri HTTP backend to bypass WebView CORS
-                if (integrations.tavily?.enabled) {
-                    if (!integrations.tavily?.apiKey) {
-                        showToast("Tavily API key missing. Please add it in Settings → Integrations.");
+                if (_integrations.tavily?.enabled) {
+                    if (!_integrations.tavily?.apiKey) {
+                        useUIStore.getState().showToast("Tavily API key missing. Please add it in Settings → Integrations.");
                     } else {
                         try {
                             const tvData = await fetchWithRetry(
@@ -1352,7 +1081,7 @@ export default function App() {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({
-                                        api_key: integrations.tavily.apiKey,
+                                        api_key: _integrations.tavily.apiKey,
                                         query,
                                         max_results: 3,
                                         search_depth: "advanced",
@@ -1368,6 +1097,13 @@ export default function App() {
                                 toolData += `\n[TAVILY AI SUMMARY]\n${tvData.answer}\n`;
                             }
                         } catch (tvErr: any) {
+                            const msg = tvErr?.message ?? String(tvErr);
+                            const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
+                            useUIStore.getState().showToast(
+                                isAuth
+                                    ? 'Tavily: Invalid API key — check Settings → Integrations.'
+                                    : `Tavily search failed: ${msg}`
+                            );
                             console.warn("Tavily search failed:", tvErr);
                         }
                     }
@@ -1403,7 +1139,7 @@ export default function App() {
                 }
             } catch (e: any) {
                 console.error('Web search failed:', e);
-                showToast("Web search failed. Check console logs.");
+                useUIStore.getState().showToast("Web search failed. Check console logs.");
                 toolData += `\n\n[SYSTEM NOTE: WEB SEARCH FAILED]\nThe web search encountered an error: ${e.message}\n[END SEARCH]`;
             }
         } else if (toolUsed === 'Calendar') {
@@ -1411,14 +1147,14 @@ export default function App() {
                 const taskText = userMsg.content.replace(/^(schedule|remind me to|add|calendar|set reminder for)\s*/i, '').trim();
                 await invoke('append_task', { text: taskText });
                 toolData += `\n\n[CALENDAR]\nAdded to local planner: "${taskText}"\nSaved to ~/AgentForge/memory/tasks.md`;
-                showToast(`Added to planner: ${taskText.slice(0, 60)}${taskText.length > 60 ? '…' : ''}`);
+                useUIStore.getState().showToast(`Added to planner: ${taskText.slice(0, 60)}${taskText.length > 60 ? '…' : ''}`);
             } catch (e: any) {
                 toolData += `\n\n[CALENDAR ERROR]\n${e?.message ?? e}`;
             }
         }
 
         await new Promise(r => setTimeout(r, 800));
-        setMessages(prev => ({ ...prev, [chatId]: prev[chatId].filter(m => m.id !== toolMsgId) }));
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
         
         if (toolData) {
             // Only inject toolData into the LLM payload — never into stored messages (avoids SYSTEM NOTE bleed in chat bubbles)
@@ -1427,63 +1163,63 @@ export default function App() {
       }
       
       const botId = generateId('msg');
-      setMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true }] }));
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true }] }));
 
       let currentText = '';
       let lastCanvasSync = Date.now();
 
       const handleChunk = (chunk: string) => {
           currentText += chunk;
-          setMessages(prev => ({ ...prev, [chatId]: (prev[chatId] ?? []).map(m => m.id === botId ? { ...m, content: currentText } : m) }));
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: currentText } : m) }));
 
           const now = Date.now();
-          if ((generationMode === 'code' || generationMode === 'doc') && now - lastCanvasSync > 300) {
+          if ((_generationMode === 'code' || _generationMode === 'doc') && now - lastCanvasSync > 300) {
               const contentWithoutThink = currentText.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
               const match = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)($|```)/);
               if (match) {
                   const lang = (match[1] || '').toLowerCase();
                   const code = match[2];
                   if (lang !== 'task' && lang !== 'todo' && lang !== 'profile') {
-                      setCanvasContent((prev: any) => {
-                          if (!prev) return { id: generateId('art'), title: `Generated ${generationMode === 'code' ? 'App' : 'Document'}`, type: generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
+                      useUIStore.getState().setCanvasContent((prev: any) => {
+                          if (!prev) return { id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
                           return { ...prev, content: code };
                       });
-                      setCanvasTab('preview'); lastCanvasSync = now;
+                      useUIStore.getState().setCanvasTab('preview'); lastCanvasSync = now;
                   }
               }
           }
       };
 
-      const isImageRequest = generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
+      const isImageRequest = _generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
 
-      const response = await generateTextResponse({ 
-          messages: messagesForLLM, 
-          modelConfig: selectedModel, 
-          profile: userProfile, 
-          attachedDocs: userMsg.attachedFiles, 
-          agent: activeAssistant, 
-          tasks, 
-          mode: isImageRequest ? 'image' : generationMode, 
-          canvasContent, 
-          isDeepThinking, 
-          agentPinnedMessages: agentPinnedMessagesForPrompt, 
+      const response = await generateTextResponse({
+          messages: messagesForLLM,
+          modelConfig: _selectedModel,
+          profile: _userProfile,
+          attachedDocs: userMsg.attachedFiles,
+          agent: _activeAssistant,
+          tasks: _tasks,
+          mode: isImageRequest ? 'image' : _generationMode,
+          canvasContent: _canvasContent,
+          isDeepThinking: _isDeepThinking,
+          agentPinnedMessages: _agentPinnedMessagesForPrompt,
           onChunk: handleChunk,
           signal: abortControllerRef.current?.signal,
-          appSettings,
-          integrations,
-          models
+          appSettings: _appSettings,
+          integrations: _integrations,
+          models: _models
       });
 
-      setMessages(prev => ({ ...prev, [chatId]: (prev[chatId] ?? []).map(m => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
 
-      if (generationMode === 'code' || generationMode === 'doc') {
+      if (_generationMode === 'code' || _generationMode === 'doc') {
          const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
          const finalMatch = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)```/);
          if (finalMatch) {
              const lang = (finalMatch[1] || '').toLowerCase();
              const code = finalMatch[2];
              if (lang !== 'task' && lang !== 'todo' && lang !== 'profile') {
-                 setCanvasContent((prev: any) => {
+                 useUIStore.getState().setCanvasContent((prev: any) => {
                      if (!prev) return prev;
                      const curHist = prev.history || [{ timestamp: Date.now(), content: prev.content }];
                      const curIdx = prev.historyIndex ?? 0;
@@ -1500,18 +1236,31 @@ export default function App() {
 
     } catch (err: any) {
       if (err.name === 'AbortError') { setIsGenerating(false); return; }
-      setMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`, isPinned: false }] }));
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`, isPinned: false }] }));
     } finally {
       setIsGenerating(false);
     }
   };
 
   const handleSendMessage = async () => {
-    if (isGenerating || !selectedModel) return;
-    if (!input.trim() && attachedDocs.length === 0) return;
+    const { models: _models, selectedModelId: _selectedModelId, appSettings: _appSettings, integrations: _integrations } = useSettingsStore.getState();
+    const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
+    const _input = useUIStore.getState().input;
+    const _attachedDocs = useUIStore.getState().attachedDocs;
+    const _canvasContent = useUIStore.getState().canvasContent;
+    const _generationMode = useUIStore.getState().generationMode;
+    const _isPlanMode = useUIStore.getState().isPlanMode;
+    const { activeChatId: _activeChatId, messages: _messages } = useChatStore.getState();
+    const { activeFolderId: _activeFolderId } = useAgentStore.getState();
+    const _agentPinnedMessagesForPrompt = useMemoryStore.getState().globalPins
+      .filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === _activeFolderId) ?? useAgentStore.getState().assistants[0])?.id)
+      .map((p: any) => p.content);
 
-    if (canvasContent && (generationMode === 'code' || generationMode === 'doc')) {
-      setCanvasContent((prev: any) => {
+    if (isGenerating || !_selectedModel) return;
+    if (!_input.trim() && _attachedDocs.length === 0) return;
+
+    if (_canvasContent && (_generationMode === 'code' || _generationMode === 'doc')) {
+      useUIStore.getState().setCanvasContent((prev: any) => {
           if (!prev) return prev;
           const curHist = prev.history || [{ timestamp: Date.now(), content: prev.content }];
           const curIdx = prev.historyIndex ?? 0;
@@ -1526,26 +1275,29 @@ export default function App() {
     }
 
     abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
-    let chatId = activeChatId; const isNewChat = !chatId;
+    let chatId = _activeChatId; const isNewChat = !chatId;
     if (isNewChat) {
-      chatId = generateId('c'); setChats(prev => [{ id: chatId, folderId: activeFolderId, name: input.slice(0, 30) || 'New Session', updatedAt: Date.now() }, ...prev]); setActiveChatId(chatId);
+      chatId = generateId('c');
+      useChatStore.getState().setChats((prev: any[]) => [{ id: chatId, folderId: _activeFolderId, name: _input.slice(0, 30) || 'New Session', updatedAt: Date.now() }, ...prev]);
+      useChatStore.getState().setActiveChatId(chatId);
     }
-    const userMsg = { id: generateId('msg'), role: 'user', content: input, attachedFiles: [...attachedDocs], isPinned: false };
+    const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false };
     if(chatId) {
-        setMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), userMsg] }));
-        
-        if (isNewChat && input.trim() && !selectedModel.modelId.includes('dall-e') && !selectedModel.modelId.includes('image')) {
-          generateTextResponse({ messages: [{ role: 'user', content: `Generate a very short, 2 to 4 word title for a conversation starting with this prompt: "${input.slice(0, 100)}". Return ONLY the title, no quotes, no extra text.` }], modelConfig: selectedModel, profile: '', attachedDocs: [], agent: { tools: {} }, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: agentPinnedMessagesForPrompt, signal: null, appSettings, integrations, models })
-          .then(title => setChats(prev => prev.map(c => c.id === chatId ? { ...c, name: title.replace(/["']/g, '').trim().slice(0, 40) } : c))).catch(() => {});
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), userMsg] }));
+
+        if (isNewChat && _input.trim() && !_selectedModel.modelId.includes('dall-e') && !_selectedModel.modelId.includes('image')) {
+          generateTextResponse({ messages: [{ role: 'user', content: `Generate a very short, 2 to 4 word title for a conversation starting with this prompt: "${_input.slice(0, 100)}". Return ONLY the title, no quotes, no extra text.` }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent: { tools: {} }, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models })
+          .then(title => useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, name: title.replace(/["']/g, '').trim().slice(0, 40) } : c))).catch(() => {});
         }
 
-        const currentHistory = messages[chatId] ?? [];
-        setInput(''); setAttachedDocs([]);
+        const currentHistory = _messages[chatId] ?? [];
+        useUIStore.getState().setInput('');
+        useUIStore.getState().setAttachedDocs([]);
 
         let msgForProcessing = userMsg;
-        if (isPlanMode) {
+        if (_isPlanMode) {
           msgForProcessing = { ...userMsg, content: `[PLANNING MODE — Respond with a detailed structured plan, broken into clear phases/steps with headings]\n\n${userMsg.content}` };
-          setIsPlanMode(false);
+          useUIStore.getState().setIsPlanMode(false);
         }
 
         await processChatRequest(chatId, msgForProcessing, currentHistory);
@@ -1553,20 +1305,21 @@ export default function App() {
   };
   
   const confirmEditMessage = async (msgId: string) => {
-     if (!editingMessageContent.trim() || !activeChatId) return;
-     const chatMsgs = messages[activeChatId];
-     const msgIdx = chatMsgs.findIndex(m => m.id === msgId);
+     const { editingMessageContent: _emc, activeChatId: _activeChatId, messages: _messages } = useChatStore.getState();
+     if (!_emc.trim() || !_activeChatId) return;
+     const chatMsgs = _messages[_activeChatId];
+     const msgIdx = chatMsgs.findIndex((m: any) => m.id === msgId);
      if (msgIdx === -1) return;
-     
+
      const targetMsg = chatMsgs[msgIdx];
      const historyToKeep = chatMsgs.slice(0, msgIdx);
-     const newMsg = { ...targetMsg, id: generateId('msg'), content: editingMessageContent };
-     
-     setMessages(prev => ({...prev, [activeChatId]: [...historyToKeep, newMsg]}));
-     setEditingMessageId(null);
-     
+     const newMsg = { ...targetMsg, id: generateId('msg'), content: _emc };
+
+     useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({...prev, [_activeChatId]: [...historyToKeep, newMsg]}));
+     useChatStore.getState().setEditingMessageId(null);
+
      abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
-     await processChatRequest(activeChatId, newMsg, historyToKeep);
+     await processChatRequest(_activeChatId, newMsg, historyToKeep);
   };
 
   const handleStop = () => { abortControllerRef.current?.abort(); };
@@ -1585,7 +1338,7 @@ export default function App() {
     const elements = [];
     if (attachedFiles?.length > 0) elements.push(<div key="files" className="flex flex-wrap gap-2 mb-3">{attachedFiles.map((f: any, i: number) => f.isImage ? <img key={i} src={f.content} alt={f.name} className="h-32 object-cover rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700" /> : <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-white/20 rounded-xl border border-white/30 text-[10px] font-bold text-white shadow-sm"><FileText className="w-3.5 h-3.5" />{f.name}</div>)}</div>);
     if (typeof rawText !== 'string') return elements;
-    const openFileInPanel = (path?: string) => { setShowMemmoPanel(true); setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'memos' : 'pins'); };
+    const openFileInPanel = (path?: string) => { useMemoryStore.getState().setShowMemmoPanel(true); useMemoryStore.getState().setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'memos' : 'pins'); };
     if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} /></div>;
 
     // --- Deep Thinking Parser ---
@@ -1618,7 +1371,7 @@ export default function App() {
             <div key={`task-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#D6E0EA] dark:border-[#2C3E50]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 flex flex-col gap-3 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3"><div className="p-2 bg-[#4A5D75] rounded-lg shrink-0"><ListTodo className="w-5 h-5 text-white" /></div><div className="flex flex-col"><span className="text-xs font-black text-[#1E2B38] dark:text-[#D6E0EA] uppercase tracking-widest">Proposed Action</span><span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{td.title}</span><div className="flex items-center gap-3 mt-1 flex-wrap">{td.dueDate && <span className="text-[10px] text-neutral-600 dark:text-[#899AB5] flex items-center gap-1 font-bold"><Clock className="w-3 h-3 text-[#6A829E]" /> Due: {td.dueDate}</span>}{td.location && <span className="text-[10px] text-neutral-600 dark:text-[#899AB5] flex items-center gap-1 font-bold"><MapPin className="w-3 h-3 text-[#9FBBAF]" /> {td.location}</span>}</div></div></div>
-                <button onClick={() => { addTask(td.title, td.dueDate, td.details, td.location); setShowPlanner(true); }} className="px-3 py-2 bg-[#4A5D75] text-white rounded-lg text-xs font-bold hover:bg-[#3D4D61] shadow-md transition-all active:scale-95 shrink-0">Add to Planner</button>
+                <button onClick={() => { addTask(td.title, td.dueDate, td.details, td.location); useTaskStore.getState().setShowPlanner(true); }} className="px-3 py-2 bg-[#4A5D75] text-white rounded-lg text-xs font-bold hover:bg-[#3D4D61] shadow-md transition-all active:scale-95 shrink-0">Add to Planner</button>
               </div>
               {td.details && <div className="text-xs bg-white dark:bg-[#1E2B38] p-2 rounded-lg border border-[#D6E0EA] dark:border-[#4A5D75]/50 text-neutral-600 dark:text-[#C5D3E0]"><span className="font-bold flex items-center gap-1 mb-1"><AlignLeft className="w-3 h-3" /> Details</span>{td.details}</div>}
             </div>
@@ -1627,12 +1380,13 @@ export default function App() {
       } else if (lang === 'profile') {
         try {
           const pData = JSON.parse(code);
-          const isApproved = userProfile.includes(pData.fact);
+          const _currentProfile = useSettingsStore.getState().userProfile;
+          const isApproved = _currentProfile.includes(pData.fact);
           elements.push(
              <div key={`prof-${match.index}`} className="my-3 p-4 rounded-xl border border-[#9EADC8] dark:border-[#6A829E]/50 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-2">
                <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><UserPlus className="w-4 h-4"/> Profile Knowledge Update</div>
                <p className="text-sm text-neutral-700 dark:text-neutral-300">"{pData.fact}"</p>
-               <button disabled={isApproved} onClick={() => setUserProfile(p => p + (p ? '\n' : '') + pData.fact)} className={`mt-2 py-2 rounded-lg text-xs font-bold transition-all ${isApproved ? 'bg-[#9FBBAF] text-white opacity-50 cursor-default' : 'bg-[#6A829E] hover:bg-[#4A5D75] text-white active:scale-95'}`}>
+               <button disabled={isApproved} onClick={() => useSettingsStore.getState().setUserProfile(useSettingsStore.getState().userProfile + (useSettingsStore.getState().userProfile ? '\n' : '') + pData.fact)} className={`mt-2 py-2 rounded-lg text-xs font-bold transition-all ${isApproved ? 'bg-[#9FBBAF] text-white opacity-50 cursor-default' : 'bg-[#6A829E] hover:bg-[#4A5D75] text-white active:scale-95'}`}>
                  {isApproved ? 'Saved to Profile' : 'Approve & Save'}
                </button>
              </div>
@@ -1644,7 +1398,7 @@ export default function App() {
           <div key={`art-${match.index}`} className="my-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 overflow-hidden flex flex-col group/art shadow-sm transition-all hover:border-[#899AB5]">
             <div className="flex items-center justify-between p-3 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/50">
               <div className="flex items-center gap-2"><Code className="w-4 h-4 text-[#6A829E]" /><span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">{(lang || 'CODE').toUpperCase()} Snippet</span></div>
-              <button onClick={() => { setCanvasContent({ id: generateId('art'), language: lang, content: code, title: 'Extracted Artifact', type: 'code', isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 }); setGenerationMode('code'); setCanvasTab('code'); setShowPlanner(false); }} className="px-3 py-1.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg text-[10px] font-black uppercase tracking-widest text-[#4A5D75] hover:bg-[#F0F4F8] transition-all shadow-sm">Open in Canvas</button>
+              <button onClick={() => { useUIStore.getState().setCanvasContent({ id: generateId('art'), language: lang, content: code, title: 'Extracted Artifact', type: 'code', isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 }); useUIStore.getState().setGenerationMode('code'); useUIStore.getState().setCanvasTab('code'); useTaskStore.getState().setShowPlanner(false); }} className="px-3 py-1.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg text-[10px] font-black uppercase tracking-widest text-[#4A5D75] hover:bg-[#F0F4F8] transition-all shadow-sm">Open in Canvas</button>
             </div>
             <div className="p-4 bg-neutral-900 text-neutral-300 text-xs font-mono overflow-hidden"><pre><code>{codePreview}</code></pre></div>
           </div>
@@ -1660,7 +1414,7 @@ export default function App() {
     }
 
     return elements;
-  }, [generationMode, addTask, userProfile, saveImageToLibrary, viewImageInCanvas]);
+  }, [addTask, saveImageToLibrary, viewImageInCanvas]);
 
   const errorLogsCount = useMemo(() => logs.filter(l => l.level === 'error').length, [logs]);
   const hasErrorLogs = errorLogsCount > 0;
@@ -1677,106 +1431,36 @@ export default function App() {
 
   // ── Slash command handler ──────────────────────────────────────────────────
   function handleSlashCommand(cmd: SlashCommand) {
+    const ui = useUIStore.getState();
+    const mem = useMemoryStore.getState();
+    const { activeChatId: _activeChatId } = useChatStore.getState();
     switch (cmd.cmd) {
       case 'think':
-        setIsDeepThinking(true);
-        setInput('');
+        ui.setIsDeepThinking(true);
+        ui.setInput('');
         break;
       case 'search':
-        setForcedTool('search');
-        setInput('');
+        ui.setForcedTool('search');
+        ui.setInput('');
         break;
       case 'knowledge':
-        setForcedTool('workspace');
-        setInput('');
+        ui.setForcedTool('workspace');
+        ui.setInput('');
         break;
       case 'plan':
-        setIsPlanMode(true);
-        setInput('');
+        ui.setIsPlanMode(true);
+        ui.setInput('');
         break;
       case 'memo':
-        setShowMemoCompose(true);
-        setInput('');
+        mem.setShowMemoCompose(true);
+        ui.setInput('');
         break;
       case 'clear':
-        if (activeChatId) setMessages((prev: any) => ({ ...prev, [activeChatId]: [] }));
-        setInput('');
+        if (_activeChatId) useChatStore.getState().setMessages((prev: any) => ({ ...prev, [_activeChatId]: [] }));
+        ui.setInput('');
         break;
     }
-    setSlashHighlight(0);
-  }
-
-  // ── LibraryFileList sub-component ─────────────────────────────────────────
-  function AgentMemosSection({ forgePath, agentId, onCompose }: { forgePath: string; agentId: string; onCompose: () => void }) {
-    const [memos, setMemos] = useState<string[]>([]);
-    useEffect(() => {
-      if (!forgePath || !agentId) return;
-      async function load() {
-        const { readDir } = await import('@tauri-apps/plugin-fs');
-        const files: string[] = [];
-        async function collect(dir: string) {
-          const entries = await readDir(dir).catch(() => []);
-          for (const e of entries as any[]) {
-            if (e.isFile && e.name?.endsWith('.md') && e.name !== 'tasks.md') {
-              files.push(e.name.replace('.md', ''));
-            } else if (e.isDirectory) {
-              await collect(`${dir}/${e.name}`);
-            }
-          }
-        }
-        await collect(`${forgePath}/memory/${agentId}`);
-        setMemos(files.sort((a, b) => b.localeCompare(a)));
-      }
-      load();
-    }, [forgePath, agentId]);
-    return (
-      <div>
-        {memos.length === 0 ? (
-          <p className="text-[10px] text-neutral-400 text-center py-4">No memos yet for this agent.</p>
-        ) : (
-          <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar mb-3">
-            {memos.map(f => (
-              <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700">
-                <FileText className="w-3.5 h-3.5 text-[#D4AA7D] shrink-0" />
-                <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 truncate">{f}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <button onClick={onCompose} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 text-[10px] font-bold text-neutral-500 hover:border-[#4A5D75] hover:text-[#4A5D75] transition-all">
-          + New Memo
-        </button>
-      </div>
-    );
-  }
-
-  function LibraryFileList({ path }: { path: string }) {
-    const [files, setFiles] = useState<string[]>([]);
-    useEffect(() => {
-      if (!path) return;
-      import('@tauri-apps/plugin-fs').then(({ readDir }) =>
-        readDir(`${path}/library`)
-          .then(entries => setFiles(
-            entries.filter((e: any) => e.isFile && e.name?.endsWith('.md')).map((e: any) => e.name!.replace('.md', ''))
-          ))
-          .catch(() => setFiles([]))
-      );
-    }, [path]);
-    if (files.length === 0) return (
-      <p className="text-[10px] text-neutral-400 text-center py-4">
-        No library files yet. Drop files in the Memmo Panel Library tab.
-      </p>
-    );
-    return (
-      <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar">
-        {files.map(f => (
-          <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700">
-            <FileText className="w-3.5 h-3.5 text-[#6A829E] shrink-0" />
-            <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 truncate">{f}</span>
-          </div>
-        ))}
-      </div>
-    );
+    ui.setSlashHighlight(0);
   }
 
   return (
@@ -1799,7 +1483,7 @@ export default function App() {
       {showDreamBanner && dreamLog && (
         <MorningBriefingBanner
           log={dreamLog}
-          onViewDigest={() => { setShowDreamDigest(true); dismissDreamBanner(); }}
+          onViewDigest={() => { useMemoryStore.getState().setShowDreamDigest(true); dismissDreamBanner(); }}
           onDismiss={dismissDreamBanner}
         />
       )}
@@ -1807,26 +1491,26 @@ export default function App() {
       {showDreamDigest && dreamLog && (
         <DreamDigestModal
           log={dreamLog}
-          onClose={() => setShowDreamDigest(false)}
+          onClose={() => useMemoryStore.getState().setShowDreamDigest(false)}
           onUndo={undoDreamItem}
         />
       )}
 
       <MemmoPanel
         isOpen={showMemmoPanel}
-        onClose={() => setShowMemmoPanel(false)}
+        onClose={() => useMemoryStore.getState().setShowMemmoPanel(false)}
         pinnedMessages={activeAgentPinnedMessageObjects}
         agentId={activeAssistant?.id ?? 'default'}
         onUnpin={async (chatId, msgId) => {
-          await saveGlobalPins(globalPins.filter(p => p.msgId !== msgId));
-          setMessages(prev => ({
+          await useMemoryStore.getState().saveGlobalPins(useMemoryStore.getState().globalPins.filter((p: any) => p.msgId !== msgId));
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
             ...prev,
-            [chatId]: (prev[chatId] ?? []).map(m =>
+            [chatId]: (prev[chatId] ?? []).map((m: any) =>
               m.id === msgId ? { ...m, isPinned: false } : m
             ),
           }));
         }}
-        onCompose={() => { setShowMemmoPanel(false); setShowMemoCompose(true); }}
+        onCompose={() => { useMemoryStore.getState().setShowMemmoPanel(false); useMemoryStore.getState().setShowMemoCompose(true); }}
         agentForgePath={agentForgePath}
         onToast={showToast}
         initialTab={memmoPanelTab}
@@ -1852,7 +1536,7 @@ export default function App() {
           agentForgePath={agentForgePath}
           agentId={activeAssistant?.id ?? 'default'}
           onSave={({ commitHash, category }) => {
-            setShowMemoCompose(false);
+            useMemoryStore.getState().setShowMemoCompose(false);
             showToast(`Memmo saved to ${category}.`, {
               label: 'Undo',
               onClick: () => {
@@ -1860,7 +1544,7 @@ export default function App() {
               },
             });
           }}
-          onClose={() => setShowMemoCompose(false)}
+          onClose={() => useMemoryStore.getState().setShowMemoCompose(false)}
         />
       )}
 
@@ -1870,7 +1554,7 @@ export default function App() {
            {toastMessage}
            {toastAction && (
              <button
-               onClick={() => { toastAction.onClick(); setToastMessage(null); setToastAction(null); }}
+               onClick={() => { toastAction.onClick(); useUIStore.getState().clearToast(); }}
                className="ml-1 underline underline-offset-2 text-[#D4AA7D] hover:text-white transition-colors"
              >
                {toastAction.label}
@@ -1882,65 +1566,17 @@ export default function App() {
       {showConsole && (
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4">
           <div className="bg-neutral-900 w-full max-w-2xl h-[60vh] rounded-2xl flex flex-col shadow-2xl border border-neutral-700 font-mono text-xs overflow-hidden">
-            <div className="flex items-center justify-between p-3 border-b border-neutral-800 bg-neutral-950 shrink-0"><span className="text-neutral-400 font-bold flex items-center gap-2"><Activity className="w-4 h-4"/> App Console Log</span><div className="flex gap-4"><button onClick={() => setLogs([])} className="text-neutral-500 hover:text-white font-bold tracking-widest uppercase">Clear</button><button onClick={() => setShowConsole(false)} className="text-neutral-500 hover:text-white"><X className="w-4 h-4"/></button></div></div>
+            <div className="flex items-center justify-between p-3 border-b border-neutral-800 bg-neutral-950 shrink-0"><span className="text-neutral-400 font-bold flex items-center gap-2"><Activity className="w-4 h-4"/> App Console Log</span><div className="flex gap-4"><button onClick={() => useUIStore.getState().clearLogs()} className="text-neutral-500 hover:text-white font-bold tracking-widest uppercase">Clear</button><button onClick={() => useUIStore.getState().setShowConsole(false)} className="text-neutral-500 hover:text-white"><X className="w-4 h-4"/></button></div></div>
             <div className="flex-1 overflow-auto p-4 space-y-2 custom-scrollbar select-text">{logs.length === 0 ? <span className="text-neutral-600 italic">No logs yet...</span> : logs.map((l, i) => (<div key={i} className={`flex gap-3 ${l.level === 'error' ? 'text-[#C98A8A]' : l.level === 'warn' ? 'text-[#D4AA7D]' : 'text-neutral-300'}`}><span className="text-neutral-600 shrink-0 select-none">[{l.time}]</span><span className="break-all whitespace-pre-wrap">{l.msg}</span></div>))}</div>
           </div>
         </div>
       )}
 
       {/* ── Sidebar ── */}
-      <div className={`shrink-0 transition-all duration-300 border-r border-neutral-200 dark:border-neutral-800 z-[60] bg-white dark:bg-neutral-950 overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
-        <div className="w-72 h-full flex flex-col">
-          <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3 bg-[#2C3E50]">
-            <div className="p-2 bg-[#9EADC8] rounded-xl shadow-md shrink-0"><Bot className="w-5 h-5 text-[#2C3E50]" /></div>
-            <div><span className="text-sm font-black tracking-tighter uppercase text-white block">Agent Forge</span><span className="text-[9px] font-bold uppercase tracking-widest text-[#9EADC8]">Local AI Studio</span></div>
-          </div>
-
-          <div className="flex p-1 gap-1 mx-4 mt-4 bg-neutral-100 dark:bg-neutral-800 rounded-xl shrink-0">
-            {['chat', 'archives'].map(v => <button key={v} onClick={() => setViewMode(v)} className={`flex-1 text-[10px] uppercase font-black py-2 rounded-lg transition-all ${viewMode === v ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'}`}>{v}</button>)}
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2 no-scrollbar">
-            {viewMode === 'chat' ? (
-              <div className="space-y-3">
-                <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search chats..." value={chatSearchQuery} onChange={e => setChatSearchQuery(e.target.value)} /></div>
-                {/* Scoped Sidebar Chats to Active Folder ID */}
-                {chats.filter(c => c.folderId === activeFolderId && c.name.toLowerCase().includes(chatSearchQuery.toLowerCase())).map(chat => (
-                  <div key={chat.id} onClick={() => { setActiveChatId(chat.id); setCanvasContent(null); setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-3 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
-                    {editingChatId === chat.id ? (<input autoFocus value={editingChatName} onChange={e => setEditingChatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { setChats(prev => prev.map(c => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); setEditingChatId(null); } else if (e.key === 'Escape') setEditingChatId(null); }} onBlur={() => { setChats(prev => prev.map(c => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); setEditingChatId(null); }} className="w-full bg-white dark:bg-neutral-950 text-xs font-bold px-2 py-1 rounded outline-none border border-[#6A829E]" />) : (<><span className="text-xs truncate flex-1">{chat.name}</span><div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingChatId(chat.id); setEditingChatName(chat.name); }} className="text-neutral-400 hover:text-[#6A829E]"><Edit2 className="w-3 h-3" /></button><button onClick={e => { e.stopPropagation(); setChats(prev => prev.filter(c => c.id !== chat.id)); if (activeChatId === chat.id) setActiveChatId(null); }} className="text-neutral-400 hover:text-[#C98A8A]"><Trash2 className="w-3.5 h-3.5" /></button></div></>)}
-                  </div>
-                ))}
-                {chats.filter(c => c.folderId === activeFolderId).length === 0 && (
-                    <div className="text-center text-xs text-neutral-400 font-bold mt-4">No chats found for this bot.</div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex gap-2 px-1 mb-4"><button onClick={() => createBlankArtifact('code')} className="flex-1 flex justify-center items-center gap-1.5 py-3 rounded-xl border border-[#D6E0EA] dark:border-[#4A5D75]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 text-[9px] font-black uppercase text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#D6E0EA] dark:hover:bg-[#4A5D75]/40 transition-all"><TerminalSquare className="w-3.5 h-3.5" /> Blank App</button><button onClick={() => createBlankArtifact('doc')} className="flex-1 flex justify-center items-center gap-1.5 py-3 rounded-xl border border-[#DCE7E1] dark:border-[#2C3E35]/50 bg-[#EEF3F0] dark:bg-[#2C3E35]/20 text-[9px] font-black uppercase text-[#7A9E8D] dark:text-[#B5CDBF] hover:bg-[#DCE7E1] dark:hover:bg-[#2C3E35]/40 transition-all"><FileEdit className="w-3.5 h-3.5" /> Blank Doc</button></div>
-                <div className="px-1 mb-2 relative"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search saved items..." value={archiveSearchQuery} onChange={e => setArchiveSearchQuery(e.target.value)} /></div>
-                <div className="flex gap-1 border-b border-neutral-100 dark:border-neutral-800 mb-2 px-1">{['code', 'doc', 'image'].map(v => <button key={v} onClick={() => setArchiveSubView(v)} className={`flex-1 pb-2 text-[9px] font-black uppercase tracking-tighter transition-all ${archiveSubView === v ? (v === 'code' ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : v === 'doc' ? 'text-[#7A9E8D] border-b-2 border-[#7A9E8D]' : 'text-[#D4AA7D] border-b-2 border-[#D4AA7D]') : 'text-neutral-400'}`}>{v === 'code' ? 'Code' : v === 'doc' ? 'Docs' : 'Images'}</button>)}</div>
-                
-                <div className="space-y-2 px-1">
-                  {savedApps.filter(a => a.type === archiveSubView && a.title.toLowerCase().includes(archiveSearchQuery.toLowerCase())).map(app => (
-                    <div key={app.id} onClick={() => { const appToLoad = { ...app, isStandalone: true }; if (!appToLoad.history && app.type !== 'image') { appToLoad.history = [{ timestamp: appToLoad.updatedAt || Date.now(), content: appToLoad.content }]; appToLoad.historyIndex = 0; } setCanvasContent(appToLoad); setCanvasTab('preview'); setShowPlanner(false); }} className="group px-3 py-3 rounded-xl cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-3 border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700 transition-all">
-                      <div className={`p-2 rounded-lg shrink-0 ${archiveSubView === 'code' ? 'bg-[#F0F4F8] dark:bg-[#1E2B38]/20' : archiveSubView === 'doc' ? 'bg-[#EEF3F0] dark:bg-[#2C3E35]/20' : 'bg-[#FFF9F2] dark:bg-[#5C452E]/20'}`}>{archiveSubView === 'code' ? <Code className="w-4 h-4 text-[#6A829E]" /> : archiveSubView === 'doc' ? <FileText className="w-4 h-4 text-[#9FBBAF]" /> : <ImageIcon className="w-4 h-4 text-[#D4AA7D]" />}</div>
-                      <span className="text-xs truncate font-bold text-neutral-800 dark:text-neutral-200 flex-1">{app.title}</span>
-                      <button onClick={(e) => { e.stopPropagation(); deleteSavedApp(app.id); }} className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-[#C98A8A] transition-all p-1"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
-                  ))}
-                  {savedApps.filter(a => a.type === archiveSubView).length === 0 && (
-                      <div className="text-center text-xs text-neutral-400 font-bold mt-4">No saved items found.</div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
-            <button onClick={() => { const id = generateId('c'); setChats(prev => [{ id, folderId: activeFolderId, name: 'New Session', updatedAt: Date.now() }, ...prev]); setActiveChatId(id); setMessages(prev => ({ ...prev, [id]: [] })); setShowPlanner(false); setViewMode('chat'); }} className="w-full flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-4 py-3.5 shadow-lg transition-all active:scale-95"><Plus className="w-4 h-4" /> New Chat</button>
-          </div>
-        </div>
-      </div>
+      <AppSidebar
+        onDeleteSavedApp={deleteSavedApp}
+        onCreateBlankArtifact={createBlankArtifact}
+      />
 
       {/* ── Main Panel ── */}
       <div className="flex-1 flex flex-row overflow-hidden relative">
@@ -1948,432 +1584,65 @@ export default function App() {
           <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
             
             {/* Header */}
-            <header className="h-16 shrink-0 flex items-center justify-between px-4 lg:px-6 border-b border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md z-10">
-              <div className="flex items-center gap-3 relative" ref={dropdownRef}>
-                <button onClick={() => setIsSidebarOpen(v => !v)} className="p-2 -ml-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"><Menu className="w-5 h-5" /></button>
-                <button onClick={() => setIsAgentDropdownOpen(v => !v)} className="flex items-center gap-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 p-2 rounded-xl transition-all">
-                  {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
-                  <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : activeAssistant?.name ?? 'Assistant'}</span>
-                  {!showPlanner && <ChevronDown className="w-4 h-4 text-neutral-400" />}
-                </button>
-
-                {isAgentDropdownOpen && !showPlanner && (
-                  <div className="absolute top-full left-10 mt-1 w-72 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in duration-150">
-                    <div className="max-h-64 overflow-y-auto p-1.5 custom-scrollbar space-y-1">
-                      {assistants.map(agent => (
-                        <div key={agent.id} className={`group flex items-center justify-between px-2 py-2 rounded-xl cursor-pointer transition-all ${activeFolderId === agent.id ? 'bg-[#F0F4F8] dark:bg-[#4A5D75]/20' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                          <div className="flex items-center gap-3 truncate flex-1" onClick={() => { setActiveFolderId(agent.id); setActiveChatId(null); setIsAgentDropdownOpen(false); if (agent.defaultModelId) setSelectedModelId(agent.defaultModelId); }}>
-                            <AgentIcon agent={agent} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" />
-                            <div className="flex flex-col truncate"><span className="text-xs font-bold truncate dark:text-white">{agent.name}</span><div className="flex gap-1 mt-0.5">{agent.tools?.web_search && <Globe className="w-2.5 h-2.5 text-[#9EADC8]" />}{agent.tools?.local_workspace && <Database className="w-2.5 h-2.5 text-[#C98A8A]" />}{agent.tools?.calendar_sync && <CalendarDays className="w-2.5 h-2.5 text-[#9FBBAF]" />}</div></div>
-                          </div>
-                          <button onClick={e => { e.stopPropagation(); setEditingAssistant({ ...agent }); setAssistantSettingsTab('config'); setShowAssistantSettings(true); setIsAgentDropdownOpen(false); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-white dark:hover:bg-neutral-700 rounded-lg transition-all"><Settings className="w-3.5 h-3.5" /></button>
-                        </div>
-                      ))}
-                      <div className="border-t border-neutral-100 dark:border-neutral-800 mt-1 pt-1"><button onClick={() => { setEditingAssistant({ id: 'new', name: 'New Assistant', prompt: 'You are a helpful AI assistant.', avatar: { type: 'color', color: 'sage' }, trainingDocs: [], systemAccess: false, tools: {}, awareOfProfile: true, defaultModelId: selectedModel?.id ?? '', defaultMode: 'text' }); setShowAssistantSettings(true); setIsAgentDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl text-[#4A5D75] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all text-[10px] font-black uppercase tracking-widest"><Plus className="w-3 h-3" /> Create Bot</button></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-1">
-                {ramStats && ramStats.available_mb < (hwProfile?.hud_show_mb ?? 2000) && (
-                  <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
-                    ramStats.available_mb < (hwProfile?.hud_warn_mb ?? 1200) ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
-                    'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
-                  }`} title={`${(ramStats.available_mb / 1024).toFixed(1)}GB free of ${(ramStats.total_mb / 1024).toFixed(0)}GB`}>
-                    {(ramStats.available_mb / 1024).toFixed(1)}GB
-                  </div>
-                )}
-                <button onClick={() => setShowConsole(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showConsole ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : hasErrorLogs ? 'text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`} title="Open App Console">
-                  {hasErrorLogs ? (
-                    <div className="relative">
-                      <AlertTriangle className="w-5 h-5 animate-pulse text-[#C98A8A]" />
-                      <span className="absolute -top-1.5 -right-1.5 bg-[#C98A8A] text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full shadow-sm">{errorLogsCount}</span>
-                    </div>
-                  ) : <Activity className="w-5 h-5" />}
-                </button>
-                <button onClick={() => setShowPlanner(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showPlanner ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}>
-                  <CalendarDays className="w-5 h-5" />
-                  {tasks.filter(t => !t.completed).length > 0 && <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#6A829E] text-white text-[9px] font-black">{tasks.filter(t => !t.completed).length}</span>}
-                </button>
-                <button
-                  onClick={() => setShowMemmoPanel(v => !v)}
-                  className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
-                  title="Memos & Memory (⌘⇧M)"
-                >
-                  <BookOpen className="w-5 h-5" />
-                  {activeAgentPinnedMessageObjects.length > 0 && (
-                    <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#D4AA7D] text-white text-[9px] font-black">
-                      {activeAgentPinnedMessageObjects.length}
-                    </span>
-                  )}
-                </button>
-                <div className="w-px h-6 bg-neutral-200 dark:bg-neutral-800 mx-1" />
-                <button onClick={() => setShowProfileSettings(true)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg text-neutral-400"><Settings className="w-5 h-5" /></button>
-              </div>
-            </header>
-
-            {/* Context Progress Bar */}
-            {!showPlanner && selectedModel && activeMessages.length > 0 && (
-              <ContextMeter messages={activeMessages} systemPromptLen={systemPromptLen} limit={selectedModel?.contextLimit ?? 32000} />
-            )}
+            <ChatHeader
+              dropdownRef={dropdownRef}
+              llamaPaused={llamaPaused}
+              llamaCoolingDown={llamaCoolingDown}
+              activeMessages={activeMessages}
+              systemPromptLen={systemPromptLen}
+              hasErrorLogs={hasErrorLogs}
+              errorLogsCount={errorLogsCount}
+              onRunDreamCycle={runDreamCycle}
+              onToast={showToast}
+            />
 
             {/* Views */}
             {showPlanner ? (
-              <div className="flex-1 overflow-y-auto p-4 lg:p-8 bg-neutral-50/50 dark:bg-neutral-900/50 no-scrollbar relative">
-                
-                {/* Task Discuss Bot Selector Modal */}
-                {taskToDiscuss && (
-                  <div className="absolute inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-                     <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-2xl shadow-xl p-5 border border-neutral-200 dark:border-neutral-800">
-                        <div className="flex justify-between items-center mb-4">
-                           <h3 className="text-sm font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">Ask which Agent?</h3>
-                           <button onClick={() => setTaskToDiscuss(null)} className="text-neutral-400 hover:text-neutral-600"><X className="w-4 h-4"/></button>
-                        </div>
-                        <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-                           {assistants.map(a => (
-                              <button key={a.id} onClick={() => {
-                                  setActiveFolderId(a.id);
-                                  setInput(`I need help with this task: ${taskToDiscuss.title}${taskToDiscuss.details ? `\nDetails: ${taskToDiscuss.details}` : ''}`); 
-                                  setShowPlanner(false); 
-                                  setViewMode('chat');
-                                  setActiveChatId(null);
-                                  setTaskToDiscuss(null);
-                              }} className="w-full flex items-center gap-3 p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all text-left">
-                                  <AgentIcon agent={a} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" />
-                                  <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200 flex-1">{a.name}</span>
-                                  <ChevronRight className="w-4 h-4 text-neutral-400" />
-                              </button>
-                           ))}
-                        </div>
-                     </div>
-                  </div>
-                )}
-
-                <div className="max-w-4xl mx-auto space-y-8">
-                  <div className="bg-white dark:bg-neutral-950 p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 shadow-sm flex flex-col">
-                    <div className="flex items-center justify-between mb-6">
-                      <h2 className="text-lg font-black tracking-tight flex items-center gap-2"><ListTodo className="w-5 h-5 text-[#6A829E]" /> Agenda</h2>
-                      <div className="flex bg-neutral-100 dark:bg-neutral-900 p-1 rounded-lg">
-                        <button onClick={() => setPlannerView('list')} className={`p-1.5 rounded-md transition-all ${plannerView === 'list' ? 'bg-white dark:bg-neutral-800 shadow-sm text-[#4A5D75]' : 'text-neutral-400'}`}><LayoutList className="w-4 h-4" /></button>
-                        <button onClick={() => setPlannerView('calendar')} className={`p-1.5 rounded-md transition-all ${plannerView === 'calendar' ? 'bg-white dark:bg-neutral-800 shadow-sm text-[#4A5D75]' : 'text-neutral-400'}`}><CalendarDays className="w-4 h-4" /></button>
-                      </div>
-                    </div>
-
-                    {plannerView === 'calendar' ? (
-                      <div className="animate-in fade-in zoom-in-95 duration-200">
-                        <div className="flex items-center justify-between mb-4 px-2">
-                          <button onClick={() => setCurrentMonthDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><ChevronLeft className="w-5 h-5" /></button>
-                          <span className="text-sm font-black uppercase tracking-widest">{MONTHS[currentMonthDate.getMonth()]} {currentMonthDate.getFullYear()}</span>
-                          <button onClick={() => setCurrentMonthDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><ChevronRight className="w-5 h-5" /></button>
-                        </div>
-                        <div className="grid grid-cols-7 gap-1 mb-2">
-                          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => <div key={d} className="text-center text-[10px] font-black uppercase tracking-widest text-neutral-400 py-2">{d}</div>)}
-                        </div>
-                        <div className="grid grid-cols-7 gap-1">
-                          {calendarDays.map((dateObj, i) => {
-                            if (!dateObj) return <div key={`empty-${i}`} className="min-h-[80px] bg-neutral-50/50 dark:bg-neutral-900/20 rounded-xl" />;
-                            const ds = toLocalISODate(dateObj), isToday = ds === toLocalISODate(new Date()), isSelected = ds === newTaskDate;
-                            const dayTasks = tasks.filter(t => t.dueDate === ds && !t.completed);
-                            return (
-                              <div key={ds} onClick={() => setNewTaskDate(ds as string)} className={`min-h-[80px] p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 ${isSelected ? 'border-[#6A829E] bg-[#F0F4F8]' : isToday ? 'border-neutral-300 dark:border-neutral-600' : 'border-neutral-100 dark:border-neutral-800 hover:border-[#899AB5]'}`}>
-                                <span className={`text-xs font-bold ${isToday ? 'text-[#4A5D75]' : 'text-neutral-500'}`}>{dateObj.getDate()}</span>
-                                {dayTasks.map(t => <div key={t.id} className="text-[9px] font-bold truncate bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#1E2B38] dark:text-[#C5D3E0] px-1.5 py-0.5 rounded" title={t.title}>{t.title}</div>)}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3 animate-in fade-in duration-200">
-                        {tasks.filter(t => !t.completed).length === 0 ? (
-                          <div className="text-center py-6 text-neutral-400 text-sm font-bold">No pending tasks — you're clear!</div>
-                        ) : tasks.filter(t => !t.completed).map(task => (
-                          <div key={task.id}
-                               draggable
-                               onDragStart={(e) => handleDragStart(e, task.id)}
-                               onDragOver={handleDragOver}
-                               onDrop={(e) => handleDrop(e, task.id)}
-                               onDragEnd={() => setDraggedTaskId(null)}
-                               className={`flex items-start justify-between group p-3 hover:bg-neutral-50 dark:hover:bg-neutral-900 rounded-xl border transition-all ${draggedTaskId === task.id ? 'opacity-50 border-[#6A829E] bg-neutral-100 dark:bg-neutral-800' : 'border-transparent hover:border-neutral-100 dark:hover:border-neutral-800'}`}>
-                            <div className="flex items-start gap-3 mt-1">
-                              <div className="cursor-grab text-neutral-300 hover:text-neutral-500 mt-1 flex shrink-0" title="Drag to reorder"><GripVertical className="w-4 h-4" /></div>
-                              <button onClick={() => toggleTask(task.id)} className="text-neutral-300 hover:text-[#6A829E] transition-colors mt-0.5"><Circle className="w-5 h-5" /></button>
-                              <div className="flex flex-col">
-                                <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{task.title}</span>
-                                <div className="flex items-center gap-3 mt-1 flex-wrap">
-                                  {task.dueDate    && <span className="text-[10px] font-black uppercase text-[#6A829E] tracking-wider flex items-center gap-1"><Clock className="w-3 h-3" /> {task.dueDate}</span>}
-                                  {task.location  && <span className="text-[10px] font-bold text-[#7A9E8D] flex items-center gap-1"><MapPin className="w-3 h-3" /> {task.location}</span>}
-                                </div>
-                                {task.details && <p className="text-xs text-neutral-500 mt-1.5 max-w-xl bg-neutral-50 dark:bg-neutral-900 p-2 rounded-lg">{task.details}</p>}
-                              </div>
-                            </div>
-                            <div className="opacity-0 group-hover:opacity-100 flex items-center transition-all">
-                              <button onClick={() => setTaskToDiscuss(task)} className="p-2 text-neutral-400 hover:text-[#4A5D75] transition-all" title="Get Help"><MessageSquare className="w-4 h-4" /></button>
-                              <button onClick={() => deleteTask(task.id)} className="p-2 text-neutral-400 hover:text-[#C98A8A] transition-all" title="Delete"><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="mt-auto pt-6 border-t border-neutral-100 dark:border-neutral-800">
-                      <form onSubmit={handleManualTaskSubmit} className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
-                          <input type="text" value={newTaskInput} onChange={e => setNewTaskInput(e.target.value)} placeholder="Add new task..." className="flex-1 bg-neutral-100 dark:bg-neutral-900 border-none outline-none px-4 py-3 rounded-xl text-sm font-medium" />
-                          <input type="date" value={newTaskDate} onChange={e => setNewTaskDate(e.target.value)} className="bg-neutral-100 dark:bg-neutral-900 border-none outline-none px-3 py-3 rounded-xl text-xs font-bold text-neutral-600 dark:text-neutral-300" />
-                          <button type="button" onClick={() => setShowTaskDetailsForm(v => !v)} className={`p-3 rounded-xl transition-all ${showTaskDetailsForm ? 'bg-[#D6E0EA] text-[#4A5D75]' : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-500 hover:bg-neutral-200'}`}><AlignLeft className="w-4 h-4" /></button>
-                          <button type="submit" disabled={!newTaskInput.trim()} className="px-6 py-3 bg-[#4A5D75] disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-[#3D4D61] transition-all">Add</button>
-                        </div>
-                        {showTaskDetailsForm && (
-                          <div className="flex gap-2 animate-in slide-in-from-top-2">
-                            <div className="flex items-center bg-neutral-100 dark:bg-neutral-900 rounded-xl px-3 w-1/3"><MapPin className="w-4 h-4 text-neutral-400 shrink-0" /><input type="text" value={newTaskLocation} onChange={e => setNewTaskLocation(e.target.value)} placeholder="Location..." className="w-full bg-transparent border-none outline-none p-2 text-xs font-medium" /></div>
-                            <div className="flex items-center bg-neutral-100 dark:bg-neutral-900 rounded-xl px-3 flex-1"><AlignLeft className="w-4 h-4 text-neutral-400 shrink-0" /><input type="text" value={newTaskDetails} onChange={e => setNewTaskDetails(e.target.value)} placeholder="Notes..." className="w-full bg-transparent border-none outline-none p-2 text-xs font-medium" /></div>
-                          </div>
-                        )}
-                      </form>
-                    </div>
-                  </div>
-
-                  {tasks.filter(t => t.completed).length > 0 && (
-                    <div className="opacity-60 hover:opacity-100 transition-all">
-                      <h3 className="text-xs font-black uppercase tracking-widest mb-4 px-2 text-neutral-500 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Completed</h3>
-                      {tasks.filter(t => t.completed).map(task => (
-                        <div key={task.id} className="flex items-center justify-between p-2 px-4 bg-neutral-100 dark:bg-neutral-800/30 rounded-lg mb-2">
-                          <div className="flex items-center gap-3"><button onClick={() => toggleTask(task.id)} className="text-[#9FBBAF]"><CheckCircle2 className="w-4 h-4" /></button><span className="text-sm font-medium line-through text-neutral-500">{task.title}</span></div>
-                          <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all">
-                            <button onClick={() => { setInput(`I need help with this completed task: ${task.title}${task.details ? `\nDetails: ${task.details}` : ''}`); setShowPlanner(false); setViewMode('chat'); }} className="p-2 text-neutral-400 hover:text-[#4A5D75] transition-all" title="Get Help"><MessageSquare className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => deleteTask(task.id)} className="p-2 text-neutral-400 hover:text-[#C98A8A]"><Trash2 className="w-3.5 h-3.5" /></button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <PlannerPanel
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              />
             ) : (
-              <div 
+              <div
                 className={`flex-1 flex flex-col relative overflow-hidden transition-colors ${isDragging ? 'bg-[#9EADC8]/10' : ''}`}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
               >
-                {/* Drag and Drop Overlay */}
-                {isDragging && (
-                  <div className="absolute inset-0 z-50 bg-[#6A829E]/10 border-4 border-[#6A829E]/50 border-dashed rounded-[2rem] m-4 flex items-center justify-center pointer-events-none backdrop-blur-[2px] transition-all">
-                      <div className="bg-white dark:bg-neutral-800 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-[#4A5D75] dark:text-[#9EADC8] font-black tracking-widest uppercase">
-                          <Paperclip className="animate-bounce" /> Drop file to attach
-                      </div>
-                  </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto p-4 lg:p-6 no-scrollbar scroll-smooth">
-                  {models.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-in fade-in zoom-in duration-500">
-                      <div className="p-6 bg-[#2C3E50]/10 dark:bg-[#9EADC8]/10 rounded-full mb-6 border border-[#2C3E50]/20 dark:border-[#9EADC8]/20"><Zap className="w-12 h-12 text-[#2C3E50] dark:text-[#9EADC8]" /></div>
-                      <h2 className="text-3xl font-black tracking-tighter uppercase mb-3">Welcome to Agent Forge</h2>
-                      <p className="text-sm font-medium text-neutral-500 max-w-md mb-8 leading-relaxed">Connect an LLM to begin. Initialize a Native AI, scan local ports, or enter a cloud API key.</p>
-                      <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="px-8 py-4 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-[#9EADC8]/30 transition-all active:scale-95 flex items-center gap-3"><Plus className="w-5 h-5" /> Connect Your First LLM</button>
-                    </div>
-                  ) : activeChatId && activeMessages.length > 0 ? (
-                    <div className="max-w-3xl mx-auto space-y-6 pb-64">
-                      {activeMessages.map(msg => (
-                        <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          {msg.role === 'bot' && <div className="shrink-0 mr-3 mt-1 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
-                          
-                          <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
-                             <div className={`p-4 rounded-2xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
-                               
-                               {editingMessageId === msg.id ? (
-                                  <div className="flex flex-col gap-3 w-full animate-in fade-in">
-                                     <textarea value={editingMessageContent} onChange={e => setEditingMessageContent(e.target.value)} className="w-full bg-white/10 dark:bg-black/20 border border-white/20 dark:border-neutral-600 rounded-xl p-3 text-sm outline-none resize-none font-medium custom-scrollbar" rows={3} autoFocus />
-                                     <div className="flex justify-end gap-2">
-                                        <button onClick={() => setEditingMessageId(null)} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity">Cancel</button>
-                                        <button onClick={() => confirmEditMessage(msg.id)} disabled={!editingMessageContent.trim()} className="px-4 py-1.5 bg-white text-[#4A5D75] dark:bg-neutral-700 dark:text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-neutral-100 dark:hover:bg-neutral-600 transition-colors shadow-sm disabled:opacity-50">Resend</button>
-                                     </div>
-                                  </div>
-                               ) : (
-                                  <div className="leading-relaxed">{renderMessageWithWidgets(msg)}</div>
-                               )}
-                             </div>
-
-                             {/* Actions Bar - Positioned Below Bubble */}
-                             {!editingMessageId && (
-                               <div className={`flex items-center gap-1.5 mt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} px-1`}>
-                                  {msg.role === 'user' && !isGenerating && <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageContent(msg.content); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Edit & Resend"><Edit3 className="w-3.5 h-3.5" /></button>}
-                                  <button onClick={() => { navigator.clipboard.writeText(msg.content); showToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
-                                  {msg.role === 'bot' && !isGenerating && <button onClick={() => toggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
-                                  <button onClick={() => { addTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
-                                  <button onClick={async () => {
-                                    const isPinned = globalPins.some(p => p.msgId === msg.id);
-                                    if (!isPinned) {
-                                      await saveGlobalPins([...globalPins, { id: msg.id, chatId: activeChatId as string, msgId: msg.id, agentId: activeAssistant.id, content: msg.content, savedAt: Date.now() }]);
-                                    } else {
-                                      await saveGlobalPins(globalPins.filter(p => p.msgId !== msg.id));
-                                    }
-                                    setMessages(prev => ({ ...prev, [activeChatId as string]: prev[activeChatId as string].map(m => m.id === msg.id ? { ...m, isPinned: !isPinned } : m) }));
-                                  }} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Pin to Memory (Agent KB)"><Pin className="w-3.5 h-3.5" /></button>
-                               </div>
-                             )}
-                          </div>
-                        </div>
-                      ))}
-                      {isGenerating && !activeMessages[activeMessages.length - 1]?.isStreaming && <div className="flex justify-start"><TypingIndicator /></div>}
-                      <div ref={messagesEndRef} className="h-4" />
-                    </div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-center opacity-20 pointer-events-none grayscale pb-20">
-                      <AgentIcon agent={activeAssistant} sizeClass="w-16 h-16" containerClass="p-4 rounded-3xl mb-4" />
-                      <h2 className="text-2xl font-black italic tracking-tighter uppercase">Start Session</h2>
-                    </div>
-                  )}
-                </div>
+                <MessageList
+                  activeMessages={activeMessages}
+                  isGenerating={isGenerating}
+                  activeAssistant={activeAssistant}
+                  onConfirmEdit={confirmEditMessage}
+                  onSaveGlobalPins={saveGlobalPins}
+                  onToggleSpeak={toggleSpeak}
+                  onAddTask={addTask}
+                  messagesEndRef={messagesEndRef}
+                  onRenderMessage={renderMessageWithWidgets}
+                  onToast={showToast}
+                />
 
                 {/* Input Bar */}
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white dark:from-neutral-900 pt-10 pb-6 px-4 lg:px-6 z-10">
-                  <div className="max-w-3xl mx-auto">
-                    
-                    {/* Error Display */}
-                    {uploadError && (
-                        <div className="mb-2 flex items-center gap-2 text-[#C98A8A] text-[10px] font-black uppercase tracking-widest bg-[#C98A8A]/10 p-2 rounded-xl border border-[#C98A8A]/20 animate-in slide-in-from-bottom-2">
-                            <AlertTriangle size={14} /> {uploadError}
-                        </div>
-                    )}
-
-                    {attachedDocs.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-3 px-2">
-                        {attachedDocs.map((doc, idx) => (
-                          <div key={idx} className="relative group flex items-center gap-2 px-3 py-1.5 bg-white border border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 rounded-xl text-[10px] font-black shadow-sm animate-in slide-in-from-bottom-2">
-                            {doc.isImage ? <img src={doc.content} alt={doc.name} className="w-6 h-6 object-cover rounded-md" /> : <FileText className="w-4 h-4 text-[#6A829E]" />}
-                            <span className="max-w-[100px] truncate">{doc.name}</span>
-                            <button onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))} className="opacity-50 hover:opacity-100 hover:text-[#C98A8A]"><X className="w-3 h-3" /></button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between mb-3 px-2">
-                      <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-                        {[{ id: 'text', label: 'Chat', icon: MessageSquare }, { id: 'code', label: 'Code', icon: Code }, { id: 'doc', label: 'Doc', icon: FileEdit }, { id: 'image', label: 'Image', icon: ImageIcon }]
-                          .filter(m => m.id !== 'image' || appSettings?.imageProvider !== 'none')
-                          .map(({ id, label, icon: Icon }) => (
-                          <button key={id} onClick={() => setGenerationMode(id)} className={`flex items-center gap-1.5 text-[9px] uppercase font-black px-3 py-1.5 rounded-full transition-all border ${generationMode === id ? 'bg-[#2C3E50] text-[#9EADC8] border-[#2C3E50] dark:bg-[#9EADC8] dark:text-[#2C3E50] dark:border-[#9EADC8]' : 'bg-white dark:bg-neutral-800 text-neutral-500 border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                            <Icon className="w-3 h-3" /> {label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Model Selector */}
-                      <div className="flex items-center gap-2" ref={modelDropdownRef}>
-                        <div className="relative">
-                          <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full border border-neutral-200 dark:border-neutral-700 hover:border-[#9EADC8] transition-all shadow-sm">
-                            <Zap className="w-3 h-3 text-[#9EADC8]" />
-                            {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-[#C98A8A]" /></span>}
-                            {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-[#9FBBAF]" /></span>}
-                            <span className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{selectedModel?.name ?? 'Select Brain'}</span>
-                            <ChevronDown className="w-3 h-3 text-neutral-400" />
-                          </button>
-                          {isModelDropdownOpen && (
-                            <div className="absolute bottom-full right-0 mb-2 w-64 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
-                              <div className="p-1.5 space-y-1">
-                                {models.map(m => (
-                                  <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                                    <div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className={`text-[9px] uppercase font-black opacity-60 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
-                                    <div className="flex items-center gap-1">
-                                      {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-[#D9A098]" />}
-                                      {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-[#B5CDBF]" />}
-                                      {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-[#899AB5]" />}
-                                      <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-neutral-400 hover:text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30 rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
-                                    </div>
-                                  </button>
-                                ))}
-                                <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-[#4A5D75] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-[10px] font-black uppercase tracking-widest">Connect LLM</span></button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {llamaServerPid !== null && llamaPaused && (
-                      <div className="px-4 py-2 mb-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between">
-                        <span>🛑 LLaMA hibernating — waiting for RAM to recover</span>
-                        <button onClick={() => { invoke('sigcont_llama_server').catch(() => {}); setLlamaPaused(false); }} className="text-xs underline ml-3 shrink-0">Resume manually</button>
-                      </div>
-                    )}
-                    {llamaServerPid !== null && llamaCoolingDown && !llamaPaused && (
-                      <div className="px-4 py-2 mb-2 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-800 rounded-xl text-yellow-800 dark:text-yellow-300 text-xs">
-                        ⚠️ RAM pressure — LLaMA will pause after this response
-                      </div>
-                    )}
-                    {forcedTool && (
-                      <div className="px-4 py-1.5 mb-2 flex items-center gap-2 bg-[#F0F4F8] dark:bg-[#1E2B38]/40 border border-[#9EADC8]/40 rounded-xl text-[10px] font-bold text-[#4A5D75] dark:text-[#9EADC8]">
-                        {forcedTool === 'workspace' ? <Database className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
-                        Next message will force {forcedTool === 'workspace' ? 'Knowledge Search' : 'Web Search'}
-                        <button onClick={() => setForcedTool(null)} className="ml-auto text-neutral-400 hover:text-neutral-600"><X className="w-3 h-3" /></button>
-                      </div>
-                    )}
-                    <div className="relative">
-                      {/* Slash command palette — outside overflow-hidden so it's not clipped */}
-                      {input.startsWith('/') && !input.includes(' ') && (
-                        <SlashCommandPalette
-                          query={input.slice(1)}
-                          highlightIndex={slashHighlight}
-                          onSelect={cmd => handleSlashCommand(cmd)}
-                          onHighlight={setSlashHighlight}
-                          enabledTools={activeAssistant?.tools ?? {}}
-                        />
-                      )}
-                    {/* Textarea */}
-                    <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
-                      <textarea
-                        value={input}
-                        onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
-                        onKeyDown={e => {
-                          const showPalette = input.startsWith('/') && !input.includes(' ');
-                          const toolGate: Record<string, string> = { search: 'web_search', workspace: 'local_workspace' };
-                          const available = SLASH_COMMANDS.filter(c => { const g = toolGate[c.cmd]; return !g || activeAssistant?.tools?.[g]; });
-                          const filtered = showPalette ? available.filter(c => c.cmd.startsWith(input.slice(1).toLowerCase()) || c.label.toLowerCase().startsWith(input.slice(1).toLowerCase())) : [];
-                          if (showPalette && filtered.length > 0) {
-                            if (e.key === 'ArrowDown') { e.preventDefault(); setSlashHighlight(h => (h + 1) % filtered.length); return; }
-                            if (e.key === 'ArrowUp')   { e.preventDefault(); setSlashHighlight(h => (h - 1 + filtered.length) % filtered.length); return; }
-                            if (e.key === 'Enter')     { e.preventDefault(); handleSlashCommand(filtered[slashHighlight % filtered.length]); return; }
-                            if (e.key === 'Escape')    { setInput(''); return; }
-                          }
-                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
-                        }}
-                        placeholder={models.length === 0 ? 'Connect an LLM to start...' : generationMode === 'code' ? 'What application should I build?' : generationMode === 'doc' ? 'What document should I draft?' : generationMode === 'image' ? 'Describe the image you want to generate...' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
-                        className="w-full bg-transparent p-4 pr-16 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
-                      <div className="absolute right-2 bottom-2 flex items-center gap-1.5 bg-white/90 dark:bg-neutral-950/90 backdrop-blur px-1.5 py-1 rounded-xl">
-                        {!isGenerating && input.trim() && models.length > 0 && <button onClick={handleEnhancePrompt} disabled={isEnhancing} className={`p-2 text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20 rounded-lg transition-all ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-4 h-4" /></button>}
-                        <button
-                          onClick={isGenerating ? handleStop : handleSendMessage}
-                          disabled={(llamaServerPid !== null && llamaPaused) || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0))}
-                          className={`p-2.5 rounded-xl transition-all ${isGenerating ? 'bg-[#C98A8A] text-white shadow-lg animate-pulse hover:bg-[#B57070]' : 'bg-[#9EADC8] text-[#2C3E50] shadow-lg hover:bg-[#899AB5] active:scale-90 disabled:opacity-50'}`}>
-                          {isGenerating ? <Square className="w-4 h-4 fill-[#2C3E50]" /> : <Send className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Mode bar + attachment — below textarea */}
-                    <div className="flex items-center gap-1 px-0.5 pt-1.5">
-                      <button onClick={() => setIsDeepThinking(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-3.5 h-3.5" /><span>Think</span></button>
-                      <button onClick={() => setIsPlanMode(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${isPlanMode ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-3.5 h-3.5" /><span>Plan</span></button>
-                      {activeAssistant?.tools?.local_workspace && (
-                        <button onClick={() => { setForcedTool(t => t === 'workspace' ? null : 'workspace'); }} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${forcedTool === 'workspace' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Knowledge Base Search (⌘⇧K)"><Database className="w-3.5 h-3.5" /><span>Knowledge</span></button>
-                      )}
-                      {activeAssistant?.tools?.web_search && (
-                        <button onClick={() => { setForcedTool(t => t === 'search' ? null : 'search'); }} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${forcedTool === 'search' ? 'bg-[#6A829E] text-white' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Web"><Globe className="w-3.5 h-3.5" /><span>Search</span></button>
-                      )}
-                      <div className="flex items-center gap-1 ml-auto">
-                        {models.length > 0 && <button onClick={toggleListening} className={`p-1.5 rounded-lg transition-all ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-                        {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-1.5 text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
-                        <input type="file" ref={fileInputRef} onChange={handleChatFileUpload} className="hidden" />
-                      </div>
-                    </div>
-                    </div>{/* end relative wrapper for slash palette */}
-                  </div>
-                </div>
+                <ChatInputBar
+                  isGenerating={isGenerating}
+                  isEnhancing={isEnhancing}
+                  selectedModel={selectedModel}
+                  modelDropdownRef={modelDropdownRef}
+                  onSend={handleSendMessage}
+                  onStop={handleStop}
+                  onChatFileUpload={handleChatFileUpload}
+                  onEnhancePrompt={handleEnhancePrompt}
+                  fileInputRef={fileInputRef}
+                  activeAssistant={activeAssistant}
+                  llamaServerPid={llamaServerPid}
+                  llamaPaused={llamaPaused}
+                  setLlamaPaused={setLlamaPaused}
+                  llamaCoolingDown={llamaCoolingDown}
+                  isListening={isListening}
+                  onToggleListening={toggleListening}
+                  onSlashCommand={handleSlashCommand}
+                />
               </div>
             )}
           </div>
@@ -2381,87 +1650,15 @@ export default function App() {
 
         {/* ── Canvas Panel ── */}
         {canvasContent && (
-          <div className={`${canvasContent.isStandalone ? 'w-full' : 'w-1/2'} h-full flex flex-col bg-white dark:bg-neutral-950 z-50 min-w-0 transition-all duration-300 relative overflow-hidden shadow-2xl border-l border-neutral-200 dark:border-neutral-800`}>
-            <div className="h-16 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between px-4 bg-neutral-50 dark:bg-neutral-900/50 shrink-0">
-              <div className="flex items-center gap-3 w-2/3">
-                <button onClick={() => setIsSidebarOpen(v => !v)} className="p-2 -ml-2 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-500 hidden lg:block"><Menu className="w-5 h-5" /></button>
-                <div className={`p-2 ${canvasContent.type === 'doc' ? 'bg-[#7A9E8D]' : canvasContent.type === 'image' ? 'bg-[#D4AA7D]' : 'bg-[#4A5D75]'} rounded-lg shadow-md shrink-0 ${isGenerating ? 'animate-pulse' : ''}`}>{canvasContent.type === 'doc' ? <FileEdit className="w-4 h-4 text-white" /> : canvasContent.type === 'image' ? <ImageIcon className="w-4 h-4 text-white" /> : <Code className="w-4 h-4 text-white" />}</div>
-                
-                <div className="flex flex-col w-full min-w-0 max-w-[200px]">
-                   <input value={canvasContent.title} onChange={e => setCanvasContent((prev: any) => ({ ...prev, title: e.target.value }))} className="bg-transparent border-none font-bold text-sm w-full outline-none focus:ring-0 truncate dark:text-neutral-100" />
-                </div>
-
-                {canvasContent.history?.length > 1 && (
-                  <div className="flex items-center gap-1.5 bg-neutral-200/50 dark:bg-neutral-800/50 rounded-lg p-1 shrink-0 ml-1 border border-neutral-200 dark:border-neutral-700">
-                    <button onClick={() => handleHistoryNavigate(-1)} disabled={(canvasContent.historyIndex ?? 0) === 0} className="p-1 rounded-md text-neutral-500 hover:bg-white dark:hover:bg-neutral-700 disabled:opacity-30 disabled:hover:bg-transparent transition-all" title="Undo / Previous Version"><ChevronLeft className="w-4 h-4" /></button>
-                    <span className="text-[10px] font-black text-neutral-500 tracking-widest px-1 w-12 text-center" title="Version History">v{(canvasContent.historyIndex ?? 0) + 1}/{canvasContent.history.length}</span>
-                    <button onClick={() => handleHistoryNavigate(1)} disabled={(canvasContent.historyIndex ?? 0) === (canvasContent.history?.length ?? 1) - 1} className="p-1 rounded-md text-neutral-500 hover:bg-white dark:hover:bg-neutral-700 disabled:opacity-30 disabled:hover:bg-transparent transition-all" title="Redo / Next Version"><ChevronRight className="w-4 h-4" /></button>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {canvasContent.id && savedApps.some(a => a.id === canvasContent.id) ? (
-                  <div className="flex gap-1">
-                    <button onClick={() => saveToLibrary(false)} className="px-3 py-2 bg-[#4A5D75] text-white rounded-xl text-[10px] font-black uppercase hover:bg-[#3D4D61] transition-all">Update</button>
-                    <button onClick={() => { setSaveAppData({ title: canvasContent.title + ' (Copy)' }); setShowSaveModal(true); }} className="px-3 py-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-xl text-[10px] font-black uppercase hover:bg-neutral-200 hidden lg:block">Save Copy</button>
-                  </div>
-                ) : (
-                  <button onClick={() => { setSaveAppData({ title: canvasContent.title }); setShowSaveModal(true); }} className="px-3 py-2 text-[#4A5D75] bg-[#F0F4F8] dark:bg-[#1E2B38]/30 rounded-xl hover:bg-[#D6E0EA] transition-all text-[10px] font-black uppercase">Save</button>
-                )}
-                <div className="w-px h-6 bg-neutral-200 dark:bg-neutral-800 mx-1" />
-                <button onClick={() => setCanvasContent(null)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg text-neutral-400"><X className="w-4 h-4" /></button>
-              </div>
-            </div>
-
-            <div className="flex flex-col flex-1 overflow-hidden">
-              {canvasContent.type === 'code' && (
-                <div className="flex border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 shrink-0">
-                  {['preview', 'code'].map(tab => <button key={tab} onClick={() => setCanvasTab(tab)} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${canvasTab === tab ? 'text-[#4A5D75] border-b-2 border-[#4A5D75] bg-white dark:bg-neutral-950' : 'text-neutral-400'}`}>{tab === 'preview' ? 'Live Preview' : 'Source Code'}</button>)}
-                </div>
-              )}
-              <div className="flex-1 bg-white dark:bg-neutral-950 overflow-hidden relative flex flex-col text-sm leading-relaxed">
-                {canvasContent.type === 'image' ? (
-                  <div className="flex-1 flex items-center justify-center bg-neutral-100 dark:bg-neutral-900 p-8">
-                     <img src={canvasContent.content} alt={canvasContent.title} className="max-w-full max-h-full object-contain rounded-lg shadow-xl" />
-                  </div>
-                ) : canvasContent.type === 'doc' ? (
-                  <div className="flex flex-col h-full">
-                    <div className="flex gap-1 p-2 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 shrink-0 overflow-x-auto no-scrollbar">
-                      {[['bold','B'],['italic','I'],['underline','U']].map(([cmd, lbl]) => <button key={cmd} onMouseDown={e => { e.preventDefault(); document.execCommand(cmd); }} className={`p-1.5 px-3 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded text-neutral-700 dark:text-neutral-300 ${cmd === 'bold' ? 'font-black' : cmd === 'italic' ? 'italic font-serif' : 'underline'}`}>{lbl}</button>)}
-                      <div className="w-px h-4 bg-neutral-300 dark:bg-neutral-700 mx-1 self-center" />
-                      {[['H1','H1'],['H2','H2']].map(([cmd, lbl]) => <button key={cmd} onMouseDown={e => { e.preventDefault(); document.execCommand('formatBlock', false, cmd); }} className="p-1.5 px-2 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded font-black text-xs text-neutral-700 dark:text-neutral-300">{lbl}</button>)}
-                      <div className="w-px h-4 bg-neutral-300 dark:bg-neutral-700 mx-1 self-center" />
-                      <button onMouseDown={e => { e.preventDefault(); document.execCommand('insertUnorderedList'); }} className="p-1.5 px-2 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded font-bold text-xs flex items-center gap-1 text-neutral-700 dark:text-neutral-300"><List className="w-3 h-3" /> List</button>
-                    </div>
-                    {isGenerating && !canvasContent.content ? (
-                      <div className="flex-1 flex flex-col items-center justify-center space-y-4 opacity-40"><RefreshCw className="w-12 h-12 animate-spin text-[#9FBBAF]" /><span className="text-xs font-black uppercase tracking-widest">Drafting...</span></div>
-                    ) : (
-                      <WysiwygEditor html={canvasContent.content} disabled={isGenerating} onChange={(html: string) => setCanvasContent((prev: any) => ({ ...prev, content: html }))} />
-                    )}
-                  </div>
-                ) : canvasTab === 'code' ? (
-                  <div className="flex-1 flex overflow-hidden bg-white dark:bg-neutral-950 relative font-mono text-xs leading-[1.6]">
-                    <div className="absolute left-0 top-0 bottom-0 w-12 bg-neutral-50 dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800 z-0" />
-                    <div ref={lineNumbersRef} className="w-12 py-6 pr-3 text-right text-neutral-400 overflow-hidden select-none opacity-50 z-10 shrink-0 border-r border-transparent">
-                      {canvasContent.content.split('\n').map((_: any, i: number) => <div key={i}>{i + 1}</div>)}
-                    </div>
-                    <textarea 
-                       ref={codeRef}
-                       onScroll={handleCodeScroll}
-                       className="flex-1 w-full bg-transparent py-6 px-4 outline-none resize-none overflow-auto dark:text-neutral-300 custom-scrollbar whitespace-pre z-10 font-mono text-xs leading-[1.6]" 
-                       value={canvasContent.content} 
-                       onChange={e => setCanvasContent((prev: any) => ({ ...prev, content: e.target.value }))} 
-                       spellCheck="false" 
-                    />
-                  </div>
-                ) : isGenerating && !canvasContent.content ? (
-                  <div className="flex-1 flex flex-col items-center justify-center space-y-4 opacity-40"><RefreshCw className="w-12 h-12 animate-spin text-[#6A829E]" /><span className="text-xs font-black uppercase tracking-widest">Building App...</span></div>
-                ) : (
-                  <iframe title="Preview" className="flex-1 w-full border-none bg-white" srcDoc={canvasContent.content} sandbox="allow-scripts allow-same-origin allow-forms allow-modals" />
-                )}
-              </div>
-            </div>
-          </div>
+          <CanvasPanel
+            isGenerating={isGenerating}
+            onHistoryNavigate={handleHistoryNavigate}
+            onSaveToLibrary={saveToLibrary}
+            codeRef={codeRef}
+            lineNumbersRef={lineNumbersRef}
+            onCodeScroll={handleCodeScroll}
+            onSendMessage={handleSendMessage}
+          />
         )}
       </div>
 
@@ -2469,376 +1666,34 @@ export default function App() {
 
       {/* Assistant Settings */}
       {showAssistantSettings && editingAssistant && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-3xl rounded-[2rem] p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 max-h-[90vh] overflow-y-auto custom-scrollbar text-neutral-900 dark:text-white flex flex-col">
-            <div className="flex justify-between items-center mb-6 shrink-0">
-              <div className="flex items-center gap-3"><div className="p-2 bg-[#4A5D75] rounded-xl"><UserCog className="w-6 h-6 text-white" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Agent Settings</h3></div>
-              <button onClick={() => setShowAssistantSettings(false)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
-            </div>
-
-            <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 mb-6 shrink-0">
-              {['config', 'memory'].map(tab => (
-                 <button key={tab} onClick={() => setAssistantSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${assistantSettingsTab === tab ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : 'text-neutral-400'}`}>
-                    {tab === 'config' ? 'Configuration' : 'Knowledge & Memory'}
-                 </button>
-              ))}
-            </div>
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-               {assistantSettingsTab === 'config' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                     <div className="space-y-6">
-                        <div><label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Name</label><input type="text" value={editingAssistant.name} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, name: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:border-[#6A829E] dark:text-neutral-100" /></div>
-                        
-                        <div>
-                           <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Default Output Mode</label>
-                           <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-2xl">
-                             {[{id:'text', lbl:'Chat'}, {id:'code',lbl:'Code Canvas'}, {id:'doc',lbl:'Doc Draft'}, {id:'image',lbl:'Image Gen'}]
-                               .filter(m => m.id !== 'image' || appSettings?.imageProvider !== 'none')
-                               .map(m => (
-                               <button key={m.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, defaultMode: m.id }))} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${editingAssistant.defaultMode === m.id || (!editingAssistant.defaultMode && m.id === 'text') ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>
-                                 {m.lbl}
-                               </button>
-                             ))}
-                           </div>
-                        </div>
-
-                        <div>
-                        <div className="flex items-center justify-between mb-2">
-                           <label className="text-[10px] font-black uppercase opacity-50 block tracking-widest">System Prompt</label>
-                           <button onClick={handleEnhanceSystemPrompt} disabled={isEnhancingPrompt || !editingAssistant.prompt || models.length === 0} className="flex items-center gap-1 text-[10px] font-black uppercase text-[#D4AA7D] hover:text-[#C29462] disabled:opacity-40"><Wand2 className={`w-3.5 h-3.5 ${isEnhancingPrompt ? 'animate-spin' : ''}`} /> Polish</button>
-                        </div>
-                        <textarea value={editingAssistant.prompt} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, prompt: e.target.value }))} rows={8} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-[#6A829E] dark:text-neutral-100 custom-scrollbar" placeholder="You are a helpful assistant..." />
-                        </div>
-                     </div>
-                     <div className="space-y-6">
-                        <div>
-                           <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Avatar</label>
-                           <div className="flex gap-2 items-center flex-wrap">
-                              <input type="file" accept="image/*" ref={avatarUploadRef} onChange={handleAvatarUpload} className="hidden" />
-                              <button onClick={() => avatarUploadRef.current?.click()} className="w-12 h-12 rounded-2xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 flex items-center justify-center hover:bg-neutral-50 dark:hover:bg-neutral-800"><ImageIcon className="w-5 h-5 text-neutral-400" /></button>
-                              {BOT_COLORS.map(c => <button key={c.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, avatar: { type: 'color', color: c.id } }))} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all border-2 ${c.bg} ${editingAssistant?.avatar?.color === c.id && editingAssistant?.avatar?.type === 'color' ? 'ring-4 ring-[#6A829E]/30 scale-105 border-white dark:border-neutral-900' : 'border-transparent opacity-80 hover:opacity-100'}`}><Bot className="w-6 h-6 text-white" /></button>)}
-                           </div>
-                        </div>
-
-                        <div>
-                        <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Capabilities</label>
-                        <div className="space-y-2">
-                           {AVAILABLE_TOOLS.map(tool => {
-                              const Icon = tool.icon, enabled = editingAssistant.tools?.[tool.id] ?? false;
-                              return (
-                              <div key={tool.id} className="flex flex-col bg-neutral-50 dark:bg-neutral-800/20 rounded-xl overflow-hidden border border-neutral-100 dark:border-neutral-800">
-                                 <div className={`flex items-center justify-between p-3 transition-all ${enabled ? 'bg-[#F0F4F8] dark:bg-[#1E2B38]/30' : ''}`}>
-                                    <div className="flex items-center gap-3">
-                                    <div className={`p-1.5 rounded-lg ${enabled ? 'bg-[#4A5D75] text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500'}`}><Icon className="w-4 h-4" /></div>
-                                    <div className="flex flex-col"><span className="text-xs font-bold dark:text-neutral-200">{tool.name}</span><span className="text-[9px] text-neutral-500">{tool.desc}</span></div>
-                                    </div>
-                                    <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), [tool.id]: !enabled } }))} className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${enabled ? 'bg-[#4A5D75]' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
-                                    <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'right-0.5' : 'left-0.5'}`} />
-                                    </button>
-                                 </div>
-                              </div>
-                              );
-                           })}
-                        </div>
-                        </div>
-                     </div>
-                  </div>
-               ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                     {/* Knowledge Base List */}
-                     <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
-                        <div className="flex items-center justify-between mb-4">
-                           <div>
-                             <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Always-On Docs</label>
-                             <p className="text-[9px] text-neutral-400 mt-0.5">📌 Always injected into every message · max 25K chars</p>
-                           </div>
-                           <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest">{editingAssistant.trainingDocs?.length ?? 0} Docs</span>
-                        </div>
-                        <div className="space-y-2 mb-4 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
-                           {editingAssistant.trainingDocs?.map((doc: any) => (
-                              <div key={doc.id} className="flex items-center justify-between p-2.5 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700">
-                                 <div className="flex items-center gap-2 truncate"><FileText className="w-4 h-4 text-[#6A829E] shrink-0" /><span className="text-xs font-bold truncate">{doc.name}</span><span className="text-[10px] text-neutral-400 shrink-0">{(doc.content?.length ?? 0).toLocaleString()} chars</span></div>
-                                 <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: prev.trainingDocs.filter((d: any) => d.id !== doc.id) }))} className="p-1 text-neutral-400 hover:text-[#C98A8A]"><X className="w-4 h-4" /></button>
-                              </div>
-                           ))}
-                           {(!editingAssistant.trainingDocs || editingAssistant.trainingDocs.length === 0) && (
-                              <div className="text-center p-4 py-8 border-2 border-dashed border-neutral-200 dark:border-neutral-700 rounded-xl text-neutral-400 text-xs font-bold">No documents uploaded.</div>
-                           )}
-                        </div>
-                        <input type="file" accept="text/*,.pdf,.doc,.docx" ref={trainingDocUploadRef} onChange={handleTrainingDocUpload} className="hidden" />
-                        <button onClick={() => trainingDocUploadRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 border-2 border-[#D6E0EA] dark:border-[#1E2B38] text-[#4A5D75] dark:text-[#899AB5] rounded-xl hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all text-[10px] font-black uppercase tracking-widest bg-white dark:bg-neutral-900 shadow-sm"><Paperclip className="w-4 h-4" /> Upload Document</button>
-                     </div>
-                     
-                     {/* Agent Memos */}
-                     <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
-                       <div className="flex items-center justify-between mb-3">
-                         <div>
-                           <label className="text-[10px] font-black uppercase tracking-widest text-[#D4AA7D] flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Agent Memos</label>
-                           <p className="text-[9px] text-neutral-400 mt-0.5">🔍 Searched when relevant — not always injected</p>
-                         </div>
-                         <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">View →</button>
-                       </div>
-                       <AgentMemosSection forgePath={agentForgePath} agentId={editingAssistant?.id ?? 'default'} onCompose={() => { setShowAssistantSettings(false); setShowMemoCompose(true); }} />
-                       <button
-                         onClick={() => { setShowAssistantSettings(false); runDreamCycle(); }}
-                         disabled={isDreamRunning}
-                         className="w-full flex items-center justify-center gap-2 py-2.5 mt-3 rounded-xl border border-[#4A5D75]/30 text-xs font-bold text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#4A5D75]/10 transition-all disabled:opacity-50"
-                       >
-                         {isDreamRunning
-                           ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Dream Cycle Running...</>
-                           : <><Brain className="w-3.5 h-3.5" /> Run Dream Cycle</>
-                         }
-                       </button>
-                     </div>
-
-                     {/* Knowledge Library */}
-                     <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
-                       <div className="flex items-center justify-between mb-3">
-                         <div>
-                           <label className="text-[10px] font-black uppercase tracking-widest text-[#6A829E] dark:text-[#899AB5] flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Knowledge Library</label>
-                           <p className="text-[9px] text-neutral-400 mt-0.5">🔍 Searched when relevant — shared across all agents</p>
-                         </div>
-                         <button onClick={() => setShowMemmoPanel(true)} className="text-[9px] font-bold text-[#4A5D75] underline">Manage →</button>
-                       </div>
-                       <LibraryFileList path={agentForgePath} />
-                     </div>
-
-                     {/* Pinned Memories List */}
-                     <div className="p-5 bg-[#F9F4EE] dark:bg-[#5C452E]/10 rounded-2xl border border-[#EEDCC4] dark:border-[#5C452E]/30">
-                        <div className="flex items-center justify-between mb-4">
-                           <div>
-                             <label className="text-[10px] font-black uppercase tracking-widest text-[#D4AA7D] flex items-center gap-2"><Pin className="w-3.5 h-3.5" /> Pinned Memories</label>
-                             <p className="text-[9px] text-neutral-400 mt-0.5">📌 Always in context — injected into every message</p>
-                           </div>
-                           <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest">{editingAgentPins.length} Facts</span>
-                        </div>
-                        <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-1">
-                           {editingAgentPins.length === 0 ? (
-                              <div className="text-center p-4 py-8 border-2 border-dashed border-[#EEDCC4] dark:border-[#5C452E]/40 rounded-xl text-neutral-400 text-xs font-bold">No memories pinned yet. Use the pin icon on chat messages to save facts here forever.</div>
-                           ) : (
-                              editingAgentPins.map((pin: any, i: number) => (
-                                 <div key={i} className="flex items-start justify-between p-3 rounded-xl border border-white dark:border-neutral-700 bg-white/50 dark:bg-neutral-800/50 group hover:border-[#D4AA7D] transition-all shadow-sm">
-                                    <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300 pr-4 break-words">{pin.content}</p>
-                                    <button onClick={async () => { await saveGlobalPins(globalPins.filter(p => p.msgId !== pin.msgId)); setMessages(prev => ({ ...prev, [pin.chatId]: (prev[pin.chatId] ?? []).map(m => m.id === pin.msgId ? { ...m, isPinned: false } : m) })); }} className="p-1 text-neutral-400 hover:text-[#C98A8A] hover:bg-white dark:hover:bg-neutral-800 rounded-md opacity-0 group-hover:opacity-100 transition-all shrink-0" title="Delete Memory"><Trash2 className="w-4 h-4" /></button>
-                                 </div>
-                              ))
-                           )}
-                        </div>
-                     </div>
-                  </div>
-               )}
-            </div>
-            
-            <button onClick={saveAssistantConfig} className="w-full py-5 bg-[#4A5D75] text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 active:scale-[0.98] hover:bg-[#3D4D61] transition-all shrink-0">Save Configuration</button>
-          </div>
-        </div>
+        <AssistantSettingsModal
+          onSave={saveAssistantConfig}
+          trainingDocUploadRef={trainingDocUploadRef}
+          avatarUploadRef={avatarUploadRef}
+          onTrainingDocUpload={handleTrainingDocUpload}
+          onAvatarUpload={handleAvatarUpload}
+          onUnpin={async (chatId, msgId) => {
+            await saveGlobalPins(globalPins.filter(p => p.msgId !== msgId));
+            setMessages(prev => ({
+              ...prev,
+              [chatId]: (prev[chatId] ?? []).map(m =>
+                m.id === msgId ? { ...m, isPinned: false } : m
+              ),
+            }));
+          }}
+          handleEnhanceSystemPrompt={handleEnhanceSystemPrompt}
+          isEnhancingPrompt={isEnhancingPrompt}
+          onRunDreamCycle={runDreamCycle}
+        />
       )}
 
       {/* Global Profile/System Settings */}
       {showProfileSettings && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center mb-6 shrink-0">
-              <div className="flex items-center gap-3"><div className="p-2 bg-neutral-900 dark:bg-white rounded-xl"><Settings className="w-6 h-6 text-white dark:text-neutral-900" /></div><h3 className="text-xl font-black tracking-tighter uppercase">System Settings</h3></div>
-              <button onClick={() => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); }} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 mb-6 shrink-0">
-              {['profile', 'integrations'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : 'text-neutral-400'}`}>{tab === 'profile' ? 'My Profile' : 'Integrations'}</button>)}
-            </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-              {profileSettingsTab === 'profile' ? (
-                <div>
-                  <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">About Me (Global Context)</label>
-                  <textarea value={userProfile} onChange={e => setUserProfile(e.target.value)} rows={8} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-[#6A829E] dark:text-neutral-100" placeholder="" />
-                  
-                  {/* Automated Profile Update Toggle */}
-                  <div className="mt-6 flex items-center justify-between p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
-                     <div className="flex flex-col">
-                        <span className="text-sm font-bold dark:text-neutral-200 block">Allow Profile Updates</span>
-                        <span className="text-[10px] text-neutral-500 font-medium tracking-wide">AI can autonomously propose updates to your profile from chat conversations.</span>
-                     </div>
-                     <button onClick={() => setAppSettings(prev => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-[#4A5D75]' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
-                        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.allowProfileUpdates ? 'right-0.5' : 'left-0.5'}`} />
-                     </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-6">
-
-                  {/* Image Generation Tooling - Engineered UX */}
-                  <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-6">
-                     <div>
-                        <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><ImageIcon className="w-4 h-4 text-[#D4AA7D]" /> Image Engine</h4>
-                        <p className="text-xs text-neutral-500 font-medium">Configure your preferred AI image generator API. Keys are stored locally.</p>
-                     </div>
-
-                     <div>
-                        <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Provider</label>
-                        <select value={appSettings.imageProvider} onChange={e => { setAppSettings(prev => ({ ...prev, imageProvider: e.target.value, imageModelId: '', imageEndpoint: '' })); setImageTestState({loading:false, error:null, successUrl:null}); setImageEngineModels([]); }} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold">
-                           <option value="none">Disabled</option>
-                           <option value="openai">OpenAI (DALL-E & Compatible)</option>
-                           <option value="google">Google (Imagen)</option>
-                           <option value="custom">Custom Endpoint</option>
-                        </select>
-                     </div>
-
-                     {/* Dynamic API Key Reveal & Testing */}
-                     {appSettings.imageProvider !== 'none' && (
-                        <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-neutral-50 dark:bg-neutral-950 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 flex flex-col gap-4">
-                           
-                           {/* Key Handling */}
-                           {appSettings.imageProvider === 'google' && hasImplicitGoogleKey ? (
-                              <div className="flex items-center gap-3 text-xs font-bold text-[#9FBBAF] bg-[#9FBBAF]/10 p-3 rounded-xl border border-[#9FBBAF]/20">
-                                 <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.
-                              </div>
-                           ) : appSettings.imageProvider === 'openai' && hasImplicitOpenAIKey ? (
-                              <div className="flex items-center gap-3 text-xs font-bold text-[#9FBBAF] bg-[#9FBBAF]/10 p-3 rounded-xl border border-[#9FBBAF]/20">
-                                 <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.
-                              </div>
-                           ) : (
-                              <div className="flex flex-col gap-2">
-                                 <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">API Key</label>
-                                 <input
-                                    type="password"
-                                    value={
-                                       appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
-                                       appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
-                                       integrations.customImage?.apiKey || ''
-                                    }
-                                    onChange={e => {
-                                       const val = e.target.value;
-                                       if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { apiKey: val } }));
-                                       else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { apiKey: val } }));
-                                       else setIntegrations((prev: any) => ({ ...prev, customImage: { apiKey: val } }));
-                                    }}
-                                    placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
-                                    className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
-                                 />
-                              </div>
-                           )}
-
-                           {/* Custom Endpoint Field */}
-                           {appSettings.imageProvider === 'custom' && (
-                              <div className="flex flex-col gap-2">
-                                 <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Custom Base URL</label>
-                                 <input
-                                    type="text"
-                                    value={appSettings.imageEndpoint || ''}
-                                    onChange={e => setAppSettings(prev => ({ ...prev, imageEndpoint: e.target.value }))}
-                                    placeholder="https://your-custom-endpoint.com/v1"
-                                    className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
-                                 />
-                              </div>
-                           )}
-
-                           {/* Fetch Models & Model Selection */}
-                           <div className="flex flex-col gap-2 border-t border-neutral-200 dark:border-neutral-800 pt-4">
-                               <div className="flex items-center justify-between">
-                                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Target Model ID</label>
-                                  <button onClick={fetchImageModels} disabled={isFetchingImageModels || !activeImageKey} className="text-[10px] font-black uppercase tracking-widest text-[#4A5D75] hover:text-[#2C3E50] dark:text-[#9EADC8] dark:hover:text-white disabled:opacity-50 transition-all flex items-center gap-1">
-                                      {isFetchingImageModels ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />} Fetch Models
-                                  </button>
-                               </div>
-                               
-                               {imageEngineModels.length > 0 ? (
-                                   <select value={appSettings.imageModelId || ''} onChange={e => setAppSettings(prev => ({ ...prev, imageModelId: e.target.value }))} className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-bold transition-all">
-                                       <option value="" disabled>Select a model...</option>
-                                       {imageEngineModels.map(m => <option key={m} value={m}>{m}</option>)}
-                                   </select>
-                               ) : (
-                                   <input
-                                      type="text"
-                                      value={appSettings.imageModelId || ''}
-                                      onChange={e => setAppSettings(prev => ({ ...prev, imageModelId: e.target.value }))}
-                                      placeholder={appSettings.imageProvider === 'google' ? "e.g. imagen-3.0-generate-001" : "e.g. dall-e-3"}
-                                      className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
-                                   />
-                               )}
-                           </div>
-
-                           {/* TEST INTEGRATION BLOCK */}
-                           <div className="pt-4 border-t border-neutral-200 dark:border-neutral-800 flex flex-col gap-3">
-                              <button 
-                                 onClick={testImageEngine}
-                                 disabled={imageTestState.loading || !activeImageKey || !appSettings.imageModelId}
-                                 className="flex items-center justify-center gap-2 w-full py-3 bg-[#F0F4F8] hover:bg-[#D6E0EA] text-[#4A5D75] dark:bg-[#1E2B38]/30 dark:hover:bg-[#1E2B38]/50 dark:text-[#9EADC8] rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
-                              >
-                                 {imageTestState.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                                 {imageTestState.loading ? 'Testing...' : 'Test Connection (Cat in Banana Costume)'}
-                              </button>
-
-                              {imageTestState.loading && (
-                                  <div className="p-3 bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] rounded-xl border border-[#4A5D75]/20 text-xs font-bold leading-relaxed flex items-center gap-2 animate-pulse">
-                                      <Loader2 className="w-4 h-4 animate-spin" /> Generating test image, please wait...
-                                  </div>
-                              )}
-
-                              {imageTestState.error && (
-                                  <div className="p-3 bg-[#C98A8A]/10 text-[#C98A8A] rounded-xl border border-[#C98A8A]/20 text-xs font-bold leading-relaxed">
-                                      {imageTestState.error}
-                                  </div>
-                              )}
-                              {imageTestState.successUrl && (
-                                  <div className="p-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm text-center animate-in fade-in zoom-in-95">
-                                      <img src={imageTestState.successUrl} alt="Test Success" className="w-full max-w-[200px] h-auto rounded-lg mx-auto mb-2 cursor-pointer" onClick={() => viewImageInCanvas(imageTestState.successUrl as string)} title="View full size in Canvas" />
-                                      <span className="text-[10px] font-black uppercase tracking-widest text-[#9FBBAF] flex items-center justify-center gap-1 mt-2"><ShieldCheck className="w-3 h-3" /> Connection Successful</span>
-                                  </div>
-                              )}
-                           </div>
-                        </div>
-                     )}
-                     
-                     {/* Output Preference */}
-                     {appSettings.imageProvider !== 'none' && (
-                         <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800">
-                            <span className="text-[10px] font-black uppercase opacity-50 mb-3 block tracking-widest">Image Delivery Method</span>
-                            <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-xl">
-                               <button onClick={() => setAppSettings(prev => ({ ...prev, defaultImageOutput: 'canvas' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'canvas' ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>Canvas Artifact</button>
-                               <button onClick={() => setAppSettings(prev => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>In-Chat Message</button>
-                            </div>
-                         </div>
-                     )}
-                  </div>
-
-                  {/* Tavily Web Search Integration */}
-                  <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
-                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                         <div className="flex items-center gap-3">
-                             <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Globe className="w-5 h-5 text-[#6A829E]" /></div>
-                             <div className="flex flex-col">
-                                <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Tavily Web Search</span>
-                                <span className="text-xs text-neutral-500 font-medium mt-0.5">1,000 free AI searches/month. <a href="https://tavily.com" target="_blank" rel="noreferrer" className="text-[#6A829E] hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
-                             </div>
-                         </div>
-                         <button onClick={() => setIntegrations((prev: any) => ({ ...prev, tavily: { ...prev.tavily, enabled: !prev.tavily?.enabled } }))} className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${integrations.tavily?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}>{integrations.tavily?.enabled ? 'Enabled' : 'Enable'}</button>
-                     </div>
-                     {integrations.tavily?.enabled && (
-                        <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
-                           <input type="password" value={integrations.tavily?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, tavily: { ...prev.tavily, apiKey: e.target.value } }))} placeholder="Paste your tvly-... API key here" className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all" />
-                        </div>
-                     )}
-                  </div>
-
-                  {/* Local Planner */}
-                  <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-[#F9F4EE] dark:bg-[#5C452E]/20 rounded-xl shadow-sm border border-[#EEDCC4] dark:border-[#5C452E]/30"><CalendarDays className="w-5 h-5 text-[#D4AA7D]" /></div>
-                      <div className="flex flex-col">
-                        <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Local Planner</span>
-                        <span className="text-xs text-neutral-500 font-medium mt-0.5">Events & reminders saved to <code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded text-[11px]">~/AgentForge/memory/tasks.md</code></span>
-                        <span className="text-[10px] text-neutral-400 mt-0.5">Enable the "Local Planner" tool on an agent to let it add tasks.</span>
-                      </div>
-                    </div>
-                    <span className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#9FBBAF]/20 text-[#7A9E8D] border border-[#9FBBAF]/30">Active</span>
-                  </div>
-
-                </div>
-              )}
-            </div>
-            <button onClick={() => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); }} className="w-full py-5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 shrink-0 active:scale-[0.98] transition-all">Done</button>
-          </div>
-        </div>
+        <ProfileSettingsModal
+          fetchImageModels={fetchImageModels}
+          testImageEngine={testImageEngine}
+          viewImageInCanvas={viewImageInCanvas}
+        />
       )}
 
       {/* Save Artifact Modal */}
@@ -2849,7 +1704,7 @@ export default function App() {
             <div className="space-y-4">
                <div>
                   <label className="text-[10px] font-black uppercase opacity-40 block mb-1">Project Name</label>
-                  <input type="text" value={saveAppData.title} onChange={e => setSaveAppData(prev => ({...prev, title: e.target.value}))} className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm dark:text-neutral-100 outline-none font-bold" />
+                  <input type="text" value={saveAppData.title} onChange={e => useUIStore.getState().setSaveAppData({ ...useUIStore.getState().saveAppData, title: e.target.value })} className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm dark:text-neutral-100 outline-none font-bold" />
                </div>
             </div>
             <div className="flex gap-2 mt-8">
@@ -2862,76 +1717,13 @@ export default function App() {
 
       {/* Model Onboarding / Engine Wizard */}
       {showModelWizard && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200 text-neutral-900 dark:text-white">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-lg rounded-[2rem] p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col">
-            <div className="flex justify-between items-center mb-6 shrink-0">
-              <div className="flex items-center gap-3"><div className="p-2 bg-[#4A5D75] rounded-xl"><Zap className="w-6 h-6 text-white" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Connect LLM</h3></div>
-              <button onClick={() => { setShowModelWizard(false); setWizardStep(3); }} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
-            </div>
-
-            {/* Hidden Local Wizard Steps Commented Out For Future Use */}
-            {wizardStep === 3 && (
-              <div className="flex flex-col flex-1 animate-in slide-in-from-right-2 duration-300 space-y-4">
-                <h4 className="text-sm font-black mb-2 uppercase tracking-widest text-neutral-400 shrink-0">Manual Configuration</h4>
-                
-                <select value={editingModel.provider} onChange={handleProviderChange} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold shrink-0">
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic (Claude)</option>
-                  <option value="google">Google (Gemini)</option>
-                  <option value="huggingface">Hugging Face</option>
-                </select>
-
-                <div className="shrink-0">
-                  <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Endpoint URL</label>
-                  <input type="text" placeholder="e.g. https://api.openai.com/v1" value={editingModel.endpoint} onChange={e => setEditingModel(prev => ({ ...prev, endpoint: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono placeholder:font-sans" />
-                </div>
-                
-                <div className="relative shrink-0">
-                  <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">API Key (Optional for Local)</label>
-                  <input type="password" placeholder="sk-…" value={editingModel.apiKey} onChange={e => setEditingModel(prev => ({ ...prev, apiKey: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono pr-28" />
-                  <button onClick={handleFetchModels} disabled={isFetchingModels} className="absolute right-2 bottom-1.5 px-3 py-1.5 bg-neutral-200 dark:bg-neutral-700 rounded-lg text-[9px] font-black uppercase text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#D6E0EA] dark:hover:bg-[#1E2B38]/20 transition-all disabled:opacity-50">{isFetchingModels ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Fetch Models'}</button>
-                </div>
-                {fetchModelsError && <p className="text-[10px] text-[#C98A8A] mt-1 shrink-0">{fetchModelsError}</p>}
-
-                {fetchedModels.length > 0 ? (
-                  <div className="flex flex-col flex-1 min-h-[30vh] space-y-3 animate-in slide-in-from-top-2">
-                    <label className="text-[10px] font-black uppercase text-neutral-400 px-2 tracking-widest shrink-0">Tap to select models to import:</label>
-                    <div className="px-2 shrink-0">
-                      <input type="text" placeholder="Search models..." value={modelSearchQuery} onChange={e => setModelSearchQuery(e.target.value)} className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-xl px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-[#6A829E]/50 font-bold" />
-                    </div>
-                    <div className="flex-1 overflow-y-auto border-2 dark:border-neutral-800 p-2 rounded-2xl bg-neutral-50 dark:bg-neutral-950 space-y-2 custom-scrollbar min-h-[200px] max-h-[40vh]">
-                      {fetchedModels.filter(m => m.id.toLowerCase().includes(modelSearchQuery.toLowerCase())).map(m => {
-                        const isSelected = pendingModelSelections.some(p => p.id === m.id);
-                        return (
-                          <button key={m.id} onClick={() => toggleModelSelection(m)} className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${isSelected ? 'border-[#4A5D75] bg-[#F0F4F8] dark:bg-[#1E2B38]/20 shadow-sm' : 'border-transparent hover:bg-white dark:hover:bg-neutral-800'}`}>
-                            <div className="flex flex-col text-left overflow-hidden">
-                              <div className="flex items-center gap-1.5">
-                                 {m.id.includes('dall-e') || m.id.includes('image') ? <span title="Image Generation Model"><ImageIcon className="w-3 h-3 text-[#D4AA7D]" /></span> : null}
-                                 <span className="text-xs font-bold truncate text-neutral-800 dark:text-neutral-100">{m.id}</span>
-                              </div>
-                              <span className="text-[9px] font-black text-[#6A829E] uppercase tracking-tight">Limit: {m.context.toLocaleString()} tokens</span>
-                            </div>
-                            {isSelected ? <CheckCircle2 className="w-5 h-5 text-[#4A5D75] shrink-0" /> : <PlusCircle className="w-5 h-5 text-neutral-300 shrink-0" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button onClick={handleBulkAdd} disabled={pendingModelSelections.length === 0} className="shrink-0 w-full py-5 bg-[#4A5D75] text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-[#3D4D61] active:scale-95 transition-all disabled:opacity-50">Add {pendingModelSelections.length} Model(s)</button>
-                  </div>
-                ) : (
-                  <div className="pt-2 space-y-4 shrink-0">
-                    <div className="flex gap-3">
-                      <div className="flex-1"><label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Model ID</label><input type="text" placeholder="e.g. llama-3, dall-e-3" value={editingModel.modelId} onChange={e => setEditingModel(prev => ({ ...prev, modelId: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono" /></div>
-                      <div className="w-1/3"><label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Context Limit</label><input type="number" placeholder="32000" value={editingModel.contextLimit} onChange={e => setEditingModel(prev => ({ ...prev, contextLimit: parseInt(e.target.value) || 0 }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono" /></div>
-                    </div>
-                    <div><label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Display Name</label><input type="text" placeholder="Custom Model" value={editingModel.name} onChange={e => setEditingModel(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none font-bold focus:border-[#6A829E]" /></div>
-                    <button onClick={() => executeAddLLM({ ...editingModel, name: editingModel.name || editingModel.modelId })} disabled={!editingModel.modelId} className="w-full py-4 bg-[#4A5D75] text-white rounded-xl font-black text-xs uppercase hover:bg-[#3D4D61] disabled:opacity-50 transition-all active:scale-95 shadow-md">Connect Single LLM</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <ModelWizardModal
+          onToggleModelSelection={toggleModelSelection}
+          onBulkAdd={handleBulkAdd}
+          onFetchModels={handleFetchModels}
+          onProviderChange={handleProviderChange}
+          onAddSingleLLM={executeAddLLM}
+        />
       )}
 
       <style>{`

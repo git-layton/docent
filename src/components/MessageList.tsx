@@ -1,0 +1,184 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Paperclip, Zap, Plus, Pin, Edit3, Copy, Volume2, VolumeX, ListTodo,
+  ArrowDown, ArrowUp
+} from 'lucide-react';
+import { AgentIcon } from './ui/AgentIcon';
+import { TypingIndicator } from './ui/TypingIndicator';
+import { useChatStore } from '../store/useChatStore';
+import { useMemoryStore } from '../store/useMemoryStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useTaskStore } from '../store/useTaskStore';
+import { useUIStore } from '../store/useUIStore';
+
+interface MessageListProps {
+  activeMessages: any[];
+  isGenerating: boolean;
+  activeAssistant: any;
+  onConfirmEdit: (msgId: string) => void;
+  onSaveGlobalPins: (pins: any[]) => Promise<void>;
+  onToggleSpeak: (msgId: string, text: string) => void;
+  onAddTask: (title: string) => void;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  onRenderMessage: (msg: any) => React.ReactNode;
+  onToast: (msg: string) => void;
+}
+
+export function MessageList({
+  activeMessages,
+  isGenerating,
+  activeAssistant,
+  onConfirmEdit,
+  onSaveGlobalPins,
+  onToggleSpeak,
+  onAddTask,
+  messagesEndRef,
+  onRenderMessage,
+  onToast,
+}: MessageListProps) {
+  const editingMessageId = useChatStore(s => s.editingMessageId);
+  const editingMessageContent = useChatStore(s => s.editingMessageContent);
+  const activeChatId = useChatStore(s => s.activeChatId);
+  const speakingId = useChatStore(s => s.speakingId);
+  const { setEditingMessageId, setEditingMessageContent, setMessages } = useChatStore.getState();
+
+  const globalPins = useMemoryStore(s => s.globalPins);
+
+  const models = useSettingsStore(s => s.models);
+  const { setWizardStep, setShowModelWizard } = useSettingsStore.getState();
+
+  const { setShowPlanner } = useTaskStore.getState();
+
+  const isDragging = useUIStore(s => s.isDragging);
+  const { setIsModelDropdownOpen } = useUIStore.getState();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setIsNearBottom(distFromBottom < 120);
+    setShowScrollTop(el.scrollTop > 300);
+  }, []);
+
+  // Scroll to bottom when chat switches or on initial load
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el) { el.scrollTop = el.scrollHeight; setIsNearBottom(true); }
+  }, [activeChatId]);
+
+  // Smart scroll: only follow bottom if user is already near it
+  useEffect(() => {
+    if (!isNearBottom) return;
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [activeMessages, isNearBottom]);
+
+  const scrollToBottom = () => {
+    const el = scrollContainerRef.current;
+    if (el) { el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); setIsNearBottom(true); }
+  };
+
+  const scrollToTop = () => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  return (
+    <div className="flex-1 flex flex-col relative min-h-0 overflow-hidden">
+      {/* Drag and Drop Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-[#6A829E]/10 border-4 border-[#6A829E]/50 border-dashed rounded-[2rem] m-4 flex items-center justify-center pointer-events-none backdrop-blur-[2px] transition-all">
+            <div className="bg-white dark:bg-neutral-800 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-[#4A5D75] dark:text-[#9EADC8] font-black tracking-widest uppercase">
+                <Paperclip className="animate-bounce" /> Drop file to attach
+            </div>
+        </div>
+      )}
+
+      {/* Scroll buttons */}
+      {showScrollTop && (
+        <button
+          onClick={scrollToTop}
+          className="absolute top-4 right-4 z-20 p-2 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full shadow-md text-neutral-500 hover:text-[#4A5D75] dark:hover:text-[#9EADC8] transition-all hover:scale-110"
+          title="Scroll to top"
+        >
+          <ArrowUp className="w-4 h-4" />
+        </button>
+      )}
+      {!isNearBottom && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-6 right-4 z-20 p-2 bg-[#4A5D75] hover:bg-[#2C3E50] text-white rounded-full shadow-lg transition-all hover:scale-110 animate-in fade-in zoom-in duration-200"
+          title="Scroll to bottom"
+        >
+          <ArrowDown className="w-4 h-4" />
+        </button>
+      )}
+
+      <div ref={scrollContainerRef} onScroll={checkScroll} className="flex-1 overflow-y-auto p-4 lg:p-6 no-scrollbar scroll-smooth">
+        {models.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-in fade-in zoom-in duration-500">
+            <div className="p-6 bg-[#2C3E50]/10 dark:bg-[#9EADC8]/10 rounded-full mb-6 border border-[#2C3E50]/20 dark:border-[#9EADC8]/20"><Zap className="w-12 h-12 text-[#2C3E50] dark:text-[#9EADC8]" /></div>
+            <h2 className="text-3xl font-black tracking-tighter uppercase mb-3">Welcome to Agent Forge</h2>
+            <p className="text-sm font-medium text-neutral-500 max-w-md mb-8 leading-relaxed">Connect an LLM to begin. Initialize a Native AI, scan local ports, or enter a cloud API key.</p>
+            <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="px-8 py-4 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-[#9EADC8]/30 transition-all active:scale-95 flex items-center gap-3"><Plus className="w-5 h-5" /> Connect Your First LLM</button>
+          </div>
+        ) : activeChatId && activeMessages.length > 0 ? (
+          <div className="max-w-3xl mx-auto space-y-6 pb-64">
+            {activeMessages.map(msg => (
+              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {msg.role === 'bot' && <div className="shrink-0 mr-3 mt-1 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
+
+                <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+                   <div className={`p-4 rounded-2xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+
+                     {editingMessageId === msg.id ? (
+                        <div className="flex flex-col gap-3 w-full animate-in fade-in">
+                           <textarea value={editingMessageContent} onChange={e => setEditingMessageContent(e.target.value)} className="w-full bg-white/10 dark:bg-black/20 border border-white/20 dark:border-neutral-600 rounded-xl p-3 text-sm outline-none resize-none font-medium custom-scrollbar" rows={3} autoFocus />
+                           <div className="flex justify-end gap-2">
+                              <button onClick={() => setEditingMessageId(null)} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity">Cancel</button>
+                              <button onClick={() => onConfirmEdit(msg.id)} disabled={!editingMessageContent.trim()} className="px-4 py-1.5 bg-white text-[#4A5D75] dark:bg-neutral-700 dark:text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-neutral-100 dark:hover:bg-neutral-600 transition-colors shadow-sm disabled:opacity-50">Resend</button>
+                           </div>
+                        </div>
+                     ) : (
+                        <div className="leading-relaxed">{onRenderMessage(msg)}</div>
+                     )}
+                   </div>
+
+                   {/* Actions Bar - Positioned Below Bubble */}
+                   {!editingMessageId && (
+                     <div className={`flex items-center gap-1.5 mt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} px-1`}>
+                        {msg.role === 'user' && !isGenerating && <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageContent(msg.content); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Edit & Resend"><Edit3 className="w-3.5 h-3.5" /></button>}
+                        <button onClick={() => { navigator.clipboard.writeText(msg.content); onToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
+                        {msg.role === 'bot' && !isGenerating && <button onClick={() => onToggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
+                        <button onClick={() => { onAddTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
+                        <button onClick={async () => {
+                          const isPinned = globalPins.some(p => p.msgId === msg.id);
+                          if (!isPinned) {
+                            await onSaveGlobalPins([...globalPins, { id: msg.id, chatId: activeChatId as string, msgId: msg.id, agentId: activeAssistant.id, content: msg.content, savedAt: Date.now() }]);
+                          } else {
+                            await onSaveGlobalPins(globalPins.filter(p => p.msgId !== msg.id));
+                          }
+                          setMessages(prev => ({ ...prev, [activeChatId as string]: prev[activeChatId as string].map((m: any) => m.id === msg.id ? { ...m, isPinned: !isPinned } : m) }));
+                        }} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Pin to Memory (Agent KB)"><Pin className="w-3.5 h-3.5" /></button>
+                     </div>
+                   )}
+                </div>
+              </div>
+            ))}
+            {isGenerating && !activeMessages[activeMessages.length - 1]?.isStreaming && <div className="flex justify-start"><TypingIndicator /></div>}
+            <div ref={messagesEndRef} className="h-4" />
+          </div>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-center opacity-20 pointer-events-none grayscale pb-20">
+            <AgentIcon agent={activeAssistant} sizeClass="w-16 h-16" containerClass="p-4 rounded-3xl mb-4" />
+            <h2 className="text-2xl font-black italic tracking-tighter uppercase">Start Session</h2>
+            {activeAssistant?.description && <p className="text-sm font-medium mt-2 max-w-xs">{activeAssistant.description}</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

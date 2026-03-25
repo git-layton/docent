@@ -1,0 +1,35 @@
+import { Bot, Globe, Database, CalendarDays } from 'lucide-react';
+
+export const AVAILABLE_TOOLS = [
+  { id: 'web_search', name: 'Web Search', icon: Globe, desc: 'Allow agent to search the live internet.' },
+  { id: 'local_workspace', name: 'Knowledge Base', icon: Database, desc: "Search your Knowledge Base — memos, notes, and saved files." },
+  { id: 'calendar_sync', name: 'Local Planner', icon: CalendarDays, desc: 'Agent can add events & reminders to your local tasks.md planner.' }
+];
+
+export const BOT_COLORS = [
+  { id: 'brand', bg: 'bg-[#2C3E50]', border: 'border-[#2C3E50]', text: 'text-[#9EADC8]' },
+  { id: 'amber', bg: 'bg-[#D4AA7D]', border: 'border-[#D4AA7D]', text: 'text-[#D4AA7D]' },
+  { id: 'rose', bg: 'bg-[#C98A8A]', border: 'border-[#C98A8A]', text: 'text-[#C98A8A]' },
+  { id: 'sage', bg: 'bg-[#9FBBAF]', border: 'border-[#9FBBAF]', text: 'text-[#9FBBAF]' },
+  { id: 'lavender', bg: 'bg-[#A89FBB]', border: 'border-[#A89FBB]', text: 'text-[#A89FBB]' },
+  { id: 'sky', bg: 'bg-[#9EADC8]', border: 'border-[#9EADC8]', text: 'text-[#9EADC8]' },
+  { id: 'mint', bg: 'bg-[#A9C8A1]', border: 'border-[#A9C8A1]', text: 'text-[#A9C8A1]' },
+  { id: 'peach', bg: 'bg-[#D9A098]', border: 'border-[#D9A098]', text: 'text-[#D9A098]' },
+  { id: 'slate', bg: 'bg-[#6A829E]', border: 'border-[#6A829E]', text: 'text-[#6A829E]' },
+  { id: 'blush', bg: 'bg-[#E3B5A4]', border: 'border-[#E3B5A4]', text: 'text-[#E3B5A4]' },
+  { id: 'sand', bg: 'bg-[#D4C3A3]', border: 'border-[#D4C3A3]', text: 'text-[#D4C3A3]' },
+  { id: 'olive', bg: 'bg-[#899C85]', border: 'border-[#899C85]', text: 'text-[#899C85]' },
+  { id: 'crimson', bg: 'bg-[#990000]', border: 'border-[#990000]', text: 'text-[#990000]' },
+  { id: 'teal', bg: 'bg-[#008080]', border: 'border-[#008080]', text: 'text-[#008080]' },
+  { id: 'indigo', bg: 'bg-[#4B0082]', border: 'border-[#4B0082]', text: 'text-[#4B0082]' },
+  { id: 'gold', bg: 'bg-[#DAA520]', border: 'border-[#DAA520]', text: 'text-[#DAA520]' },
+  { id: 'plum', bg: 'bg-[#DDA0DD]', border: 'border-[#DDA0DD]', text: 'text-[#DDA0DD]' },
+];
+
+export const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
+  if (agent?.avatar?.type === 'image' && agent?.avatar?.value) {
+    return <img src={agent.avatar.value} alt={agent.name} className={`${containerClass} p-0 object-cover`} style={{ width: '2.25rem', height: '2.25rem' }} />;
+  }
+  const bg = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.bg ?? 'bg-[#4A5D75]';
+  return <div className={`${containerClass} ${bg} flex items-center justify-center shrink-0`}><Bot className={`${sizeClass} text-white`} /></div>;
+};
