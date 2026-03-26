@@ -33,6 +33,8 @@ export default function SpotlightBar() {
   const [nameInput, setNameInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [pageCards, setPageCards] = useState<Record<string, { title: string; url: string; text: string }>>({});
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [input, setInput] = useState('');
@@ -203,22 +205,39 @@ export default function SpotlightBar() {
     try {
       // Re-fetch tab with latest info
       let tabContext = '';
+      let tabForCard: { title: string; url: string; text: string } | null = null;
       try {
         const tabResult = await invoke<{ title: string; url: string; text: string; error?: string }>('get_active_tab');
         if (tabResult.url) {
           setTab({ title: tabResult.title, url: tabResult.url });
-          if (useTab && tabResult.text) tabContext = `Active browser tab:\nTitle: ${tabResult.title}\nURL: ${tabResult.url}\n\n${tabResult.text}`;
-          else if (useTab) tabContext = `Active browser tab URL: ${tabResult.url}`;
+          if (useTab) {
+            tabForCard = { title: tabResult.title, url: tabResult.url, text: tabResult.text || '' };
+            tabContext = [
+              `=== WEB PAGE CONTEXT ===`,
+              `The user is currently viewing the following web page. Use this content to answer their question, summarise, extract information, or perform any task they request on it.`,
+              `Title: ${tabResult.title}`,
+              `URL: ${tabResult.url}`,
+              tabResult.text ? `\nPage content:\n${tabResult.text}` : `(Page text not available — content may be protected or require login.)`,
+              `=== END WEB PAGE CONTEXT ===`,
+            ].join('\n');
+          }
         } else if (useTab && tab) {
-          tabContext = `User was previously viewing: ${tab.title} (${tab.url})`;
+          tabContext = `The user was previously viewing: ${tab.title} (${tab.url}) — current page content unavailable.`;
         }
-      } catch { if (useTab && tab) tabContext = `User was previously viewing: ${tab.title} (${tab.url})`; }
+      } catch { if (useTab && tab) tabContext = `The user was previously viewing: ${tab.title} (${tab.url}) — current page content unavailable.`; }
 
       const modelConfig = selectedModel ?? models[0] ?? null;
       if (!modelConfig) throw new Error('No model configured — open Agent Forge settings first.');
 
       const basePrompt = selectedAgent?.prompt || 'You are a helpful AI assistant. Be concise and well-structured.';
-      const systemPrompt = tabContext ? `${basePrompt}\n\n${tabContext}` : basePrompt;
+      const systemPrompt = tabContext
+        ? `${basePrompt}\n\n${tabContext}`
+        : basePrompt;
+
+      // Attach page context card to the user message so it's visible in the chat
+      if (tabForCard) {
+        setPageCards(prev => ({ ...prev, [userMsg.id]: tabForCard! }));
+      }
       const historyMsgs = (messages[chatId] ?? []).filter(m => m.content).map(m => ({ id: m.id, role: m.role, content: m.content }));
       historyMsgs.push({ id: userMsg.id, role: 'user' as const, content: command });
 
@@ -468,6 +487,37 @@ export default function SpotlightBar() {
           )}
           {activeMessages.map(msg => (
             <div key={msg.id} className={`group flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+              {/* Page context card — shown above user message when tab was attached */}
+              {msg.role === 'user' && pageCards[msg.id] && (() => {
+                const card = pageCards[msg.id];
+                const expanded = expandedCards.has(msg.id);
+                return (
+                  <div className="w-full max-w-[85%] rounded-xl overflow-hidden text-[10px]"
+                    style={{ background: 'rgba(14,165,233,0.07)', border: '1px solid rgba(14,165,233,0.2)' }}>
+                    <button
+                      onClick={() => setExpandedCards(prev => {
+                        const next = new Set(prev);
+                        expanded ? next.delete(msg.id) : next.add(msg.id);
+                        return next;
+                      })}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-white/5 transition-colors">
+                      <Globe className="w-3 h-3 text-sky-400 shrink-0" />
+                      <span className="flex-1 truncate text-sky-300 font-medium">{card.title}</span>
+                      <span className="text-slate-500 shrink-0">{domainOf(card.url)}</span>
+                      <ChevronDown className={`w-3 h-3 text-slate-500 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                    </button>
+                    {expanded && (
+                      <div className="px-3 pb-2 border-t border-white/[0.06]">
+                        <p className="text-slate-500 mt-1.5 mb-1">{card.url}</p>
+                        {card.text
+                          ? <p className="text-slate-400 line-clamp-6 whitespace-pre-wrap">{card.text.slice(0, 600)}{card.text.length > 600 ? '…' : ''}</p>
+                          : <p className="text-slate-600 italic">Page text not available</p>
+                        }
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words select-text ${
                 msg.role === 'user'
                   ? 'bg-indigo-600/70 text-white rounded-br-sm'
