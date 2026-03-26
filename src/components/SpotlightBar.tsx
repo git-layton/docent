@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit } from '@tauri-apps/api/event';
-import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu } from 'lucide-react';
+import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX } from 'lucide-react';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
@@ -32,6 +32,8 @@ export default function SpotlightBar() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   // Tab: keep last known value — don't clear on focus (focus race with browser)
   const [tab, setTab] = useState<{ title: string; url: string } | null>(null);
@@ -442,8 +444,8 @@ export default function SpotlightBar() {
             </div>
           )}
           {activeMessages.map(msg => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words ${
+            <div key={msg.id} className={`group flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words select-text ${
                 msg.role === 'user'
                   ? 'bg-indigo-600/70 text-white rounded-br-sm'
                   : 'bg-white/[0.07] text-slate-200 rounded-bl-sm border border-white/[0.06]'
@@ -457,6 +459,40 @@ export default function SpotlightBar() {
                   : <span className="whitespace-pre-wrap">{msg.content}</span>
                 }
               </div>
+              {/* Action buttons — appear on hover, only when there's content */}
+              {msg.content && (
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(msg.content);
+                      setCopiedId(msg.id);
+                      setTimeout(() => setCopiedId(null), 1500);
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded-md hover:bg-white/5 transition-all"
+                  >
+                    {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    {copiedId === msg.id ? 'Copied' : 'Copy'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (speakingId === msg.id) {
+                        window.speechSynthesis.cancel();
+                        setSpeakingId(null);
+                      } else {
+                        window.speechSynthesis.cancel();
+                        const utt = new SpeechSynthesisUtterance(msg.content);
+                        utt.onend = () => setSpeakingId(null);
+                        window.speechSynthesis.speak(utt);
+                        setSpeakingId(msg.id);
+                      }
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded-md hover:bg-white/5 transition-all"
+                  >
+                    {speakingId === msg.id ? <VolumeX className="w-3 h-3 text-sky-400" /> : <Volume2 className="w-3 h-3" />}
+                    {speakingId === msg.id ? 'Stop' : 'Read'}
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
