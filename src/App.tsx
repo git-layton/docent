@@ -5,7 +5,7 @@ import {
   FileText,
   Clock, ListTodo,
   AlignLeft, MapPin, Workflow,
-  AlertTriangle, Loader2, Activity, UserPlus, Bookmark,
+  AlertTriangle, Loader2, Activity, UserPlus, Bookmark, CalendarDays,
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -107,6 +107,7 @@ export default function App() {
   const [llamaCoolingDown, setLlamaCoolingDown] = useState(false);
   const [nukeShieldPending, setNukeShieldPending] = useState<{ path: string; content: string; deletions: number; existingLines: number; diffStat: string } | null>(null);
 
+  const [showAgentIntro, setShowAgentIntro] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
@@ -199,6 +200,10 @@ export default function App() {
           }
         }
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
+
+      // First-time agent intro card
+      const introSeen = await db.get('agentIntroSeen', false);
+      if (!introSeen) setShowAgentIntro(true);
 
       // Check for undismissed Dream Cycle log from a previous cycle
       try {
@@ -1409,7 +1414,7 @@ export default function App() {
     const elements = [];
     if (attachedFiles?.length > 0) elements.push(<div key="files" className="flex flex-wrap gap-2 mb-3">{attachedFiles.map((f: any, i: number) => f.isImage ? <img key={i} src={f.content} alt={f.name} className="h-32 object-cover rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700" /> : <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-white/20 rounded-xl border border-white/30 text-[10px] font-bold text-white shadow-sm"><FileText className="w-3.5 h-3.5" />{f.name}</div>)}</div>);
     if (typeof rawText !== 'string') return elements;
-    const openFileInPanel = (path?: string) => { useMemoryStore.getState().setShowMemmoPanel(true); useMemoryStore.getState().setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'memos' : 'pins'); };
+    const openFileInPanel = (path?: string) => { useMemoryStore.getState().setShowMemmoPanel(true); useMemoryStore.getState().setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'notes' : 'pins'); };
     if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} /></div>;
 
     // --- Deep Thinking Parser ---
@@ -1488,7 +1493,37 @@ export default function App() {
             </div>
           );
         } catch { elements.push(<div key={`err-save-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse save block.</div>); }
-      } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save') {
+      } else if (lang === 'event') {
+        try {
+          const ev = JSON.parse(code);
+          const isRecurring = ev.type !== 'date';
+          const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const displayDate = isRecurring
+            ? `${MONTH_NAMES[(ev.month ?? 1) - 1]} ${ev.day}${ev.year ? `, ${ev.year}` : ''}`
+            : ev.dueDate;
+          const typeEmoji: Record<string, string> = { birthday: '🎂', anniversary: '💍', custom: '📅', date: '📅' };
+          const typeLabel: Record<string, string> = { birthday: 'Birthday', anniversary: 'Anniversary', custom: 'Event', date: 'Appointment' };
+          elements.push(
+            <div key={`ev-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#D6E0EA] dark:border-[#2C3E50]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><CalendarDays className="w-4 h-4" /> Add to Calendar</div>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold text-neutral-800 dark:text-neutral-100">{isRecurring ? ev.name : ev.title}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{typeEmoji[ev.type] ?? '📅'} {typeLabel[ev.type] ?? 'Event'} · {displayDate}</p>
+                </div>
+                <button onClick={() => {
+                  if (isRecurring) {
+                    useTaskStore.getState().addRecurringEvent({ type: ev.type, name: ev.name, month: ev.month, day: ev.day, year: ev.year });
+                  } else {
+                    addTask(ev.title, ev.dueDate, ev.details ?? '');
+                  }
+                  useTaskStore.getState().setShowPlanner(true);
+                }} className="px-3 py-2 bg-[#4A5D75] text-white rounded-lg text-xs font-bold hover:bg-[#3D4D61] shadow-md transition-all active:scale-95 shrink-0">Add Event</button>
+              </div>
+            </div>
+          );
+        } catch { elements.push(<div key={`err-ev-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event block.</div>); }
+      } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'event') {
         const codePreview = code.split('\n').slice(0, 4).join('\n') + (code.split('\n').length > 4 ? '\n...' : '');
         elements.push(
           <div key={`art-${match.index}`} className="my-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 overflow-hidden flex flex-col group/art shadow-sm transition-all hover:border-[#899AB5]">
@@ -1706,6 +1741,37 @@ export default function App() {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
               >
+                {/* ── First-time agent intro card ── */}
+                {showAgentIntro && (
+                  <div className="absolute bottom-20 right-4 z-50 w-80 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl p-4 animate-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-start justify-between mb-2">
+                      <p className="text-sm font-black text-neutral-800 dark:text-neutral-200">Take your agents with you</p>
+                      <button onClick={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
+                        className="text-neutral-400 hover:text-neutral-600 ml-2 shrink-0"><X className="w-4 h-4"/></button>
+                    </div>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3 leading-relaxed">
+                      Press <kbd className="px-1.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-bold text-neutral-700 dark:text-neutral-300">⌘⇧F</kbd> from any Chrome or Safari tab to open your agent with that page's context automatically attached.
+                    </p>
+                    <div className="space-y-2 text-xs text-neutral-500 dark:text-neutral-400 border-t border-neutral-100 dark:border-neutral-800 pt-3">
+                      <div>
+                        <span className="font-bold text-neutral-700 dark:text-neutral-300">Chrome:</span>
+                        {' '}View → Developer → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Allow JavaScript from Apple Events</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-neutral-700 dark:text-neutral-300">Safari:</span>
+                        <div className="pl-2 mt-0.5 space-y-0.5">
+                          <div>Step 1: Settings → Advanced → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Show features for web developers</span></div>
+                          <div>Step 2: Develop → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Allow Remote Automation</span></div>
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
+                      className="mt-3 w-full py-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all">
+                      Got it
+                    </button>
+                  </div>
+                )}
+
                 <MessageList
                   activeMessages={activeMessages}
                   isGenerating={isGenerating}

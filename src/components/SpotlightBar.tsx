@@ -482,20 +482,15 @@ export default function SpotlightBar() {
             )}
           </div>
 
-          {/* Browser toggle */}
-          <div className="flex bg-white/5 rounded-lg p-0.5 shrink-0">
-            {(['auto', 'chrome', 'safari'] as const).map(b => (
-              <button key={b} onClick={() => {
-                setPreferredBrowser(b);
-                db.set('preferredBrowser', b);
-                setTab(null);
-                fetchTab(b);
-              }}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-all capitalize ${preferredBrowser === b ? 'bg-indigo-600/70 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
-                {b === 'auto' ? 'Auto' : b === 'chrome' ? 'Chrome' : 'Safari'}
-              </button>
-            ))}
-          </div>
+          {/* Browser status indicator — read-only, shows detected browser */}
+          {tab && (
+            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg shrink-0 ${
+              tab.hasText === false ? 'text-amber-400/80 bg-amber-900/10' : 'text-slate-500 bg-white/5'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tab.hasText === false ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+              <span className="capitalize">{tab.browser && tab.browser !== 'curl' ? tab.browser : 'Browser'}</span>
+            </div>
+          )}
 
           {/* Page reading help */}
           <div className="relative shrink-0" ref={pageReadingHelpRef}>
@@ -514,16 +509,20 @@ export default function SpotlightBar() {
               <div className="absolute left-0 top-full mt-2 w-72 rounded-xl z-50 shadow-2xl p-3 space-y-2"
                 style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.35)' }}>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Enable Page Reading</p>
-                <div className="space-y-0.5">
-                  <p className="text-[11px] font-bold text-slate-300">Chrome</p>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">View → Developer → <span className="text-slate-200 font-semibold">Allow JavaScript from Apple Events</span></p>
-                </div>
-                <div className="border-t border-white/[0.06]" />
-                <div className="space-y-1">
-                  <p className="text-[11px] font-bold text-slate-300">Safari</p>
-                  <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 1:</span> Settings → Advanced → enable <span className="text-slate-200 font-semibold">Show features for web developers</span></p>
-                  <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 2:</span> Develop → <span className="text-slate-200 font-semibold">Allow Remote Automation</span></p>
-                </div>
+                {tab?.browser !== 'safari' && (
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-bold text-slate-300">Chrome</p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">View → Developer → <span className="text-slate-200 font-semibold">Allow JavaScript from Apple Events</span></p>
+                  </div>
+                )}
+                {tab?.browser !== 'safari' && tab?.browser !== 'chrome' && <div className="border-t border-white/[0.06]" />}
+                {tab?.browser !== 'chrome' && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-bold text-slate-300">Safari</p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 1:</span> Settings → Advanced → enable <span className="text-slate-200 font-semibold">Show features for web developers</span></p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 2:</span> Develop → <span className="text-slate-200 font-semibold">Allow Remote Automation</span></p>
+                  </div>
+                )}
                 <div className="border-t border-white/[0.06]" />
                 <p className="text-[10px] text-slate-600 leading-relaxed">After enabling, press ⌘⇧F again to refresh.</p>
               </div>
@@ -697,7 +696,7 @@ export default function SpotlightBar() {
                   onClick={() => setShowPageReadingHelp(true)}
                   className="text-[10px] font-bold text-amber-400/80 hover:text-amber-300 px-2 py-0.5 rounded-lg hover:bg-amber-900/20 transition-all shrink-0"
                   title="Page text unavailable — click to see setup instructions"
-                >No page text · Fix?</button>
+                >{tab.browser === 'chrome' ? 'Chrome setup needed · Fix?' : tab.browser === 'safari' ? 'Safari setup needed · Fix?' : 'No page text · Fix?'}</button>
               )}
             </>
           ) : (
