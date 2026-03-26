@@ -44,7 +44,7 @@ export const useMemoryStore = create<MemoryStore>((set) => ({
   isDreamRunning: false,
   agentForgePath: '',
   showMemmoPanel: false,
-  memmoPanelTab: 'pins',
+  memmoPanelTab: 'library',
   showMemoCompose: false,
 
   setGlobalPins: (pins) => set({ globalPins: pins }),

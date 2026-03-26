@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Pin, PinOff, FileText, Pencil, FolderOpen, ChevronDown, ChevronRight, Trash2, RotateCcw, Archive } from 'lucide-react';
+import { X, Pin, PinOff, FileText, Pencil, ChevronDown, ChevronRight, Trash2, RotateCcw, Archive, Bookmark } from 'lucide-react';
 import { KnowledgeDropZone } from './KnowledgeDropZone';
 
 interface PinnedMessage {
@@ -46,7 +46,7 @@ function formatAge(modifiedSecs: number): string {
 }
 
 export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, agentId, onToast, initialTab, onDeleteFile, pinnedTokenEstimate, onRestoreArchive }: Props) {
-  const [tab, setTab] = useState<Tab>(initialTab ?? 'pins');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'library');
   const [memos, setMemos] = useState<FileEntry[]>([]);
   const [library, setLibrary] = useState<FileEntry[]>([]);
   const [archiveFiles, setArchiveFiles] = useState<ArchiveEntry[]>([]);
@@ -162,9 +162,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
   }
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: 'pins',    label: 'Pins',    count: pinnedMessages.length },
-    { id: 'memos',   label: 'Memos'   },
     { id: 'library', label: 'Library' },
+    { id: 'pins',    label: 'Pinned',  count: pinnedMessages.length },
+    { id: 'memos',   label: 'Memos'   },
     { id: 'archive', label: 'Archive', count: archiveFiles.length || undefined },
   ];
 
@@ -186,9 +186,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
           <div>
             <span className="text-xs font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">
-              Memos & Memory
+              Your Library
             </span>
-            <p className="text-[9px] text-neutral-400 mt-0.5">Notes saved to ~/AgentForge/ · searchable via Knowledge Search</p>
+            <p className="text-[9px] text-neutral-400 mt-0.5">Saved to ~/AgentForge/ · searched by your agents</p>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
             <X className="w-4 h-4" />
@@ -225,7 +225,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
             <div className="p-4 space-y-2">
               <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#D4AA7D]/10 dark:bg-[#D4AA7D]/5 border border-[#D4AA7D]/30 rounded-xl">
                 <span className="text-[10px]">📌</span>
-                <span className="text-[10px] font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">Always in context — injected into every message</span>
+                <span className="text-[10px] font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">Pinned Context — injected into every message you send</span>
               </div>
               {pinnedTokenEstimate !== undefined && pinnedTokenEstimate > 1500 && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#C98A8A]/10 border border-[#C98A8A]/30 rounded-xl">
@@ -353,13 +353,13 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Library tab ── */}
           {tab === 'library' && (
             <div className="p-4 space-y-3">
-              <div className="flex flex-col gap-0.5 px-2.5 py-1.5 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px]">🔍</span>
-                  <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — shared across all agents</span>
-                </div>
-                <p className="text-[9px] text-neutral-400 pl-4">Deleting a file removes it permanently from disk and from all agents' memory.</p>
-              </div>
+              <button
+                onClick={onCompose}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 text-xs font-bold text-neutral-500 dark:text-neutral-400 hover:border-[#D4AA7D] hover:text-[#9C7A3C] dark:hover:text-[#D4AA7D] transition-all mb-1"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                New Note
+              </button>
               <KnowledgeDropZone
                 agentForgePath={agentForgePath}
                 onFileIngested={() => loadLibrary()}
@@ -369,10 +369,13 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
               {loadingFiles ? (
                 <div className="text-center py-8 text-neutral-400 text-xs">Loading...</div>
               ) : library.length === 0 ? (
-                <div className="text-center py-8 text-neutral-400">
-                  <FolderOpen className="w-8 h-8 mx-auto mb-3 opacity-30" />
-                  <p className="text-xs">Library is empty.</p>
-                  <p className="text-xs mt-1 opacity-70">Drop files above to ingest them.</p>
+                <div className="text-center py-12 text-neutral-400 space-y-3">
+                  <Bookmark className="w-10 h-10 mx-auto opacity-20" />
+                  <p className="text-xs font-bold">Your Library is empty.</p>
+                  <p className="text-[10px] leading-relaxed opacity-80 px-4">
+                    Click the <span className="font-black">🔖</span> Bookmark icon on any chat message to save it here for permanent context.
+                  </p>
+                  <p className="text-[10px] opacity-60">Or drop files above · Or write a New Note.</p>
                 </div>
               ) : (
                 library.map(f => (

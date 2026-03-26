@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Paperclip, Zap, Plus, Pin, Edit3, Copy, Volume2, VolumeX, ListTodo,
+  Paperclip, Zap, Plus, Bookmark, Edit3, Copy, Volume2, VolumeX, ListTodo,
   ArrowDown, ArrowUp
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
@@ -16,7 +16,7 @@ interface MessageListProps {
   isGenerating: boolean;
   activeAssistant: any;
   onConfirmEdit: (msgId: string) => void;
-  onSaveGlobalPins: (pins: any[]) => Promise<void>;
+  onBookmark: (msg: any) => Promise<void>;
   onToggleSpeak: (msgId: string, text: string) => void;
   onAddTask: (title: string) => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
@@ -29,7 +29,7 @@ export function MessageList({
   isGenerating,
   activeAssistant,
   onConfirmEdit,
-  onSaveGlobalPins,
+  onBookmark,
   onToggleSpeak,
   onAddTask,
   messagesEndRef,
@@ -40,7 +40,7 @@ export function MessageList({
   const editingMessageContent = useChatStore(s => s.editingMessageContent);
   const activeChatId = useChatStore(s => s.activeChatId);
   const speakingId = useChatStore(s => s.speakingId);
-  const { setEditingMessageId, setEditingMessageContent, setMessages } = useChatStore.getState();
+  const { setEditingMessageId, setEditingMessageContent } = useChatStore.getState();
 
   const globalPins = useMemoryStore(s => s.globalPins);
 
@@ -154,15 +154,7 @@ export function MessageList({
                         <button onClick={() => { navigator.clipboard.writeText(msg.content); onToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
                         {msg.role === 'bot' && !isGenerating && <button onClick={() => onToggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
                         <button onClick={() => { onAddTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
-                        <button onClick={async () => {
-                          const isPinned = globalPins.some(p => p.msgId === msg.id);
-                          if (!isPinned) {
-                            await onSaveGlobalPins([...globalPins, { id: msg.id, chatId: activeChatId as string, msgId: msg.id, agentId: activeAssistant.id, content: msg.content, savedAt: Date.now() }]);
-                          } else {
-                            await onSaveGlobalPins(globalPins.filter(p => p.msgId !== msg.id));
-                          }
-                          setMessages(prev => ({ ...prev, [activeChatId as string]: prev[activeChatId as string].map((m: any) => m.id === msg.id ? { ...m, isPinned: !isPinned } : m) }));
-                        }} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Pin to Memory (Agent KB)"><Pin className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => onBookmark(msg)} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#D4AA7D] hover:bg-[#D4AA7D]/10'}`} title={globalPins.some(p => p.msgId === msg.id) ? 'Saved to Library' : 'Save to Library'}><Bookmark className="w-3.5 h-3.5" /></button>
                      </div>
                    )}
                 </div>

@@ -5,7 +5,7 @@ import {
   FileText,
   Clock, ListTodo,
   AlignLeft, MapPin, Workflow,
-  AlertTriangle, Loader2, Activity, UserPlus,
+  AlertTriangle, Loader2, Activity, UserPlus, Bookmark,
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -702,6 +702,41 @@ export default function App() {
      useUIStore.getState().setSavedApps((prev: any[]) => [item, ...prev]);
   }, []);
 
+  const handleBookmark = useCallback(async (msg: any) => {
+    const { activeChatId: _cid } = useChatStore.getState();
+    const { globalPins: _pins, agentForgePath: _afp, saveGlobalPins: _save } = useMemoryStore.getState();
+    const { setMessages: _setMsgs } = useChatStore.getState();
+    const isPinned = _pins.some((p: any) => p.msgId === msg.id);
+
+    if (!isPinned && _afp) {
+      // Auto-extract first sentence as title
+      const firstLine = msg.content.replace(/^#+\s*/m, '').split(/[.!?\n]/)[0].trim().slice(0, 60) || 'Saved Note';
+      const slug = firstLine.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) + '_' + Date.now();
+      try {
+        const { writeTextFile, mkdir } = await import('@tauri-apps/plugin-fs');
+        const libDir = `${_afp}/library`;
+        try { await mkdir(libDir, { recursive: true }); } catch {}
+        const fileContent = `# ${firstLine}\n\nSaved from chat · ${new Date().toLocaleDateString()}\n\n---\n\n${msg.content}`;
+        await writeTextFile(`${libDir}/${slug}.md`, fileContent);
+      } catch (e) {
+        console.warn('[Bookmark] Could not write library file:', e);
+      }
+    }
+
+    const newPins = isPinned
+      ? _pins.filter((p: any) => p.msgId !== msg.id)
+      : [..._pins, { id: msg.id, chatId: _cid as string, msgId: msg.id, agentId: activeAssistant?.id, content: msg.content, savedAt: Date.now() }];
+
+    await _save(newPins);
+    if (_cid) {
+      _setMsgs((prev: Record<string, any[]>) => ({
+        ...prev,
+        [_cid]: (prev[_cid] ?? []).map((m: any) => m.id === msg.id ? { ...m, isPinned: !isPinned } : m),
+      }));
+    }
+    showToast(isPinned ? 'Unpinned' : '🔖 Saved to Library & Pinned');
+  }, [activeAssistant, showToast]);
+
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const ss = useSettingsStore.getState();
     const provider = e.target.value; let endpoint = '';
@@ -1196,7 +1231,7 @@ export default function App() {
               if (match) {
                   const lang = (match[1] || '').toLowerCase();
                   const code = match[2];
-                  if (lang !== 'task' && lang !== 'todo' && lang !== 'profile') {
+                  if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save') {
                       useUIStore.getState().setCanvasContent((prev: any) => {
                           if (!prev) return { id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
                           return { ...prev, content: code };
@@ -1409,7 +1444,32 @@ export default function App() {
              </div>
           );
         } catch { elements.push(<div key={`err-p-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse profile update.</div>); }
-      } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile') {
+      } else if (lang === 'save') {
+        try {
+          const sd = JSON.parse(code);
+          const saveTitle = sd.title || 'Saved Note';
+          const saveContent = sd.content || code;
+          elements.push(
+            <div key={`save-${match.index}`} className="my-3 p-4 rounded-xl border border-[#D4AA7D]/50 dark:border-[#D4AA7D]/30 bg-[#FFF9F2] dark:bg-[#5C452E]/10 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-[#9C7A3C] dark:text-[#D4AA7D] font-bold text-xs uppercase tracking-widest"><Bookmark className="w-4 h-4" /> Save to Library</div>
+              <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">"{saveTitle}"</p>
+              <button onClick={async () => {
+                const { agentForgePath: _afp } = useMemoryStore.getState();
+                if (!_afp) { showToast('Knowledge Core not ready.'); return; }
+                const slug = saveTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) + '_' + Date.now();
+                try {
+                  const { writeTextFile, mkdir } = await import('@tauri-apps/plugin-fs');
+                  try { await mkdir(`${_afp}/library`, { recursive: true }); } catch {}
+                  await writeTextFile(`${_afp}/library/${slug}.md`, `# ${saveTitle}\n\nSaved by Agent · ${new Date().toLocaleDateString()}\n\n---\n\n${saveContent}`);
+                  showToast('🔖 Saved to Library');
+                } catch (e: any) { showToast(`Save failed: ${e?.message ?? e}`); }
+              }} className="mt-1 py-2 rounded-lg text-xs font-bold bg-[#D4AA7D] hover:bg-[#c09060] text-white active:scale-95 transition-all">
+                Save to Library
+              </button>
+            </div>
+          );
+        } catch { elements.push(<div key={`err-save-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse save block.</div>); }
+      } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save') {
         const codePreview = code.split('\n').slice(0, 4).join('\n') + (code.split('\n').length > 4 ? '\n...' : '');
         elements.push(
           <div key={`art-${match.index}`} className="my-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 overflow-hidden flex flex-col group/art shadow-sm transition-all hover:border-[#899AB5]">
@@ -1632,7 +1692,7 @@ export default function App() {
                   isGenerating={isGenerating}
                   activeAssistant={activeAssistant}
                   onConfirmEdit={confirmEditMessage}
-                  onSaveGlobalPins={saveGlobalPins}
+                  onBookmark={handleBookmark}
                   onToggleSpeak={toggleSpeak}
                   onAddTask={addTask}
                   messagesEndRef={messagesEndRef}
