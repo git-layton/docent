@@ -486,15 +486,20 @@ export default function SpotlightBar() {
             )}
           </div>
 
-          {/* Browser status indicator — read-only, shows detected browser */}
-          {tab && (
-            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg shrink-0 ${
-              tab.hasText === false ? 'text-amber-400/80 bg-amber-900/10' : 'text-slate-500 bg-white/5'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tab.hasText === false ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-              <span className="capitalize">{tab.browser && tab.browser !== 'curl' ? tab.browser : 'Browser'}</span>
-            </div>
-          )}
+          {/* Browser toggle — persisted */}
+          <div className="flex shrink-0 rounded-lg overflow-hidden border border-white/[0.07]">
+            {(['auto', 'chrome', 'safari'] as const).map(b => (
+              <button key={b} onClick={() => {
+                setPreferredBrowser(b);
+                db.set('preferredBrowser', b);
+                fetchTab(b);
+              }}
+                className={`text-[10px] font-bold px-2 py-0.5 capitalize transition-all ${
+                  preferredBrowser === b ? 'bg-indigo-600/60 text-indigo-200' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                }`}
+              >{b}</button>
+            ))}
+          </div>
 
           {/* Page reading help */}
           <div className="shrink-0">
