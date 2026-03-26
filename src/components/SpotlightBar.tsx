@@ -63,7 +63,9 @@ export default function SpotlightBar() {
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   // Tab: keep last known value — cleared on focus, repopulated from Rust pre-fetch
-  const [tab, setTab] = useState<{ title: string; url: string; browser?: string } | null>(null);
+  const [tab, setTab] = useState<{ title: string; url: string; browser?: string; hasText?: boolean } | null>(null);
+  const [showPageReadingHelp, setShowPageReadingHelp] = useState(false);
+  const pageReadingHelpRef = useRef<HTMLDivElement>(null);
   const [tabFetching, setTabFetching] = useState(false);
   const [preferredBrowser, setPreferredBrowser] = useState<'auto' | 'chrome' | 'safari'>('auto');
   const [agents, setAgents] = useState<any[]>([]);
@@ -89,11 +91,11 @@ export default function SpotlightBar() {
   const fetchTab = useCallback(async (pref?: 'auto' | 'chrome' | 'safari') => {
     setTabFetching(true);
     try {
-      const r = await invoke<{ title: string; url: string; browser?: string; error?: string }>(
+      const r = await invoke<{ title: string; url: string; text?: string; browser?: string; error?: string }>(
         'get_active_tab',
         { preferred: pref ?? preferredBrowser }
       );
-      if (r.url) setTab({ title: r.title, url: r.url, browser: r.browser });
+      if (r.url) setTab({ title: r.title, url: r.url, browser: r.browser, hasText: !!r.text && r.text.length > 0 });
     } catch { /* keep existing tab */ } finally {
       setTabFetching(false);
     }
@@ -157,6 +159,7 @@ export default function SpotlightBar() {
       if (!agentPickerRef.current?.contains(e.target as Node)) setShowAgentPicker(false);
       if (!modelPickerRef.current?.contains(e.target as Node)) setShowModelPicker(false);
       if (!historyRef.current?.contains(e.target as Node)) setShowHistory(false);
+      if (!pageReadingHelpRef.current?.contains(e.target as Node)) setShowPageReadingHelp(false);
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
@@ -240,7 +243,7 @@ export default function SpotlightBar() {
       try {
         const tabResult = await invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: preferredBrowser });
         if (tabResult.url) {
-          setTab({ title: tabResult.title, url: tabResult.url });
+          setTab({ title: tabResult.title, url: tabResult.url, hasText: !!tabResult.text && tabResult.text.length > 0 });
           if (useTab) {
             tabForCard = { title: tabResult.title, url: tabResult.url, text: tabResult.text || '' };
             tabContext = [
@@ -494,6 +497,39 @@ export default function SpotlightBar() {
             ))}
           </div>
 
+          {/* Page reading help */}
+          <div className="relative shrink-0" ref={pageReadingHelpRef}>
+            <button
+              onClick={() => setShowPageReadingHelp(v => !v)}
+              className={`text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                showPageReadingHelp
+                  ? 'bg-indigo-600/50 text-indigo-200'
+                  : tab && tab.hasText === false
+                    ? 'text-amber-400 hover:bg-amber-900/20'
+                    : 'text-slate-600 hover:text-slate-400 hover:bg-white/5'
+              }`}
+              title="Page reading setup"
+            >?</button>
+            {showPageReadingHelp && (
+              <div className="absolute left-0 top-full mt-2 w-72 rounded-xl z-50 shadow-2xl p-3 space-y-2"
+                style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.35)' }}>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Enable Page Reading</p>
+                <div className="space-y-0.5">
+                  <p className="text-[11px] font-bold text-slate-300">Chrome</p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">View → Developer → <span className="text-slate-200 font-semibold">Allow JavaScript from Apple Events</span></p>
+                </div>
+                <div className="border-t border-white/[0.06]" />
+                <div className="space-y-1">
+                  <p className="text-[11px] font-bold text-slate-300">Safari</p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 1:</span> Settings → Advanced → enable <span className="text-slate-200 font-semibold">Show features for web developers</span></p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 2:</span> Develop → <span className="text-slate-200 font-semibold">Allow Remote Automation</span></p>
+                </div>
+                <div className="border-t border-white/[0.06]" />
+                <p className="text-[10px] text-slate-600 leading-relaxed">After enabling, press ⌘⇧F again to refresh.</p>
+              </div>
+            )}
+          </div>
+
           <div className="flex-1 shrink-0" />
 
           {/* Think */}
@@ -646,15 +682,24 @@ export default function SpotlightBar() {
         {/* ── Tab pill ── */}
         <div className="px-3 pb-1 shrink-0 flex items-center gap-1">
           {tab ? (
-            <button onClick={() => setUseTab(v => !v)}
-              className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all ${useTab ? 'text-sky-400/80 bg-sky-900/15' : 'text-slate-600 hover:text-slate-400'}`}>
-              <Globe className="w-3 h-3 shrink-0" />
-              {tab.browser && tab.browser !== 'curl' && (
-                <span className="text-slate-500 shrink-0 capitalize">{tab.browser} ·</span>
+            <>
+              <button onClick={() => setUseTab(v => !v)}
+                className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all ${useTab ? 'text-sky-400/80 bg-sky-900/15' : 'text-slate-600 hover:text-slate-400'}`}>
+                <Globe className="w-3 h-3 shrink-0" />
+                {tab.browser && tab.browser !== 'curl' && (
+                  <span className="text-slate-500 shrink-0 capitalize">{tab.browser} ·</span>
+                )}
+                <span className="truncate max-w-[220px]">{truncate(tab.title, 34)}</span>
+                <span className="text-slate-600 shrink-0">· {domainOf(tab.url)}</span>
+              </button>
+              {tab.hasText === false && useTab && (
+                <button
+                  onClick={() => setShowPageReadingHelp(true)}
+                  className="text-[10px] font-bold text-amber-400/80 hover:text-amber-300 px-2 py-0.5 rounded-lg hover:bg-amber-900/20 transition-all shrink-0"
+                  title="Page text unavailable — click to see setup instructions"
+                >No page text · Fix?</button>
               )}
-              <span className="truncate max-w-[220px]">{truncate(tab.title, 34)}</span>
-              <span className="text-slate-600 shrink-0">· {domainOf(tab.url)}</span>
-            </button>
+            </>
           ) : (
             <span className="text-[10px] text-slate-700 px-2">No tab detected</span>
           )}
