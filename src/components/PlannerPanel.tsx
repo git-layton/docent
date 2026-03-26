@@ -93,6 +93,9 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
   const { setInput, setViewMode } = useUIStore.getState();
   const { setActiveChatId } = useChatStore.getState();
 
+  // Day-detail panel state
+  const [selectedDayDetail, setSelectedDayDetail] = useState<string | null>(null);
+
   // Birthday/event quick-add form state
   const [showEventForm, setShowEventForm] = useState(false);
   const [evName, setEvName] = useState('');
@@ -202,7 +205,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                   const dayBirthdays = recurringEvents.filter(ev => ev.month === calendarMonth && ev.day === dateObj.getDate());
                   const dayHolidays = holidaysThisMonth.filter(h => h.date === ds);
                   return (
-                    <div key={ds} onClick={() => setNewTaskDate(ds)} className={`min-h-[80px] p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 ${isSelected ? 'border-[#6A829E] bg-[#F0F4F8] dark:bg-[#1E2B38]/30' : isToday ? 'border-neutral-300 dark:border-neutral-600' : 'border-neutral-100 dark:border-neutral-800 hover:border-[#899AB5]'}`}>
+                    <div key={ds} onClick={() => { setNewTaskDate(ds); setSelectedDayDetail(ds === selectedDayDetail ? null : ds); }} className={`min-h-[80px] p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 ${isSelected ? 'border-[#6A829E] bg-[#F0F4F8] dark:bg-[#1E2B38]/30' : isToday ? 'border-neutral-300 dark:border-neutral-600' : 'border-neutral-100 dark:border-neutral-800 hover:border-[#899AB5]'}`}>
                       <span className={`text-xs font-bold ${isToday ? 'text-[#4A5D75]' : 'text-neutral-500'}`}>{dateObj.getDate()}</span>
                       {dayTasks.map(t => <div key={t.id} className="text-[9px] font-bold truncate bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#1E2B38] dark:text-[#C5D3E0] px-1.5 py-0.5 rounded" title={t.title}>{t.title}</div>)}
                       {dayHolidays.map(h => <div key={h.date + h.name} className="text-[9px] font-bold truncate bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded" title={h.name}>{h.emoji} {h.name}</div>)}
@@ -211,6 +214,89 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                   );
                 })}
               </div>
+
+              {/* Day-detail panel */}
+              {selectedDayDetail && (() => {
+                const [yyyy, mm, dd] = selectedDayDetail.split('-');
+                const monthNum = parseInt(mm);
+                const dayNum = parseInt(dd);
+                const detailDate = new Date(parseInt(yyyy), monthNum - 1, dayNum);
+                const detailTasks = tasks.filter(t => t.dueDate === selectedDayDetail);
+                const detailHolidays = holidaysThisMonth.filter(h => h.date === selectedDayDetail);
+                const detailBirthdays = recurringEvents.filter(ev => ev.month === monthNum && ev.day === dayNum);
+                return (
+                  <div className="mt-4 p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 animate-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-black text-[#4A5D75] dark:text-[#899AB5]">
+                        {detailDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                      </h3>
+                      <button onClick={() => setSelectedDayDetail(null)} className="text-neutral-400 hover:text-neutral-600"><X className="w-4 h-4"/></button>
+                    </div>
+                    {detailHolidays.map(h => (
+                      <div key={h.name} className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800">
+                        <span>{h.emoji}</span>
+                        <span className="text-sm font-bold text-rose-700 dark:text-rose-300">Happy {h.name}!</span>
+                      </div>
+                    ))}
+                    {detailBirthdays.map(ev => (
+                      <div key={ev.id} className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
+                        <span>{ev.type === 'birthday' ? '🎂' : ev.type === 'anniversary' ? '💍' : '🎉'}</span>
+                        <span className="text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                          {ev.type === 'birthday' ? `Happy Birthday, ${ev.name}!` : ev.type === 'anniversary' ? `Happy Anniversary, ${ev.name}!` : ev.name}
+                        </span>
+                      </div>
+                    ))}
+                    {detailTasks.length === 0 && detailHolidays.length === 0 && detailBirthdays.length === 0 && (
+                      <p className="text-xs text-neutral-400 text-center py-2">Nothing scheduled</p>
+                    )}
+                    {detailTasks.map(task => (
+                      <div key={task.id} className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl border border-neutral-100 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all">
+                        <button onClick={() => toggleTask(task.id)} className={`shrink-0 ${task.completed ? 'text-[#6A829E]' : 'text-neutral-300 hover:text-[#6A829E]'} transition-colors`}>
+                          {task.completed ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
+                        </button>
+                        <span className={`text-sm font-bold flex-1 ${task.completed ? 'line-through text-neutral-400' : 'text-neutral-800 dark:text-neutral-200'}`}>{task.title}</span>
+                        <button onClick={() => deleteTask(task.id)} className="text-neutral-300 hover:text-rose-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    ))}
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!newTaskInput.trim()) return;
+                      addTask(newTaskInput, selectedDayDetail, newTaskDetails, newTaskLocation);
+                      setNewTaskInput('');
+                      setNewTaskDetails('');
+                      setNewTaskLocation('');
+                    }} className="flex gap-2 mt-3">
+                      <input
+                        type="text"
+                        value={newTaskInput}
+                        onChange={e => setNewTaskInput(e.target.value)}
+                        placeholder={`Add task for ${detailDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}...`}
+                        className="flex-1 bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 outline-none px-3 py-2 rounded-xl text-sm font-medium"
+                      />
+                      <button type="submit" disabled={!newTaskInput.trim()} className="px-4 py-2 bg-[#4A5D75] disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-[#3D4D61] transition-all">Add</button>
+                    </form>
+                  </div>
+                );
+              })()}
+
+              {/* Upcoming Events in calendar view */}
+              {upcoming.length > 0 && (
+                <div className="mt-4 space-y-1">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-neutral-400 px-1 mb-2">Upcoming 7 Days</h3>
+                  {upcoming.map((ev, idx) => {
+                    const [, mm, dd] = ev.date.split('-');
+                    const dateLabel = `${MONTH_NAMES[parseInt(mm) - 1]} ${parseInt(dd)}`;
+                    const isToday = ev.date === toLocalISODate(new Date());
+                    return (
+                      <div key={idx} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800">
+                        <span className="text-sm shrink-0">{ev.emoji}</span>
+                        <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300 flex-1">{ev.label}</span>
+                        <span className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${isToday ? 'text-[#4A5D75]' : 'text-neutral-400'}`}>{isToday ? 'Today' : dateLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-3 animate-in fade-in duration-200">
