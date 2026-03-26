@@ -1070,6 +1070,47 @@ fn run_osascript(script: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Strips HTML tags and normalises whitespace for LLM consumption.
+fn strip_html(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => { in_tag = false; out.push(' '); }
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    // Decode common entities and collapse whitespace
+    let decoded = out
+        .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ");
+    decoded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Fetches a URL with curl and returns stripped plain text.
+/// Used as fallback when browser JS extraction is unavailable.
+fn fetch_url_text(url: &str) -> Option<String> {
+    if !url.starts_with("http") { return None; }
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s", "-L",
+            "--max-time", "8",
+            "--user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            url,
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() { return None; }
+    let html = String::from_utf8_lossy(&output.stdout);
+    let text = strip_html(&html);
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() { return None; }
+    // Limit to ~12k chars
+    Some(trimmed.chars().take(12000).collect())
+}
+
 /// Detects the active browser tab. Called before the spotlight window is shown
 /// so the browser still has OS focus at the time of the call.
 fn detect_active_tab() -> serde_json::Value {
@@ -1084,17 +1125,18 @@ return t & "|||URL|||" & u"#;
         if let Some((title, url)) = raw.split_once("|||URL|||") {
             let url = url.trim().to_string();
             if !url.is_empty() {
-                // Best-effort: try to get page text via JS (disabled by default in Chrome)
+                let title = title.trim().to_string();
+                // 1st choice: AppleScript JS (requires Chrome > View > Developer > Allow JavaScript from Apple Events)
                 let chrome_text = r#"tell application "Google Chrome"
     set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
 end tell
 return txt"#;
-                let text = run_osascript(chrome_text).unwrap_or_default();
-                return serde_json::json!({
-                    "title": title.trim(),
-                    "url": url,
-                    "text": text,
-                });
+                let text = run_osascript(chrome_text)
+                    .filter(|t| !t.is_empty())
+                    // 2nd choice: curl + HTML strip (works for any public page, no settings needed)
+                    .or_else(|| fetch_url_text(&url))
+                    .unwrap_or_default();
+                return serde_json::json!({ "title": title, "url": url, "text": text });
             }
         }
     }
@@ -1110,17 +1152,18 @@ return t & "|||URL|||" & u"#;
         if let Some((title, url)) = raw.split_once("|||URL|||") {
             let url = url.trim().to_string();
             if !url.is_empty() {
-                // Best-effort: Safari requires Develop > Allow Remote Automation for JS
+                let title = title.trim().to_string();
+                // 1st choice: AppleScript JS (requires Safari > Develop > Allow Remote Automation)
                 let safari_text = r#"tell application "Safari"
     set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
 end tell
 return txt"#;
-                let text = run_osascript(safari_text).unwrap_or_default();
-                return serde_json::json!({
-                    "title": title.trim(),
-                    "url": url,
-                    "text": text,
-                });
+                let text = run_osascript(safari_text)
+                    .filter(|t| !t.is_empty())
+                    // 2nd choice: curl + HTML strip
+                    .or_else(|| fetch_url_text(&url))
+                    .unwrap_or_default();
+                return serde_json::json!({ "title": title, "url": url, "text": text });
             }
         }
     }
