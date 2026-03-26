@@ -3,10 +3,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit } from '@tauri-apps/api/event';
 import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu } from 'lucide-react';
+type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 
-type Mode = 'text' | 'canvas' | 'app';
 interface Msg { id: string; role: 'user' | 'assistant'; content: string; timestamp: number; }
 interface Chat { id: string; folderId: string; name: string; updatedAt: number; }
 
@@ -43,7 +43,6 @@ export default function SpotlightBar() {
   const [selectedModelId, setSelectedModelId] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [isDeepThinking, setIsDeepThinking] = useState(false);
-  const [mode, setMode] = useState<Mode>('text');
   const [useTab, setUseTab] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -226,7 +225,7 @@ export default function SpotlightBar() {
         attachedDocs: [],
         agent: { prompt: systemPrompt, tools: {}, trainingDocs: [] },
         tasks: [],
-        mode,
+        mode: 'text' as Mode,
         canvasContent: null,
         isDeepThinking,
         agentPinnedMessages: [],
@@ -432,16 +431,6 @@ export default function SpotlightBar() {
             className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-all shrink-0 ${isDeepThinking ? 'text-violet-300 bg-violet-900/20 border-violet-700/30' : 'text-slate-600 border-transparent hover:text-slate-400 hover:bg-white/5'}`}>
             <Brain className="w-3 h-3" /> Think
           </button>
-
-          {/* Mode */}
-          <div className="flex bg-white/5 rounded-lg p-0.5 shrink-0">
-            {(['text','canvas','app'] as Mode[]).map(m => (
-              <button key={m} onClick={() => setMode(m)}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-all capitalize ${mode === m ? 'bg-indigo-600/70 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
-                {m}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* ── Messages ── */}

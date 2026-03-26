@@ -1089,6 +1089,20 @@ fn strip_html(html: &str) -> String {
     decoded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Returns true if the stripped text looks like a bot-protection challenge page.
+fn is_challenge_page(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    // Cloudflare, Amazon WAF, generic bot-detection markers
+    let markers = [
+        "just a moment", "checking your browser", "enable javascript and cookies",
+        "ddos protection by cloudflare", "ray id:", "please verify you are a human",
+        "access denied", "403 forbidden", "attention required!", "sorry, you have been blocked",
+        "your request has been blocked", "security check", "prove you are human",
+        "cf-ray", "cloudflare to restrict access",
+    ];
+    markers.iter().any(|m| lower.contains(m))
+}
+
 /// Fetches a URL with curl and returns stripped plain text.
 /// Used as fallback when browser JS extraction is unavailable.
 fn fetch_url_text(url: &str) -> Option<String> {
@@ -1098,6 +1112,8 @@ fn fetch_url_text(url: &str) -> Option<String> {
             "-s", "-L",
             "--max-time", "8",
             "--user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "-H", "Accept-Language: en-US,en;q=0.9",
             url,
         ])
         .output()
@@ -1107,6 +1123,10 @@ fn fetch_url_text(url: &str) -> Option<String> {
     let text = strip_html(&html);
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() { return None; }
+    // Detect bot-protection challenge pages — return a note instead of garbage
+    if is_challenge_page(&trimmed) {
+        return Some("[This page is protected by a bot-detection challenge (e.g. Cloudflare). Page content could not be read automatically. To enable content reading from protected pages, go to Chrome → View → Developer → Allow JavaScript from Apple Events.]".to_string());
+    }
     // Limit to ~12k chars
     Some(trimmed.chars().take(12000).collect())
 }
