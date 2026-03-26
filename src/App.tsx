@@ -19,6 +19,7 @@ import { useUIStore } from './store/useUIStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { NukeShieldModal } from './components/NukeShieldModal';
 import { MemmoPanel } from './components/MemmoPanel';
 import { MemoComposeModal } from './components/MemoComposeModal';
@@ -144,6 +145,22 @@ export default function App() {
     console.error = (...args) => { capture('error')(...args); originalError(...args); };
     console.warn = (...args) => { capture('warn')(...args); originalWarn(...args); };
     return () => { console.log = originalLog; console.error = originalError; console.warn = originalWarn; };
+  }, []);
+
+  // Spotlight window events
+  useEffect(() => {
+    const unlistens: (() => void)[] = [];
+    listen<{ level: string; msg: string }>('spotlight-log', ({ payload }) => {
+      useUIStore.getState().addLog(payload.level, payload.msg);
+    }).then(u => unlistens.push(u));
+    listen<void>('spotlight-chat-updated', () => {
+      useChatStore.getState().hydrate();
+    }).then(u => unlistens.push(u));
+    listen<{ agentId: string; chatId?: string; tab: { title: string; url: string } | null }>('spotlight-open-chat', ({ payload }) => {
+      if (payload.agentId) useAgentStore.getState().setActiveFolderId(payload.agentId);
+      useChatStore.getState().setActiveChatId(payload.chatId ?? null);
+    }).then(u => unlistens.push(u));
+    return () => unlistens.forEach(u => u());
   }, []);
 
   useEffect(() => {

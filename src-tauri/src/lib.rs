@@ -9,6 +9,10 @@ struct LlamaState {
     pid: Mutex<Option<u32>>,
 }
 
+// Caches the active tab captured BEFORE the spotlight window steals OS focus
+#[derive(Default)]
+struct TabCache(Mutex<Option<serde_json::Value>>);
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn knowledge_core_path() -> std::path::PathBuf {
@@ -1057,32 +1061,149 @@ fn greet(name: &str) -> String {
 
 // ─── Spotlight Commands ───────────────────────────────────────────────────────
 
-#[tauri::command]
-fn get_active_tab() -> serde_json::Value {
-    let script = r#"tell application "Google Chrome"
-    set t to title of active tab of front window
-    set u to URL of active tab of front window
-    set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
-end tell
-return t & "\n---URL---\n" & u & "\n---TEXT---\n" & txt"#;
+fn run_osascript(script: &str) -> Option<String> {
     let output = std::process::Command::new("osascript")
         .args(["-e", script])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let raw = String::from_utf8_lossy(&o.stdout).to_string();
-            let title = raw.split("\n---URL---\n").next().unwrap_or("").trim().to_string();
-            let rest = raw.split("\n---URL---\n").nth(1).unwrap_or("");
-            let url = rest.split("\n---TEXT---\n").next().unwrap_or("").trim().to_string();
-            let text = rest.split("\n---TEXT---\n").nth(1).unwrap_or("").trim().to_string();
-            serde_json::json!({ "title": title, "url": url, "text": text })
+        .output()
+        .ok()?;
+    if !output.status.success() { return None; }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Strips HTML tags and normalises whitespace for LLM consumption.
+fn strip_html(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => { in_tag = false; out.push(' '); }
+            _ if !in_tag => out.push(c),
+            _ => {}
         }
-        Ok(o) => {
-            let err = String::from_utf8_lossy(&o.stderr).to_string();
-            serde_json::json!({ "title": "", "url": "", "text": "", "error": err })
-        }
-        Err(e) => serde_json::json!({ "title": "", "url": "", "text": "", "error": e.to_string() })
     }
+    // Decode common entities and collapse whitespace
+    let decoded = out
+        .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ");
+    decoded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Returns true if the stripped text looks like a bot-protection challenge page.
+fn is_challenge_page(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    // Cloudflare, Amazon WAF, generic bot-detection markers
+    let markers = [
+        "just a moment", "checking your browser", "enable javascript and cookies",
+        "ddos protection by cloudflare", "ray id:", "please verify you are a human",
+        "access denied", "403 forbidden", "attention required!", "sorry, you have been blocked",
+        "your request has been blocked", "security check", "prove you are human",
+        "cf-ray", "cloudflare to restrict access",
+    ];
+    markers.iter().any(|m| lower.contains(m))
+}
+
+/// Fetches a URL with curl and returns stripped plain text.
+/// Used as fallback when browser JS extraction is unavailable.
+fn fetch_url_text(url: &str) -> Option<String> {
+    if !url.starts_with("http") { return None; }
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s", "-L",
+            "--max-time", "8",
+            "--user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "-H", "Accept-Language: en-US,en;q=0.9",
+            url,
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() { return None; }
+    let html = String::from_utf8_lossy(&output.stdout);
+    let text = strip_html(&html);
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() { return None; }
+    // Detect bot-protection challenge pages — return a note instead of garbage
+    if is_challenge_page(&trimmed) {
+        return Some("[This page is protected by a bot-detection challenge (e.g. Cloudflare). Page content could not be read automatically. To enable content reading from protected pages, go to Chrome → View → Developer → Allow JavaScript from Apple Events.]".to_string());
+    }
+    // Limit to ~12k chars
+    Some(trimmed.chars().take(12000).collect())
+}
+
+/// Try to get tab info from Chrome. Returns (title, url, text, "chrome") or None.
+fn try_chrome() -> Option<serde_json::Value> {
+    let chrome_info = r#"tell application "Google Chrome"
+    set t to title of active tab of front window
+    set u to URL of active tab of front window
+end tell
+return t & "|||URL|||" & u"#;
+    let raw = run_osascript(chrome_info)?;
+    let (title, url) = raw.split_once("|||URL|||")?;
+    let url = url.trim().to_string();
+    if url.is_empty() { return None; }
+    let title = title.trim().to_string();
+    let chrome_text = r#"tell application "Google Chrome"
+    set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
+end tell
+return txt"#;
+    let text = run_osascript(chrome_text)
+        .filter(|t| !t.is_empty())
+        .or_else(|| fetch_url_text(&url))
+        .unwrap_or_default();
+    Some(serde_json::json!({ "title": title, "url": url, "text": text, "browser": "chrome" }))
+}
+
+/// Try to get tab info from Safari. Returns json with browser:"safari" or None.
+fn try_safari() -> Option<serde_json::Value> {
+    let safari_info = r#"tell application "Safari"
+    set t to name of current tab of front window
+    set u to URL of current tab of front window
+end tell
+return t & "|||URL|||" & u"#;
+    let raw = run_osascript(safari_info)?;
+    let (title, url) = raw.split_once("|||URL|||")?;
+    let url = url.trim().to_string();
+    if url.is_empty() { return None; }
+    let title = title.trim().to_string();
+    let safari_text = r#"tell application "Safari"
+    set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
+end tell
+return txt"#;
+    let text = run_osascript(safari_text)
+        .filter(|t| !t.is_empty())
+        .or_else(|| fetch_url_text(&url))
+        .unwrap_or_default();
+    Some(serde_json::json!({ "title": title, "url": url, "text": text, "browser": "safari" }))
+}
+
+/// Detects the active browser tab. `preferred` can be "chrome", "safari", or "auto"/None.
+/// Called before the spotlight window is shown so the browser still has OS focus.
+fn detect_active_tab_preferred(preferred: Option<&str>) -> serde_json::Value {
+    match preferred.unwrap_or("auto") {
+        "chrome" => try_chrome()
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Chrome tab not found" })),
+        "safari" => try_safari()
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Safari tab not found" })),
+        _ => try_chrome()
+            .or_else(try_safari)
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "no supported browser found" })),
+    }
+}
+
+#[tauri::command]
+fn get_active_tab(cache: tauri::State<TabCache>, preferred: Option<String>) -> serde_json::Value {
+    // Return pre-fetched value from shortcut handler (captured before focus steal),
+    // but only if it matches the preferred browser (or no preference set)
+    if let Some(cached) = cache.0.lock().unwrap().take() {
+        let cached_browser = cached.get("browser").and_then(|b| b.as_str()).unwrap_or("");
+        let pref = preferred.as_deref().unwrap_or("auto");
+        if pref == "auto" || pref.is_empty() || cached_browser == pref || cached_browser.is_empty() {
+            return cached;
+        }
+    }
+    // Fallback: live detection (manual refresh or preference mismatch)
+    detect_active_tab_preferred(preferred.as_deref())
 }
 
 #[tauri::command]
@@ -1098,6 +1219,10 @@ fn hide_spotlight(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("spotlight") {
         let _ = w.hide();
     }
+    // Return focus to main window so it doesn't fall behind other apps
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.set_focus();
+    }
 }
 
 // ─── Entry Point ─────────────────────────────────────────────────────────────
@@ -1108,6 +1233,7 @@ pub fn run() {
         .manage(LlamaState {
             pid: Mutex::new(None),
         })
+        .manage(TabCache::default())
         .setup(|app| {
             // ── Spotlight window ──────────────────────────────────────────────
             let spotlight_url = if cfg!(debug_assertions) {
@@ -1125,8 +1251,9 @@ pub fn run() {
                 .visible(false)
                 .skip_taskbar(true)
                 .center()
-                .inner_size(700.0, 80.0)
-                .resizable(false)
+                .inner_size(560.0, 400.0)
+                .min_inner_size(360.0, 200.0)
+                .resizable(true)
                 .build()?;
 
             // ── Global shortcut: Cmd+Shift+F ──────────────────────────────────
@@ -1140,7 +1267,14 @@ pub fn run() {
                         if let Some(w) = handle.get_webview_window("spotlight") {
                             if w.is_visible().unwrap_or(false) {
                                 let _ = w.hide();
+                                // Return focus to main window when spotlight closes
+                                if let Some(main) = handle.get_webview_window("main") {
+                                    let _ = main.set_focus();
+                                }
                             } else {
+                                // Capture active tab NOW — browser still has focus at this point
+                                let tab = detect_active_tab_preferred(None);
+                                *handle.state::<TabCache>().0.lock().unwrap() = Some(tab);
                                 let _ = w.show();
                                 let _ = w.set_focus();
                             }
@@ -1196,6 +1330,17 @@ pub fn run() {
             show_spotlight,
             hide_spotlight,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error building tauri application")
+        .run(|app_handle, event| {
+            // Dock icon click on macOS — restore main window if nothing visible
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+                if !has_visible_windows {
+                    if let Some(w) = app_handle.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+            }
+        });
 }

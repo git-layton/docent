@@ -79,10 +79,11 @@ export const fetchWithRetry = async (url: string, options: any, retries = 3, sig
       }
       return returnRaw ? res : await res.json();
     } catch (err: any) {
-      if (err.message.includes('Failed to fetch') || err.message.includes('Load failed')) {
-         throw new Error(`CORS/Network Error: Detail: ${err.message}`);
+      const msg: string = err?.message ?? String(err);
+      if (msg.includes('Failed to fetch') || msg.includes('Load failed')) {
+        throw new Error(`CORS/Network Error: Detail: ${msg}`);
       }
-      if (err.name === 'AbortError' || err.message === 'CONTEXT_LIMIT_EXCEEDED') throw err;
+      if (err?.name === 'AbortError' || msg === 'CONTEXT_LIMIT_EXCEEDED') throw err;
       if (attempt === retries) throw err;
       await new Promise(r => setTimeout(r, delay));
       delay = Math.min(delay * 2, 8000);
