@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
-  AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic, Code, FileEdit, ImageIcon, MessageSquare
+  AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic
 } from 'lucide-react';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
 import type { SlashCommand } from './SlashCommandPalette';
@@ -55,18 +55,16 @@ export function ChatInputBar({
   const isDeepThinking = useUIStore(s => s.isDeepThinking);
   const forcedTool = useUIStore(s => s.forcedTool);
   const isPlanMode = useUIStore(s => s.isPlanMode);
-  const generationMode = useUIStore(s => s.generationMode);
   const attachedDocs = useUIStore(s => s.attachedDocs);
   const uploadError = useUIStore(s => s.uploadError);
   const isModelDropdownOpen = useUIStore(s => s.isModelDropdownOpen);
   const slashHighlight = useUIStore(s => s.slashHighlight);
-  const { setInput, setIsDeepThinking, setForcedTool, setIsPlanMode, setGenerationMode,
+  const { setInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
     setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight } = useUIStore.getState();
 
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
   const modelValidation = useSettingsStore(s => s.modelValidation);
-  const appSettings = useSettingsStore(s => s.appSettings);
   const { setSelectedModelId, setModels, setShowModelWizard, setWizardStep } = useSettingsStore.getState();
   return (
     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white dark:from-neutral-900 pt-10 pb-6 px-4 lg:px-6 z-10">
@@ -91,46 +89,34 @@ export function ChatInputBar({
           </div>
         )}
 
-        <div className="flex items-center justify-between mb-3 px-2">
-          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-            {[{ id: 'text', label: 'Chat', icon: MessageSquare }, { id: 'code', label: 'Code', icon: Code }, { id: 'doc', label: 'Doc', icon: FileEdit }, { id: 'image', label: 'Image', icon: ImageIcon }]
-              .filter(m => m.id !== 'image' || appSettings?.imageProvider !== 'none')
-              .map(({ id, label, icon: Icon }) => (
-              <button key={id} onClick={() => setGenerationMode(id)} className={`flex items-center gap-1.5 text-[9px] uppercase font-black px-3 py-1.5 rounded-full transition-all border ${generationMode === id ? 'bg-[#2C3E50] text-[#9EADC8] border-[#2C3E50] dark:bg-[#9EADC8] dark:text-[#2C3E50] dark:border-[#9EADC8]' : 'bg-white dark:bg-neutral-800 text-neutral-500 border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                <Icon className="w-3 h-3" /> {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Model Selector */}
-          <div className="flex items-center gap-2" ref={modelDropdownRef}>
-            <div className="relative">
-              <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full border border-neutral-200 dark:border-neutral-700 hover:border-[#9EADC8] transition-all shadow-sm">
-                <Zap className="w-3 h-3 text-[#9EADC8]" />
-                {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-[#C98A8A]" /></span>}
-                {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-[#9FBBAF]" /></span>}
-                <span className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{selectedModel?.name ?? 'Select Brain'}</span>
-                <ChevronDown className="w-3 h-3 text-neutral-400" />
-              </button>
-              {isModelDropdownOpen && (
-                <div className="absolute bottom-full right-0 mb-2 w-64 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
-                  <div className="p-1.5 space-y-1">
-                    {models.map(m => (
-                      <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                        <div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className={`text-[9px] uppercase font-black opacity-60 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
-                        <div className="flex items-center gap-1">
-                          {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-[#D9A098]" />}
-                          {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-[#B5CDBF]" />}
-                          {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-[#899AB5]" />}
-                          <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-neutral-400 hover:text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30 rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
-                        </div>
-                      </button>
-                    ))}
-                    <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-[#4A5D75] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-[10px] font-black uppercase tracking-widest">Connect LLM</span></button>
-                  </div>
+        {/* Model Selector */}
+        <div className="flex items-center justify-end mb-3 px-2" ref={modelDropdownRef}>
+          <div className="relative">
+            <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full border border-neutral-200 dark:border-neutral-700 hover:border-[#9EADC8] transition-all shadow-sm">
+              <Zap className="w-3 h-3 text-[#9EADC8]" />
+              {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-[#C98A8A]" /></span>}
+              {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-[#9FBBAF]" /></span>}
+              <span className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{selectedModel?.name ?? 'Select Brain'}</span>
+              <ChevronDown className="w-3 h-3 text-neutral-400" />
+            </button>
+            {isModelDropdownOpen && (
+              <div className="absolute bottom-full right-0 mb-2 w-64 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+                <div className="p-1.5 space-y-1">
+                  {models.map(m => (
+                    <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
+                      <div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className={`text-[9px] uppercase font-black opacity-60 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
+                      <div className="flex items-center gap-1">
+                        {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-[#D9A098]" />}
+                        {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-[#B5CDBF]" />}
+                        {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-[#899AB5]" />}
+                        <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-neutral-400 hover:text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30 rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
+                      </div>
+                    </button>
+                  ))}
+                  <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-[#4A5D75] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-[10px] font-black uppercase tracking-widest">Connect LLM</span></button>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -181,7 +167,7 @@ export function ChatInputBar({
               }
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
             }}
-            placeholder={models.length === 0 ? 'Connect an LLM to start...' : generationMode === 'code' ? 'What application should I build?' : generationMode === 'doc' ? 'What document should I draft?' : generationMode === 'image' ? 'Describe the image you want to generate...' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
+            placeholder={models.length === 0 ? 'Connect an LLM to start...' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
             className="w-full bg-transparent p-4 min-h-[60px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
         </div>
 

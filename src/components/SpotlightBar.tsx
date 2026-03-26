@@ -65,6 +65,7 @@ export default function SpotlightBar() {
   // Tab: keep last known value — cleared on focus, repopulated from Rust pre-fetch
   const [tab, setTab] = useState<{ title: string; url: string; browser?: string; hasText?: boolean } | null>(null);
   const [showPageReadingHelp, setShowPageReadingHelp] = useState(false);
+  const showPageReadingHelpRef = useRef(false);
   const [helpBtnRect, setHelpBtnRect] = useState<DOMRect | null>(null);
   const pageReadingHelpRef = useRef<HTMLDivElement>(null);
   const helpBtnRef = useRef<HTMLButtonElement>(null);
@@ -156,6 +157,8 @@ export default function SpotlightBar() {
     return () => { unsub.then(f => f()); };
   }, [fetchTab]);
 
+  useEffect(() => { showPageReadingHelpRef.current = showPageReadingHelp; }, [showPageReadingHelp]);
+
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (!agentPickerRef.current?.contains(e.target as Node)) setShowAgentPicker(false);
@@ -163,7 +166,12 @@ export default function SpotlightBar() {
       if (!historyRef.current?.contains(e.target as Node)) setShowHistory(false);
       if (!pageReadingHelpRef.current?.contains(e.target as Node) && !helpBtnRef.current?.contains(e.target as Node)) setShowPageReadingHelp(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') getCurrentWindow().hide(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showPageReadingHelpRef.current) { setShowPageReadingHelp(false); }
+        else { getCurrentWindow().hide(); }
+      }
+    };
     document.addEventListener('mousedown', h);
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', onKey); };

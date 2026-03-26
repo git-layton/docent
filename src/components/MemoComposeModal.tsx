@@ -109,7 +109,7 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-sm font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">
-              New Memmo
+              New Note
             </h2>
             <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
               <X className="w-5 h-5" />
@@ -197,7 +197,7 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#2C3E50] text-white text-sm font-bold hover:bg-[#3A506B] transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
-              {isSaving ? 'Saving...' : isTodo ? 'Add Task' : 'Save Memmo'}
+              {isSaving ? 'Saving...' : isTodo ? 'Add Task' : 'Save Note'}
             </button>
           </div>
         </div>

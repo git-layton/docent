@@ -30,7 +30,7 @@ interface Props {
   onRestoreArchive?: (archivePath: string) => Promise<void>;
 }
 
-type Tab = 'pins' | 'memos' | 'library' | 'archive';
+type Tab = 'pins' | 'notes' | 'library' | 'archive';
 
 interface FileEntry {
   name: string;
@@ -62,7 +62,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
 
   useEffect(() => {
     if (isOpen && agentForgePath) {
-      if (tab === 'memos') loadMemos();
+      if (tab === 'notes') loadMemos();
       if (tab === 'library') loadLibrary();
       if (tab === 'archive') loadArchive();
     }
@@ -163,8 +163,8 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'library', label: 'Library' },
-    { id: 'pins',    label: 'Pinned',  count: pinnedMessages.length },
-    { id: 'memos',   label: 'Memos'   },
+    { id: 'pins',    label: 'Context', count: pinnedMessages.length },
+    { id: 'notes',   label: 'Notes'   },
     { id: 'archive', label: 'Archive', count: archiveFiles.length || undefined },
   ];
 
@@ -225,7 +225,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
             <div className="p-4 space-y-2">
               <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#D4AA7D]/10 dark:bg-[#D4AA7D]/5 border border-[#D4AA7D]/30 rounded-xl">
                 <span className="text-[10px]">📌</span>
-                <span className="text-[10px] font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">Pinned Context — injected into every message you send</span>
+                <span className="text-[10px] font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">Active Context — injected into every message you send</span>
               </div>
               {pinnedTokenEstimate !== undefined && pinnedTokenEstimate > 1500 && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#C98A8A]/10 border border-[#C98A8A]/30 rounded-xl">
@@ -262,8 +262,8 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
             </div>
           )}
 
-          {/* ── Memos tab ── */}
-          {tab === 'memos' && (
+          {/* ── Notes tab ── */}
+          {tab === 'notes' && (
             <div className="p-4 space-y-2">
               <div className="flex flex-col gap-0.5 px-2.5 py-1.5 mb-2 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
                 <div className="flex items-center gap-1.5">
@@ -277,7 +277,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 text-xs font-bold text-neutral-500 dark:text-neutral-400 hover:border-[#4A5D75] hover:text-[#4A5D75] transition-all mb-4"
               >
                 <Pencil className="w-3.5 h-3.5" />
-                New Memmo
+                New Note
               </button>
 
               {loadingFiles ? (
@@ -285,9 +285,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
               ) : memos.length === 0 ? (
                 <div className="text-center py-8 text-neutral-400 space-y-2">
                   <FileText className="w-8 h-8 mx-auto opacity-30" />
-                  <p className="text-xs font-bold">No memos yet.</p>
+                  <p className="text-xs font-bold">No notes yet.</p>
                   <p className="text-[10px] leading-relaxed opacity-80 px-2">
-                    Memos are markdown notes saved to your Knowledge Core (<code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded">~/AgentForge/memory/</code>). Your agent can search them when Knowledge Search is enabled.
+                    Notes are markdown files saved to your Knowledge Core (<code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded">~/AgentForge/memory/</code>). Your agent can search them when Knowledge Search is enabled.
                   </p>
                   <p className="text-[10px] opacity-60">Use ⌘⇧M or type /memo in chat to write one.</p>
                 </div>
