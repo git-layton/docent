@@ -69,7 +69,7 @@ export default function SpotlightBar() {
   const pageReadingHelpRef = useRef<HTMLDivElement>(null);
   const helpBtnRef = useRef<HTMLButtonElement>(null);
   const [tabFetching, setTabFetching] = useState(false);
-  const [preferredBrowser, setPreferredBrowser] = useState<'auto' | 'chrome' | 'safari'>('auto');
+  const [preferredBrowser, setPreferredBrowser] = useState<'chrome' | 'safari'>('chrome');
   const [agents, setAgents] = useState<any[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [showAgentPicker, setShowAgentPicker] = useState(false);
@@ -120,11 +120,11 @@ export default function SpotlightBar() {
         db.get('settings', {}),
         db.get('spotlightOnboarded', false),
         db.get('spotlightHotkeyOnboarded', false),
-        db.get('preferredBrowser', 'auto'),
+        db.get('preferredBrowser', 'chrome'),
       ]);
       if (!onboarded) setShowOnboarding(true);
       if (!hotkeyOnboarded) setShowHotkeyOnboarding(true);
-      if (storedBrowser) setPreferredBrowser(storedBrowser as 'auto' | 'chrome' | 'safari');
+      if (storedBrowser === 'chrome' || storedBrowser === 'safari') setPreferredBrowser(storedBrowser);
       if (storedAgents.length) { setAgents(storedAgents); setSelectedAgentId(storedAgents[0].id); }
       if (storedModels.length) {
         setModels(storedModels);
@@ -488,7 +488,7 @@ export default function SpotlightBar() {
 
           {/* Browser toggle — persisted */}
           <div className="flex shrink-0 rounded-lg overflow-hidden border border-white/[0.07]">
-            {(['auto', 'chrome', 'safari'] as const).map(b => (
+            {(['chrome', 'safari'] as const).map(b => (
               <button key={b} onClick={() => {
                 setPreferredBrowser(b);
                 db.set('preferredBrowser', b);
