@@ -1202,12 +1202,25 @@ return t & "|||URL|||" & u"#;
     let url = url.trim().to_string();
     if url.is_empty() { return None; }
     let title = title.trim().to_string();
-    let safari_text = r#"tell application "Safari"
+    let safari_js = r#"tell application "Safari"
     set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
 end tell
 return txt"#;
-    let text = run_osascript(safari_text)
+    let text = run_osascript(safari_js)
         .filter(|t| !t.is_empty())
+        .or_else(|| {
+            let safari_source = r#"tell application "Safari"
+    set src to source of current tab of front window
+end tell
+return src"#;
+            run_osascript(safari_source)
+                .filter(|s| !s.is_empty())
+                .map(|html| {
+                    let stripped = strip_html(&html);
+                    stripped.chars().take(12000).collect::<String>()
+                })
+                .filter(|t| !t.is_empty())
+        })
         .or_else(|| fetch_url_text(&url))
         .unwrap_or_default();
     Some(serde_json::json!({ "title": title, "url": url, "text": text, "browser": "safari" }))
