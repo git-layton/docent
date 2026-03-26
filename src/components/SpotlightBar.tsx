@@ -6,6 +6,29 @@ import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check,
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
+import { FormattedText } from './ui/FormattedText';
+
+/** Renders assistant markdown: code fences get a styled block, everything else goes to FormattedText. */
+function SpotlightMd({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  const fence = /```(\w*)\n([\s\S]*?)```/g;
+  let last = 0, m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = fence.exec(text)) !== null) {
+    if (m.index > last) parts.push(<FormattedText key={key++} text={text.slice(last, m.index)} />);
+    const code = m[2].trimEnd();
+    parts.push(
+      <div key={key++} className="relative my-2 rounded-xl overflow-hidden"
+        style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        {m[1] && <span className="absolute top-2 right-2 text-[9px] font-bold text-slate-500 uppercase">{m[1]}</span>}
+        <pre className="overflow-x-auto px-4 py-3 text-[11px] text-slate-300 leading-relaxed"><code>{code}</code></pre>
+      </div>
+    );
+    last = fence.lastIndex;
+  }
+  if (last < text.length) parts.push(<FormattedText key={key++} text={text.slice(last)} />);
+  return <>{parts}</>;
+}
 
 interface Msg { id: string; role: 'user' | 'assistant'; content: string; timestamp: number; }
 interface Chat { id: string; folderId: string; name: string; updatedAt: number; }
@@ -529,7 +552,9 @@ export default function SpotlightBar() {
                       <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}} />
                       <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}} />
                     </span>
-                  : <span className="whitespace-pre-wrap">{msg.content}</span>
+                  : msg.role === 'assistant'
+                    ? <SpotlightMd text={msg.content} />
+                    : <span className="whitespace-pre-wrap">{msg.content}</span>
                 }
               </div>
               {/* Action buttons — appear on hover, only when there's content */}
