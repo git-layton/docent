@@ -29,6 +29,7 @@ import { MorningBriefingBanner } from './components/MorningBriefingBanner';
 import { DreamDigestModal } from './components/DreamDigestModal';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
 import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse } from './services/dreamer';
+import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agentForgeUserDocs';
 import { AssistantSettingsModal } from './components/AssistantSettingsModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
@@ -178,7 +179,25 @@ export default function App() {
       try {
         const kc = await invoke<{ initialized: boolean; path: string }>('init_knowledge_core');
         if (kc.initialized) useUIStore.getState().showToast(`📚 Knowledge Core initialized at ${kc.path}`);
-        if (kc.path) useMemoryStore.getState().setAgentForgePath(kc.path);
+        if (kc.path) {
+          useMemoryStore.getState().setAgentForgePath(kc.path);
+          const guideInstalled = await db.get('userDocsInstalled', false);
+          if (!guideInstalled) {
+            try {
+              await invoke('write_memory', {
+                path: `${kc.path}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
+                content: AGENT_FORGE_GUIDE,
+                commitMessage: 'Add Agent Forge user guide',
+                agentId: null,
+                contextTokens: null,
+                ramState: null,
+              });
+              await db.set('userDocsInstalled', true);
+            } catch (e) {
+              console.warn('[AgentForge] Could not install user guide:', e);
+            }
+          }
+        }
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
       // Check for undismissed Dream Cycle log from a previous cycle

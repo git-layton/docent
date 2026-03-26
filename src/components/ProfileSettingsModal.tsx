@@ -1,7 +1,12 @@
+import { useState, useEffect } from 'react';
 import {
-  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link
+  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useMemoryStore } from '../store/useMemoryStore';
+import { invoke } from '@tauri-apps/api/core';
+import { db } from '../services/database';
+import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
 
 interface ProfileSettingsModalProps {
   fetchImageModels: () => void;
@@ -20,6 +25,45 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const models = useSettingsStore(s => s.models);
   const { setUserProfile, setIntegrations, setAppSettings, setProfileSettingsTab,
     setImageTestState, setImageEngineModels, setShowProfileSettings } = useSettingsStore.getState();
+
+  const agentForgePath = useMemoryStore(s => s.agentForgePath);
+
+  const [guideStatus, setGuideStatus] = useState<'installed' | 'deleted' | 'checking'>('checking');
+
+  useEffect(() => {
+    db.get('userDocsInstalled', false).then(v => setGuideStatus(v ? 'installed' : 'deleted'));
+  }, []);
+
+  const handleRestoreGuide = async () => {
+    if (!agentForgePath) return;
+    try {
+      await invoke('write_memory', {
+        path: `${agentForgePath}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
+        content: AGENT_FORGE_GUIDE,
+        commitMessage: 'Restore Agent Forge user guide',
+        agentId: null,
+        contextTokens: null,
+        ramState: null,
+      });
+      await db.set('userDocsInstalled', true);
+      setGuideStatus('installed');
+    } catch (e) {
+      console.error('[AgentForge] Failed to restore user guide:', e);
+    }
+  };
+
+  const handleDeleteGuide = async () => {
+    if (!agentForgePath) return;
+    try {
+      await invoke('delete_memory_file', {
+        path: `${agentForgePath}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
+      });
+      await db.set('userDocsInstalled', false);
+      setGuideStatus('deleted');
+    } catch (e) {
+      console.error('[AgentForge] Failed to delete user guide:', e);
+    }
+  };
 
   const hasImplicitGoogleKey = models.some((m: any) => m.provider === 'google' && m.apiKey);
   const hasImplicitOpenAIKey = models.some((m: any) => m.provider === 'openai' && m.apiKey);
@@ -55,6 +99,34 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-[#4A5D75]' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.allowProfileUpdates ? 'right-0.5' : 'left-0.5'}`} />
                  </button>
+              </div>
+
+              {/* User Guide section */}
+              <div className="border-t border-neutral-200 dark:border-neutral-800 pt-4 mt-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <BookOpen className="w-4 h-4 text-[#6A829E] shrink-0" />
+                    <div>
+                      <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">User Guide</p>
+                      <p className="text-xs text-neutral-500 mt-0.5">Agent Forge 2.0 help docs in your Knowledge Core</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {guideStatus === 'installed' ? (
+                      <>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Installed</span>
+                        <button onClick={handleDeleteGuide} className="text-xs text-neutral-400 hover:text-rose-500 transition-colors">Remove</button>
+                      </>
+                    ) : guideStatus === 'deleted' ? (
+                      <>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Not installed</span>
+                        <button onClick={handleRestoreGuide} className="text-xs font-bold text-[#4A5D75] hover:text-[#3D4D61] transition-colors">Restore</button>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-neutral-400">...</span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
