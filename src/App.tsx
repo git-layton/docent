@@ -1743,7 +1743,7 @@ export default function App() {
               >
                 {/* ── First-time agent intro card ── */}
                 {showAgentIntro && (
-                  <div className="absolute bottom-20 right-4 z-50 w-80 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl p-4 animate-in slide-in-from-bottom-4 duration-300">
+                  <div className="absolute top-4 right-4 z-50 w-80 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl p-4 animate-in slide-in-from-top-4 duration-300">
                     <div className="flex items-start justify-between mb-2">
                       <p className="text-sm font-black text-neutral-800 dark:text-neutral-200">Take your agents with you</p>
                       <button onClick={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
@@ -1757,12 +1757,9 @@ export default function App() {
                         <span className="font-bold text-neutral-700 dark:text-neutral-300">Chrome:</span>
                         {' '}View → Developer → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Allow JavaScript from Apple Events</span>
                       </div>
-                      <div>
-                        <span className="font-bold text-neutral-700 dark:text-neutral-300">Safari:</span>
-                        <div className="pl-2 mt-0.5 space-y-0.5">
-                          <div>Step 1: Settings → Advanced → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Show features for web developers</span></div>
-                          <div>Step 2: Develop → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Allow Remote Automation</span></div>
-                        </div>
+                      <div className="space-y-0.5">
+                        <div><span className="font-bold text-neutral-700 dark:text-neutral-300">Safari step 1:</span>{' '}Settings → Advanced → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Show features for web developers</span></div>
+                        <div><span className="font-bold text-neutral-700 dark:text-neutral-300">Safari step 2:</span>{' '}Develop → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Allow Remote Automation</span></div>
                       </div>
                     </div>
                     <button onClick={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
