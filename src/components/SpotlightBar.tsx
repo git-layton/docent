@@ -32,6 +32,7 @@ export default function SpotlightBar() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [input, setInput] = useState('');
@@ -78,13 +79,15 @@ export default function SpotlightBar() {
   useEffect(() => {
     (async () => {
       await db.init();
-      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings] = await Promise.all([
+      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings, onboarded] = await Promise.all([
         db.get('chats', []),
         db.get('messages', {}),
         db.get('assistants', []),
         db.get('models', []),
         db.get('settings', {}),
+        db.get('spotlightOnboarded', false),
       ]);
+      if (!onboarded) setShowOnboarding(true);
       if (storedAgents.length) { setAgents(storedAgents); setSelectedAgentId(storedAgents[0].id); }
       if (storedModels.length) {
         setModels(storedModels);
@@ -434,6 +437,26 @@ export default function SpotlightBar() {
             <Brain className="w-3 h-3" /> Think
           </button>
         </div>
+
+        {/* ── First-time setup banner ── */}
+        {showOnboarding && (
+          <div className="mx-3 mt-2 mb-0 rounded-xl px-3 py-2.5 shrink-0 flex items-start gap-2.5"
+            style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}>
+            <span className="text-lg leading-none mt-0.5">⚡</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-indigo-300 mb-0.5">Enable full page reading</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                In Chrome: <span className="text-slate-200 font-medium">View → Developer → Allow JavaScript from Apple Events</span>
+                <br />This lets Forge read the live text of any page — including logins and Cloudflare-protected sites.
+              </p>
+            </div>
+            <button
+              onClick={() => { setShowOnboarding(false); db.set('spotlightOnboarded', true); }}
+              className="shrink-0 text-[10px] font-bold text-indigo-400 hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-900/20 transition-all mt-0.5">
+              Got it
+            </button>
+          </div>
+        )}
 
         {/* ── Messages ── */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0 custom-scrollbar">
