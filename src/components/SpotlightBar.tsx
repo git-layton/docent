@@ -61,9 +61,10 @@ export default function SpotlightBar() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [input, setInput] = useState('');
-  // Tab: keep last known value — don't clear on focus (focus race with browser)
-  const [tab, setTab] = useState<{ title: string; url: string } | null>(null);
+  // Tab: keep last known value — cleared on focus, repopulated from Rust pre-fetch
+  const [tab, setTab] = useState<{ title: string; url: string; browser?: string } | null>(null);
   const [tabFetching, setTabFetching] = useState(false);
+  const [preferredBrowser, setPreferredBrowser] = useState<'auto' | 'chrome' | 'safari'>('auto');
   const [agents, setAgents] = useState<any[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [showAgentPicker, setShowAgentPicker] = useState(false);
@@ -84,16 +85,18 @@ export default function SpotlightBar() {
   const selectedAgent = agents.find(a => a.id === selectedAgentId) ?? agents[0] ?? null;
   const selectedModel = models.find(m => m.id === selectedModelId) ?? models[0] ?? null;
 
-  const fetchTab = useCallback(async () => {
+  const fetchTab = useCallback(async (pref?: 'auto' | 'chrome' | 'safari') => {
     setTabFetching(true);
     try {
-      const r = await invoke<{ title: string; url: string; error?: string }>('get_active_tab');
-      // Only update tab if we got a real URL — don't clear if empty (focus race)
-      if (r.url) setTab({ title: r.title, url: r.url });
+      const r = await invoke<{ title: string; url: string; browser?: string; error?: string }>(
+        'get_active_tab',
+        { preferred: pref ?? preferredBrowser }
+      );
+      if (r.url) setTab({ title: r.title, url: r.url, browser: r.browser });
     } catch { /* keep existing tab */ } finally {
       setTabFetching(false);
     }
-  }, []);
+  }, [preferredBrowser]);
 
   const persistChats = useCallback(async (updatedChats: Chat[], updatedMessages: Record<string, Msg[]>) => {
     await db.set('chats', updatedChats);
@@ -104,15 +107,17 @@ export default function SpotlightBar() {
   useEffect(() => {
     (async () => {
       await db.init();
-      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings, onboarded] = await Promise.all([
+      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings, onboarded, storedBrowser] = await Promise.all([
         db.get('chats', []),
         db.get('messages', {}),
         db.get('assistants', []),
         db.get('models', []),
         db.get('settings', {}),
         db.get('spotlightOnboarded', false),
+        db.get('preferredBrowser', 'auto'),
       ]);
       if (!onboarded) setShowOnboarding(true);
+      if (storedBrowser) setPreferredBrowser(storedBrowser as 'auto' | 'chrome' | 'safari');
       if (storedAgents.length) { setAgents(storedAgents); setSelectedAgentId(storedAgents[0].id); }
       if (storedModels.length) {
         setModels(storedModels);
@@ -230,7 +235,7 @@ export default function SpotlightBar() {
       let tabContext = '';
       let tabForCard: { title: string; url: string; text: string } | null = null;
       try {
-        const tabResult = await invoke<{ title: string; url: string; text: string; error?: string }>('get_active_tab');
+        const tabResult = await invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: preferredBrowser });
         if (tabResult.url) {
           setTab({ title: tabResult.title, url: tabResult.url });
           if (useTab) {
@@ -471,6 +476,21 @@ export default function SpotlightBar() {
             )}
           </div>
 
+          {/* Browser toggle */}
+          <div className="flex bg-white/5 rounded-lg p-0.5 shrink-0">
+            {(['auto', 'chrome', 'safari'] as const).map(b => (
+              <button key={b} onClick={() => {
+                setPreferredBrowser(b);
+                db.set('preferredBrowser', b);
+                setTab(null);
+                fetchTab(b);
+              }}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-all capitalize ${preferredBrowser === b ? 'bg-indigo-600/70 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                {b === 'auto' ? 'Auto' : b === 'chrome' ? 'Chrome' : 'Safari'}
+              </button>
+            ))}
+          </div>
+
           <div className="flex-1 shrink-0" />
 
           {/* Think */}
@@ -486,11 +506,16 @@ export default function SpotlightBar() {
             style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}>
             <span className="text-lg leading-none mt-0.5">⚡</span>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-indigo-300 mb-0.5">Enable full page reading</p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                In Chrome: <span className="text-slate-200 font-medium">View → Developer → Allow JavaScript from Apple Events</span>
-                <br />This lets Forge read the live text of any page — including logins and Cloudflare-protected sites.
-              </p>
+              <p className="text-xs font-semibold text-indigo-300 mb-1">Enable full page reading</p>
+              <div className="flex flex-col gap-1">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  <span className="text-slate-300 font-semibold">Chrome:</span> View → Developer → <span className="text-slate-200">Allow JavaScript from Apple Events</span>
+                </p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  <span className="text-slate-300 font-semibold">Safari:</span> Develop → <span className="text-slate-200">Allow Remote Automation</span>
+                  <span className="text-slate-600"> (no Develop menu? Safari Settings → Advanced → Show features for web developers)</span>
+                </p>
+              </div>
             </div>
             <button
               onClick={() => { setShowOnboarding(false); db.set('spotlightOnboarded', true); }}
@@ -601,13 +626,16 @@ export default function SpotlightBar() {
             <button onClick={() => setUseTab(v => !v)}
               className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all ${useTab ? 'text-sky-400/80 bg-sky-900/15' : 'text-slate-600 hover:text-slate-400'}`}>
               <Globe className="w-3 h-3 shrink-0" />
-              <span className="truncate max-w-[260px]">{truncate(tab.title, 38)}</span>
+              {tab.browser && tab.browser !== 'curl' && (
+                <span className="text-slate-500 shrink-0 capitalize">{tab.browser} ·</span>
+              )}
+              <span className="truncate max-w-[220px]">{truncate(tab.title, 34)}</span>
               <span className="text-slate-600 shrink-0">· {domainOf(tab.url)}</span>
             </button>
           ) : (
             <span className="text-[10px] text-slate-700 px-2">No tab detected</span>
           )}
-          <button onClick={fetchTab} title="Refresh tab"
+          <button onClick={() => fetchTab()} title="Refresh tab"
             className={`p-1 rounded-lg text-slate-700 hover:text-slate-400 transition-all ${tabFetching ? 'animate-spin' : ''}`}>
             <RefreshCw className="w-3 h-3" />
           </button>

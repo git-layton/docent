@@ -1131,74 +1131,79 @@ fn fetch_url_text(url: &str) -> Option<String> {
     Some(trimmed.chars().take(12000).collect())
 }
 
-/// Detects the active browser tab. Called before the spotlight window is shown
-/// so the browser still has OS focus at the time of the call.
-fn detect_active_tab() -> serde_json::Value {
-    // ── Chrome: title+URL (no JS required) ───────────────────────────────────
+/// Try to get tab info from Chrome. Returns (title, url, text, "chrome") or None.
+fn try_chrome() -> Option<serde_json::Value> {
     let chrome_info = r#"tell application "Google Chrome"
     set t to title of active tab of front window
     set u to URL of active tab of front window
 end tell
 return t & "|||URL|||" & u"#;
-
-    if let Some(raw) = run_osascript(chrome_info) {
-        if let Some((title, url)) = raw.split_once("|||URL|||") {
-            let url = url.trim().to_string();
-            if !url.is_empty() {
-                let title = title.trim().to_string();
-                // 1st choice: AppleScript JS (requires Chrome > View > Developer > Allow JavaScript from Apple Events)
-                let chrome_text = r#"tell application "Google Chrome"
+    let raw = run_osascript(chrome_info)?;
+    let (title, url) = raw.split_once("|||URL|||")?;
+    let url = url.trim().to_string();
+    if url.is_empty() { return None; }
+    let title = title.trim().to_string();
+    let chrome_text = r#"tell application "Google Chrome"
     set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
 end tell
 return txt"#;
-                let text = run_osascript(chrome_text)
-                    .filter(|t| !t.is_empty())
-                    // 2nd choice: curl + HTML strip (works for any public page, no settings needed)
-                    .or_else(|| fetch_url_text(&url))
-                    .unwrap_or_default();
-                return serde_json::json!({ "title": title, "url": url, "text": text });
-            }
-        }
-    }
+    let text = run_osascript(chrome_text)
+        .filter(|t| !t.is_empty())
+        .or_else(|| fetch_url_text(&url))
+        .unwrap_or_default();
+    Some(serde_json::json!({ "title": title, "url": url, "text": text, "browser": "chrome" }))
+}
 
-    // ── Safari fallback ───────────────────────────────────────────────────────
+/// Try to get tab info from Safari. Returns json with browser:"safari" or None.
+fn try_safari() -> Option<serde_json::Value> {
     let safari_info = r#"tell application "Safari"
     set t to name of current tab of front window
     set u to URL of current tab of front window
 end tell
 return t & "|||URL|||" & u"#;
-
-    if let Some(raw) = run_osascript(safari_info) {
-        if let Some((title, url)) = raw.split_once("|||URL|||") {
-            let url = url.trim().to_string();
-            if !url.is_empty() {
-                let title = title.trim().to_string();
-                // 1st choice: AppleScript JS (requires Safari > Develop > Allow Remote Automation)
-                let safari_text = r#"tell application "Safari"
+    let raw = run_osascript(safari_info)?;
+    let (title, url) = raw.split_once("|||URL|||")?;
+    let url = url.trim().to_string();
+    if url.is_empty() { return None; }
+    let title = title.trim().to_string();
+    let safari_text = r#"tell application "Safari"
     set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
 end tell
 return txt"#;
-                let text = run_osascript(safari_text)
-                    .filter(|t| !t.is_empty())
-                    // 2nd choice: curl + HTML strip
-                    .or_else(|| fetch_url_text(&url))
-                    .unwrap_or_default();
-                return serde_json::json!({ "title": title, "url": url, "text": text });
-            }
-        }
-    }
+    let text = run_osascript(safari_text)
+        .filter(|t| !t.is_empty())
+        .or_else(|| fetch_url_text(&url))
+        .unwrap_or_default();
+    Some(serde_json::json!({ "title": title, "url": url, "text": text, "browser": "safari" }))
+}
 
-    serde_json::json!({ "title": "", "url": "", "text": "", "error": "no supported browser found" })
+/// Detects the active browser tab. `preferred` can be "chrome", "safari", or "auto"/None.
+/// Called before the spotlight window is shown so the browser still has OS focus.
+fn detect_active_tab_preferred(preferred: Option<&str>) -> serde_json::Value {
+    match preferred.unwrap_or("auto") {
+        "chrome" => try_chrome()
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Chrome tab not found" })),
+        "safari" => try_safari()
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Safari tab not found" })),
+        _ => try_chrome()
+            .or_else(try_safari)
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "no supported browser found" })),
+    }
 }
 
 #[tauri::command]
-fn get_active_tab(cache: tauri::State<TabCache>) -> serde_json::Value {
-    // Return pre-fetched value from shortcut handler (captured before focus steal)
+fn get_active_tab(cache: tauri::State<TabCache>, preferred: Option<String>) -> serde_json::Value {
+    // Return pre-fetched value from shortcut handler (captured before focus steal),
+    // but only if it matches the preferred browser (or no preference set)
     if let Some(cached) = cache.0.lock().unwrap().take() {
-        return cached;
+        let cached_browser = cached.get("browser").and_then(|b| b.as_str()).unwrap_or("");
+        let pref = preferred.as_deref().unwrap_or("auto");
+        if pref == "auto" || pref.is_empty() || cached_browser == pref || cached_browser.is_empty() {
+            return cached;
+        }
     }
-    // Fallback: live detection (used by the manual refresh button)
-    detect_active_tab()
+    // Fallback: live detection (manual refresh or preference mismatch)
+    detect_active_tab_preferred(preferred.as_deref())
 }
 
 #[tauri::command]
@@ -1213,6 +1218,10 @@ fn show_spotlight(app: tauri::AppHandle) {
 fn hide_spotlight(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("spotlight") {
         let _ = w.hide();
+    }
+    // Return focus to main window so it doesn't fall behind other apps
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.set_focus();
     }
 }
 
@@ -1258,9 +1267,13 @@ pub fn run() {
                         if let Some(w) = handle.get_webview_window("spotlight") {
                             if w.is_visible().unwrap_or(false) {
                                 let _ = w.hide();
+                                // Return focus to main window when spotlight closes
+                                if let Some(main) = handle.get_webview_window("main") {
+                                    let _ = main.set_focus();
+                                }
                             } else {
                                 // Capture active tab NOW — browser still has focus at this point
-                                let tab = detect_active_tab();
+                                let tab = detect_active_tab_preferred(None);
                                 *handle.state::<TabCache>().0.lock().unwrap() = Some(tab);
                                 let _ = w.show();
                                 let _ = w.set_focus();
@@ -1317,6 +1330,17 @@ pub fn run() {
             show_spotlight,
             hide_spotlight,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error building tauri application")
+        .run(|app_handle, event| {
+            // Dock icon click on macOS — restore main window if nothing visible
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+                if !has_visible_windows {
+                    if let Some(w) = app_handle.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+            }
+        });
 }
