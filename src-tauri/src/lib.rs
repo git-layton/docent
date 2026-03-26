@@ -1107,10 +1107,30 @@ fn run_osascript(script: &str) -> Option<String> {
 }
 
 /// Strips HTML tags and normalises whitespace for LLM consumption.
+/// Removes entire <style>, <script>, <noscript>, and <svg> blocks first so
+/// CSS and JS content is not included in the output text.
 fn strip_html(html: &str) -> String {
+    let mut work = html.to_string();
+    for tag in &["style", "script", "noscript", "svg"] {
+        let open_pat = format!("<{}", tag);
+        let close_pat = format!("</{}>", tag);
+        loop {
+            let lower = work.to_lowercase();
+            match lower.find(&open_pat) {
+                None => break,
+                Some(start) => match lower[start..].find(&close_pat) {
+                    None => { work.replace_range(start.., ""); break; }
+                    Some(rel_end) => {
+                        let end = start + rel_end + close_pat.len();
+                        work.replace_range(start..end, " ");
+                    }
+                }
+            }
+        }
+    }
     let mut out = String::new();
     let mut in_tag = false;
-    for c in html.chars() {
+    for c in work.chars() {
         match c {
             '<' => in_tag = true,
             '>' => { in_tag = false; out.push(' '); }
@@ -1118,7 +1138,6 @@ fn strip_html(html: &str) -> String {
             _ => {}
         }
     }
-    // Decode common entities and collapse whitespace
     let decoded = out
         .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
         .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ");
@@ -1180,7 +1199,7 @@ return t & "|||URL|||" & u"#;
     if url.is_empty() { return None; }
     let title = title.trim().to_string();
     let chrome_text = r#"tell application "Google Chrome"
-    set txt to execute active tab of front window javascript "document.body.innerText.substring(0, 12000)"
+    set txt to execute active tab of front window javascript "(function(){var s=document.querySelector('article')||document.querySelector('[role=\"main\"]')||document.querySelector('main')||document.querySelector('#main-content')||document.body;return s.innerText.substring(0,12000);})()"
 end tell
 return txt"#;
     let text = run_osascript(chrome_text)
@@ -1203,7 +1222,7 @@ return t & "|||URL|||" & u"#;
     if url.is_empty() { return None; }
     let title = title.trim().to_string();
     let safari_js = r#"tell application "Safari"
-    set txt to do JavaScript "document.body.innerText.substring(0, 12000)" in current tab of front window
+    set txt to do JavaScript "(function(){var s=document.querySelector('article')||document.querySelector('[role=\"main\"]')||document.querySelector('main')||document.querySelector('#main-content')||document.body;return s.innerText.substring(0,12000);})()" in current tab of front window
 end tell
 return txt"#;
     let text = run_osascript(safari_js)
