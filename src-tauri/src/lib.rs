@@ -483,6 +483,42 @@ fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
 }
 
 #[tauri::command]
+fn complete_task(
+    title: String,
+    details: String,
+    due_date: String,
+    completed_at: String,
+) -> serde_json::Value {
+    let repo_root = knowledge_core_path();
+    let path = repo_root.join("memory").join("completed_tasks.md");
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let existing = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| "# Completed Tasks\n".to_string());
+    let details_str = if details.is_empty() { "—".to_string() } else { details };
+    let entry = format!(
+        "\n## ✅ {}\n- **Completed**: {}\n- **Due**: {}\n- **Details**: {}\n",
+        title, completed_at, due_date, details_str
+    );
+    let new_content = format!("{}{}", existing, entry);
+
+    if let Err(e) = std::fs::write(&path, &new_content) {
+        return serde_json::json!({ "ok": false, "error": e.to_string() });
+    }
+
+    let rel_path = path.strip_prefix(&repo_root).unwrap_or(&path);
+    let _ = run_git(&["add", &rel_path.to_string_lossy()], &repo_root);
+    let short = &title[..title.len().min(50)];
+    let msg = format!("complete: {}", short);
+    let _ = run_git(&["commit", "-m", &msg], &repo_root);
+
+    serde_json::json!({ "ok": true })
+}
+
+#[tauri::command]
 fn revert_memory_commit(commit_hash: String) -> serde_json::Value {
     let repo_root = knowledge_core_path();
     let result = run_git(&["revert", "--no-edit", &commit_hash], &repo_root);
@@ -1313,6 +1349,7 @@ pub fn run() {
             init_knowledge_core,
             write_memory,
             append_task,
+            complete_task,
             revert_memory_commit,
             search_knowledge,
             get_hardware_profile,

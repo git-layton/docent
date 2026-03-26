@@ -4,8 +4,18 @@ import { db } from '../services/database';
 const generateId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+export interface RecurringEvent {
+  id: string;
+  type: 'birthday' | 'anniversary' | 'custom';
+  name: string;
+  month: number;   // 1–12
+  day: number;     // 1–31
+  year?: number;   // optional birth/event year
+}
+
 interface TaskStore {
   tasks: any[];
+  recurringEvents: RecurringEvent[];
   showPlanner: boolean;
   plannerView: string;
   currentMonthDate: Date;
@@ -21,6 +31,8 @@ interface TaskStore {
   addTask: (title: string, dueDate?: string | null, details?: string, location?: string) => void;
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
+  addRecurringEvent: (e: Omit<RecurringEvent, 'id'>) => void;
+  deleteRecurringEvent: (id: string) => void;
   setShowPlanner: (v: boolean | ((prev: boolean) => boolean)) => void;
   setPlannerView: (v: string) => void;
   setCurrentMonthDate: (d: Date) => void;
@@ -38,6 +50,7 @@ interface TaskStore {
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
+  recurringEvents: [],
   showPlanner: false,
   plannerView: 'list',
   currentMonthDate: new Date(),
@@ -68,18 +81,55 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           completed: false,
           dueDate: dueDate ?? toLocalISODate(new Date()),
           createdAt: Date.now(),
+          completedAt: undefined,
         },
       ],
     }));
   },
 
-  toggleTask: (id) =>
+  toggleTask: (id) => {
+    const task = get().tasks.find(t => t.id === id);
+    if (!task) return;
+    const nowCompleting = !task.completed;
+    const completedAt = nowCompleting ? Date.now() : undefined;
+
     set(s => ({
-      tasks: s.tasks.map(t => (t.id === id ? { ...t, completed: !t.completed } : t)),
-    })),
+      tasks: s.tasks.map(t =>
+        t.id === id ? { ...t, completed: !t.completed, completedAt } : t
+      ),
+    }));
+
+    // Fire-and-forget: write completion record to ~/AgentForge/memory/completed_tasks.md
+    if (nowCompleting) {
+      const toISO = (ms: number) => new Date(ms).toISOString().split('T')[0];
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('complete_task', {
+          title: task.title,
+          details: task.details || '',
+          dueDate: task.dueDate || '',
+          completedAt: toISO(completedAt as number),
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+
+    get().persist();
+  },
 
   deleteTask: (id) =>
     set(s => ({ tasks: s.tasks.filter(t => t.id !== id) })),
+
+  addRecurringEvent: (e) => {
+    const event: RecurringEvent = { id: generateId('ev'), ...e };
+    set(s => ({ recurringEvents: [...s.recurringEvents, event] }));
+    const { recurringEvents } = get();
+    db.set('recurringEvents', recurringEvents);
+  },
+
+  deleteRecurringEvent: (id) => {
+    set(s => ({ recurringEvents: s.recurringEvents.filter(e => e.id !== id) }));
+    const { recurringEvents } = get();
+    db.set('recurringEvents', recurringEvents);
+  },
 
   setShowPlanner: (v) =>
     set(s => ({ showPlanner: typeof v === 'function' ? v(s.showPlanner) : v })),
@@ -95,7 +145,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   hydrate: async () => {
     const tasks = await db.get('tasks', []);
-    set({ tasks });
+    const recurringEvents = await db.get('recurringEvents', []);
+    set({ tasks, recurringEvents });
   },
 
   persist: async () => {

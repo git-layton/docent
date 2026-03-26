@@ -1,22 +1,69 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ListTodo, LayoutList, CalendarDays, ChevronLeft, ChevronRight,
   GripVertical, Circle, Clock, MapPin, MessageSquare, Trash2,
-  AlignLeft, CheckCircle2, X, ChevronRight as ChevronRightIcon
+  AlignLeft, CheckCircle2, X, ChevronRight as ChevronRightIcon,
+  Cake, Plus
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { useTaskStore } from '../store/useTaskStore';
+import type { RecurringEvent } from '../store/useTaskStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useUIStore } from '../store/useUIStore';
 import { useChatStore } from '../store/useChatStore';
+import { getHolidaysForYear } from '../data/usHolidays';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 const toLocalISODate = (dateObj: Date) => {
   if (!dateObj) return null;
   const offset = dateObj.getTimezoneOffset() * 60000;
   return new Date(dateObj.getTime() - offset).toISOString().split('T')[0];
 };
+
+function formatCompletedAt(ms: number): string {
+  const d = new Date(ms);
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+}
+
+function upcomingEvents(
+  recurringEvents: RecurringEvent[],
+  windowDays = 7
+): { label: string; date: string; emoji: string }[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const result: { label: string; date: string; emoji: string }[] = [];
+
+  for (let i = 0; i < windowDays; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const ds = toLocalISODate(d) as string;
+
+    // Birthdays / anniversaries
+    for (const ev of recurringEvents) {
+      if (ev.month === m && ev.day === day) {
+        const label = ev.type === 'birthday'
+          ? `Wish ${ev.name} a happy birthday!`
+          : ev.type === 'anniversary'
+          ? `Happy anniversary, ${ev.name}!`
+          : ev.name;
+        result.push({ label, date: ds, emoji: ev.type === 'birthday' ? '🎂' : ev.type === 'anniversary' ? '💍' : '🎉' });
+      }
+    }
+
+    // Holidays
+    for (const h of getHolidaysForYear(d.getFullYear())) {
+      if (h.date === ds) {
+        result.push({ label: `Happy ${h.name}!`, date: ds, emoji: h.emoji });
+      }
+    }
+  }
+
+  return result.sort((a, b) => a.date.localeCompare(b.date));
+}
 
 interface PlannerPanelProps {
   onDragStart: (e: React.DragEvent, id: string) => void;
@@ -26,6 +73,7 @@ interface PlannerPanelProps {
 
 export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelProps) {
   const tasks = useTaskStore(s => s.tasks);
+  const recurringEvents = useTaskStore(s => s.recurringEvents);
   const newTaskInput = useTaskStore(s => s.newTaskInput);
   const newTaskDate = useTaskStore(s => s.newTaskDate);
   const newTaskDetails = useTaskStore(s => s.newTaskDetails);
@@ -40,10 +88,21 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
   const { setNewTaskInput, setNewTaskDate, setNewTaskDetails, setNewTaskLocation,
     setShowTaskDetailsForm, setTaskToDiscuss, setDraggedTaskId,
     setPlannerView, setCurrentMonthDate, setShowPlanner } = useTaskStore.getState();
-  const { toggleTask, deleteTask, addTask } = useTaskStore.getState();
+  const { toggleTask, deleteTask, addTask, addRecurringEvent, deleteRecurringEvent } = useTaskStore.getState();
   const { setActiveFolderId } = useAgentStore.getState();
   const { setInput, setViewMode } = useUIStore.getState();
   const { setActiveChatId } = useChatStore.getState();
+
+  // Birthday/event quick-add form state
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [evName, setEvName] = useState('');
+  const [evMonth, setEvMonth] = useState(new Date().getMonth() + 1);
+  const [evDay, setEvDay] = useState(1);
+  const [evYear, setEvYear] = useState('');
+  const [evType, setEvType] = useState<RecurringEvent['type']>('birthday');
+
+  const calendarYear = currentMonthDate.getFullYear();
+  const calendarMonth = currentMonthDate.getMonth() + 1; // 1-12
 
   const calendarDays = useMemo(() => {
     const year = currentMonthDate.getFullYear(), month = currentMonthDate.getMonth();
@@ -52,12 +111,36 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
     return days;
   }, [currentMonthDate]);
 
+  const holidaysThisMonth = useMemo(() =>
+    getHolidaysForYear(calendarYear).filter(h => {
+      const hMonth = parseInt(h.date.split('-')[1]);
+      return hMonth === calendarMonth;
+    }),
+  [calendarYear, calendarMonth]);
+
+  const upcoming = useMemo(() => upcomingEvents(recurringEvents), [recurringEvents]);
+
   const handleManualTaskSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskInput.trim()) return;
     addTask(newTaskInput, newTaskDate || null, newTaskDetails, newTaskLocation);
     setNewTaskInput(''); setNewTaskDate(''); setNewTaskDetails(''); setNewTaskLocation(''); setShowTaskDetailsForm(false);
   };
+
+  const handleAddEvent = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!evName.trim()) return;
+    addRecurringEvent({
+      type: evType,
+      name: evName.trim(),
+      month: evMonth,
+      day: evDay,
+      year: evYear ? parseInt(evYear) : undefined,
+    });
+    setEvName(''); setEvMonth(new Date().getMonth() + 1); setEvDay(1); setEvYear(''); setEvType('birthday');
+    setShowEventForm(false);
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-4 lg:p-8 bg-neutral-50/50 dark:bg-neutral-900/50 no-scrollbar relative">
 
@@ -112,12 +195,18 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
               <div className="grid grid-cols-7 gap-1">
                 {calendarDays.map((dateObj, i) => {
                   if (!dateObj) return <div key={`empty-${i}`} className="min-h-[80px] bg-neutral-50/50 dark:bg-neutral-900/20 rounded-xl" />;
-                  const ds = toLocalISODate(dateObj), isToday = ds === toLocalISODate(new Date()), isSelected = ds === newTaskDate;
+                  const ds = toLocalISODate(dateObj) as string;
+                  const isToday = ds === toLocalISODate(new Date());
+                  const isSelected = ds === newTaskDate;
                   const dayTasks = tasks.filter(t => t.dueDate === ds && !t.completed);
+                  const dayBirthdays = recurringEvents.filter(ev => ev.month === calendarMonth && ev.day === dateObj.getDate());
+                  const dayHolidays = holidaysThisMonth.filter(h => h.date === ds);
                   return (
-                    <div key={ds} onClick={() => setNewTaskDate(ds as string)} className={`min-h-[80px] p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 ${isSelected ? 'border-[#6A829E] bg-[#F0F4F8]' : isToday ? 'border-neutral-300 dark:border-neutral-600' : 'border-neutral-100 dark:border-neutral-800 hover:border-[#899AB5]'}`}>
+                    <div key={ds} onClick={() => setNewTaskDate(ds)} className={`min-h-[80px] p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 ${isSelected ? 'border-[#6A829E] bg-[#F0F4F8] dark:bg-[#1E2B38]/30' : isToday ? 'border-neutral-300 dark:border-neutral-600' : 'border-neutral-100 dark:border-neutral-800 hover:border-[#899AB5]'}`}>
                       <span className={`text-xs font-bold ${isToday ? 'text-[#4A5D75]' : 'text-neutral-500'}`}>{dateObj.getDate()}</span>
                       {dayTasks.map(t => <div key={t.id} className="text-[9px] font-bold truncate bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#1E2B38] dark:text-[#C5D3E0] px-1.5 py-0.5 rounded" title={t.title}>{t.title}</div>)}
+                      {dayHolidays.map(h => <div key={h.date + h.name} className="text-[9px] font-bold truncate bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded" title={h.name}>{h.emoji} {h.name}</div>)}
+                      {dayBirthdays.map(ev => <div key={ev.id} className="text-[9px] font-bold truncate bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded" title={ev.name}>🎂 {ev.name.split(' ')[0]}</div>)}
                     </div>
                   );
                 })}
@@ -125,6 +214,26 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
             </div>
           ) : (
             <div className="space-y-3 animate-in fade-in duration-200">
+              {/* ── Upcoming Events ── */}
+              {upcoming.length > 0 && (
+                <div className="space-y-1.5 mb-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-neutral-400 px-1 mb-2">Upcoming Events</h3>
+                  {upcoming.map((ev, idx) => {
+                    const [, mm, dd] = ev.date.split('-');
+                    const dateLabel = `${MONTH_NAMES[parseInt(mm) - 1]} ${parseInt(dd)}`;
+                    const isToday = ev.date === toLocalISODate(new Date());
+                    return (
+                      <div key={idx} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800">
+                        <span className="text-base shrink-0">{ev.emoji}</span>
+                        <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200 flex-1">{ev.label}</span>
+                        <span className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${isToday ? 'text-[#4A5D75]' : 'text-neutral-400'}`}>{isToday ? 'Today' : dateLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── Pending Tasks ── */}
               {tasks.filter(t => !t.completed).length === 0 ? (
                 <div className="text-center py-6 text-neutral-400 text-sm font-bold">No pending tasks — you're clear!</div>
               ) : tasks.filter(t => !t.completed).map(task => (
@@ -156,7 +265,8 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
             </div>
           )}
 
-          <div className="mt-auto pt-6 border-t border-neutral-100 dark:border-neutral-800">
+          {/* ── Add Task Form ── */}
+          <div className="mt-auto pt-6 border-t border-neutral-100 dark:border-neutral-800 space-y-3">
             <form onSubmit={handleManualTaskSubmit} className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <input type="text" value={newTaskInput} onChange={e => setNewTaskInput(e.target.value)} placeholder="Add new task..." className="flex-1 bg-neutral-100 dark:bg-neutral-900 border-none outline-none px-4 py-3 rounded-xl text-sm font-medium" />
@@ -171,19 +281,111 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                 </div>
               )}
             </form>
+
+            {/* ── Quick-Add Birthday / Event ── */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowEventForm(v => !v)}
+                className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${showEventForm ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'text-neutral-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+              >
+                <Cake className="w-3.5 h-3.5" />
+                {showEventForm ? 'Cancel' : '+ Birthday / Event'}
+              </button>
+
+              {showEventForm && (
+                <form onSubmit={handleAddEvent} className="mt-3 p-4 bg-neutral-50 dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 space-y-3 animate-in slide-in-from-top-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={evName}
+                      onChange={e => setEvName(e.target.value)}
+                      placeholder="Full name..."
+                      required
+                      className="flex-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none px-3 py-2 rounded-xl text-sm font-medium"
+                    />
+                    <select
+                      value={evType}
+                      onChange={e => setEvType(e.target.value as RecurringEvent['type'])}
+                      className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none px-3 py-2 rounded-xl text-xs font-bold text-neutral-600 dark:text-neutral-300"
+                    >
+                      <option value="birthday">🎂 Birthday</option>
+                      <option value="anniversary">💍 Anniversary</option>
+                      <option value="custom">🎉 Custom</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      value={evMonth}
+                      onChange={e => setEvMonth(parseInt(e.target.value))}
+                      className="flex-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none px-3 py-2 rounded-xl text-xs font-bold text-neutral-600 dark:text-neutral-300"
+                    >
+                      {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                    </select>
+                    <input
+                      type="number"
+                      min={1} max={31}
+                      value={evDay}
+                      onChange={e => setEvDay(parseInt(e.target.value))}
+                      placeholder="Day"
+                      className="w-20 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none px-3 py-2 rounded-xl text-xs font-bold text-neutral-600 dark:text-neutral-300"
+                    />
+                    <input
+                      type="number"
+                      min={1900} max={2099}
+                      value={evYear}
+                      onChange={e => setEvYear(e.target.value)}
+                      placeholder="Year (optional)"
+                      className="w-32 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none px-3 py-2 rounded-xl text-xs font-bold text-neutral-600 dark:text-neutral-300"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={!evName.trim()}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Save Event
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         </div>
 
+        {/* ── Completed Tasks ── */}
         {tasks.filter(t => t.completed).length > 0 && (
           <div className="opacity-60 hover:opacity-100 transition-all">
             <h3 className="text-xs font-black uppercase tracking-widest mb-4 px-2 text-neutral-500 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Completed</h3>
             {tasks.filter(t => t.completed).map(task => (
-              <div key={task.id} className="flex items-center justify-between p-2 px-4 bg-neutral-100 dark:bg-neutral-800/30 rounded-lg mb-2">
-                <div className="flex items-center gap-3"><button onClick={() => toggleTask(task.id)} className="text-[#9FBBAF]"><CheckCircle2 className="w-4 h-4" /></button><span className="text-sm font-medium line-through text-neutral-500">{task.title}</span></div>
+              <div key={task.id} className="flex items-center justify-between p-2 px-4 bg-neutral-100 dark:bg-neutral-800/30 rounded-lg mb-2 group">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => toggleTask(task.id)} className="text-[#9FBBAF]"><CheckCircle2 className="w-4 h-4" /></button>
+                  <span className="text-sm font-medium line-through text-neutral-500">{task.title}</span>
+                  {task.completedAt && (
+                    <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-wide">Done {formatCompletedAt(task.completedAt)}</span>
+                  )}
+                </div>
                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all">
                   <button onClick={() => { setInput(`I need help with this completed task: ${task.title}${task.details ? `\nDetails: ${task.details}` : ''}`); setShowPlanner(false); setViewMode('chat'); }} className="p-2 text-neutral-400 hover:text-[#4A5D75] transition-all" title="Get Help"><MessageSquare className="w-3.5 h-3.5" /></button>
                   <button onClick={() => deleteTask(task.id)} className="p-2 text-neutral-400 hover:text-[#C98A8A]"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Recurring Events Management ── */}
+        {recurringEvents.length > 0 && (
+          <div className="opacity-60 hover:opacity-100 transition-all">
+            <h3 className="text-xs font-black uppercase tracking-widest mb-4 px-2 text-neutral-500 flex items-center gap-2"><Cake className="w-4 h-4" /> Birthdays & Events</h3>
+            {recurringEvents.map(ev => (
+              <div key={ev.id} className="flex items-center justify-between p-2 px-4 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/20 rounded-lg mb-2 group">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm">{ev.type === 'birthday' ? '🎂' : ev.type === 'anniversary' ? '💍' : '🎉'}</span>
+                  <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{ev.name}</span>
+                  <span className="text-[10px] font-black text-neutral-400 uppercase tracking-wide">{MONTHS[ev.month - 1]} {ev.day}{ev.year ? `, ${ev.year}` : ''}</span>
+                </div>
+                <button onClick={() => deleteRecurringEvent(ev.id)} className="p-2 text-neutral-300 hover:text-[#C98A8A] opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             ))}
           </div>
