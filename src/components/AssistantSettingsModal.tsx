@@ -7,6 +7,7 @@ import { BOT_COLORS, AVAILABLE_TOOLS } from './ui/AgentIcon';
 import { useAgentStore } from '../store/useAgentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
+import { invoke } from '@tauri-apps/api/core';
 
 interface AssistantSettingsModalProps {
   onSave: () => void;
@@ -25,19 +26,8 @@ function AgentMemosSection({ forgePath, agentId, onCompose }: { forgePath: strin
   useEffect(() => {
     if (!forgePath || !agentId) return;
     async function load() {
-      const { readDir } = await import('@tauri-apps/plugin-fs');
-      const files: string[] = [];
-      async function collect(dir: string) {
-        const entries = await readDir(dir).catch(() => []);
-        for (const e of entries as any[]) {
-          if (e.isFile && e.name?.endsWith('.md') && e.name !== 'tasks.md') {
-            files.push(e.name.replace('.md', ''));
-          } else if (e.isDirectory) {
-            await collect(`${dir}/${e.name}`);
-          }
-        }
-      }
-      await collect(`${forgePath}/memory/${agentId}`);
+      const result = await invoke<{ files: Array<{ name: string }> }>('list_agent_memory_files', { agentId }).catch(() => ({ files: [] }));
+      const files = (result.files ?? []).map(f => f.name);
       setMemos(files.sort((a, b) => b.localeCompare(a)));
     }
     load();
@@ -67,13 +57,9 @@ function LibraryFileList({ path }: { path: string }) {
   const [files, setFiles] = useState<string[]>([]);
   useEffect(() => {
     if (!path) return;
-    import('@tauri-apps/plugin-fs').then(({ readDir }) =>
-      readDir(`${path}/library`)
-        .then(entries => setFiles(
-          entries.filter((e: any) => e.isFile && e.name?.endsWith('.md')).map((e: any) => e.name!.replace('.md', ''))
-        ))
-        .catch(() => setFiles([]))
-    );
+    invoke<{ files: Array<{ name: string }> }>('list_library_files')
+      .then(result => setFiles((result.files ?? []).map(f => f.name)))
+      .catch(() => setFiles([]));
   }, [path]);
   if (files.length === 0) return (
     <p className="text-[10px] text-neutral-400 text-center py-4">

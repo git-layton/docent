@@ -48,7 +48,7 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 When an agent generates code, diagrams, or documents, it appears in the Canvas panel (toggle with the split-screen icon). Save canvas content to your Library.
 
 ### 🌙 Dream Cycle
-Every 24 hours, Agent Forge runs a background analysis of your recent conversations to extract key insights, decisions, and knowledge into your memory files. This keeps your agents up-to-date without manual effort.
+Dream Cycle is an experimental, manual memory cleanup tool. Run it from Agent Settings when you want Agent Forge to suggest merges, updates, and archive actions for an agent's notes.
 
 ### 🔍 Knowledge Search
 Your agent automatically searches your Knowledge Core when relevant. You can force a knowledge search for any message with ⌘⇧K.

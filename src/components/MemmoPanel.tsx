@@ -71,21 +71,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
   async function loadMemos() {
     setLoadingFiles(true);
     try {
-      const { readDir } = await import('@tauri-apps/plugin-fs');
-      const files: FileEntry[] = [];
-
-      async function collect(dirPath: string) {
-        const entries = await readDir(dirPath);
-        for (const e of entries) {
-          if (e.isFile && e.name?.endsWith('.md') && e.name !== 'tasks.md') {
-            files.push({ name: e.name.replace('.md', ''), path: `${dirPath}/${e.name}` });
-          } else if (e.isDirectory && e.name !== '.archive') {
-            await collect(`${dirPath}/${e.name}`);
-          }
-        }
-      }
-
-      await collect(`${agentForgePath}/memory/${agentId}`);
+      const result = await invoke<{ files: FileEntry[]; error?: string }>('list_agent_memory_files', { agentId });
+      if (result.error) throw new Error(result.error);
+      const files = result.files ?? [];
       setMemos(files.sort((a, b) => b.name.localeCompare(a.name)));
     } catch (e: any) {
       const msg: string = e?.message ?? String(e);
@@ -100,11 +88,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
   async function loadLibrary() {
     setLoadingFiles(true);
     try {
-      const { readDir } = await import('@tauri-apps/plugin-fs');
-      const entries = await readDir(`${agentForgePath}/library`);
-      const files: FileEntry[] = entries
-        .filter(e => e.isFile && e.name?.endsWith('.md'))
-        .map(e => ({ name: e.name!.replace('.md', ''), path: `${agentForgePath}/library/${e.name}` }));
+      const result = await invoke<{ files: FileEntry[]; error?: string }>('list_library_files');
+      if (result.error) throw new Error(result.error);
+      const files = result.files ?? [];
       setLibrary(files.sort((a, b) => b.name.localeCompare(a.name)));
     } catch (e: any) {
       const msg: string = e?.message ?? String(e);
@@ -133,8 +119,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
     setExpandedFile(path);
     if (fileContent[path]) return;
     try {
-      const { readTextFile } = await import('@tauri-apps/plugin-fs');
-      const raw = await readTextFile(path);
+      const result = await invoke<{ ok: boolean; content: string; error?: string }>('read_knowledge_file', { path });
+      if (!result.ok) throw new Error(result.error ?? 'Could not read file');
+      const raw = result.content;
       // Strip YAML frontmatter for display
       const stripped = raw.replace(/^---[\s\S]*?---\n?/, '').trim();
       setFileContent(prev => ({ ...prev, [path]: stripped }));

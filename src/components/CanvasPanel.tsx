@@ -104,7 +104,7 @@ export function CanvasPanel({
           ) : isGenerating && !canvasContent.content ? (
             <div className="flex-1 flex flex-col items-center justify-center space-y-4 opacity-40"><RefreshCw className="w-12 h-12 animate-spin text-[#6A829E]" /><span className="text-xs font-black uppercase tracking-widest">Building App...</span></div>
           ) : (
-            <iframe title="Preview" className="flex-1 w-full border-none bg-white" srcDoc={canvasContent.content} sandbox="allow-scripts allow-same-origin allow-forms allow-modals" />
+            <iframe title="Preview" className="flex-1 w-full border-none bg-white" srcDoc={canvasContent.content} sandbox="allow-scripts allow-forms allow-modals" />
           )}
         </div>
       </div>

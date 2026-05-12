@@ -142,7 +142,7 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   }
 
   if (isDeepThinking) {
-    prompt += `\n[DEEP THINKING MODE]\nYou must think step-by-step before answering. Enclose your exhaustive internal thought process strictly within <think> and </think> tags at the very beginning of your response.`;
+    prompt += `\n[DEEP THINKING MODE]\nBefore answering, work through the problem carefully. If useful, begin with a concise reasoning summary inside <think> and </think> tags, then provide the final answer. Do not expose private chain-of-thought or hidden deliberation.`;
   }
 
   prompt += `\n[TASK GENERATION]\nONLY if the user explicitly asks to set a reminder or create a task, output a \`\`\`task codeblock with JSON: {"title": "...", "dueDate": "YYYY-MM-DD", "location": "...", "details": "..."}.\n`;

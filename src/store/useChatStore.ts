@@ -61,7 +61,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const activeChats = chats.filter(chat => {
       const msgs = messages[chat.id] ?? [];
       const last = msgs[msgs.length - 1];
-      const ts = last?.timestamp ?? last?.createdAt ?? Infinity;
+      const ts = chat.updatedAt ?? last?.timestamp ?? last?.createdAt ?? Infinity;
       return typeof ts === 'number' ? ts > cutoff : true;
     });
     const prunedMessages: Record<string, any[]> = {};

@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 use notify::Watcher;
+use std::path::{Component, Path, PathBuf};
 use sysinfo::System;
 use tauri::Manager;
 
@@ -18,6 +19,51 @@ struct TabCache(Mutex<Option<serde_json::Value>>);
 fn knowledge_core_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     std::path::PathBuf::from(home).join("AgentForge")
+}
+
+fn normalize_path_lexically(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(std::path::MAIN_SEPARATOR.to_string()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    normalized
+}
+
+fn knowledge_root() -> PathBuf {
+    normalize_path_lexically(knowledge_core_path())
+}
+
+fn knowledge_path_from_input(input: &str) -> Result<PathBuf, String> {
+    let root = knowledge_root();
+    let raw = PathBuf::from(input);
+    let joined = if raw.is_absolute() { raw } else { root.join(raw) };
+    let normalized = normalize_path_lexically(joined);
+    if !normalized.starts_with(&root) {
+        return Err("Path is outside the Knowledge Core".to_string());
+    }
+    Ok(normalized)
+}
+
+fn git_rel_path(path: &Path, root: &Path) -> Result<String, String> {
+    path.strip_prefix(root)
+        .map_err(|_| "Path is outside the Knowledge Core".to_string())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+fn is_safe_agent_id(agent_id: &str) -> bool {
+    !agent_id.is_empty()
+        && !agent_id.contains('/')
+        && !agent_id.contains('\\')
+        && agent_id != "."
+        && agent_id != ".."
 }
 
 fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
@@ -166,10 +212,7 @@ fn sigstop_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
             .output();
         serde_json::json!({ "ok": true, "method": "pid", "pid": pid })
     } else {
-        let _ = std::process::Command::new("pkill")
-            .args(["-STOP", "llama-server"])
-            .output();
-        serde_json::json!({ "ok": true, "method": "pkill" })
+        serde_json::json!({ "ok": false, "error": "No Agent Forge llama-server process is registered" })
     }
 }
 
@@ -182,10 +225,7 @@ fn sigcont_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
             .output();
         serde_json::json!({ "ok": true, "method": "pid", "pid": pid })
     } else {
-        let _ = std::process::Command::new("pkill")
-            .args(["-CONT", "llama-server"])
-            .output();
-        serde_json::json!({ "ok": true, "method": "pkill" })
+        serde_json::json!({ "ok": false, "error": "No Agent Forge llama-server process is registered" })
     }
 }
 
@@ -193,21 +233,27 @@ fn sigcont_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
 
 #[tauri::command]
 fn safe_write_file(path: String, content: String) -> serde_json::Value {
-    let file_path = std::path::Path::new(&path);
-    let repo_root = knowledge_core_path();
-
-    let existing_lines = if file_path.exists() {
-        std::fs::read_to_string(file_path)
-            .map(|s| s.lines().count() as u32)
-            .unwrap_or(0)
-    } else {
-        0
+    let repo_root = knowledge_root();
+    let file_path = match knowledge_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "blocked": true, "error": e }),
     };
+
+    let existed_before = file_path.exists();
+    let previous_content = if existed_before {
+        std::fs::read_to_string(&file_path).ok()
+    } else {
+        None
+    };
+    let existing_lines = previous_content
+        .as_deref()
+            .map(|s| s.lines().count() as u32)
+        .unwrap_or(0);
 
     if let Some(parent) = file_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Err(e) = std::fs::write(file_path, &content) {
+    if let Err(e) = std::fs::write(&file_path, &content) {
         return serde_json::json!({ "blocked": false, "error": e.to_string() });
     }
 
@@ -217,18 +263,39 @@ fn safe_write_file(path: String, content: String) -> serde_json::Value {
     let threshold = (existing_lines as f32 * 0.4).max(5.0) as u32;
     let blocked = deletions > threshold || (existing_lines > 0 && deletions >= existing_lines);
 
+    if blocked {
+        if existed_before {
+            if let Some(previous) = previous_content {
+                let _ = std::fs::write(&file_path, previous);
+            } else if let Ok(rel) = git_rel_path(&file_path, &repo_root) {
+                let _ = run_git(&["checkout", "HEAD", "--", &rel], &repo_root);
+            }
+        } else {
+            let _ = std::fs::remove_file(&file_path);
+        }
+    }
+
     serde_json::json!({
         "blocked": blocked,
         "deletions": deletions,
         "existing_lines": existing_lines,
-        "diff_stat": diff_stat.trim()
+        "diff_stat": diff_stat.trim(),
+        "path": file_path.to_string_lossy()
     })
 }
 
 #[tauri::command]
 fn rollback_file(path: String) -> serde_json::Value {
-    let repo_root = knowledge_core_path();
-    let result = run_git(&["checkout", "HEAD", "--", &path], &repo_root);
+    let repo_root = knowledge_root();
+    let file_path = match knowledge_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    let rel = match git_rel_path(&file_path, &repo_root) {
+        Ok(r) => r,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    let result = run_git(&["checkout", "HEAD", "--", &rel], &repo_root);
     serde_json::json!({ "ok": result.is_ok(), "output": result.unwrap_or_default() })
 }
 
@@ -236,7 +303,7 @@ fn rollback_file(path: String) -> serde_json::Value {
 
 #[tauri::command]
 fn init_knowledge_core() -> serde_json::Value {
-    let root = knowledge_core_path();
+    let root = knowledge_root();
 
     // Always ensure subdirectory structure exists (idempotent)
     for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "library"] {
@@ -279,13 +346,37 @@ fn write_memory(
     context_tokens: Option<u32>,
     ram_state: Option<String>,
 ) -> serde_json::Value {
-    let repo_root = knowledge_core_path();
+    let repo_root = knowledge_root();
+    let file_path = match knowledge_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => {
+            return serde_json::json!({
+                "blocked": true,
+                "error": e,
+                "conflict": false,
+                "commit": null,
+                "prune_suggested": false
+            });
+        }
+    };
+    let rel_path = match git_rel_path(&file_path, &repo_root) {
+        Ok(r) => r,
+        Err(e) => {
+            return serde_json::json!({
+                "blocked": true,
+                "error": e,
+                "conflict": false,
+                "commit": null,
+                "prune_suggested": false
+            });
+        }
+    };
 
     let stash_out = run_git(&["stash", "--include-untracked"], &repo_root)
         .unwrap_or_default();
     let stashed = !stash_out.contains("No local changes");
 
-    let write_result = safe_write_file(path.clone(), content.clone());
+    let write_result = safe_write_file(file_path.to_string_lossy().to_string(), content.clone());
     if write_result["blocked"].as_bool().unwrap_or(false) {
         if stashed {
             let _ = run_git(&["stash", "pop"], &repo_root);
@@ -295,6 +386,7 @@ fn write_memory(
             "deletions": write_result["deletions"],
             "existing_lines": write_result["existing_lines"],
             "diff_stat": write_result["diff_stat"],
+            "error": write_result["error"],
             "conflict": false,
             "commit": null,
             "prune_suggested": false
@@ -311,7 +403,7 @@ fn write_memory(
         ram_state.as_deref().unwrap_or("unknown")
     );
 
-    let _ = run_git(&["add", &path], &repo_root);
+    let _ = run_git(&["add", &rel_path], &repo_root);
     let commit_out = run_git(&["commit", "-m", &full_message], &repo_root)
         .unwrap_or_default();
     let commit_hash = commit_out
@@ -327,7 +419,7 @@ fn write_memory(
         }
     }
 
-    let prune_suggested = path.ends_with("index.md") && content.lines().count() > 200;
+    let prune_suggested = rel_path.ends_with("index.md") && content.lines().count() > 200;
 
     serde_json::json!({
         "blocked": false,
@@ -390,7 +482,7 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
 
 #[tauri::command]
 fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
-    let root = knowledge_core_path();
+    let root = knowledge_root();
     let query_lower = query.to_lowercase();
     let keywords: Vec<&str> = query_lower.split_whitespace().collect();
     let max_results = max_results.unwrap_or(5);
@@ -399,6 +491,9 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
     let mut results: Vec<serde_json::Value> = Vec::new();
 
     let memory_dir = if let Some(ref aid) = agent_id {
+        if !is_safe_agent_id(aid) {
+            return serde_json::json!({ "results": [], "error": "Invalid agent id" });
+        }
         root.join("memory").join(aid)
     } else {
         root.join("memory")
@@ -409,8 +504,9 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
         memory_dir,
     ];
     if let Some(ref ep) = extra_path {
-        let p = std::path::PathBuf::from(ep);
-        if p.exists() { dirs_to_search.push(p); }
+        if let Ok(p) = knowledge_path_from_input(ep) {
+            if p.exists() { dirs_to_search.push(p); }
+        }
     }
 
     for dir in dirs_to_search {
@@ -450,8 +546,11 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
 
 #[tauri::command]
 fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
-    let repo_root = knowledge_core_path();
+    let repo_root = knowledge_root();
     let tasks_path = if let Some(ref aid) = agent_id {
+        if !is_safe_agent_id(aid) {
+            return serde_json::json!({ "commit": null, "error": "Invalid agent id" });
+        }
         repo_root.join("memory").join(aid).join("tasks.md")
     } else {
         repo_root.join("memory").join("tasks.md")
@@ -471,7 +570,7 @@ fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
 
     let rel_path = tasks_path.strip_prefix(&repo_root).unwrap_or(&tasks_path);
     let _ = run_git(&["add", &rel_path.to_string_lossy()], &repo_root);
-    let short = &text[..text.len().min(50)];
+    let short: String = text.chars().take(50).collect();
     let msg = format!("task: {}", short);
     let commit_out = run_git(&["commit", "-m", &msg], &repo_root).unwrap_or_default();
     let commit_hash = commit_out
@@ -489,7 +588,7 @@ fn complete_task(
     due_date: String,
     completed_at: String,
 ) -> serde_json::Value {
-    let repo_root = knowledge_core_path();
+    let repo_root = knowledge_root();
     let path = repo_root.join("memory").join("completed_tasks.md");
 
     if let Some(parent) = path.parent() {
@@ -511,7 +610,7 @@ fn complete_task(
 
     let rel_path = path.strip_prefix(&repo_root).unwrap_or(&path);
     let _ = run_git(&["add", &rel_path.to_string_lossy()], &repo_root);
-    let short = &title[..title.len().min(50)];
+    let short: String = title.chars().take(50).collect();
     let msg = format!("complete: {}", short);
     let _ = run_git(&["commit", "-m", &msg], &repo_root);
 
@@ -520,7 +619,7 @@ fn complete_task(
 
 #[tauri::command]
 fn revert_memory_commit(commit_hash: String) -> serde_json::Value {
-    let repo_root = knowledge_core_path();
+    let repo_root = knowledge_root();
     let result = run_git(&["revert", "--no-edit", &commit_hash], &repo_root);
     serde_json::json!({ "ok": result.is_ok(), "output": result.unwrap_or_default() })
 }
@@ -541,7 +640,7 @@ fn get_or_init_embedder() -> Result<&'static Mutex<fastembed::TextEmbedding>, St
     if let Some(e) = EMBEDDER.get() { return Ok(e); }
     let model = fastembed::TextEmbedding::try_new(
         fastembed::InitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
-            .with_cache_dir(knowledge_core_path().join(".models")),
+            .with_cache_dir(knowledge_root().join(".models")),
     ).map_err(|e| e.to_string())?;
     // Ignore error if another thread already set it
     let _ = EMBEDDER.set(Mutex::new(model));
@@ -580,7 +679,7 @@ fn chunk_text(content: &str) -> Vec<String> {
 }
 
 fn open_index_db() -> Result<rusqlite::Connection, String> {
-    let db_path = knowledge_core_path().join(".index.db");
+    let db_path = knowledge_root().join(".index.db");
     let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS pending_index (
@@ -694,7 +793,7 @@ fn init_file_watcher() {
     });
 
     std::thread::spawn(|| {
-        let watch_path = knowledge_core_path();
+        let watch_path = knowledge_root();
         if !watch_path.exists() {
             WATCHER_RUNNING.store(false, Ordering::SeqCst);
             return;
@@ -757,7 +856,7 @@ fn init_file_watcher() {
     });
 
     // 7-day archive purge thread: hard-deletes files in .archive/ older than 7 days
-    let purge_root = knowledge_core_path();
+    let purge_root = knowledge_root();
     std::thread::spawn(move || {
         let seven_days = std::time::Duration::from_secs(7 * 24 * 60 * 60);
         loop {
@@ -792,7 +891,7 @@ fn init_file_watcher() {
 
 #[tauri::command]
 fn sync_knowledge_core_index() -> serde_json::Value {
-    let root = knowledge_core_path();
+    let root = knowledge_root();
     let conn = match open_index_db() {
         Ok(c) => c,
         Err(e) => return serde_json::json!({ "ok": false, "error": e }),
@@ -824,6 +923,11 @@ fn get_index_status() -> serde_json::Value {
 fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let max_results = max_results.unwrap_or(5);
     let snippet_chars = snippet_chars.unwrap_or(400);
+    if let Some(ref id) = agent_id {
+        if !is_safe_agent_id(id) {
+            return serde_json::json!({ "results": [], "error": "Invalid agent id" });
+        }
+    }
 
     // Fall back to keyword search if model not loaded yet
     let embedder = match get_or_init_embedder() {
@@ -844,7 +948,7 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
         Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
     };
 
-    let root = knowledge_core_path();
+    let root = knowledge_root();
     let memory_prefix = agent_id.as_ref()
         .map(|id| root.join("memory").join(id).to_string_lossy().to_string())
         .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
@@ -908,23 +1012,22 @@ fn extract_title_from_path(path: &str) -> String {
 
 #[tauri::command]
 fn delete_memory_file(path: String) -> serde_json::Value {
-    let file_path = std::path::Path::new(&path);
-    let repo_root = knowledge_core_path();
-
-    // Safety: must be inside ~/AgentForge/
-    if !file_path.starts_with(&repo_root) {
-        return serde_json::json!({ "ok": false, "error": "Path is outside the Knowledge Core" });
-    }
+    let repo_root = knowledge_root();
+    let file_path = match knowledge_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    let file_path_str = file_path.to_string_lossy().to_string();
 
     // Remove from vector index tables (ignore errors — file might not be indexed yet)
     if let Ok(conn) = open_index_db() {
-        let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&path]);
-        let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&path]);
+        let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path_str]);
+        let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&file_path_str]);
     }
 
     // Try git rm + commit to maintain audit trail
-    if let Ok(rel) = file_path.strip_prefix(&repo_root) {
-        let git_ok = run_git(&["rm", "--force", &rel.to_string_lossy()], &repo_root)
+    if let Ok(rel) = git_rel_path(&file_path, &repo_root) {
+        let git_ok = run_git(&["rm", "--force", &rel], &repo_root)
             .and_then(|_| {
                 let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
                 run_git(&["commit", "-m", &format!("chore: delete {name}")], &repo_root)
@@ -949,12 +1052,12 @@ fn delete_memory_file(path: String) -> serde_json::Value {
 
 #[tauri::command]
 fn archive_memory_file(path: String) -> serde_json::Value {
-    let file_path = std::path::Path::new(&path);
-    let repo_root = knowledge_core_path();
-
-    if !file_path.starts_with(&repo_root) {
-        return serde_json::json!({ "ok": false, "error": "Path outside Knowledge Core" });
-    }
+    let repo_root = knowledge_root();
+    let file_path = match knowledge_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    let file_path_str = file_path.to_string_lossy().to_string();
 
     let archive_dir = repo_root.join("memory").join(".archive");
     let _ = std::fs::create_dir_all(&archive_dir);
@@ -968,16 +1071,16 @@ fn archive_memory_file(path: String) -> serde_json::Value {
 
     // Remove from vector index
     if let Ok(conn) = open_index_db() {
-        let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&path]);
-        let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&path]);
+        let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path_str]);
+        let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&file_path_str]);
     }
 
-    if std::fs::rename(file_path, &archive_path).is_err() {
+    if std::fs::rename(&file_path, &archive_path).is_err() {
         // Cross-device fallback
-        if let Err(e) = std::fs::copy(file_path, &archive_path) {
+        if let Err(e) = std::fs::copy(&file_path, &archive_path) {
             return serde_json::json!({ "ok": false, "error": e.to_string() });
         }
-        let _ = std::fs::remove_file(file_path);
+        let _ = std::fs::remove_file(&file_path);
     }
 
     let archive_str = archive_path.to_string_lossy().to_string();
@@ -992,12 +1095,11 @@ fn archive_memory_file(path: String) -> serde_json::Value {
 
 #[tauri::command]
 fn restore_archived_file(archive_path: String, original_path: String) -> serde_json::Value {
-    let src = std::path::Path::new(&archive_path);
-    let repo_root = knowledge_core_path();
-
-    if !src.starts_with(&repo_root) {
-        return serde_json::json!({ "ok": false, "error": "Path outside Knowledge Core" });
-    }
+    let repo_root = knowledge_root();
+    let src = match knowledge_path_from_input(&archive_path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
 
     let dest = if original_path.is_empty() {
         // Fallback: strip timestamp suffix, restore to memos/
@@ -1005,16 +1107,19 @@ fn restore_archived_file(archive_path: String, original_path: String) -> serde_j
         let clean_stem = stem.rsplit_once('-').map(|(s, _)| s).unwrap_or(stem);
         repo_root.join("memory").join("memos").join(format!("{}.md", clean_stem))
     } else {
-        std::path::PathBuf::from(&original_path)
+        match knowledge_path_from_input(&original_path) {
+            Ok(p) => p,
+            Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+        }
     };
 
     let _ = std::fs::create_dir_all(dest.parent().unwrap_or(&repo_root));
 
-    if std::fs::rename(src, &dest).is_err() {
-        if let Err(e) = std::fs::copy(src, &dest) {
+    if std::fs::rename(&src, &dest).is_err() {
+        if let Err(e) = std::fs::copy(&src, &dest) {
             return serde_json::json!({ "ok": false, "error": e.to_string() });
         }
-        let _ = std::fs::remove_file(src);
+        let _ = std::fs::remove_file(&src);
     }
 
     // Re-queue for indexing
@@ -1034,7 +1139,7 @@ fn restore_archived_file(archive_path: String, original_path: String) -> serde_j
 
 #[tauri::command]
 fn read_dream_log() -> serde_json::Value {
-    let log_path = knowledge_core_path()
+    let log_path = knowledge_root()
         .join("workspace").join(".dream_logs").join("latest.json");
     if !log_path.exists() { return serde_json::json!({ "exists": false }); }
     match std::fs::read_to_string(&log_path) {
@@ -1048,7 +1153,7 @@ fn read_dream_log() -> serde_json::Value {
 
 #[tauri::command]
 fn write_dream_log(log: serde_json::Value) -> serde_json::Value {
-    let log_dir = knowledge_core_path().join("workspace").join(".dream_logs");
+    let log_dir = knowledge_root().join("workspace").join(".dream_logs");
     let _ = std::fs::create_dir_all(&log_dir);
     let log_path = log_dir.join("latest.json");
     match std::fs::write(&log_path, serde_json::to_string_pretty(&log).unwrap_or_default()) {
@@ -1059,7 +1164,7 @@ fn write_dream_log(log: serde_json::Value) -> serde_json::Value {
 
 #[tauri::command]
 fn list_archive_files() -> serde_json::Value {
-    let archive_dir = knowledge_core_path().join("memory").join(".archive");
+    let archive_dir = knowledge_root().join("memory").join(".archive");
     if !archive_dir.exists() { return serde_json::json!({ "files": [] }); }
 
     let mut files: Vec<serde_json::Value> = match std::fs::read_dir(&archive_dir) {
@@ -1086,6 +1191,68 @@ fn list_archive_files() -> serde_json::Value {
     });
 
     serde_json::json!({ "files": files })
+}
+
+fn collect_knowledge_files(dir: &Path, files: &mut Vec<serde_json::Value>, skip_tasks: bool) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return; };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') { continue; }
+        if path.is_dir() {
+            if name == ".archive" { continue; }
+            collect_knowledge_files(&path, files, skip_tasks);
+        } else if matches!(path.extension().and_then(|s| s.to_str()), Some("md") | Some("txt")) {
+            if skip_tasks && name == "tasks.md" { continue; }
+            let display_name = path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&name)
+                .to_string();
+            files.push(serde_json::json!({
+                "name": display_name,
+                "path": path.to_string_lossy()
+            }));
+        }
+    }
+}
+
+#[tauri::command]
+fn list_agent_memory_files(agent_id: String) -> serde_json::Value {
+    if !is_safe_agent_id(&agent_id) {
+        return serde_json::json!({ "files": [], "error": "Invalid agent id" });
+    }
+    let dir = knowledge_root().join("memory").join(agent_id);
+    let mut files = Vec::new();
+    collect_knowledge_files(&dir, &mut files, true);
+    files.sort_by(|a, b| {
+        b["name"].as_str().unwrap_or("")
+            .cmp(a["name"].as_str().unwrap_or(""))
+    });
+    serde_json::json!({ "files": files })
+}
+
+#[tauri::command]
+fn list_library_files() -> serde_json::Value {
+    let dir = knowledge_root().join("library");
+    let mut files = Vec::new();
+    collect_knowledge_files(&dir, &mut files, false);
+    files.sort_by(|a, b| {
+        b["name"].as_str().unwrap_or("")
+            .cmp(a["name"].as_str().unwrap_or(""))
+    });
+    serde_json::json!({ "files": files })
+}
+
+#[tauri::command]
+fn read_knowledge_file(path: String) -> serde_json::Value {
+    let file_path = match knowledge_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e, "content": "" }),
+    };
+    match std::fs::read_to_string(&file_path) {
+        Ok(content) => serde_json::json!({ "ok": true, "content": content }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "content": "" }),
+    }
 }
 
 // ─── Legacy ───────────────────────────────────────────────────────────────────
@@ -1395,6 +1562,9 @@ pub fn run() {
             read_dream_log,
             write_dream_log,
             list_archive_files,
+            list_agent_memory_files,
+            list_library_files,
+            read_knowledge_file,
             get_active_tab,
             show_spotlight,
             hide_spotlight,

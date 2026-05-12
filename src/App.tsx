@@ -214,12 +214,8 @@ export default function App() {
         }
       } catch (e) { console.warn('[AgentForge] Dream log check skipped:', e); }
 
-      // 24h Dream Cycle auto-timer
-      dreamTimerRef.current = setInterval(() => {
-        if (activeAssistantRef.current && selectedModelRef.current) {
-          runDreamCycle(activeAssistantRef.current, selectedModelRef.current);
-        }
-      }, 24 * 60 * 60 * 1000);
+      // Dream Cycle remains manual for the release build so the user can review
+      // memory consolidation changes before trusting the automation.
 
       // Hardware profile — scale thresholds to total installed RAM
       invoke<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number }>('get_hardware_profile')
@@ -737,11 +733,15 @@ export default function App() {
       const firstLine = msg.content.replace(/^#+\s*/m, '').split(/[.!?\n]/)[0].trim().slice(0, 60) || 'Saved Note';
       const slug = firstLine.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) + '_' + Date.now();
       try {
-        const { writeTextFile, mkdir } = await import('@tauri-apps/plugin-fs');
-        const libDir = `${_afp}/library`;
-        try { await mkdir(libDir, { recursive: true }); } catch {}
         const fileContent = `# ${firstLine}\n\nSaved from chat · ${new Date().toLocaleDateString()}\n\n---\n\n${msg.content}`;
-        await writeTextFile(`${libDir}/${slug}.md`, fileContent);
+        await invoke('write_memory', {
+          path: `${_afp}/library/${slug}.md`,
+          content: fileContent,
+          commitMessage: `library: ${firstLine}`,
+          agentId: activeAssistant?.id ?? null,
+          contextTokens: null,
+          ramState: null,
+        });
       } catch (e) {
         console.warn('[Bookmark] Could not write library file:', e);
       }
@@ -870,25 +870,15 @@ export default function App() {
 
     try {
       // Read all memory files for the active agent
-      const { readDir, readTextFile } = await import('@tauri-apps/plugin-fs');
-      const agentMemoryPath = `${_agentForgePath}/memory/${activeAgent.id}`;
       const memoryFiles: { path: string; name: string; content: string }[] = [];
 
-      async function collectFiles(dir: string): Promise<void> {
-        try {
-          const entries = await readDir(dir);
-          for (const e of entries) {
-            if (e.isFile && (e.name?.endsWith('.md') || e.name?.endsWith('.txt'))) {
-              const fullPath = `${dir}/${e.name}`;
-              const content = await readTextFile(fullPath).catch(() => '');
-              if (content.trim()) memoryFiles.push({ path: fullPath, name: e.name!, content });
-            } else if (e.isDirectory && e.name !== '.archive') {
-              await collectFiles(`${dir}/${e.name}`);
-            }
-          }
-        } catch { /* directory might not exist */ }
+      const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', {
+        agentId: activeAgent.id,
+      });
+      for (const file of listed.files ?? []) {
+        const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: file.path }).catch(() => ({ ok: false, content: '' }));
+        if (read.ok && read.content.trim()) memoryFiles.push({ path: file.path, name: file.name, content: read.content });
       }
-      await collectFiles(agentMemoryPath);
 
       if (memoryFiles.length < 2) {
         useUIStore.getState().showToast('🌙 Dream Cycle: Not enough files to consolidate yet.');
@@ -940,9 +930,10 @@ export default function App() {
             // Validate all source paths exist
             const validSources = op.source_paths.filter((p: string) => knownPaths.has(p));
             if (validSources.length < 2) continue;
+            if (op.target_path.startsWith('/') || op.target_path.includes('..') || !op.target_path.startsWith(`memory/${activeAgent.id}/`)) continue;
 
             // Write merged content
-            const targetFullPath = op.target_path.startsWith('/') ? op.target_path : `${_agentForgePath}/${op.target_path}`;
+            const targetFullPath = `${_agentForgePath}/${op.target_path}`;
             const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
               path: targetFullPath,
               content: op.merged_content,
@@ -952,6 +943,7 @@ export default function App() {
               ram_state: null,
             });
             const gitCommits: string[] = [];
+            if (writeResult.blocked) continue;
             if (writeResult.commit) gitCommits.push(writeResult.commit);
 
             // Archive source files
@@ -995,6 +987,7 @@ export default function App() {
               context_tokens: null,
               ram_state: null,
             });
+            if (writeResult.blocked) continue;
             dreamItems.push({ id, type: 'updated', description: op.description, archive_paths: [], original_paths: [], target_file: op.target_path, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
           }
         } catch (opErr) {
@@ -1121,7 +1114,7 @@ export default function App() {
 
       if (toolUsed) {
         const toolMsgId = generateId('tool');
-        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false }] }));
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false, timestamp: Date.now() }] }));
 
         if (toolUsed === 'Knowledge Search') {
              try {
@@ -1239,7 +1232,7 @@ export default function App() {
       }
       
       const botId = generateId('msg');
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true }] }));
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
 
       let currentText = '';
       let lastCanvasSync = Date.now();
@@ -1312,7 +1305,7 @@ export default function App() {
 
     } catch (err: any) {
       if (err.name === 'AbortError') { setIsGenerating(false); return; }
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`, isPinned: false }] }));
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`, isPinned: false, timestamp: Date.now() }] }));
     } finally {
       setIsGenerating(false);
     }
@@ -1357,9 +1350,10 @@ export default function App() {
       useChatStore.getState().setChats((prev: any[]) => [{ id: chatId, folderId: _activeFolderId, name: _input.slice(0, 30) || 'New Session', updatedAt: Date.now() }, ...prev]);
       useChatStore.getState().setActiveChatId(chatId);
     }
-    const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false };
+    const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
     if(chatId) {
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), userMsg] }));
+        useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, updatedAt: Date.now() } : c));
 
         if (isNewChat && _input.trim() && !_selectedModel.modelId.includes('dall-e') && !_selectedModel.modelId.includes('image')) {
           generateTextResponse({ messages: [{ role: 'user', content: `Generate a very short, 2 to 4 word title for a conversation starting with this prompt: "${_input.slice(0, 100)}". Return ONLY the title, no quotes, no extra text.` }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent: { tools: {} }, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models })
@@ -1389,7 +1383,7 @@ export default function App() {
 
      const targetMsg = chatMsgs[msgIdx];
      const historyToKeep = chatMsgs.slice(0, msgIdx);
-     const newMsg = { ...targetMsg, id: generateId('msg'), content: _emc };
+     const newMsg = { ...targetMsg, id: generateId('msg'), content: _emc, timestamp: Date.now() };
 
      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({...prev, [_activeChatId]: [...historyToKeep, newMsg]}));
      useChatStore.getState().setEditingMessageId(null);
@@ -1482,9 +1476,14 @@ export default function App() {
                 if (!_afp) { showToast('Knowledge Core not ready.'); return; }
                 const slug = saveTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) + '_' + Date.now();
                 try {
-                  const { writeTextFile, mkdir } = await import('@tauri-apps/plugin-fs');
-                  try { await mkdir(`${_afp}/library`, { recursive: true }); } catch {}
-                  await writeTextFile(`${_afp}/library/${slug}.md`, `# ${saveTitle}\n\nSaved by Agent · ${new Date().toLocaleDateString()}\n\n---\n\n${saveContent}`);
+                  await invoke('write_memory', {
+                    path: `${_afp}/library/${slug}.md`,
+                    content: `# ${saveTitle}\n\nSaved by Agent · ${new Date().toLocaleDateString()}\n\n---\n\n${saveContent}`,
+                    commitMessage: `library: ${saveTitle}`,
+                    agentId: activeAssistant?.id ?? null,
+                    contextTokens: null,
+                    ramState: null,
+                  });
                   showToast('🔖 Saved to Library');
                 } catch (e: any) { showToast(`Save failed: ${e?.message ?? e}`); }
               }} className="mt-1 py-2 rounded-lg text-xs font-bold bg-[#D4AA7D] hover:bg-[#c09060] text-white active:scale-95 transition-all">

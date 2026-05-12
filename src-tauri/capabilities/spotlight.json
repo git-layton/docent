@@ -11,8 +11,6 @@
     "core:window:allow-hide",
     "core:window:allow-set-focus",
     "store:default",
-    "fs:allow-home-read-recursive",
-    "fs:allow-home-write-recursive",
     "http:default",
     {
       "identifier": "http:allow-fetch",

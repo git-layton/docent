@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    my_local_ai_lib::run()
+    agent_forge_lib::run()
 }
