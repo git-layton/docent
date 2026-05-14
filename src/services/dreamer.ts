@@ -10,7 +10,7 @@ export interface DreamerPlan {
   operations: DreamerOp[];
 }
 
-export function buildDreamerSystemPrompt(): string {
+export function buildDreamerSystemPrompt(memoryPrefix = 'memory/<agent-id>/'): string {
   return `You are the Dreamer — a memory consolidation agent for Agent Forge.
 Your job is to analyze a set of memory files and identify opportunities to:
 1. MERGE: Combine multiple related files about the same topic into a single coherent document
@@ -26,7 +26,7 @@ Required schema:
       "type": "merge",
       "description": "Plain English: what was merged and why",
       "source_paths": ["<exact full path from file list>", "..."],
-      "target_path": "<relative path like memory/<agent-id>/memos/<slug>.md>",
+      "target_path": "<relative path like ${memoryPrefix}memos/<slug>.md>",
       "merged_content": "<full markdown content of the merged file>"
     },
     {
@@ -47,7 +47,7 @@ Rules:
 - Only merge files that clearly share the same specific topic
 - Never merge files from different categories (goals vs research vs memos)
 - Descriptions must be plain English, not technical ("Combined 3 voice memos about Project Bakery" not "merged files")
-- For merge target_path, use a relative path within the agent's memory directory — do NOT use an absolute path
+- For merge target_path, use a relative path inside ${memoryPrefix} — do NOT use an absolute path
 - Never include a source file's path as the target_path of its own merge
 - Return { "operations": [] } if no consolidation is needed
 - Do NOT output any text outside the JSON object`;

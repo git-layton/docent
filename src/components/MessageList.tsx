@@ -10,6 +10,7 @@ import { useMemoryStore } from '../store/useMemoryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
+import { useAgentStore } from '../store/useAgentStore';
 
 interface MessageListProps {
   activeMessages: any[];
@@ -41,6 +42,7 @@ export function MessageList({
   const activeChatId = useChatStore(s => s.activeChatId);
   const speakingId = useChatStore(s => s.speakingId);
   const { setEditingMessageId, setEditingMessageContent } = useChatStore.getState();
+  const assistants = useAgentStore(s => s.assistants);
 
   const globalPins = useMemoryStore(s => s.globalPins);
 
@@ -129,7 +131,7 @@ export function MessageList({
           <div className="max-w-3xl mx-auto space-y-6 pb-64">
             {activeMessages.map(msg => (
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'bot' && <div className="shrink-0 mr-3 mt-1 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
+                {msg.role === 'bot' && <div className="shrink-0 mr-3 mt-1 hidden sm:block"><AgentIcon agent={assistants.find((a: any) => a.id === msg.agentId) ?? activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
 
                 <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
                    <div className={`p-4 rounded-2xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
@@ -143,7 +145,12 @@ export function MessageList({
                            </div>
                         </div>
                      ) : (
-                        <div className="leading-relaxed">{onRenderMessage(msg)}</div>
+                        <div className="leading-relaxed">
+                          {msg.role === 'bot' && msg.agentName && msg.agentName !== activeAssistant?.name && (
+                            <div className="mb-2 text-[9px] font-black uppercase tracking-widest text-neutral-400">{msg.agentName}</div>
+                          )}
+                          {onRenderMessage(msg)}
+                        </div>
                      )}
                    </div>
 

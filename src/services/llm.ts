@@ -122,11 +122,15 @@ export const validateModel = async (model: any) => {
   }
 };
 
-export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings }: any) => {
+export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, channelContext }: any) => {
   let prompt = (agent.prompt ?? '') + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}\n`;
 
   const activeTools = Object.keys(agent.tools ?? {}).filter(k => agent.tools[k]);
   if (activeTools.length > 0) prompt += `[ACTIVE TOOLS]\n${activeTools.join(', ')}\n\n`;
+
+  if (channelContext?.kind === 'channel') {
+    prompt += `[CHANNEL]\nName: ${channelContext.title}\nGoal: ${channelContext.goal || 'Not set'}\nInvited agents: ${(channelContext.participants ?? []).map((p: any) => `${p.name}${p.description ? ` (${p.description})` : ''}`).join(', ')}\nUse invited agent contributions when provided, but return one clear final answer.\n\n`;
+  }
 
   if (canvasContent?.content) {
     prompt += `[OPEN ARTIFACT: ${canvasContent.title}]\n\`\`\`\n${canvasContent.content}\n\`\`\`\nIf asked to modify it, output the ENTIRE updated artifact in a SINGLE codeblock.\n\n`;
@@ -162,12 +166,12 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   if (agent.trainingDocs?.length > 0) prompt += `\n\n${agent.trainingDocs.map((d: any) => `[KNOWLEDGE BASE: ${d.name}]\n${d.content}`).join('\n\n')}`;
   prompt += `\n[LIBRARY SAVE]\nTo save content to the user's Library, output a \`\`\`save codeblock with JSON: {"title": "...", "content": "..."}. Use this when the user asks you to "save this", "take a note", "add to my library", or when you generate a highly valuable artifact (code, plan, document) that the user says is important or will need later. If the user says something like "this is exactly what I needed" about a long response, naturally suggest they bookmark it using the 🔖 icon.\n`;
   prompt += `\n[CALENDAR EVENTS]\nWhen the user mentions a birthday, anniversary, or any recurring annual event, output a \`\`\`event codeblock with JSON: {"type": "birthday"|"anniversary"|"custom", "name": "Full Name", "month": <1-12>, "day": <1-31>, "year": <optional birth year>}. When the user mentions a one-time appointment, deadline, or dated event, output a \`\`\`event codeblock with JSON: {"type": "date", "title": "...", "dueDate": "YYYY-MM-DD", "details": "<optional>"}. Always output the block immediately without asking for confirmation first.\n`;
-  prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\nNever fabricate a citation. If the answer is not in the provided context, say so explicitly.`;
+  prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search/research results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\nNever fabricate a citation. If a current/factual web answer cannot be verified from provided sources, say it could not be verified instead of guessing.`;
 
   return prompt;
 };
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, channelContext }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -218,7 +222,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
     }
   }
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings });
+  const systemPrompt = buildSystemPrompt({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, channelContext });
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
 

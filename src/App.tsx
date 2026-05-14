@@ -42,6 +42,17 @@ import { ChatInputBar } from './components/ChatInputBar';
 import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
+import { CollapsibleBubble } from './components/ui/CollapsibleBubble';
+import { buildChannelContext, normalizeChatRecord, routeAgentsForChannel } from './services/channels';
+import {
+  buildSourceNotes,
+  dedupeSources,
+  extractSearchQuery,
+  extractUrls,
+  hasResearchIntent,
+  slugify as researchSlugify,
+  type ResearchSource,
+} from './services/research';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -863,18 +874,24 @@ export default function App() {
     const _agentForgePath = useMemoryStore.getState().agentForgePath;
     const activeAgent = agent ?? _activeAssistant;
     const activeModel = model ?? _selectedModel;
+    const _activeChatId = useChatStore.getState().activeChatId;
+    const _activeChat = useChatStore.getState().chats.find((c: any) => c.id === _activeChatId);
+    const _activeChannel = _activeChat ? normalizeChatRecord(_activeChat, activeAgent?.id ?? 'f-default') : null;
+    const dreamScope = _activeChannel?.kind === 'channel'
+      ? { type: 'channel', id: _activeChannel.id, label: _activeChannel.name, prefix: `memory/channels/${_activeChannel.id}/` }
+      : { type: 'agent', id: activeAgent?.id, label: activeAgent?.name, prefix: `memory/${activeAgent?.id}/` };
     if (isDreamRunningRef.current || !_agentForgePath || !activeAgent || !activeModel) return;
     isDreamRunningRef.current = true;
     useMemoryStore.getState().setIsDreamRunning(true);
     useUIStore.getState().showToast('🌙 Dream Cycle starting...');
 
     try {
-      // Read all memory files for the active agent
+      // Read all memory files for the active agent or active channel
       const memoryFiles: { path: string; name: string; content: string }[] = [];
 
-      const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', {
-        agentId: activeAgent.id,
-      });
+      const listed = dreamScope.type === 'channel'
+        ? await invoke<{ files: Array<{ path: string; name: string }> }>('list_channel_memory_files', { channelId: dreamScope.id })
+        : await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', { agentId: activeAgent.id });
       for (const file of listed.files ?? []) {
         const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: file.path }).catch(() => ({ ok: false, content: '' }));
         if (read.ok && read.content.trim()) memoryFiles.push({ path: file.path, name: file.name, content: read.content });
@@ -890,8 +907,8 @@ export default function App() {
       const maxChars = Math.floor(modelLimit * 0.75) * 4;
 
       // Call the Dreamer LLM
-      const systemPrompt = buildDreamerSystemPrompt();
-      const userMessage = buildDreamerUserMessage(memoryFiles, activeAgent.name, maxChars);
+      const systemPrompt = buildDreamerSystemPrompt(dreamScope.prefix);
+      const userMessage = buildDreamerUserMessage(memoryFiles, dreamScope.label || activeAgent.name, maxChars);
 
       const rawResponse = await generateTextResponse({
         messages: [{ id: 'dream-1', role: 'user', content: userMessage }],
@@ -930,7 +947,7 @@ export default function App() {
             // Validate all source paths exist
             const validSources = op.source_paths.filter((p: string) => knownPaths.has(p));
             if (validSources.length < 2) continue;
-            if (op.target_path.startsWith('/') || op.target_path.includes('..') || !op.target_path.startsWith(`memory/${activeAgent.id}/`)) continue;
+            if (op.target_path.startsWith('/') || op.target_path.includes('..') || !op.target_path.startsWith(dreamScope.prefix)) continue;
 
             // Write merged content
             const targetFullPath = `${_agentForgePath}/${op.target_path}`;
@@ -1072,16 +1089,186 @@ export default function App() {
     catch { } finally { setIsEnhancingPrompt(false); }
   };
 
+  const collectResearchSources = useCallback(async (input: string, integrations: any): Promise<ResearchSource[]> => {
+    const query = extractSearchQuery(input);
+    const sources: ResearchSource[] = [];
+    const directUrls = extractUrls(input);
+    const wantsCurrentPage = /\b(this page|current page|browser tab|article|site|url|webpage)\b/i.test(input);
+
+    for (const url of directUrls) {
+      const read = await invoke<{ ok: boolean; text: string; error?: string }>('read_url_text', { url }).catch(() => ({ ok: false, text: '', error: 'URL text unavailable' }));
+      sources.push({
+        title: url,
+        url,
+        snippet: read.ok ? read.text.slice(0, 500) : read.error ?? 'URL text unavailable',
+        text: read.ok ? read.text : '',
+      });
+    }
+
+    if (wantsCurrentPage) {
+      const tab = await invoke<{ title: string; url: string; text: string; error?: string }>('get_active_tab', { preferred: 'auto' }).catch(() => null);
+      if (tab?.url) {
+        sources.push({
+          title: tab.title || tab.url,
+          url: tab.url,
+          snippet: tab.text?.slice(0, 500) || 'Active tab text unavailable',
+          text: tab.text || '',
+        });
+      }
+    }
+
+    if (integrations.tavily?.enabled && integrations.tavily?.apiKey) {
+      try {
+        const tvData = await fetchWithRetry(
+          'https://api.tavily.com/search',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: integrations.tavily.apiKey,
+              query,
+              max_results: 5,
+              search_depth: 'advanced',
+              include_answer: true,
+            }),
+          },
+          1
+        );
+        for (const result of tvData.results ?? []) {
+          const read = result.url
+            ? await invoke<{ ok: boolean; text: string; error?: string }>('read_url_text', { url: result.url }).catch(() => ({ ok: false, text: '', error: 'URL text unavailable' }))
+            : { ok: false, text: '', error: 'URL text unavailable' };
+          sources.push({
+            title: result.title || result.url || 'Web result',
+            url: result.url,
+            snippet: result.content || read.text.slice(0, 500),
+            text: read.ok ? read.text : result.content || '',
+          });
+        }
+      } catch (tvErr: any) {
+        const msg = tvErr?.message ?? String(tvErr);
+        const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
+        useUIStore.getState().showToast(
+          isAuth ? 'Tavily key rejected. Check Settings > Integrations.' : `Tavily search failed: ${msg}`
+        );
+      }
+    } else if (hasResearchIntent(input)) {
+      useUIStore.getState().showToast('Tavily is off. Using browser, URLs, and Wikipedia fallback.');
+    }
+
+    const wikiQuery = query.split(' ').slice(0, 6).join(' ').trim();
+    if (wikiQuery) {
+      try {
+        const wikiData = await fetchWithRetry(
+          `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`,
+          { method: 'GET' },
+          1
+        );
+        for (const s of (wikiData?.query?.search ?? []).slice(0, 2)) {
+          const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`;
+          sources.push({
+            title: `Wikipedia: ${s.title}`,
+            url,
+            snippet: String(s.snippet ?? '').replace(/<[^>]*>?/gm, ''),
+          });
+        }
+      } catch (wikiErr) {
+        console.warn('Wikipedia search failed:', wikiErr);
+      }
+    }
+
+    return dedupeSources(sources).slice(0, 8);
+  }, []);
+
+  const autosaveResearchNote = useCallback(async ({
+    chat,
+    agent,
+    question,
+    answer,
+    sources,
+  }: { chat: any; agent: any; question: string; answer: string; sources: ResearchSource[] }) => {
+    const _agentForgePath = useMemoryStore.getState().agentForgePath;
+    if (!_agentForgePath || sources.length === 0 || !agent?.id) return null;
+
+    const normalized = normalizeChatRecord(chat, agent.id);
+    const title = question.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Research note';
+    const slug = researchSlugify(title, 'research');
+    const basePath = normalized.kind === 'channel'
+      ? `${_agentForgePath}/memory/channels/${normalized.id}/research`
+      : `${_agentForgePath}/memory/${agent.id}/research`;
+    const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
+    const sourceLines = sources.map((source, i) => `${i + 1}. [${source.title}](${source.url ?? source.path ?? ''})`).join('\n');
+    const content = `---\ntitle: "${title.replace(/"/g, "'")}"\nagent: "${String(agent.name ?? agent.id).replace(/"/g, "'")}"\nchannel: "${normalized.id}"\ndate: "${new Date().toISOString()}"\n---\n\n# ${title}\n\n## Question\n${question}\n\n## Answer\n${answer}\n\n## Sources\n${sourceLines}\n`;
+
+    const result = await invoke<{ blocked: boolean; commit: string | null; error?: string }>('write_memory', {
+      path,
+      content,
+      commitMessage: `research: ${title}`,
+      agentId: agent.id,
+      contextTokens: null,
+      ramState: null,
+    }).catch((e: any) => ({ blocked: true, commit: null, error: e?.message ?? String(e) }));
+
+    if (result.blocked) {
+      console.warn('[Research] Autosave blocked:', result.error ?? result);
+      return null;
+    }
+    return { path, commit: result.commit };
+  }, []);
+
+  const autosaveConversationNote = useCallback(async ({
+    chat,
+    agent,
+    question,
+    answer,
+    contributions,
+  }: { chat: any; agent: any; question: string; answer: string; contributions: string[] }) => {
+    const _agentForgePath = useMemoryStore.getState().agentForgePath;
+    if (!_agentForgePath || !agent?.id) return null;
+    if (question.trim().length < 20 || answer.trim().length < 80) return null;
+
+    const normalized = normalizeChatRecord(chat, agent.id);
+    const title = question.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Conversation note';
+    const slug = researchSlugify(title, 'conversation');
+    const basePath = normalized.kind === 'channel'
+      ? `${_agentForgePath}/memory/channels/${normalized.id}/memos`
+      : `${_agentForgePath}/memory/${agent.id}/memos`;
+    const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
+    const contributionBlock = contributions.length > 0
+      ? `\n\n## Invited Agent Notes\n${contributions.join('\n\n---\n\n')}`
+      : '';
+    const content = `---\ntitle: "${title.replace(/"/g, "'")}"\nagent: "${String(agent.name ?? agent.id).replace(/"/g, "'")}"\nchannel: "${normalized.id}"\ndate: "${new Date().toISOString()}"\ntype: "autosaved-conversation"\n---\n\n# ${title}\n\n## User\n${question}\n\n## Response\n${answer}${contributionBlock}\n`;
+
+    const result = await invoke<{ blocked: boolean; commit: string | null; error?: string }>('write_memory', {
+      path,
+      content,
+      commitMessage: `memory: ${title}`,
+      agentId: agent.id,
+      contextTokens: null,
+      ramState: null,
+    }).catch((e: any) => ({ blocked: true, commit: null, error: e?.message ?? String(e) }));
+
+    if (result.blocked) {
+      console.warn('[Memory] Autosave blocked:', result.error ?? result);
+      return null;
+    }
+    return { path, commit: result.commit };
+  }, []);
+
   const processChatRequest = async (chatId: string, userMsg: any, historyToPass: any[]) => {
     // Read store state at call time (avoids stale closure issues)
     const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
     const _activeAssistant = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
+    const _chatRecord = useChatStore.getState().chats.find((c: any) => c.id === chatId);
+    const _normalizedChat = normalizeChatRecord(_chatRecord ?? { id: chatId, folderId: _activeFolderId, primaryAgentId: _activeFolderId, participantAgentIds: [_activeFolderId], kind: 'dm', name: 'New Chat' }, _activeFolderId);
+    const _primaryAssistant = _assistants.find((a: any) => a.id === (_normalizedChat.primaryAgentId ?? _activeFolderId)) ?? _activeAssistant;
+    const _channelContext = buildChannelContext(_normalizedChat, _assistants);
     const { models: _models, selectedModelId: _selectedModelId, appSettings: _appSettings, integrations: _integrations } = useSettingsStore.getState();
     const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
     const _hwProfile = useUIStore.getState().hwProfile;
     const _forcedTool = useUIStore.getState().forcedTool;
     const _globalPins = useMemoryStore.getState().globalPins;
-    const _agentPinnedMessagesForPrompt = _globalPins.filter((p: any) => p.agentId === _activeAssistant?.id).map((p: any) => p.content);
+    const _agentPinnedMessagesForPrompt = _globalPins.filter((p: any) => p.agentId === _primaryAssistant?.id).map((p: any) => p.content);
     const _generationMode = useUIStore.getState().generationMode;
     const _isDeepThinking = useUIStore.getState().isDeepThinking;
     const _canvasContent = useUIStore.getState().canvasContent;
@@ -1095,17 +1282,18 @@ export default function App() {
       let toolUsed = null;
       let toolData = "";
       let foundSources: any[] = [];
+      const supportBubbles: any[] = [];
 
       // Forced tool from slash command takes priority over keyword detection
       if (_forcedTool === 'workspace') {
           toolUsed = 'Knowledge Search';
       } else if (_forcedTool === 'search') {
           toolUsed = 'Web Search';
-      } else if (_activeAssistant.tools?.local_workspace && /\b(notes?|memos?|memory|knowledge base|goals?|decisions?|research|workspace|saved|wrote|remember|recall|pinned)\b/i.test(inputLower)) {
+      } else if (_primaryAssistant.tools?.local_workspace && /\b(notes?|memos?|memory|knowledge base|goals?|decisions?|research|workspace|saved|wrote|remember|recall|pinned)\b/i.test(inputLower)) {
           toolUsed = 'Knowledge Search';
-      } else if (_activeAssistant.tools?.web_search && /\b(search for|look up|google|current (weather|news|price|score)|today.s (weather|news)|latest (news|update)|breaking news|weather (in|for)|stock (price|market)|news about|what.s happening)\b/i.test(inputLower)) {
+      } else if (_primaryAssistant.tools?.web_search && (hasResearchIntent(userMsg.content) || /\b(search for|look up|google|current (weather|news|price|score)|today.s (weather|news)|latest (news|update)|breaking news|weather (in|for)|stock (price|market)|news about|what.s happening)\b/i.test(inputLower))) {
           toolUsed = 'Web Search';
-      } else if (_activeAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
+      } else if (_primaryAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
           toolUsed = 'Calendar';
       }
       if (_forcedTool) useUIStore.getState().setForcedTool(null);
@@ -1121,7 +1309,13 @@ export default function App() {
                  let ragData = "No relevant documents found in Knowledge Core.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge_semantic', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: _activeAssistant?.id ?? null, maxResults: _hwProfile?.rag_results ?? 5, snippetChars: _hwProfile?.rag_snippet_chars ?? 400 }
+                         'search_knowledge_semantic', {
+                           query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(),
+                           agentId: _primaryAssistant?.id ?? null,
+                           channelId: _normalizedChat.kind === 'channel' ? _normalizedChat.id : null,
+                           maxResults: _hwProfile?.rag_results ?? 5,
+                           snippetChars: _hwProfile?.rag_snippet_chars ?? 400
+                         }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
@@ -1136,75 +1330,12 @@ export default function App() {
              }
         } else if (toolUsed === 'Web Search') {
             try {
-                const query = userMsg.content.replace(/search( for)?|who is|what is|find/gi, '').trim() || userMsg.content;
-
-                // Tavily Fetch — via Tauri HTTP backend to bypass WebView CORS
-                if (_integrations.tavily?.enabled) {
-                    if (!_integrations.tavily?.apiKey) {
-                        useUIStore.getState().showToast("Tavily API key missing. Please add it in Settings → Integrations.");
-                    } else {
-                        try {
-                            const tvData = await fetchWithRetry(
-                                'https://api.tavily.com/search',
-                                {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        api_key: _integrations.tavily.apiKey,
-                                        query,
-                                        max_results: 3,
-                                        search_depth: "advanced",
-                                        include_answer: true
-                                    })
-                                },
-                                1
-                            );
-                            if (tvData.results) {
-                                tvData.results.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.content }));
-                            }
-                            if (tvData.answer) {
-                                toolData += `\n[TAVILY AI SUMMARY]\n${tvData.answer}\n`;
-                            }
-                        } catch (tvErr: any) {
-                            const msg = tvErr?.message ?? String(tvErr);
-                            const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
-                            useUIStore.getState().showToast(
-                                isAuth
-                                    ? 'Tavily: Invalid API key — check Settings → Integrations.'
-                                    : `Tavily search failed: ${msg}`
-                            );
-                            console.warn("Tavily search failed:", tvErr);
-                        }
-                    }
-                }
-
-                // Wikipedia Fetch — via Tauri HTTP backend
-                const wikiQuery = query.split(' ').slice(0, 4).join(' ').trim();
-                if (wikiQuery) {
-                    try {
-                        const wikiData = await fetchWithRetry(
-                            `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`,
-                            { method: 'GET' },
-                            1
-                        );
-                        if (wikiData?.query?.search) {
-                            wikiData.query.search.slice(0, 2).forEach((s: any) => {
-                                const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`;
-                                if (!foundSources.some((x: any) => x.url === url)) {
-                                    foundSources.push({ title: `Wikipedia: ${s.title}`, url, snippet: s.snippet.replace(/<[^>]*>?/gm, '') });
-                                }
-                            });
-                        }
-                    } catch (wikiErr: any) {
-                        console.warn("Wikipedia search failed:", wikiErr);
-                    }
-                }
-                
-                if (foundSources.length > 0) {
-                    const searchResults = foundSources.map(s => `- ${s.title}: ${s.snippet} (URL: ${s.url})`).join('\n');
-                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\n${searchResults}\n[END SEARCH]`;
+                const researchSources = await collectResearchSources(userMsg.content, _integrations);
+                foundSources = researchSources;
+                if (researchSources.length > 0) {
+                    toolData += `\n\n[SYSTEM NOTE: VERIFIED WEB/RESEARCH SOURCES]\n${buildSourceNotes(researchSources)}\n\n[SOURCE RULE]\nAnswer the user's actual question directly and concisely. Cite every factual web/current claim using [Source: Title](URL). Do not write a long dossier unless the user explicitly asks for a report. If the sources are weak or conflict, say so.\n[END SEARCH]`;
                 } else {
-                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo relevant results found online.\n[END SEARCH]`;
+                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo verified sources were found. Do not answer factual/current claims as verified. Tell the user you could not verify the answer with sources and ask for a URL, a source, or Tavily setup if needed.\n[END SEARCH]`;
                 }
             } catch (e: any) {
                 console.error('Web search failed:', e);
@@ -1230,9 +1361,68 @@ export default function App() {
             messagesForLLM = history.map(m => m.id === userMsg.id ? { ...m, content: m.content + toolData } : m);
         }
       }
+
+      const routedAgents = routeAgentsForChannel(userMsg.content, _normalizedChat, _assistants, _primaryAssistant?.id ?? _activeFolderId);
+      const contributorAgents = _normalizedChat.kind === 'channel'
+        ? routedAgents.filter((agent: any) => agent.id !== _primaryAssistant?.id).slice(0, 2)
+        : [];
+      const contributionNotes: string[] = [];
+
+      for (const agent of contributorAgents) {
+        try {
+          const contribution = await generateTextResponse({
+            messages: [{
+              id: generateId('msg'),
+              role: 'user',
+              content: `${userMsg.content}${toolData}\n\n[CHANNEL REQUEST]\nYou are contributing inside "${_normalizedChat.name}". Channel goal: ${_normalizedChat.goal || 'not set'}.\nGive concise specialist notes for the primary agent. Do not write the final answer. If sources are present, cite only those sources.`,
+            }],
+            modelConfig: _selectedModel,
+            profile: _userProfile,
+            attachedDocs: userMsg.attachedFiles,
+            agent: {
+              ...agent,
+              prompt: `${agent.prompt ?? ''}\n\n[CHANNEL CONTRIBUTION MODE]\nYou are one invited specialist in a multi-agent Agent Forge channel. Contribute only from your role. Be brief, specific, and useful to the final synthesizer.`,
+            },
+            tasks: _tasks,
+            mode: 'text',
+            canvasContent: _canvasContent,
+            isDeepThinking: false,
+            agentPinnedMessages: _globalPins.filter((p: any) => p.agentId === agent.id).map((p: any) => p.content),
+            onChunk: null,
+            signal: abortControllerRef.current?.signal,
+            appSettings: _appSettings,
+            integrations: _integrations,
+            models: _models,
+            channelContext: _channelContext,
+          });
+          const clipped = contribution.trim();
+          if (clipped) {
+            contributionNotes.push(`[${agent.name}]\n${clipped}`);
+            supportBubbles.push({
+              id: generateId('bubble'),
+              role: 'bot',
+              content: clipped,
+              agentId: agent.id,
+              agentName: agent.name,
+              bubbleType: 'thinking',
+              bubbleTitle: `${agent.name} contribution`,
+              bubbleSubtitle: agent.description || 'Invited channel specialist',
+              isPinned: false,
+              timestamp: Date.now(),
+            });
+          }
+        } catch (e) {
+          console.warn('[Channel] Agent contribution failed:', agent?.name, e);
+        }
+      }
+
+      if (contributionNotes.length > 0) {
+        const contributionData = `\n\n[SYSTEM NOTE: INVITED AGENT CONTRIBUTIONS]\n${contributionNotes.join('\n\n---\n\n')}\n[END CONTRIBUTIONS]`;
+        messagesForLLM = messagesForLLM.map(m => m.id === userMsg.id ? { ...m, content: m.content + contributionData } : m);
+      }
       
       const botId = generateId('msg');
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, agentId: _primaryAssistant?.id, agentName: _primaryAssistant?.name, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
 
       let currentText = '';
       let lastCanvasSync = Date.now();
@@ -1266,7 +1456,7 @@ export default function App() {
           modelConfig: _selectedModel,
           profile: _userProfile,
           attachedDocs: userMsg.attachedFiles,
-          agent: _activeAssistant,
+          agent: _primaryAssistant,
           tasks: _tasks,
           mode: isImageRequest ? 'image' : _generationMode,
           canvasContent: _canvasContent,
@@ -1276,10 +1466,65 @@ export default function App() {
           signal: abortControllerRef.current?.signal,
           appSettings: _appSettings,
           integrations: _integrations,
-          models: _models
+          models: _models,
+          channelContext: _channelContext,
       });
 
       useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
+
+      if (toolUsed === 'Web Search' && foundSources.length > 0) {
+        const saved = await autosaveResearchNote({
+          chat: _normalizedChat,
+          agent: _primaryAssistant,
+          question: userMsg.content,
+          answer: response,
+          sources: foundSources,
+        });
+        if (saved) {
+          supportBubbles.push({
+            id: generateId('bubble'),
+            role: 'bot',
+            content: `Saved this source-backed answer to Knowledge Core:\n\n${saved.path}`,
+            agentId: _primaryAssistant?.id,
+            agentName: _primaryAssistant?.name,
+            bubbleType: 'research',
+            bubbleTitle: 'Research autosaved',
+            bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
+            sources: foundSources,
+            isPinned: false,
+            timestamp: Date.now(),
+          });
+        }
+      } else if (!isImageRequest) {
+        const saved = await autosaveConversationNote({
+          chat: _normalizedChat,
+          agent: _primaryAssistant,
+          question: userMsg.content,
+          answer: response,
+          contributions: contributionNotes,
+        });
+        if (saved) {
+          supportBubbles.push({
+            id: generateId('bubble'),
+            role: 'bot',
+            content: `Saved this exchange to Knowledge Core:\n\n${saved.path}`,
+            agentId: _primaryAssistant?.id,
+            agentName: _primaryAssistant?.name,
+            bubbleType: 'memory_suggestion',
+            bubbleTitle: 'Memory autosaved',
+            bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
+            isPinned: false,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      if (supportBubbles.length > 0) {
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+          ...prev,
+          [chatId]: [...(prev[chatId] ?? []), ...supportBubbles],
+        }));
+      }
 
       if (_generationMode === 'code' || _generationMode === 'doc') {
          const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
@@ -1347,7 +1592,17 @@ export default function App() {
     let chatId = _activeChatId; const isNewChat = !chatId;
     if (isNewChat) {
       chatId = generateId('c');
-      useChatStore.getState().setChats((prev: any[]) => [{ id: chatId, folderId: _activeFolderId, name: _input.slice(0, 30) || 'New Session', updatedAt: Date.now() }, ...prev]);
+      useChatStore.getState().setChats((prev: any[]) => [normalizeChatRecord({
+        id: chatId,
+        folderId: _activeFolderId,
+        primaryAgentId: _activeFolderId,
+        participantAgentIds: [_activeFolderId],
+        kind: 'dm',
+        name: _input.slice(0, 30) || 'New Chat',
+        goal: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }, _activeFolderId), ...prev]);
       useChatStore.getState().setActiveChatId(chatId);
     }
     const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
@@ -1360,7 +1615,7 @@ export default function App() {
           .then(title => useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, name: title.replace(/["']/g, '').trim().slice(0, 40) } : c))).catch(() => {});
         }
 
-        const currentHistory = _messages[chatId] ?? [];
+        const currentHistory = (_messages[chatId] ?? []).filter((m: any) => !m.bubbleType && !m.isToolCall);
         useUIStore.getState().setInput('');
         useUIStore.getState().setAttachedDocs([]);
 
@@ -1382,7 +1637,7 @@ export default function App() {
      if (msgIdx === -1) return;
 
      const targetMsg = chatMsgs[msgIdx];
-     const historyToKeep = chatMsgs.slice(0, msgIdx);
+     const historyToKeep = chatMsgs.slice(0, msgIdx).filter((m: any) => !m.bubbleType && !m.isToolCall);
      const newMsg = { ...targetMsg, id: generateId('msg'), content: _emc, timestamp: Date.now() };
 
      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({...prev, [_activeChatId]: [...historyToKeep, newMsg]}));
@@ -1410,6 +1665,20 @@ export default function App() {
     if (typeof rawText !== 'string') return elements;
     const openFileInPanel = (path?: string) => { useMemoryStore.getState().setShowMemmoPanel(true); useMemoryStore.getState().setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'notes' : 'pins'); };
     if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} /></div>;
+
+    if (msg.bubbleType) {
+      return (
+        <CollapsibleBubble
+          title={msg.bubbleTitle ?? msg.agentName ?? 'Agent work'}
+          subtitle={msg.bubbleSubtitle}
+          type={msg.bubbleType}
+          defaultOpen={false}
+        >
+          <FormattedText text={rawText} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} />
+          {sources && sources.length > 0 && <SourcesTray sources={sources} onOpenFile={openFileInPanel} />}
+        </CollapsibleBubble>
+      );
+    }
 
     // --- Deep Thinking Parser ---
     let displayContent = rawText;

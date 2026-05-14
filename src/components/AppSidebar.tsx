@@ -1,8 +1,9 @@
-import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Plus } from 'lucide-react';
+import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Plus, Hash } from 'lucide-react';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
+import { chatIncludesAgent, normalizeChatRecord } from '../services/channels';
 
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -29,6 +30,26 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
   const activeFolderId = useAgentStore(s => s.activeFolderId);
   const showPlanner = useTaskStore(s => s.showPlanner);
 
+  const createChat = (kind: 'dm' | 'channel') => {
+    const id = generateId('c');
+    const chat = normalizeChatRecord({
+      id,
+      folderId: activeFolderId,
+      primaryAgentId: activeFolderId,
+      participantAgentIds: [activeFolderId],
+      kind,
+      name: kind === 'channel' ? 'New Channel' : 'New Chat',
+      goal: '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }, activeFolderId);
+    useChatStore.getState().setChats((prev: any[]) => [chat, ...prev]);
+    useChatStore.getState().setActiveChatId(id);
+    useChatStore.getState().setMessages((prev: any) => ({ ...prev, [id]: [] }));
+    useTaskStore.getState().setShowPlanner(false);
+    useUIStore.getState().setViewMode('chat');
+  };
+
   return (
     <div className={`shrink-0 transition-all duration-300 border-r border-neutral-200 dark:border-neutral-800 z-[60] bg-white dark:bg-neutral-950 overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
       <div className="w-72 h-full flex flex-col">
@@ -46,13 +67,13 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
             <div className="space-y-3">
               <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search chats..." value={chatSearchQuery} onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)} /></div>
               {/* Scoped Sidebar Chats to Active Folder ID */}
-              {chats.filter(c => c.folderId === activeFolderId && c.name.toLowerCase().includes(chatSearchQuery.toLowerCase())).map(chat => (
+              {chats.filter(c => chatIncludesAgent(c, activeFolderId) && c.name.toLowerCase().includes(chatSearchQuery.toLowerCase())).map(chat => (
                 <div key={chat.id} onClick={() => { useChatStore.getState().setActiveChatId(chat.id); useUIStore.getState().setCanvasContent(null); useTaskStore.getState().setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-3 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
-                  {editingChatId === chat.id ? (<input autoFocus value={editingChatName} onChange={e => useChatStore.getState().setEditingChatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); useChatStore.getState().setEditingChatId(null); } else if (e.key === 'Escape') useChatStore.getState().setEditingChatId(null); }} onBlur={() => { useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); useChatStore.getState().setEditingChatId(null); }} className="w-full bg-white dark:bg-neutral-950 text-xs font-bold px-2 py-1 rounded outline-none border border-[#6A829E]" />) : (<><span className="text-xs truncate flex-1">{chat.name}</span><div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); useChatStore.getState().setEditingChatId(chat.id); useChatStore.getState().setEditingChatName(chat.name); }} className="text-neutral-400 hover:text-[#6A829E]"><Edit2 className="w-3 h-3" /></button><button onClick={e => { e.stopPropagation(); useChatStore.getState().setChats((prev: any[]) => prev.filter((c: any) => c.id !== chat.id)); if (activeChatId === chat.id) useChatStore.getState().setActiveChatId(null); }} className="text-neutral-400 hover:text-[#C98A8A]"><Trash2 className="w-3.5 h-3.5" /></button></div></>)}
+                  {editingChatId === chat.id ? (<input autoFocus value={editingChatName} onChange={e => useChatStore.getState().setEditingChatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); useChatStore.getState().setEditingChatId(null); } else if (e.key === 'Escape') useChatStore.getState().setEditingChatId(null); }} onBlur={() => { useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); useChatStore.getState().setEditingChatId(null); }} className="w-full bg-white dark:bg-neutral-950 text-xs font-bold px-2 py-1 rounded outline-none border border-[#6A829E]" />) : (<><div className="flex items-center gap-2 truncate flex-1">{chat.kind === 'channel' && <Hash className="w-3 h-3 text-[#6A829E] shrink-0" />}<span className="text-xs truncate flex-1">{chat.name}</span></div><div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); useChatStore.getState().setEditingChatId(chat.id); useChatStore.getState().setEditingChatName(chat.name); }} className="text-neutral-400 hover:text-[#6A829E]"><Edit2 className="w-3 h-3" /></button><button onClick={e => { e.stopPropagation(); useChatStore.getState().setChats((prev: any[]) => prev.filter((c: any) => c.id !== chat.id)); if (activeChatId === chat.id) useChatStore.getState().setActiveChatId(null); }} className="text-neutral-400 hover:text-[#C98A8A]"><Trash2 className="w-3.5 h-3.5" /></button></div></>)}
                 </div>
               ))}
-              {chats.filter(c => c.folderId === activeFolderId).length === 0 && (
-                  <div className="text-center text-xs text-neutral-400 font-bold mt-4">No chats found for this bot.</div>
+              {chats.filter(c => chatIncludesAgent(c, activeFolderId)).length === 0 && (
+                  <div className="text-center text-xs text-neutral-400 font-bold mt-4">No DMs or channels found for this agent.</div>
               )}
             </div>
           ) : (
@@ -78,7 +99,10 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         </div>
 
         <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
-          <button onClick={() => { const id = generateId('c'); useChatStore.getState().setChats((prev: any[]) => [{ id, folderId: activeFolderId, name: 'New Session', updatedAt: Date.now() }, ...prev]); useChatStore.getState().setActiveChatId(id); useChatStore.getState().setMessages((prev: any) => ({ ...prev, [id]: [] })); useTaskStore.getState().setShowPlanner(false); useUIStore.getState().setViewMode('chat'); }} className="w-full flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-4 py-3.5 shadow-lg transition-all active:scale-95"><Plus className="w-4 h-4" /> New Chat</button>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => createChat('dm')} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Plus className="w-4 h-4" /> DM</button>
+            <button onClick={() => createChat('channel')} className="flex items-center justify-center gap-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Hash className="w-4 h-4" /> Channel</button>
+          </div>
         </div>
       </div>
     </div>

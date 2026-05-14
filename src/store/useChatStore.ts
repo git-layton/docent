@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
+import { normalizeChatRecord } from '../services/channels';
 
 interface ChatStore {
   chats: any[];
@@ -50,9 +51,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setChatSearchQuery: (q) => set({ chatSearchQuery: q }),
 
   hydrate: async () => {
-    const chats = await db.get('chats', []);
+    const rawChats = await db.get('chats', []);
     const messages = await db.get('messages', {});
+    const chats = rawChats.map((chat: any) => normalizeChatRecord(chat));
     set({ chats, messages });
+    if (JSON.stringify(chats) !== JSON.stringify(rawChats)) {
+      await db.set('chats', chats);
+    }
   },
 
   persist: async () => {
@@ -68,7 +73,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     for (const chat of activeChats) {
       prunedMessages[chat.id] = (messages[chat.id] ?? []).slice(-200);
     }
-    await db.set('chats', activeChats);
+    await db.set('chats', activeChats.map((chat: any) => normalizeChatRecord(chat)));
     await db.set('messages', prunedMessages);
   },
 }));

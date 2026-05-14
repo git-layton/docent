@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Menu, Settings, ChevronDown, Globe, CalendarDays,
   AlertTriangle, Activity, BookOpen, Plus, Search, Trash2,
-  Database
+  Database, Hash, Users
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { ContextMeter } from './ui/ContextMeter';
@@ -12,6 +12,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
+import { normalizeChatRecord } from '../services/channels';
 
 interface ChatHeaderProps {
   dropdownRef: React.RefObject<HTMLDivElement | null>;
@@ -46,6 +47,8 @@ export function ChatHeader({
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
 
+  const chats = useChatStore(s => s.chats);
+  const activeChatId = useChatStore(s => s.activeChatId);
   const globalPins = useMemoryStore(s => s.globalPins);
   const showMemmoPanel = useMemoryStore(s => s.showMemmoPanel);
 
@@ -60,6 +63,27 @@ export function ChatHeader({
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
   const activeAgentPinnedMessageObjects = useMemo(() => globalPins.filter(p => p.agentId === activeAssistant?.id), [globalPins, activeAssistant?.id]);
+  const activeChat = useMemo(() => chats.find((c: any) => c.id === activeChatId) ?? null, [chats, activeChatId]);
+  const normalizedChat = useMemo(() => activeChat ? normalizeChatRecord(activeChat, activeFolderId) : null, [activeChat, activeFolderId]);
+  const isChannel = normalizedChat?.kind === 'channel';
+  const participantCount = normalizedChat?.participantAgentIds?.length ?? 0;
+
+  const updateActiveChat = (patch: any) => {
+    if (!activeChatId) return;
+    useChatStore.getState().setChats((prev: any[]) => prev.map((chat: any) =>
+      chat.id === activeChatId ? normalizeChatRecord({ ...chat, ...patch, updatedAt: Date.now() }, activeFolderId) : chat
+    ));
+  };
+
+  const toggleChannelAgent = (agentId: string) => {
+    if (!normalizedChat || normalizedChat.kind !== 'channel') return;
+    const ids = normalizedChat.participantAgentIds ?? [];
+    const next = ids.includes(agentId)
+      ? ids.filter(id => id !== agentId)
+      : [...ids, agentId];
+    const safeNext = next.length === 0 ? [normalizedChat.primaryAgentId ?? activeFolderId] : next;
+    updateActiveChat({ participantAgentIds: safeNext });
+  };
 
   return (
     <>
@@ -68,7 +92,9 @@ export function ChatHeader({
           <button onClick={() => useUIStore.getState().setIsSidebarOpen(v => !v)} className="p-2 -ml-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"><Menu className="w-5 h-5" /></button>
           <button onClick={() => { useUIStore.getState().setIsAgentDropdownOpen(v => !v); setAgentSearch(''); }} className="flex items-center gap-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 p-2 rounded-xl transition-all">
             {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
-            <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : activeAssistant?.name ?? 'Assistant'}</span>
+            {isChannel && <Hash className="w-4 h-4 text-[#6A829E]" />}
+            <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : isChannel ? normalizedChat?.name : activeAssistant?.name ?? 'Assistant'}</span>
+            {isChannel && <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1"><Users className="w-3 h-3" />{participantCount}</span>}
             {!showPlanner && <ChevronDown className="w-4 h-4 text-neutral-400" />}
           </button>
 
@@ -83,6 +109,19 @@ export function ChatHeader({
                 </div>
               )}
               <div className="max-h-64 overflow-y-auto p-1.5 custom-scrollbar space-y-1">
+                {isChannel && (
+                  <div className="px-2 py-2 mb-1 rounded-xl bg-[#F0F4F8] dark:bg-[#1E2B38]/30 border border-[#D6E0EA] dark:border-[#4A5D75]/30">
+                    <div className="flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#9EADC8]">
+                      <Hash className="w-3.5 h-3.5" /> Channel Agents
+                    </div>
+                    <input
+                      value={normalizedChat?.goal ?? ''}
+                      onChange={e => updateActiveChat({ goal: e.target.value })}
+                      placeholder="Channel goal..."
+                      className="w-full mb-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-[10px] font-bold outline-none focus:border-[#6A829E]"
+                    />
+                  </div>
+                )}
                 {assistants.filter(a => a.name.toLowerCase().includes(agentSearch.toLowerCase())).map(agent => (
                   <div key={agent.id} className={`group flex items-center justify-between px-2 py-2 rounded-xl cursor-pointer transition-all ${activeFolderId === agent.id ? 'bg-[#F0F4F8] dark:bg-[#4A5D75]/20' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
                     {confirmDeleteId === agent.id ? (
@@ -95,11 +134,21 @@ export function ChatHeader({
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-center gap-3 truncate flex-1" onClick={() => { useAgentStore.getState().setActiveFolderId(agent.id); useChatStore.getState().setActiveChatId(null); useUIStore.getState().setIsAgentDropdownOpen(false); if (agent.defaultModelId) useSettingsStore.getState().setSelectedModelId(agent.defaultModelId); }}>
+                        <div className="flex items-center gap-3 truncate flex-1" onClick={() => {
+                          if (isChannel) {
+                            toggleChannelAgent(agent.id);
+                          } else {
+                            useAgentStore.getState().setActiveFolderId(agent.id);
+                            useChatStore.getState().setActiveChatId(null);
+                            useUIStore.getState().setIsAgentDropdownOpen(false);
+                            if (agent.defaultModelId) useSettingsStore.getState().setSelectedModelId(agent.defaultModelId);
+                          }
+                        }}>
                           <AgentIcon agent={agent} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" />
                           <div className="flex flex-col truncate"><span className="text-xs font-bold truncate dark:text-white">{agent.name}</span>{agent.description ? <span className="text-[9px] text-neutral-400 truncate">{agent.description}</span> : <div className="flex gap-1 mt-0.5">{agent.tools?.web_search && <Globe className="w-2.5 h-2.5 text-[#9EADC8]" />}{agent.tools?.local_workspace && <Database className="w-2.5 h-2.5 text-[#C98A8A]" />}{agent.tools?.calendar_sync && <CalendarDays className="w-2.5 h-2.5 text-[#9FBBAF]" />}</div>}</div>
                         </div>
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                        <div className={`flex items-center gap-0.5 transition-all ${isChannel ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                          {isChannel && <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase ${normalizedChat?.participantAgentIds?.includes(agent.id) ? 'bg-[#7A9E8D] text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500'}`}>{normalizedChat?.participantAgentIds?.includes(agent.id) ? 'Invited' : 'Invite'}</span>}
                           {!agent.isDefault && assistants.length > 1 && <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(agent.id); }} className="p-1.5 text-neutral-400 hover:text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30 rounded-lg transition-all" title="Delete bot"><Trash2 className="w-3.5 h-3.5" /></button>}
                           <button onClick={e => { e.stopPropagation(); useAgentStore.getState().setEditingAssistant({ ...agent }); useAgentStore.getState().setAssistantSettingsTab('config'); useAgentStore.getState().setShowAssistantSettings(true); useUIStore.getState().setIsAgentDropdownOpen(false); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-white dark:hover:bg-neutral-700 rounded-lg transition-all"><Settings className="w-3.5 h-3.5" /></button>
                         </div>

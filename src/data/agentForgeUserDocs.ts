@@ -41,8 +41,19 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 - Each agent has a custom system prompt, training docs, and tool access
 - Switch agents using the dropdown in the top-left
 - Start a new chat with the + button
+- Use a DM when you want one persistent agent to keep its own specialist memory
+- Use a Channel when you want multiple invited agents to collaborate around one goal
+- In a Channel, invited agents can contribute collapsible notes while the primary agent gives the clean final answer
 - Pin important messages to Context (⭐) — pinned content is injected into every future message with that agent
 - Use /memo to save thoughts to your Knowledge Core without leaving the chat
+
+### # Channels — Shared Work Rooms
+Channels are collaborative rooms with shared memory. An agent can remain standalone, like a Star Wars CCG Specialist that remembers deck experiments across time, while a Channel can invite that specialist plus a Strategist or Logic Checker for a specific build.
+
+- Channel memory is saved under \`~/AgentForge/memory/channels/\`
+- Agent memory stays under that agent's own memory folder
+- Knowledge Search in a channel can use agent memory, channel memory, and the shared Library
+- Dream Cycle can refine channel memory later without erasing the original audit trail
 
 ### 🎨 Canvas
 When an agent generates code, diagrams, or documents, it appears in the Canvas panel (toggle with the split-screen icon). Save canvas content to your Library.
@@ -52,6 +63,14 @@ Dream Cycle is an experimental, manual memory cleanup tool. Run it from Agent Se
 
 ### 🔍 Knowledge Search
 Your agent automatically searches your Knowledge Core when relevant. You can force a knowledge search for any message with ⌘⇧K.
+
+### 🌐 Source-Required Research
+When Web Search is enabled, Agent Forge treats Tavily as the primary discovery engine and combines it with direct URL reading, active browser context, and Wikipedia fallback.
+
+- Research answers should answer the question directly, not produce a dossier unless requested
+- Factual web/current claims must cite sources inline
+- If sources are missing, weak, or conflicting, the agent should say what could not be verified
+- Source-backed research is autosaved to agent or channel memory so Dream Cycle can clean it up later
 
 ---
 

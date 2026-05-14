@@ -306,7 +306,7 @@ fn init_knowledge_core() -> serde_json::Value {
     let root = knowledge_root();
 
     // Always ensure subdirectory structure exists (idempotent)
-    for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "library"] {
+    for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "memory/channels", "library"] {
         let _ = std::fs::create_dir_all(root.join(subdir));
     }
 
@@ -481,7 +481,7 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
 }
 
 #[tauri::command]
-fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
+fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, channel_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let root = knowledge_root();
     let query_lower = query.to_lowercase();
     let keywords: Vec<&str> = query_lower.split_whitespace().collect();
@@ -503,6 +503,12 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
         root.join("library"),
         memory_dir,
     ];
+    if let Some(ref cid) = channel_id {
+        if !is_safe_agent_id(cid) {
+            return serde_json::json!({ "results": [], "error": "Invalid channel id" });
+        }
+        dirs_to_search.push(root.join("memory").join("channels").join(cid));
+    }
     if let Some(ref ep) = extra_path {
         if let Ok(p) = knowledge_path_from_input(ep) {
             if p.exists() { dirs_to_search.push(p); }
@@ -920,7 +926,7 @@ fn get_index_status() -> serde_json::Value {
 }
 
 #[tauri::command]
-fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
+fn search_knowledge_semantic(query: String, agent_id: Option<String>, channel_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let max_results = max_results.unwrap_or(5);
     let snippet_chars = snippet_chars.unwrap_or(400);
     if let Some(ref id) = agent_id {
@@ -928,24 +934,29 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
             return serde_json::json!({ "results": [], "error": "Invalid agent id" });
         }
     }
+    if let Some(ref id) = channel_id {
+        if !is_safe_agent_id(id) {
+            return serde_json::json!({ "results": [], "error": "Invalid channel id" });
+        }
+    }
 
     // Fall back to keyword search if model not loaded yet
     let embedder = match get_or_init_embedder() {
         Ok(e) => e,
-        Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
+        Err(_) => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)),
     };
 
     let query_vec: Vec<f32> = {
         let guard = embedder.lock().unwrap();
         match guard.embed(vec![query.as_str()], None) {
             Ok(mut e) if !e.is_empty() => e.remove(0),
-            _ => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
+            _ => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)),
         }
     };
 
     let conn = match open_index_db() {
         Ok(c) => c,
-        Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
+        Err(_) => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)),
     };
 
     let root = knowledge_root();
@@ -953,20 +964,23 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
         .map(|id| root.join("memory").join(id).to_string_lossy().to_string())
         .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
     let library_prefix = root.join("library").to_string_lossy().to_string();
+    let channel_prefix = channel_id.as_ref()
+        .map(|id| root.join("memory").join("channels").join(id).to_string_lossy().to_string())
+        .unwrap_or_else(|| "__no_channel_memory__".to_string());
 
     let rows: Vec<(String, String, Vec<u8>)> = {
         let mut stmt = match conn.prepare(
-            "SELECT file_path, content, vector FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
-        ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)) };
+            "SELECT file_path, content, vector FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2 OR file_path LIKE ?3"
+        ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)) };
 
         stmt.query_map(
-            rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%")],
+            rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%"), format!("{channel_prefix}%")],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).map(|it| it.flatten().collect()).unwrap_or_default()
     };
 
     if rows.is_empty() {
-        return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars));
+        return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars));
     }
 
     let mut scored: Vec<(f32, String, String)> = rows.into_iter()
@@ -1232,6 +1246,21 @@ fn list_agent_memory_files(agent_id: String) -> serde_json::Value {
 }
 
 #[tauri::command]
+fn list_channel_memory_files(channel_id: String) -> serde_json::Value {
+    if !is_safe_agent_id(&channel_id) {
+        return serde_json::json!({ "files": [], "error": "Invalid channel id" });
+    }
+    let dir = knowledge_root().join("memory").join("channels").join(channel_id);
+    let mut files = Vec::new();
+    collect_knowledge_files(&dir, &mut files, true);
+    files.sort_by(|a, b| {
+        b["name"].as_str().unwrap_or("")
+            .cmp(a["name"].as_str().unwrap_or(""))
+    });
+    serde_json::json!({ "files": files })
+}
+
+#[tauri::command]
 fn list_library_files() -> serde_json::Value {
     let dir = knowledge_root().join("library");
     let mut files = Vec::new();
@@ -1351,6 +1380,17 @@ fn fetch_url_text(url: &str) -> Option<String> {
     }
     // Limit to ~12k chars
     Some(trimmed.chars().take(12000).collect())
+}
+
+#[tauri::command]
+fn read_url_text(url: String) -> serde_json::Value {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return serde_json::json!({ "ok": false, "error": "Only http(s) URLs can be read", "text": "" });
+    }
+    match fetch_url_text(&url) {
+        Some(text) => serde_json::json!({ "ok": true, "url": url, "text": text }),
+        None => serde_json::json!({ "ok": false, "url": url, "error": "Could not read URL text", "text": "" }),
+    }
 }
 
 /// Try to get tab info from Chrome. Returns (title, url, text, "chrome") or None.
@@ -1563,8 +1603,10 @@ pub fn run() {
             write_dream_log,
             list_archive_files,
             list_agent_memory_files,
+            list_channel_memory_files,
             list_library_files,
             read_knowledge_file,
+            read_url_text,
             get_active_tab,
             show_spotlight,
             hide_spotlight,

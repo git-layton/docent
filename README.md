@@ -13,14 +13,18 @@ Agent Forge is not trying to be a full AI operating system in this release. The 
 - Let agents search that local Knowledge Core when answering.
 - Keep memory auditable through Git commits.
 - Work with multiple custom agents, each with its own prompt, tools, and memory.
+- Invite multiple agents into a channel so specialists can contribute without losing their standalone memories.
+- Use source-required research answers that cite collected web/browser sources and autosave useful findings.
 
 ## Core Features
 
 - **Custom agents**: create role-specific assistants with prompts, avatars, tools, and always-on docs.
+- **Channels**: shared rooms where invited agents collaborate around a goal while keeping channel memory separate from personal agent memory.
 - **Spotlight**: press `Cmd+Shift+F` to open a floating agent over the current browser tab.
 - **Knowledge Core**: local Markdown memory in `~/AgentForge`, backed by Git.
 - **Memmo panel**: browse pinned context, notes, library files, and archived memory.
 - **Knowledge Search**: semantic and keyword retrieval over saved notes and library content.
+- **Source-required research**: Tavily-backed discovery, active-tab/URL reading, Wikipedia fallback, citations, source tray, and autosaved research notes.
 - **Planner**: local tasks, recurring events, and calendar-style planning.
 - **Canvas**: preview generated code, documents, and images as saved artifacts.
 - **Dream Cycle**: experimental manual memory cleanup for merging and archiving notes.
@@ -34,6 +38,7 @@ This build is intended as an early Mac alpha, not a broad public stable release.
 - Manual-only Dream Cycle.
 - Cleaner release metadata and docs.
 - Reproducible build verification from the real Git checkout.
+- Agent-first channels, source-required research, and autosaved memories that Dream Cycle can refine.
 
 ## Development
 
@@ -67,6 +72,7 @@ Before publishing a build:
 - Run `npm run tauri:build`.
 - Test first launch with an empty `~/AgentForge`.
 - Test model connection, chat send, Spotlight, Memmo save, Knowledge Search, and Planner.
+- Test a channel with multiple invited agents, source-required web research, and channel memory recall.
 - Confirm Dream Cycle is manual and previewed before users rely on it.
 - Tag the release from the real Git repo.
 
