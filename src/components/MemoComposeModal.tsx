@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, Save, CheckSquare } from 'lucide-react';
+import { buildGroundedMarkdown } from '../services/grounding';
 
 type Category = 'goals' | 'decisions' | 'research' | 'memos' | 'todo';
 
@@ -31,23 +32,6 @@ function slugify(text: string): string {
     .slice(0, 50);
 }
 
-function buildFrontmatter(title: string, category: Category): string {
-  return [
-    '---',
-    'type: memmo',
-    `created: ${new Date().toISOString()}`,
-    `tags: [memmo, ${category}]`,
-    'entities: []',
-    'pinned: false',
-    'processed_by: scribe-v1',
-    `title: "${title.replace(/"/g, '\\"')}"`,
-    '---',
-    '',
-    `# ${title}`,
-    '',
-  ].join('\n');
-}
-
 export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: Props) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -75,7 +59,22 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
         const slug = slugify(title) || 'memo';
         const ts = Date.now();
         const path = `${agentForgePath}/memory/${agentId}/${catMeta.dir}/${slug}-${ts}.md`;
-        const content = buildFrontmatter(title, category) + body;
+        const content = buildGroundedMarkdown(
+          {
+            title,
+            type: 'manual-memmo',
+            scope: 'agent',
+            agentId,
+            sourceKind: 'manual_entry',
+            sourceLabel: 'User-created note',
+            evidenceState: 'user_provided',
+            verification: 'verified',
+            confidence: 'high',
+            processor: 'memo-compose',
+            tags: ['memmo', category],
+          },
+          `## Note\n${body.trim() || '_No additional content._'}`
+        );
 
         const result = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
           path,

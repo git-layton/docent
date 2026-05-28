@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Menu, Settings, ChevronDown, Globe, CalendarDays,
   AlertTriangle, Activity, BookOpen, Plus, Search, Trash2,
-  Database, Hash, Users
+  Database, Hash, Users, Inbox
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { ContextMeter } from './ui/ContextMeter';
@@ -51,6 +51,7 @@ export function ChatHeader({
   const activeChatId = useChatStore(s => s.activeChatId);
   const globalPins = useMemoryStore(s => s.globalPins);
   const showMemmoPanel = useMemoryStore(s => s.showMemmoPanel);
+  const memmoPanelTab = useMemoryStore(s => s.memmoPanelTab);
 
   const ramStats = useUIStore(s => s.ramStats);
   const hwProfile = useUIStore(s => s.hwProfile);
@@ -184,8 +185,21 @@ export function ChatHeader({
             {tasks.filter(t => !t.completed).length > 0 && <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#6A829E] text-white text-[9px] font-black">{tasks.filter(t => !t.completed).length}</span>}
           </button>
           <button
-            onClick={() => useMemoryStore.getState().setShowMemmoPanel(v => !v)}
-            className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
+            onClick={() => {
+              useMemoryStore.getState().setMemmoPanelTab('inbox');
+              useMemoryStore.getState().setShowMemmoPanel(true);
+            }}
+            className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel && memmoPanelTab === 'inbox' ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
+            title="Forge Inbox"
+          >
+            <Inbox className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => {
+              if (memmoPanelTab === 'inbox') useMemoryStore.getState().setMemmoPanelTab('library');
+              useMemoryStore.getState().setShowMemmoPanel(v => !v);
+            }}
+            className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel && memmoPanelTab !== 'inbox' ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
             title="Memos & Memory (⌘⇧M)"
           >
             <BookOpen className="w-5 h-5" />

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen
+  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen, Inbox, Search
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -29,10 +29,51 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
 
   const [guideStatus, setGuideStatus] = useState<'installed' | 'deleted' | 'checking'>('checking');
+  const [ownerDraft, setOwnerDraft] = useState('');
+  const [semanticStatus, setSemanticStatus] = useState<{ documents: number; entities: number; facts: number; relations: number } | null>(null);
+  const [semanticSyncing, setSemanticSyncing] = useState(false);
 
   useEffect(() => {
     db.get('userDocsInstalled', false).then(v => setGuideStatus(v ? 'installed' : 'deleted'));
+    refreshSemanticStatus();
   }, []);
+
+  useEffect(() => {
+    const owners = Array.isArray(appSettings.inboxOwners) && appSettings.inboxOwners.length
+      ? appSettings.inboxOwners
+      : [{ id: 'primary', label: 'Primary' }, { id: 'shared', label: 'Shared' }];
+    setOwnerDraft(owners.map((owner: any) => `${owner.id}: ${owner.label}`).join('\n'));
+  }, [appSettings.inboxOwners]);
+
+  const saveInboxOwners = () => {
+    const owners = ownerDraft
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const [rawId, ...labelParts] = line.split(':');
+        const id = rawId.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+        const label = labelParts.join(':').trim() || id || 'Inbox';
+        return id ? { id, label } : null;
+      })
+      .filter((owner): owner is { id: string; label: string } => Boolean(owner));
+    setAppSettings((prev: any) => ({ ...prev, inboxOwners: owners.length ? owners : prev.inboxOwners }));
+  };
+
+  const refreshSemanticStatus = async () => {
+    const status = await invoke<{ documents: number; entities: number; facts: number; relations: number }>('get_semantic_layer_status').catch(() => null);
+    if (status) setSemanticStatus(status);
+  };
+
+  const syncSemanticLayer = async () => {
+    setSemanticSyncing(true);
+    try {
+      await invoke('sync_semantic_layer');
+      await refreshSemanticStatus();
+    } finally {
+      setSemanticSyncing(false);
+    }
+  };
 
   const handleRestoreGuide = async () => {
     if (!agentForgePath) return;
@@ -82,7 +123,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
           <button onClick={onClose} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
         </div>
         <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 mb-6 shrink-0">
-          {['profile', 'integrations'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : 'text-neutral-400'}`}>{tab === 'profile' ? 'My Profile' : 'Integrations'}</button>)}
+          {['profile', 'integrations', 'inbox'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : 'text-neutral-400'}`}>{tab === 'profile' ? 'My Profile' : tab === 'inbox' ? 'Inbox' : 'Integrations'}</button>)}
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
           {profileSettingsTab === 'profile' ? (
@@ -129,8 +170,91 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
             </div>
+          ) : profileSettingsTab === 'inbox' ? (
+            <div className="space-y-6">
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-5">
+                <div>
+                  <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><Inbox className="w-4 h-4 text-[#6A829E]" /> Forge Inbox</h4>
+                  <p className="text-xs text-neutral-500 font-medium">Pair share-sheet Shortcuts and relay tokens to the right local Agent Forge instance and capture owner.</p>
+                  <p className="text-[10px] text-neutral-400 mt-1">The desktop app reads the local <code>~/AgentForge/inbox/raw</code> folder; the relay should run on the same always-on Mac as this Agent Forge instance.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Instance ID</label>
+                    <input
+                      type="text"
+                      value={appSettings.forgeInstanceId || ''}
+                      onChange={e => setAppSettings((prev: any) => ({ ...prev, forgeInstanceId: e.target.value }))}
+                      placeholder="agent-forge-home"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Relay URL</label>
+                    <input
+                      type="text"
+                      value={appSettings.relayUrl || ''}
+                      onChange={e => setAppSettings((prev: any) => ({ ...prev, relayUrl: e.target.value }))}
+                      placeholder="http://macbook-air:8765"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Admin Token</label>
+                    <input
+                      type="password"
+                      value={appSettings.relayAdminToken || ''}
+                      onChange={e => setAppSettings((prev: any) => ({ ...prev, relayAdminToken: e.target.value }))}
+                      placeholder="optional admin token from ~/.agent-forge-relay.env"
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Capture Owners</label>
+                  <textarea
+                    value={ownerDraft}
+                    onChange={e => setOwnerDraft(e.target.value)}
+                    rows={5}
+                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono resize-none"
+                    placeholder={'primary: Primary\nshared: Shared'}
+                  />
+                  <p className="text-[10px] text-neutral-500 mt-2">One owner per line as <code>owner-id: Label</code>. Relay tokens should use the same owner IDs so each Shortcut lands in the right inbox.</p>
+                </div>
+
+                <button onClick={saveInboxOwners} className="w-full py-3 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all">
+                  Save Inbox Owners
+                </button>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-xs text-neutral-500 leading-relaxed">
+                Relay token routes use <code>ownerId:Owner Label:token:instanceId:shareId</code>. That is what connects a specific Shortcut/share action to the right Agent Forge instance and the right capture owner.
+              </div>
+            </div>
           ) : (
             <div className="space-y-6">
+
+              {/* Semantic Layer */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Database className="w-5 h-5 text-[#6A829E]" /></div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Semantic Layer</span>
+                    <span className="text-xs text-neutral-500 font-medium mt-0.5">Local facts, entities, and relationships extracted from grounded memory.</span>
+                    <span className="text-[10px] text-neutral-400 mt-1">
+                      {semanticStatus
+                        ? `${semanticStatus.documents} docs · ${semanticStatus.entities} entities · ${semanticStatus.facts} facts · ${semanticStatus.relations} relations`
+                        : 'Status unavailable until the Knowledge Core is ready.'}
+                    </span>
+                  </div>
+                </div>
+                <button onClick={syncSemanticLayer} disabled={semanticSyncing} className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#4A5D75] text-white hover:bg-[#3D4D61] disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                  {semanticSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                  {semanticSyncing ? 'Syncing' : 'Sync Now'}
+                </button>
+              </div>
 
               {/* Image Generation Tooling - Engineered UX */}
               <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-6">
@@ -282,6 +406,26 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {integrations.tavily?.enabled && (
                     <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
                        <input type="password" value={integrations.tavily?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, tavily: { ...prev.tavily, apiKey: e.target.value } }))} placeholder="Paste your tvly-... API key here" className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all" />
+                    </div>
+                 )}
+              </div>
+
+              {/* Brave Web Search Integration */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                     <div className="flex items-center gap-3">
+                         <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Search className="w-5 h-5 text-[#6A829E]" /></div>
+                         <div className="flex flex-col">
+                            <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Brave Search</span>
+                            <span className="text-xs text-neutral-500 font-medium mt-0.5">Optional second source-discovery provider. Agent Forge still reads result URLs before citing them.</span>
+                         </div>
+                     </div>
+                     <button onClick={() => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, enabled: !prev.brave?.enabled } }))} className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${integrations.brave?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}>{integrations.brave?.enabled ? 'Enabled' : 'Enable'}</button>
+                 </div>
+                 {integrations.brave?.enabled && (
+                    <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                       <input type="password" value={integrations.brave?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, apiKey: e.target.value } }))} placeholder="Paste your Brave Search API key" className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all" />
+                       <p className="text-[10px] text-neutral-500 mt-2">Brave and Tavily can run together; duplicate URLs are deduped before the source tray is shown.</p>
                     </div>
                  )}
               </div>

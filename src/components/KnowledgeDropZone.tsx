@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Upload, Loader2, FileText } from 'lucide-react';
 import { extractTextFromPDF } from '../services/pdfParser';
+import { buildGroundedMarkdown } from '../services/grounding';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -20,23 +21,6 @@ function sanitizeFileName(name: string): string {
     .replace(/[^a-zA-Z0-9\s-_]/g, '')
     .replace(/\s+/g, '-')
     .slice(0, 80);
-}
-
-function buildLibraryFrontmatter(title: string): string {
-  return [
-    '---',
-    'type: memmo',
-    `created: ${new Date().toISOString()}`,
-    'tags: [memmo, library]',
-    'entities: []',
-    'pinned: false',
-    'processed_by: scribe-v1',
-    `title: "${title.replace(/"/g, '\\"')}"`,
-    '---',
-    '',
-    `# ${title}`,
-    '',
-  ].join('\n');
 }
 
 export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: Props) {
@@ -91,7 +75,21 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
 
       const { invoke } = await import('@tauri-apps/api/core');
       const path = `${agentForgePath}/library/${baseName}-${Date.now()}.md`;
-      const content = buildLibraryFrontmatter(file.name) + text;
+      const content = buildGroundedMarkdown(
+        {
+          title: file.name,
+          type: 'library-document',
+          scope: 'library',
+          sourceKind: 'document_upload',
+          sourceLabel: file.name,
+          evidenceState: 'source_backed',
+          verification: 'verified',
+          confidence: 'high',
+          processor: 'knowledge-drop-zone',
+          tags: ['library', ext || 'document'],
+        },
+        `## Document Text\n${text}`
+      );
 
       const result = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
         path,

@@ -7,6 +7,7 @@ type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 import { FormattedText } from './ui/FormattedText';
+import { buildGroundedMarkdown } from '../services/grounding';
 
 /** Renders assistant markdown: code fences get a styled block, everything else goes to FormattedText. */
 function SpotlightMd({ text }: { text: string }) {
@@ -326,10 +327,31 @@ export default function SpotlightBar() {
         const now = new Date();
         const slug = slugify(tab?.title || command);
         const filename = `${now.toISOString().slice(0, 10)}-${slug}-${now.getTime()}.md`;
-        const frontmatter = `---\ntitle: "${(tab?.title || command).replace(/"/g, "'")}"\nsource: "${tab?.url || ''}"\nagent: "${selectedAgent?.name || 'default'}"\ndate: "${now.toISOString()}"\n---\n\n`;
         await invoke('write_memory', {
           path: `${kc.path}/memory/research/${filename}`,
-          content: frontmatter + `**${command}**\n\n${finalContent}`,
+          content: buildGroundedMarkdown(
+            {
+              title: tab?.title || command,
+              type: 'spotlight-capture',
+              scope: 'global',
+              createdAt: now.toISOString(),
+              agentId: selectedAgent?.id,
+              agentName: selectedAgent?.name || 'default',
+              sourceKind: 'browser_spotlight',
+              sourceLabel: tab?.title || 'Browser tab',
+              sourceUrl: tab?.url || '',
+              evidenceState: tab?.url ? 'source_backed' : 'mixed',
+              verification: tab?.url ? 'partially_verified' : 'needs_verification',
+              confidence: 'medium',
+              processor: 'spotlight',
+              tags: ['spotlight', 'research'],
+            },
+            `## Command
+${command}
+
+## Response
+${finalContent}`
+          ),
           commit_message: `spotlight: ${command.slice(0, 60)}`,
           agent_id: null, context_tokens: null, ram_state: null,
         });

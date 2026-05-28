@@ -44,6 +44,8 @@ import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
 import { CollapsibleBubble } from './components/ui/CollapsibleBubble';
 import { buildChannelContext, normalizeChatRecord, routeAgentsForChannel } from './services/channels';
+import { buildGroundedMarkdown } from './services/grounding';
+import { buildSemanticMemoryNotes, hasSemanticHits, type SemanticLayerResult } from './services/semantic';
 import {
   buildSourceNotes,
   dedupeSources,
@@ -235,6 +237,7 @@ export default function App() {
 
       // Start background file watcher for Knowledge Core indexing
       invoke('init_file_watcher').catch(() => {});
+      invoke('sync_semantic_layer').catch(() => {});
 
       } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { useUIStore.getState().setIsDbLoaded(true); }
     };
@@ -744,7 +747,25 @@ export default function App() {
       const firstLine = msg.content.replace(/^#+\s*/m, '').split(/[.!?\n]/)[0].trim().slice(0, 60) || 'Saved Note';
       const slug = firstLine.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) + '_' + Date.now();
       try {
-        const fileContent = `# ${firstLine}\n\nSaved from chat · ${new Date().toLocaleDateString()}\n\n---\n\n${msg.content}`;
+        const fileContent = buildGroundedMarkdown(
+          {
+            title: firstLine,
+            type: 'bookmarked-chat',
+            scope: 'library',
+            agentId: activeAssistant?.id,
+            agentName: activeAssistant?.name,
+            sourceKind: 'chat_bookmark',
+            sourceLabel: 'User bookmarked chat response',
+            derivedFrom: [_cid ? `chat:${_cid}` : 'chat'],
+            evidenceState: 'mixed',
+            verification: 'needs_verification',
+            confidence: 'medium',
+            processor: 'bookmark',
+            tags: ['bookmark', 'library'],
+          },
+          `## Saved Response
+${msg.content}`
+        );
         await invoke('write_memory', {
           path: `${_afp}/library/${slug}.md`,
           content: fileContent,
@@ -1152,8 +1173,53 @@ export default function App() {
           isAuth ? 'Tavily key rejected. Check Settings > Integrations.' : `Tavily search failed: ${msg}`
         );
       }
-    } else if (hasResearchIntent(input)) {
-      useUIStore.getState().showToast('Tavily is off. Using browser, URLs, and Wikipedia fallback.');
+    } else if (integrations.tavily?.enabled && !integrations.tavily?.apiKey) {
+      useUIStore.getState().showToast('Tavily is enabled but missing an API key.');
+    }
+
+    if (integrations.brave?.enabled && integrations.brave?.apiKey) {
+      try {
+        const braveData = await fetchWithRetry(
+          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&text_decorations=false`,
+          {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              'X-Subscription-Token': integrations.brave.apiKey,
+            },
+          },
+          1
+        );
+        for (const result of braveData?.web?.results ?? []) {
+          const read = result.url
+            ? await invoke<{ ok: boolean; text: string; error?: string }>('read_url_text', { url: result.url }).catch(() => ({ ok: false, text: '', error: 'URL text unavailable' }))
+            : { ok: false, text: '', error: 'URL text unavailable' };
+          sources.push({
+            title: result.title || result.url || 'Brave result',
+            url: result.url,
+            snippet: result.description || read.text.slice(0, 500),
+            text: read.ok ? read.text : result.description || '',
+          });
+        }
+      } catch (braveErr: any) {
+        const msg = braveErr?.message ?? String(braveErr);
+        const isAuth = msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('unauthorized');
+        useUIStore.getState().showToast(
+          isAuth ? 'Brave key rejected. Check Settings > Integrations.' : `Brave search failed: ${msg}`
+        );
+      }
+    } else if (integrations.brave?.enabled && !integrations.brave?.apiKey) {
+      useUIStore.getState().showToast('Brave Search is enabled but missing an API key.');
+    }
+
+    if (
+      hasResearchIntent(input)
+      && !integrations.tavily?.enabled
+      && !integrations.brave?.enabled
+      && directUrls.length === 0
+      && !wantsCurrentPage
+    ) {
+      useUIStore.getState().showToast('Search providers are off. Using browser, URLs, and Wikipedia fallback.');
     }
 
     const wikiQuery = query.split(' ').slice(0, 6).join(' ').trim();
@@ -1198,7 +1264,39 @@ export default function App() {
       : `${_agentForgePath}/memory/${agent.id}/research`;
     const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
     const sourceLines = sources.map((source, i) => `${i + 1}. [${source.title}](${source.url ?? source.path ?? ''})`).join('\n');
-    const content = `---\ntitle: "${title.replace(/"/g, "'")}"\nagent: "${String(agent.name ?? agent.id).replace(/"/g, "'")}"\nchannel: "${normalized.id}"\ndate: "${new Date().toISOString()}"\n---\n\n# ${title}\n\n## Question\n${question}\n\n## Answer\n${answer}\n\n## Sources\n${sourceLines}\n`;
+    const content = buildGroundedMarkdown(
+      {
+        title,
+        type: 'research-note',
+        scope: normalized.kind === 'channel' ? 'channel' : 'agent',
+        agentId: agent.id,
+        agentName: agent.name ?? agent.id,
+        channelId: normalized.kind === 'channel' ? normalized.id : undefined,
+        channelName: normalized.kind === 'channel' ? normalized.name : undefined,
+        sourceKind: 'web_research',
+        sourceLabel: 'Source-required research answer',
+        sourceUrls: sources.map(source => source.url).filter(Boolean) as string[],
+        sourcePaths: sources.map(source => source.path).filter(Boolean) as string[],
+        derivedFrom: [`chat:${normalized.id}`],
+        evidenceState: 'source_backed',
+        verification: 'partially_verified',
+        confidence: sources.length >= 2 ? 'high' : 'medium',
+        processor: 'source-required-research',
+        sourceCount: sources.length,
+        tags: ['research', 'sources', normalized.kind === 'channel' ? 'channel-memory' : 'agent-memory'],
+      },
+      `## Question
+${question}
+
+## Answer
+${answer}
+
+## Sources
+${sourceLines}
+
+## Source Excerpts
+${buildSourceNotes(sources, 900)}`
+    );
 
     const result = await invoke<{ blocked: boolean; commit: string | null; error?: string }>('write_memory', {
       path,
@@ -1237,7 +1335,34 @@ export default function App() {
     const contributionBlock = contributions.length > 0
       ? `\n\n## Invited Agent Notes\n${contributions.join('\n\n---\n\n')}`
       : '';
-    const content = `---\ntitle: "${title.replace(/"/g, "'")}"\nagent: "${String(agent.name ?? agent.id).replace(/"/g, "'")}"\nchannel: "${normalized.id}"\ndate: "${new Date().toISOString()}"\ntype: "autosaved-conversation"\n---\n\n# ${title}\n\n## User\n${question}\n\n## Response\n${answer}${contributionBlock}\n`;
+    const content = buildGroundedMarkdown(
+      {
+        title,
+        type: 'autosaved-conversation',
+        scope: normalized.kind === 'channel' ? 'channel' : 'agent',
+        agentId: agent.id,
+        agentName: agent.name ?? agent.id,
+        channelId: normalized.kind === 'channel' ? normalized.id : undefined,
+        channelName: normalized.kind === 'channel' ? normalized.name : undefined,
+        sourceKind: 'conversation',
+        sourceLabel: 'User conversation and assistant response',
+        derivedFrom: [`chat:${normalized.id}`],
+        evidenceState: 'mixed',
+        verification: 'needs_verification',
+        confidence: 'medium',
+        processor: 'conversation-autosave',
+        tags: ['conversation', normalized.kind === 'channel' ? 'channel-memory' : 'agent-memory'],
+      },
+      `## User
+${question}
+
+## Response
+${answer}
+${contributionBlock}
+
+## Interpretation Boundary
+The user message is first-party context. The assistant response and invited-agent notes are work product unless separately backed by research sources or raw captures.`
+    );
 
     const result = await invoke<{ blocked: boolean; commit: string | null; error?: string }>('write_memory', {
       path,
@@ -1307,10 +1432,12 @@ export default function App() {
         if (toolUsed === 'Knowledge Search') {
              try {
                  let ragData = "No relevant documents found in Knowledge Core.";
+                 let semanticData = "No semantic memory map matches.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
+                     const cleanQuery = userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim();
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
                          'search_knowledge_semantic', {
-                           query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(),
+                           query: cleanQuery,
                            agentId: _primaryAssistant?.id ?? null,
                            channelId: _normalizedChat.kind === 'channel' ? _normalizedChat.id : null,
                            maxResults: _hwProfile?.rag_results ?? 5,
@@ -1322,8 +1449,25 @@ export default function App() {
                          ragData = hits.map((h: any, i: number) => `[${i + 1}] ${h.title}\n${h.snippet}`).join('\n\n---\n\n');
                          hits.forEach((h: any) => foundSources.push({ title: h.title, path: h.path, snippet: h.snippet }));
                      }
+                     const semanticResult = await invoke<SemanticLayerResult>(
+                       'search_semantic_layer', {
+                         query: cleanQuery,
+                         agentId: _primaryAssistant?.id ?? null,
+                         channelId: _normalizedChat.kind === 'channel' ? _normalizedChat.id : null,
+                         maxResults: 8,
+                       }
+                     ).catch(() => null);
+                     if (semanticResult && hasSemanticHits(semanticResult)) {
+                       semanticData = buildSemanticMemoryNotes(semanticResult);
+                       for (const hit of semanticResult.facts ?? []) {
+                         foundSources.push({ title: hit.title, path: hit.path, snippet: hit.fact });
+                       }
+                       for (const hit of semanticResult.relations ?? []) {
+                         foundSources.push({ title: hit.title, path: hit.path, snippet: `${hit.source} --${hit.relation}--> ${hit.target}` });
+                       }
+                     }
                  }
-                 toolData += `\n\n[SYSTEM NOTE: KNOWLEDGE SEARCH RESULTS]\n${ragData}\n[END SEARCH]`;
+                 toolData += `\n\n[SYSTEM NOTE: KNOWLEDGE SEARCH RESULTS]\n${ragData}\n\n[SYSTEM NOTE: SEMANTIC MEMORY MAP]\n${semanticData}\n\n[LOCAL MEMORY RULE]\nUse semantic facts/relations to understand what the user has given Agent Forge over time. Prefer user-provided, source-backed, and capture-backed facts over agent-inferred notes. Cite local facts as [[Title]]. If memory is low-confidence, stale, inferred, or conflicting, say so and avoid overstating it.\n[END SEARCH]`;
              } catch (e: any) {
                  console.error('Local RAG failed:', e);
                  toolData += `\n\n[SYSTEM NOTE: LOCAL RAG FAILED]\nError: ${e.message}\n[END SEARCH]`;
@@ -1335,7 +1479,7 @@ export default function App() {
                 if (researchSources.length > 0) {
                     toolData += `\n\n[SYSTEM NOTE: VERIFIED WEB/RESEARCH SOURCES]\n${buildSourceNotes(researchSources)}\n\n[SOURCE RULE]\nAnswer the user's actual question directly and concisely. Cite every factual web/current claim using [Source: Title](URL). Do not write a long dossier unless the user explicitly asks for a report. If the sources are weak or conflict, say so.\n[END SEARCH]`;
                 } else {
-                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo verified sources were found. Do not answer factual/current claims as verified. Tell the user you could not verify the answer with sources and ask for a URL, a source, or Tavily setup if needed.\n[END SEARCH]`;
+                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo verified sources were found. Do not answer factual/current claims as verified. Tell the user you could not verify the answer with sources and ask for a URL, a source, or search-provider setup if needed.\n[END SEARCH]`;
                 }
             } catch (e: any) {
                 console.error('Web search failed:', e);

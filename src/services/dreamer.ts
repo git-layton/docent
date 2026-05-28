@@ -46,6 +46,10 @@ Required schema:
 Rules:
 - Only merge files that clearly share the same specific topic
 - Never merge files from different categories (goals vs research vs memos)
+- Preserve grounding. Do not remove or invent source_urls, source_paths, raw_path, capture_id, evidence_state, verification, confidence, or derived_from metadata.
+- Merged or updated markdown must include a Grounding section that carries forward the original source paths and explains whether the result is user-provided, source-backed, capture-backed, agent-inferred, mixed, or unverified.
+- Never upgrade verification or confidence unless the source text itself justifies it. If evidence conflicts, keep the conflict in an "Open Questions / Conflicts" section.
+- Prune only when the durable information is already preserved in another file or is clearly obsolete.
 - Descriptions must be plain English, not technical ("Combined 3 voice memos about Project Bakery" not "merged files")
 - For merge target_path, use a relative path inside ${memoryPrefix} — do NOT use an absolute path
 - Never include a source file's path as the target_path of its own merge

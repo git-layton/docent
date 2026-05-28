@@ -15,6 +15,7 @@
         { "url": "https://api.openai.com/*" },
         { "url": "https://generativelanguage.googleapis.com/*" },
         { "url": "https://api.tavily.com/*" },
+        { "url": "https://api.search.brave.com/*" },
         { "url": "https://en.wikipedia.org/*" },
         { "url": "https://cdnjs.cloudflare.com/*" },
         { "url": "https://www.google.com/*" },

@@ -15,6 +15,10 @@ interface SettingsStore {
     imageProvider: string;
     imageModelId: string;
     imageEndpoint: string;
+    forgeInstanceId: string;
+    relayUrl: string;
+    relayAdminToken: string;
+    inboxOwners: Array<{ id: string; label: string }>;
   };
 
   // Profile settings modal
@@ -73,6 +77,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   userProfile: '',
   integrations: {
     tavily: { enabled: false, apiKey: '' },
+    brave: { enabled: false, apiKey: '' },
     googleCalendar: { connected: false },
     openai: { apiKey: '' },
     google: { apiKey: '' },
@@ -83,6 +88,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     imageProvider: 'none',
     imageModelId: '',
     imageEndpoint: '',
+    forgeInstanceId: 'agent-forge-local',
+    relayUrl: '',
+    relayAdminToken: '',
+    inboxOwners: [
+      { id: 'primary', label: 'Primary' },
+      { id: 'shared', label: 'Shared' },
+    ],
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,
@@ -134,6 +146,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       imageProvider: 'none',
       imageModelId: '',
       imageEndpoint: '',
+      forgeInstanceId: 'agent-forge-local',
+      relayUrl: '',
+      relayAdminToken: '',
+      inboxOwners: [
+        { id: 'primary', label: 'Primary' },
+        { id: 'shared', label: 'Shared' },
+      ],
     });
     set(s => ({
       models,

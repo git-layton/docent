@@ -128,6 +128,16 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   const activeTools = Object.keys(agent.tools ?? {}).filter(k => agent.tools[k]);
   if (activeTools.length > 0) prompt += `[ACTIVE TOOLS]\n${activeTools.join(', ')}\n\n`;
 
+  prompt += `[GROUNDING RULES]
+- Treat the Knowledge Core as non-parametric memory: use retrieved notes, library files, channel memory, and pinned context to update your working model for this answer.
+- Keep provenance attached. Distinguish user-provided facts, source-backed facts, raw captures, and agent-inferred work product.
+- Use semantic facts/relations when provided to track entities, preferences, decisions, failures, and prior attempts across time.
+- If retrieved memories conflict, prefer newer source-backed or user-provided evidence and state the conflict instead of smoothing it away.
+- Do not upgrade low-confidence or agent-inferred memory into certain truth. Say what is known, what is inferred, and what still needs verification.
+- For planning or building, use retrieved memories as constraints and history so the user does not have to repeat what was already tried.
+
+`;
+
   if (channelContext?.kind === 'channel') {
     prompt += `[CHANNEL]\nName: ${channelContext.title}\nGoal: ${channelContext.goal || 'Not set'}\nInvited agents: ${(channelContext.participants ?? []).map((p: any) => `${p.name}${p.description ? ` (${p.description})` : ''}`).join(', ')}\nUse invited agent contributions when provided, but return one clear final answer.\n\n`;
   }
@@ -142,7 +152,7 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   }
 
   if (agentPinnedMessages && agentPinnedMessages.length > 0) {
-    prompt += `[AGENT MEMORIES (KNOWLEDGE BASE)]\nRemember these core facts the user explicitly pinned for you:\n${agentPinnedMessages.map((m: any) => `- ${m}`).join('\n')}\n\n`;
+    prompt += `[PINNED AGENT CONTEXT]\nThese are high-priority memories or saved snippets for this agent. Use them, but still respect provenance and uncertainty:\n${agentPinnedMessages.map((m: any) => `- ${m}`).join('\n')}\n\n`;
   }
 
   if (isDeepThinking) {
@@ -166,7 +176,7 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   if (agent.trainingDocs?.length > 0) prompt += `\n\n${agent.trainingDocs.map((d: any) => `[KNOWLEDGE BASE: ${d.name}]\n${d.content}`).join('\n\n')}`;
   prompt += `\n[LIBRARY SAVE]\nTo save content to the user's Library, output a \`\`\`save codeblock with JSON: {"title": "...", "content": "..."}. Use this when the user asks you to "save this", "take a note", "add to my library", or when you generate a highly valuable artifact (code, plan, document) that the user says is important or will need later. If the user says something like "this is exactly what I needed" about a long response, naturally suggest they bookmark it using the 🔖 icon.\n`;
   prompt += `\n[CALENDAR EVENTS]\nWhen the user mentions a birthday, anniversary, or any recurring annual event, output a \`\`\`event codeblock with JSON: {"type": "birthday"|"anniversary"|"custom", "name": "Full Name", "month": <1-12>, "day": <1-31>, "year": <optional birth year>}. When the user mentions a one-time appointment, deadline, or dated event, output a \`\`\`event codeblock with JSON: {"type": "date", "title": "...", "dueDate": "YYYY-MM-DD", "details": "<optional>"}. Always output the block immediately without asking for confirmation first.\n`;
-  prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search/research results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\nNever fabricate a citation. If a current/factual web answer cannot be verified from provided sources, say it could not be verified instead of guessing.`;
+  prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search/research results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\n- For grounded memories, preserve the evidence state in your wording when it matters: source-backed, user-provided, capture-backed, or agent-inferred.\nNever fabricate a citation. If a current/factual web answer cannot be verified from provided sources, say it could not be verified instead of guessing.`;
 
   return prompt;
 };
