@@ -37,6 +37,31 @@ export const normalizeChatRecord = (chat: any, fallbackAgentId = 'f-default'): C
   };
 };
 
+export const promoteChatToChannel = (
+  chat: any,
+  fallbackAgentId = 'f-default',
+  options: { name?: string; goal?: string; participantAgentIds?: string[] } = {},
+): ChannelChat => {
+  const normalized = normalizeChatRecord(chat, fallbackAgentId);
+  const primaryAgentId = normalized.primaryAgentId ?? normalized.folderId ?? fallbackAgentId;
+  const participantAgentIds = unique([
+    primaryAgentId,
+    ...(normalized.participantAgentIds ?? []),
+    ...(options.participantAgentIds ?? []),
+  ]);
+
+  return normalizeChatRecord({
+    ...normalized,
+    kind: 'channel',
+    folderId: primaryAgentId,
+    primaryAgentId,
+    participantAgentIds,
+    name: options.name ?? (normalized.name === 'New Chat' ? 'New Channel' : normalized.name),
+    goal: options.goal ?? normalized.goal ?? '',
+    updatedAt: Date.now(),
+  }, primaryAgentId);
+};
+
 export const chatIncludesAgent = (chat: any, agentId: string) => {
   const normalized = normalizeChatRecord(chat, agentId);
   if (normalized.kind === 'channel') {

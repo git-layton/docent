@@ -20,7 +20,7 @@ Agent Forge is not trying to be a full AI operating system in this release. The 
 ## Core Features
 
 - **Custom agents**: create role-specific assistants with prompts, avatars, tools, and always-on docs.
-- **Channels**: shared rooms where invited agents collaborate around a goal while keeping channel memory separate from personal agent memory.
+- **Channels**: shared rooms where invited agents collaborate around a goal while keeping channel memory separate from personal agent memory. Existing DMs can be promoted into channels when a conversation becomes a project.
 - **Forge Inbox**: generic capture log for incoming shares, with configurable capture owners and raw originals preserved before processing.
 - **Spotlight**: press `Cmd+Shift+F` to open a floating agent over the current browser tab.
 - **Knowledge Core**: local Markdown memory in `~/AgentForge`, backed by Git.

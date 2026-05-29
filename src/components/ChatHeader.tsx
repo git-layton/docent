@@ -12,7 +12,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
-import { normalizeChatRecord } from '../services/channels';
+import { normalizeChatRecord, promoteChatToChannel } from '../services/channels';
 
 interface ChatHeaderProps {
   dropdownRef: React.RefObject<HTMLDivElement | null>;
@@ -84,6 +84,17 @@ export function ChatHeader({
       : [...ids, agentId];
     const safeNext = next.length === 0 ? [normalizedChat.primaryAgentId ?? activeFolderId] : next;
     updateActiveChat({ participantAgentIds: safeNext });
+  };
+
+  const promoteActiveChatToChannel = () => {
+    if (!activeChatId || !activeChat || !normalizedChat || normalizedChat.kind === 'channel') return;
+    const nextName = normalizedChat.name === 'New Chat'
+      ? `${activeAssistant?.name ?? 'Agent'} Channel`
+      : normalizedChat.name;
+    const promoted = promoteChatToChannel(activeChat, activeFolderId, { name: nextName });
+    useChatStore.getState().setChats((prev: any[]) => prev.map((chat: any) => chat.id === activeChatId ? promoted : chat));
+    useUIStore.getState().setIsAgentDropdownOpen(true);
+    _onToast('Chat promoted to a channel. Invite specialist agents from the header.');
   };
 
   return (
@@ -164,6 +175,15 @@ export function ChatHeader({
         </div>
 
         <div className="flex items-center gap-1">
+          {!showPlanner && normalizedChat && !isChannel && (
+            <button
+              onClick={promoteActiveChatToChannel}
+              className="p-2 rounded-lg transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-[#4A5D75]"
+              title="Promote this chat to a channel"
+            >
+              <Hash className="w-5 h-5" />
+            </button>
+          )}
           {ramStats && ramStats.available_mb < (hwProfile?.hud_show_mb ?? 2000) && (
             <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
               ramStats.available_mb < (hwProfile?.hud_warn_mb ?? 1200) ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :

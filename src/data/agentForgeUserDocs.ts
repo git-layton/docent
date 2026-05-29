@@ -72,6 +72,7 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 - Start a new chat with the + button
 - Use a DM when you want one persistent agent to keep its own specialist memory
 - Use a Channel when you want multiple invited agents to collaborate around one goal
+- Start simple in a DM; click the # button in the header to promote the active chat into a Channel when it becomes a project or needs specialists
 - In a Channel, invited agents can contribute collapsible notes while the primary agent gives the clean final answer
 - Pin important messages to Context (⭐) — pinned content is injected into every future message with that agent
 - Use /memo to save thoughts to your Knowledge Core without leaving the chat
@@ -81,6 +82,7 @@ Channels are collaborative rooms with shared memory. An agent can remain standal
 
 - Channel memory is saved under \`~/AgentForge/memory/channels/\`
 - Agent memory stays under that agent's own memory folder
+- Promoting a DM to a Channel preserves the existing message thread and adds channel metadata
 - Knowledge Search in a channel can use agent memory, channel memory, and the shared Library
 - Dream Cycle can refine channel memory later without erasing the original audit trail
 
