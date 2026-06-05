@@ -1,5 +1,7 @@
-import { X, Zap, Loader2, CheckCircle2, PlusCircle } from 'lucide-react';
+import { X, Zap, Loader2, CheckCircle2, PlusCircle, Server, Cpu, ShieldCheck } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
+import { getLocalModelRecommendation, type RecommendedLocalModel } from '../services/modelRecommendations';
 
 interface ModelWizardModalProps {
   onToggleModelSelection: (m: any) => void;
@@ -23,7 +25,25 @@ export function ModelWizardModal({
   const isFetchingModels = useSettingsStore(s => s.isFetchingModels);
   const fetchModelsError = useSettingsStore(s => s.fetchModelsError);
   const pendingModelSelections = useSettingsStore(s => s.pendingModelSelections);
-  const { setEditingModel, setWizardStep, setModelSearchQuery, setShowModelWizard } = useSettingsStore.getState();
+  const ramStats = useUIStore(s => s.ramStats);
+  const hwProfile = useUIStore(s => s.hwProfile);
+  const { setEditingModel, setWizardStep, setModelSearchQuery, setShowModelWizard, setFetchedModels, setPendingModelSelections, setFetchModelsError } = useSettingsStore.getState();
+  const recommendation = getLocalModelRecommendation(ramStats?.total_mb ?? hwProfile?.total_mb ?? null);
+
+  const applyRecommendation = (option: RecommendedLocalModel) => {
+    setEditingModel({
+      name: option.name,
+      provider: option.provider,
+      modelId: option.modelId,
+      endpoint: option.endpoint,
+      apiKey: '',
+      contextLimit: option.contextLimit,
+    });
+    setFetchedModels([]);
+    setPendingModelSelections([]);
+    setFetchModelsError(null);
+    setModelSearchQuery('');
+  };
 
   const onClose = () => { setShowModelWizard(false); setWizardStep(3); };
   return (
@@ -34,10 +54,54 @@ export function ModelWizardModal({
           <button onClick={onClose} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
         </div>
 
-        {/* Hidden Local Wizard Steps Commented Out For Future Use */}
+        {/* Hardware-aware local model guidance */}
         {wizardStep === 3 && (
           <div className="flex flex-col flex-1 animate-in slide-in-from-right-2 duration-300 space-y-4">
             <h4 className="text-sm font-black mb-2 uppercase tracking-widest text-neutral-400 shrink-0">Model Connection</h4>
+
+            <div className="rounded-2xl border border-[#D6E0EA] dark:border-[#2C3E50]/60 bg-[#F7FAFC] dark:bg-[#1E2B38]/20 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8]">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Hardware Recommendation</span>
+                  </div>
+                  <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 mt-1">{recommendation.headline}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{recommendation.strategy}</p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-[10px] font-black uppercase tracking-widest text-[#6A829E] shrink-0">
+                  {recommendation.ramLabel}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                {recommendation.options.slice(0, 3).map(option => {
+                  const Icon = option.provider === 'native' ? Cpu : Server;
+                  const selected = editingModel.provider === option.provider && editingModel.modelId === option.modelId;
+                  return (
+                    <button
+                      key={`${option.provider}-${option.modelId}`}
+                      onClick={() => applyRecommendation(option)}
+                      className={`w-full text-left p-3 rounded-xl border transition-all ${selected ? 'border-[#4A5D75] bg-white dark:bg-neutral-900 shadow-sm' : 'border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-950/40 hover:border-[#899AB5]'}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <Icon className="w-4 h-4 mt-0.5 text-[#6A829E] shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-black text-neutral-800 dark:text-neutral-100 truncate">{option.name}</p>
+                            <p className="text-[10px] font-mono text-neutral-500 truncate">{option.modelId} · {option.contextLimit.toLocaleString()} ctx</p>
+                            <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">{option.fit}</p>
+                          </div>
+                        </div>
+                        {selected ? <CheckCircle2 className="w-4 h-4 text-[#7A9E8D] shrink-0" /> : <span className="text-[9px] font-black uppercase tracking-widest text-[#4A5D75] shrink-0">{option.label}</span>}
+                      </div>
+                      <p className="text-[9px] text-neutral-400 font-mono mt-2 truncate">{option.setupHint}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-relaxed">{recommendation.caveat}</p>
+            </div>
 
             <select value={editingModel.provider} onChange={onProviderChange} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold shrink-0">
               <option value="ollama">Local Ollama</option>

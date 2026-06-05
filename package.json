@@ -14,10 +14,11 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "test": "npm run memory:test",
+    "test": "npm run memory:test && npm run model:test",
     "memory:test": "node --experimental-strip-types scripts/test-memory-policy.mjs",
+    "model:test": "node --experimental-strip-types scripts/test-model-recommendations.mjs",
     "relay:test": "node scripts/test-forge-relay.mjs",
-    "release:check": "npm run check && npm run build && npm run memory:test && npm run relay:test"
+    "release:check": "npm run check && npm run build && npm run memory:test && npm run model:test && npm run relay:test"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",

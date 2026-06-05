@@ -39,6 +39,7 @@ interface UIStore {
   // System hardware
   ramStats: { total_mb: number; used_mb: number; available_mb: number } | null;
   hwProfile: {
+    total_mb?: number;
     critical_mb: number;
     cooldown_mb: number;
     recovery_mb: number;

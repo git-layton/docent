@@ -5,9 +5,11 @@ import {
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
+import { useUIStore } from '../store/useUIStore';
 import { invoke } from '@tauri-apps/api/core';
 import { db } from '../services/database';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
+import { getLocalModelRecommendation } from '../services/modelRecommendations';
 
 export function ProfileSettingsModal() {
   const userProfile = useSettingsStore(s => s.userProfile);
@@ -22,6 +24,9 @@ export function ProfileSettingsModal() {
     setSelectedModelId, setModels } = useSettingsStore.getState();
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
+  const ramStats = useUIStore(s => s.ramStats);
+  const hwProfile = useUIStore(s => s.hwProfile);
+  const modelRecommendation = getLocalModelRecommendation(ramStats?.total_mb ?? hwProfile?.total_mb ?? null);
 
   const [guideStatus, setGuideStatus] = useState<'installed' | 'deleted' | 'checking'>('checking');
   const [ownerDraft, setOwnerDraft] = useState('');
@@ -223,6 +228,46 @@ export function ProfileSettingsModal() {
                   <button onClick={() => openModelWizard('openai')} className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#4A5D75] text-white hover:bg-[#3D4D61] transition-all flex items-center gap-2">
                     <Plus className="w-3.5 h-3.5" /> Add Model
                   </button>
+                </div>
+
+                <div className="mb-5 p-4 rounded-2xl border border-[#D6E0EA] dark:border-[#2C3E50]/60 bg-[#F7FAFC] dark:bg-[#1E2B38]/20">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#6A829E]">Recommended for this computer</p>
+                      <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 mt-1">{modelRecommendation.headline}</p>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{modelRecommendation.strategy}</p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-[10px] font-black uppercase tracking-widest text-[#6A829E] shrink-0">
+                      {modelRecommendation.ramLabel}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {modelRecommendation.options.slice(0, 2).map(option => (
+                      <button
+                        key={`${option.provider}-${option.modelId}`}
+                        onClick={() => {
+                          setEditingModel({
+                            name: option.name,
+                            provider: option.provider,
+                            modelId: option.modelId,
+                            endpoint: option.endpoint,
+                            apiKey: '',
+                            contextLimit: option.contextLimit,
+                          });
+                          setFetchedModels([]);
+                          setPendingModelSelections([]);
+                          setFetchModelsError(null);
+                          setModelSearchQuery('');
+                          setWizardStep(3);
+                          setShowModelWizard(true);
+                        }}
+                        className="px-3 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-left hover:border-[#899AB5] transition-all"
+                      >
+                        <span className="block text-[10px] font-black text-neutral-800 dark:text-neutral-100">{option.name}</span>
+                        <span className="block text-[9px] font-mono text-neutral-500">{option.modelId}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
