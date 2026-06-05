@@ -1614,64 +1614,89 @@ The user message is first-party context. The assistant response and invited-agen
           channelContext: _channelContext,
       });
 
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
-
-      if (toolUsed === 'Web Search' && foundSources.length > 0) {
-        const saved = await autosaveResearchNote({
-          chat: _normalizedChat,
-          agent: _primaryAssistant,
-          question: userMsg.content,
-          answer: response,
-          sources: foundSources,
-        });
-        if (saved) {
-          supportBubbles.push({
-            id: generateId('bubble'),
-            role: 'bot',
-            content: `Saved this source-backed answer to Knowledge Core:\n\n${saved.path}`,
-            agentId: _primaryAssistant?.id,
-            agentName: _primaryAssistant?.name,
-            bubbleType: 'research',
-            bubbleTitle: 'Research autosaved',
-            bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
-            sources: foundSources,
-            isPinned: false,
-            timestamp: Date.now(),
-          });
-        }
-      } else if (!isImageRequest) {
-        const saved = await autosaveConversationNote({
-          chat: _normalizedChat,
-          agent: _primaryAssistant,
-          question: userMsg.content,
-          answer: response,
-          contributions: contributionNotes,
-        });
-        if (saved) {
-          supportBubbles.push({
-            id: generateId('bubble'),
-            role: 'bot',
-            content: `Saved this exchange to Knowledge Core:\n\n${saved.path}`,
-            agentId: _primaryAssistant?.id,
-            agentName: _primaryAssistant?.name,
-            bubbleType: 'memory_suggestion',
-            bubbleTitle: 'Memory autosaved',
-            bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
-            isPinned: false,
-            timestamp: Date.now(),
-          });
-        }
+      const rawModelText = String(response || currentText || '');
+      const visibleModelText = rawModelText.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim();
+      let finalResponse = rawModelText.trim()
+        ? rawModelText
+        : 'I did not receive a text response from the selected model. Try again, or switch to another connected model.';
+      if (rawModelText.trim() && !visibleModelText && /<think>/i.test(rawModelText)) {
+        const closedThink = rawModelText.includes('</think>') ? rawModelText : `${rawModelText}\n</think>`;
+        finalResponse = `${closedThink}\n\nI finished thinking, but the model did not return a visible answer. Try again, or switch to another connected model.`;
       }
+      const hasVisibleModelAnswer = Boolean(rawModelText.trim() && (visibleModelText || !/<think>/i.test(rawModelText)));
 
-      if (supportBubbles.length > 0) {
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: finalResponse, isStreaming: false } : m) }));
+
+      const appendSupportBubbles = (bubbles: any[]) => {
+        if (bubbles.length === 0) return;
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
           ...prev,
-          [chatId]: [...(prev[chatId] ?? []), ...supportBubbles],
+          [chatId]: [
+            ...(prev[chatId] ?? []),
+            ...bubbles.filter((bubble: any) => !(prev[chatId] ?? []).some((m: any) => m.id === bubble.id)),
+          ],
         }));
+      };
+
+      appendSupportBubbles([...supportBubbles]);
+
+      if (hasVisibleModelAnswer) {
+        void (async () => {
+          try {
+            if (toolUsed === 'Web Search' && foundSources.length > 0) {
+              const saved = await autosaveResearchNote({
+                chat: _normalizedChat,
+                agent: _primaryAssistant,
+                question: userMsg.content,
+                answer: finalResponse,
+                sources: foundSources,
+              });
+              if (saved) {
+                appendSupportBubbles([{
+                  id: generateId('bubble'),
+                  role: 'bot',
+                  content: `Saved this source-backed answer to Knowledge Core:\n\n${saved.path}`,
+                  agentId: _primaryAssistant?.id,
+                  agentName: _primaryAssistant?.name,
+                  bubbleType: 'research',
+                  bubbleTitle: 'Research autosaved',
+                  bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
+                  sources: foundSources,
+                  isPinned: false,
+                  timestamp: Date.now(),
+                }]);
+              }
+            } else if (!isImageRequest) {
+              const saved = await autosaveConversationNote({
+                chat: _normalizedChat,
+                agent: _primaryAssistant,
+                question: userMsg.content,
+                answer: finalResponse,
+                contributions: contributionNotes,
+              });
+              if (saved) {
+                appendSupportBubbles([{
+                  id: generateId('bubble'),
+                  role: 'bot',
+                  content: `Saved this exchange to Knowledge Core:\n\n${saved.path}`,
+                  agentId: _primaryAssistant?.id,
+                  agentName: _primaryAssistant?.name,
+                  bubbleType: 'memory_suggestion',
+                  bubbleTitle: 'Memory autosaved',
+                  bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
+                  isPinned: false,
+                  timestamp: Date.now(),
+                }]);
+              }
+            }
+          } catch (e) {
+            console.warn('[Memory] Autosave failed without blocking response:', e);
+          }
+        })();
       }
 
       if (_generationMode === 'code' || _generationMode === 'doc') {
-         const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
+         const contentWithoutThink = finalResponse.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
          const finalMatch = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)```/);
          if (finalMatch) {
              const lang = (finalMatch[1] || '').toLowerCase();
