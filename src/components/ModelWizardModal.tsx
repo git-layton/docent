@@ -34,7 +34,7 @@ export function ModelWizardModal({
     setEditingModel({
       name: option.name,
       provider: option.provider,
-      modelId: option.modelId,
+      modelId: '',
       endpoint: option.endpoint,
       apiKey: '',
       contextLimit: option.contextLimit,
@@ -42,7 +42,7 @@ export function ModelWizardModal({
     setFetchedModels([]);
     setPendingModelSelections([]);
     setFetchModelsError(null);
-    setModelSearchQuery('');
+    setModelSearchQuery(option.modelId.replace(/^local-/, '').replace(/-instruct|-reliable|-fast/g, ''));
   };
 
   const onClose = () => { setShowModelWizard(false); setWizardStep(3); };
@@ -88,7 +88,7 @@ export function ModelWizardModal({
                           <Server className="w-4 h-4 mt-0.5 text-[#6A829E] shrink-0" />
                           <div className="min-w-0">
                             <p className="text-xs font-black text-neutral-800 dark:text-neutral-100 truncate">{option.name}</p>
-                            <p className="text-[10px] font-mono text-neutral-500 truncate">{option.modelId} · {option.contextLimit.toLocaleString()} ctx</p>
+                            <p className="text-[10px] font-mono text-neutral-500 truncate">fetch loaded model from LM Studio · {option.contextLimit.toLocaleString()} ctx</p>
                             <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">{option.fit}</p>
                           </div>
                         </div>

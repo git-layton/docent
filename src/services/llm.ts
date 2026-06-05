@@ -117,6 +117,7 @@ export const validateModel = async (model: any) => {
   try {
     const { provider, endpoint, apiKey } = model;
     if (provider === 'web-llm') return true;
+    if (validateLocalGenerationConfig(model)) return false;
 
     let url, headers: any = {};
 
@@ -136,12 +137,62 @@ export const validateModel = async (model: any) => {
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    await fetchWithRetry(url, { method: 'GET', headers }, 1);
+    const data = await fetchWithRetry(url, { method: 'GET', headers }, 1);
+    if (provider === 'lmstudio') {
+      return extractModelIdsFromListResponse(data).includes(String(model.modelId || '').trim());
+    }
     return true;
   } catch (err: any) {
     console.error(`Validation failed for ${model.id}:`, err.message);
     return false;
   }
+};
+
+export const extractModelIdsFromListResponse = (data: any) =>
+  (data?.data ?? data?.models ?? [])
+    .map((model: any) => String(model?.id ?? model?.name ?? model ?? '').trim())
+    .filter(Boolean);
+
+export const isPlaceholderLocalModelId = (modelId: string) => {
+  const id = String(modelId || '').trim().toLowerCase();
+  return /^local-(?:model|gguf|\d+b|[a-z0-9.-]*instruct|[a-z0-9.-]*reliable|[a-z0-9.-]*fast)$/.test(id);
+};
+
+export const validateLocalGenerationConfig = (model: any) => {
+  if (!model) return null;
+  if (model.provider === 'ollama' || model.provider === 'native') {
+    return 'This local model path is no longer supported in Agent Forge. Reconnect local chat through LM Studio in Settings > Models.';
+  }
+  if (model.provider !== 'lmstudio') return null;
+  const endpoint = String(model.endpoint || '').trim();
+  const modelId = String(model.modelId || '').trim();
+  if (!endpoint) {
+    return 'LM Studio is selected, but the endpoint is empty. Start the LM Studio local server and use http://127.0.0.1:1234/v1.';
+  }
+  if (!modelId || isPlaceholderLocalModelId(modelId)) {
+    return 'LM Studio needs the exact loaded model ID. In Settings > Models, start the LM Studio local server, click Fetch Models, then choose the model LM Studio returns.';
+  }
+  return null;
+};
+
+export const explainGenerationError = (err: any, modelConfig: any) => {
+  const raw = String(err?.message ?? err ?? 'Unknown generation error');
+  if (modelConfig?.provider !== 'lmstudio') return raw;
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('failed to fetch') || lower.includes('load failed') || lower.includes('cors/network') || lower.includes('network')) {
+    return 'LM Studio is not reachable at the configured endpoint. Open LM Studio, load a chat/instruct model, start the Local Server, and confirm the endpoint is http://127.0.0.1:1234/v1.';
+  }
+  if (lower.includes('model') && (lower.includes('not found') || lower.includes('does not exist') || lower.includes('not loaded'))) {
+    return 'LM Studio rejected the model ID. Open Settings > Models, click Fetch Models for LM Studio, and select the exact model ID returned by the running LM Studio server.';
+  }
+  if (lower.includes('no models') || lower.includes('load a model')) {
+    return 'LM Studio is running, but no model appears to be loaded. Load a chat/instruct model in LM Studio, start the Local Server, then try again.';
+  }
+  if (raw === 'CONTEXT_LIMIT_EXCEEDED' || lower.includes('context')) {
+    return 'The LM Studio request exceeded the model context window. Use a smaller context limit in Settings > Models or send a shorter message.';
+  }
+  return `LM Studio generation failed: ${raw}`;
 };
 
 export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, channelContext }: any) => {
@@ -216,6 +267,8 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
 export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, channelContext, integrations, runIntegrationTools }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
+  const localConfigError = validateLocalGenerationConfig(modelConfig);
+  if (localConfigError) throw new Error(localConfigError);
 
   const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop()?.content || '';
   const integrationContext = runIntegrationTools
@@ -282,7 +335,8 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
     body = { contents: safeMessages.map(m => formatMessage(m, 'google')), systemInstruction: { parts: [{ text: fullSystem }] } };
 
     // Google Preview block does not support stream. We fallback to simulating it after fetch completes.
-    const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal);
+    const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal)
+      .catch((err: any) => { throw new Error(explainGenerationError(err, modelConfig)); });
     const fullText = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response received.');
 
     if (onChunk) {
@@ -310,7 +364,8 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
   }
 
   // Pure SSE Streaming logic
-  const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal, true);
+  const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal, true)
+    .catch((err: any) => { throw new Error(explainGenerationError(err, modelConfig)); });
 
   if (!res.body) {
       const data = await res.json();
@@ -365,6 +420,10 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
       }
   } finally {
       reader.releaseLock();
+  }
+
+  if (!fullText.trim() && provider === 'lmstudio') {
+    throw new Error('LM Studio returned an empty response. Confirm the loaded model supports chat completions and try Fetch Models again in Settings > Models.');
   }
 
   return fullText;

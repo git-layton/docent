@@ -124,7 +124,7 @@ export function MessageList({
           <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-in fade-in zoom-in duration-500">
             <div className="p-6 bg-[#2C3E50]/10 dark:bg-[#9EADC8]/10 rounded-full mb-6 border border-[#2C3E50]/20 dark:border-[#9EADC8]/20"><Zap className="w-12 h-12 text-[#2C3E50] dark:text-[#9EADC8]" /></div>
             <h2 className="text-3xl font-black tracking-tighter uppercase mb-3">Welcome to Agent Forge</h2>
-            <p className="text-sm font-medium text-neutral-500 max-w-md mb-8 leading-relaxed">Connect an LLM to begin. Initialize a Native AI, scan local ports, or enter a cloud API key.</p>
+            <p className="text-sm font-medium text-neutral-500 max-w-md mb-8 leading-relaxed">Connect an LLM to begin. Use LM Studio for local chat, or add a cloud API key.</p>
             <button onClick={() => { setProfileSettingsTab('models'); setShowProfileSettings(true); setIsModelDropdownOpen(false); }} className="px-8 py-4 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-[#9EADC8]/30 transition-all active:scale-95 flex items-center gap-3"><Plus className="w-5 h-5" /> Connect Your First LLM</button>
           </div>
         ) : activeChatId && activeMessages.length > 0 ? (

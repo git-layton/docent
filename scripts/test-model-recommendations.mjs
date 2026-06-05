@@ -3,6 +3,12 @@ import {
   formatRamForRecommendation,
   getLocalModelRecommendation,
 } from '../src/services/modelRecommendations.ts';
+import {
+  explainGenerationError,
+  extractModelIdsFromListResponse,
+  isPlaceholderLocalModelId,
+  validateLocalGenerationConfig,
+} from '../src/services/llm.ts';
 
 const cases = [
   {
@@ -54,6 +60,65 @@ const cases = [
     run: () => {
       assert.equal(formatRamForRecommendation(24576), '24GB RAM');
       assert.equal(formatRamForRecommendation(0), 'hardware not detected yet');
+    },
+  },
+  {
+    name: 'LM Studio placeholder model ids cannot be saved as runnable configs',
+    run: () => {
+      assert.equal(isPlaceholderLocalModelId('local-7b-instruct'), true);
+      assert.match(
+        validateLocalGenerationConfig({
+          provider: 'lmstudio',
+          endpoint: 'http://127.0.0.1:1234/v1',
+          modelId: 'local-7b-instruct',
+        }) ?? '',
+        /exact loaded model ID/i
+      );
+    },
+  },
+  {
+    name: 'LM Studio real model ids pass local generation config validation',
+    run: () => {
+      assert.equal(
+        validateLocalGenerationConfig({
+          provider: 'lmstudio',
+          endpoint: 'http://127.0.0.1:1234/v1',
+          modelId: 'qwen2.5-7b-instruct-1m',
+        }),
+        null
+      );
+    },
+  },
+  {
+    name: 'old local providers are rejected with LM Studio guidance',
+    run: () => {
+      assert.match(
+        validateLocalGenerationConfig({
+          provider: 'ollama',
+          endpoint: 'http://127.0.0.1:11434/v1',
+          modelId: 'llama3.1:8b',
+        }) ?? '',
+        /LM Studio/i
+      );
+    },
+  },
+  {
+    name: 'LM Studio network failures get actionable setup guidance',
+    run: () => {
+      const message = explainGenerationError(new Error('Load failed'), { provider: 'lmstudio' });
+      assert.match(message, /not reachable/i);
+      assert.match(message, /start the Local Server/i);
+    },
+  },
+  {
+    name: 'LM Studio model list responses expose exact selectable ids',
+    run: () => {
+      assert.deepEqual(
+        extractModelIdsFromListResponse({
+          data: [{ id: 'qwen2.5-7b-instruct' }, { id: 'llama-3.1-8b' }],
+        }),
+        ['qwen2.5-7b-instruct', 'llama-3.1-8b']
+      );
     },
   },
 ];

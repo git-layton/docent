@@ -18,7 +18,7 @@ import { useMemoryStore } from './store/useMemoryStore';
 import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 
-import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
+import { getContextLimit, validateModel, validateLocalGenerationConfig, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
 import { refreshGoogleAccessToken, runIntegrationTools } from './services/integrations';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -886,6 +886,12 @@ ${msg.content}`
     const ss = useSettingsStore.getState();
     const id = generateId('m');
     const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: false };
+    const localError = validateLocalGenerationConfig(mdl);
+    if (localError) {
+      ss.setFetchModelsError(localError);
+      useUIStore.getState().showToast('LM Studio needs a real loaded model ID.');
+      return;
+    }
     ss.setModels((prev: any[]) => [...prev, mdl]); ss.setSelectedModelId(id); ss.setShowModelWizard(false); ss.setWizardStep(3); ss.setEditingModel({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
     ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [id]: 'pending' }));
     const ok = await validateModel(mdl);
@@ -1466,6 +1472,50 @@ The user message is first-party context. The assistant response and invited-agen
     const _canvasContent = useUIStore.getState().canvasContent;
     const _tasks = useTaskStore.getState().tasks;
     const _userProfile = useSettingsStore.getState().userProfile;
+    let activeBotId: string | null = null;
+    let activeToolMsgId: string | null = null;
+    let generationTimedOut = false;
+    let generationTimeout: ReturnType<typeof setTimeout> | null = null;
+    const clearGenerationTimeout = () => {
+      if (generationTimeout) clearTimeout(generationTimeout);
+      generationTimeout = null;
+    };
+    const resetGenerationTimeout = () => {
+      clearGenerationTimeout();
+      if (_selectedModel?.provider !== 'lmstudio') return;
+      generationTimeout = setTimeout(() => {
+        generationTimedOut = true;
+        abortControllerRef.current?.abort();
+      }, currentTextRef.current ? 120000 : 90000);
+    };
+    const currentTextRef = { current: '' };
+    const finishActiveBotWithError = (message: string) => {
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
+        const existing = prev[chatId] ?? [];
+        const clean = existing.filter((m: any) => !activeToolMsgId || m.id !== activeToolMsgId);
+        if (!activeBotId || !clean.some((m: any) => m.id === activeBotId)) {
+          return {
+            ...prev,
+            [chatId]: [
+              ...clean,
+              { id: generateId('err'), role: 'bot', content: message, isPinned: false, isStreaming: false, timestamp: Date.now() },
+            ],
+          };
+        }
+        return {
+          ...prev,
+          [chatId]: clean.map((m: any) => {
+            if (m.id !== activeBotId) return m;
+            const existingText = String(m.content ?? '').trim();
+            return {
+              ...m,
+              content: existingText ? `${existingText}\n\n${message}` : message,
+              isStreaming: false,
+            };
+          }),
+        };
+      });
+    };
 
     setIsGenerating(true);
     try {
@@ -1486,6 +1536,7 @@ The user message is first-party context. The assistant response and invited-agen
 
       if (toolUsed) {
         const toolMsgId = generateId('tool');
+        activeToolMsgId = toolMsgId;
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false, timestamp: Date.now() }] }));
 
         if (toolUsed === 'Knowledge Search') {
@@ -1558,6 +1609,7 @@ The user message is first-party context. The assistant response and invited-agen
 
         await new Promise(r => setTimeout(r, 800));
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
+        activeToolMsgId = null;
         
         if (toolData) {
             // Only inject toolData into the LLM payload — never into stored messages (avoids SYSTEM NOTE bleed in chat bubbles)
@@ -1626,13 +1678,18 @@ The user message is first-party context. The assistant response and invited-agen
       }
       
       const botId = generateId('msg');
+      activeBotId = botId;
       useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, agentId: _primaryAssistant?.id, agentName: _primaryAssistant?.name, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
 
       let currentText = '';
       let lastCanvasSync = Date.now();
+      currentTextRef.current = '';
+      resetGenerationTimeout();
 
       const handleChunk = (chunk: string) => {
           currentText += chunk;
+          currentTextRef.current = currentText;
+          resetGenerationTimeout();
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: currentText } : m) }));
 
           const now = Date.now();
@@ -1674,6 +1731,7 @@ The user message is first-party context. The assistant response and invited-agen
           channelContext: _channelContext,
           runIntegrationTools,
       });
+      clearGenerationTimeout();
 
       const rawModelText = String(response || currentText || '');
       const visibleModelText = rawModelText.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim();
@@ -1761,9 +1819,17 @@ The user message is first-party context. The assistant response and invited-agen
       }
 
     } catch (err: any) {
-      if (err.name === 'AbortError') { setIsGenerating(false); return; }
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`, isPinned: false, timestamp: Date.now() }] }));
+      clearGenerationTimeout();
+      if (err.name === 'AbortError' && !generationTimedOut) {
+        finishActiveBotWithError('### Generation Stopped\nThe request was cancelled.');
+        return;
+      }
+      const message = generationTimedOut
+        ? '### LM Studio Timed Out\nNo tokens arrived from LM Studio. Make sure LM Studio is open, a chat/instruct model is loaded, the Local Server is started, and the selected model ID matches the model returned by Fetch Models.'
+        : `### Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`;
+      finishActiveBotWithError(message);
     } finally {
+      clearGenerationTimeout();
       setIsGenerating(false);
     }
   };

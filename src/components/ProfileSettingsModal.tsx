@@ -245,7 +245,7 @@ export function ProfileSettingsModal() {
                           setEditingModel({
                             name: option.name,
                             provider: option.provider,
-                            modelId: option.modelId,
+                            modelId: '',
                             endpoint: option.endpoint,
                             apiKey: '',
                             contextLimit: option.contextLimit,
@@ -253,14 +253,14 @@ export function ProfileSettingsModal() {
                           setFetchedModels([]);
                           setPendingModelSelections([]);
                           setFetchModelsError(null);
-                          setModelSearchQuery('');
+                          setModelSearchQuery(option.modelId.replace(/^local-/, '').replace(/-instruct|-reliable|-fast/g, ''));
                           setWizardStep(3);
                           setShowModelWizard(true);
                         }}
                         className="px-3 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-left hover:border-[#899AB5] transition-all"
                       >
                         <span className="block text-[10px] font-black text-neutral-800 dark:text-neutral-100">{option.name}</span>
-                        <span className="block text-[9px] font-mono text-neutral-500">{option.modelId}</span>
+                        <span className="block text-[9px] font-mono text-neutral-500">Fetch loaded model from LM Studio</span>
                       </button>
                     ))}
                   </div>
@@ -287,6 +287,9 @@ export function ProfileSettingsModal() {
                           {selectedModelId === model.id && <span className="text-[9px] font-black uppercase tracking-widest text-[#7A9E8D]">Active</span>}
                         </div>
                         <p className="text-[10px] text-neutral-500 font-mono truncate">{model.provider} · {model.modelId}</p>
+                        {['ollama', 'native'].includes(model.provider) && (
+                          <p className="text-[10px] text-[#C98A8A] font-bold mt-1">Unsupported local path. Reconnect through LM Studio.</p>
+                        )}
                       </button>
                       <button onClick={() => { setModels((prev: any[]) => prev.filter(x => x.id !== model.id)); if (selectedModelId === model.id) setSelectedModelId(models.find((m: any) => m.id !== model.id)?.id ?? ''); }} className="p-2 rounded-lg text-neutral-400 hover:text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30 transition-all" title="Remove model">
                         <Trash2 className="w-4 h-4" />
