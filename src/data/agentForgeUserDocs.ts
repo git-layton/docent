@@ -68,9 +68,9 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 
 ### 💬 Chat & Agents
 - Each agent has a custom system prompt, training docs, and tool access
-- Switch agents using the dropdown in the top-left
-- Use Direct when you want one persistent agent to keep its own specialist memory
-- Use a Channel when you want multiple invited agents to collaborate around one goal
+- Use the left column like Slack: People, Agents, and Channels
+- Click an Agent when you want one persistent Direct where that specialist keeps its own memory
+- Use a Channel when you want multiple invited agents to collaborate around one named goal
 - Start simple in a Direct; click the # button in the header to promote the active thread into a Channel when it becomes a project or needs specialists
 - In a Channel, invited agents can contribute collapsible notes while the primary agent gives the clean final answer
 - Pin important messages to Context (⭐) — pinned content is injected into every future message with that agent

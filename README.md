@@ -20,7 +20,9 @@ Agent Forge is not trying to be a full AI operating system in this release. The 
 ## Core Features
 
 - **Custom agents**: create role-specific assistants with prompts, avatars, tools, and always-on docs.
-- **Directs and Channels**: each agent gets a persistent direct thread for long-running learning, while channels are shared rooms where invited agents collaborate around a goal. Existing directs can be promoted into channels when a conversation becomes a project.
+- **Slack-style navigation**: the left column is organized into People, Agents, and Channels.
+- **Persistent agent Directs**: each agent row opens one long-running direct relationship for that specialist. Directs are not auto-renamed from your prompt.
+- **Channels**: named shared rooms where invited agents collaborate around a goal. Existing directs can be promoted into channels when a conversation becomes a project.
 - **Forge Inbox**: generic capture log for incoming shares, with configurable capture owners and raw originals preserved before processing.
 - **Spotlight**: press `Cmd+Shift+F` to open a floating agent over the current browser tab.
 - **Knowledge Core**: local Markdown memory in `~/AgentForge`, backed by Git.
