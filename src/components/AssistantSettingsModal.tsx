@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   UserCog, X, Wand2, ImageIcon, Bot, BookOpen, Paperclip, FileText,
-  Pin, Trash2, Loader2, Brain, Database
+  Pin, Trash2, Loader2, Brain, Database, AlertTriangle
 } from 'lucide-react';
 import { BOT_COLORS, AVAILABLE_TOOLS } from './ui/AgentIcon';
 import { useAgentStore } from '../store/useAgentStore';
@@ -94,6 +94,7 @@ export function AssistantSettingsModal({
   const { setEditingAssistant, setAssistantSettingsTab, setShowAssistantSettings } = useAgentStore.getState();
 
   const models = useSettingsStore(s => s.models);
+  const integrations = useSettingsStore(s => s.integrations);
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
   const isDreamRunning = useMemoryStore(s => s.isDreamRunning);
@@ -159,17 +160,82 @@ export function AssistantSettingsModal({
                     <div className="space-y-2">
                        {AVAILABLE_TOOLS.map(tool => {
                           const Icon = tool.icon, enabled = editingAssistant.tools?.[tool.id] ?? false;
+                          const meta = tool as any;
+                          const needsSetup = meta.requiresIntegration && (() => {
+                            const key = meta.requiresIntegration;
+                            const scope = meta.requiresScope;
+                            const value = (integrations as any)[key];
+                            if (!value) return true;
+                            if (key === 'slack') return !value.enabled || !value.botToken;
+                            if (key === 'gus') return !value.enabled || !value.instanceUrl || !value.accessToken;
+                            if (key === 'googleWorkspaces') {
+                              const accounts: any[] = value ?? [];
+                              const configured = accounts.filter((account: any) => account.connected !== false && account.clientId && account.clientSecret && account.refreshToken);
+                              if (configured.length === 0) return true;
+                              return scope ? !configured.some((account: any) => account.scopes?.[scope]) : false;
+                            }
+                            return false;
+                          })();
+                          const isGoogleTool = ['gmail', 'google_drive', 'google_calendar'].includes(tool.id);
+                          const googleAccounts: any[] = (integrations as any).googleWorkspaces ?? [];
+                          const scopeMap: Record<string, string> = { gmail: 'gmail', google_drive: 'drive', google_calendar: 'calendar' };
+                          const relevantAccounts = isGoogleTool
+                            ? googleAccounts.filter((account: any) =>
+                                account.id &&
+                                account.connected !== false &&
+                                account.scopes?.[scopeMap[tool.id]] &&
+                                account.clientId &&
+                                account.clientSecret &&
+                                account.refreshToken
+                              )
+                            : [];
+                          const allowedIds: string[] = editingAssistant.toolAccounts?.[tool.id] ?? [];
+                          const toggleAccount = (accountId: string) => {
+                            const current: string[] = editingAssistant.toolAccounts?.[tool.id] ?? [];
+                            const next = current.includes(accountId)
+                              ? current.filter((id: string) => id !== accountId)
+                              : [...current, accountId];
+                            setEditingAssistant((prev: any) => ({ ...prev, toolAccounts: { ...(prev.toolAccounts ?? {}), [tool.id]: next } }));
+                          };
                           return (
                           <div key={tool.id} className="flex flex-col bg-neutral-50 dark:bg-neutral-800/20 rounded-xl overflow-hidden border border-neutral-100 dark:border-neutral-800">
                              <div className={`flex items-center justify-between p-3 transition-all ${enabled ? 'bg-[#F0F4F8] dark:bg-[#1E2B38]/30' : ''}`}>
                                 <div className="flex items-center gap-3">
                                 <div className={`p-1.5 rounded-lg ${enabled ? 'bg-[#4A5D75] text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500'}`}><Icon className="w-4 h-4" /></div>
-                                <div className="flex flex-col"><span className="text-xs font-bold dark:text-neutral-200">{tool.name}</span><span className="text-[9px] text-neutral-500">{tool.desc}</span></div>
+                                <div className="flex flex-col">
+                                  <span className="text-xs font-bold dark:text-neutral-200">{tool.name}</span>
+                                  <span className="text-[9px] text-neutral-500">{tool.desc}</span>
+                                  {needsSetup && (
+                                    <span className="text-[9px] font-bold text-amber-500 flex items-center gap-1 mt-0.5">
+                                      <AlertTriangle className="w-2.5 h-2.5" /> Setup required in System Settings - Integrations
+                                    </span>
+                                  )}
+                                </div>
                                 </div>
                                 <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), [tool.id]: !enabled } }))} className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${enabled ? 'bg-[#4A5D75]' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
                                 <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'right-0.5' : 'left-0.5'}`} />
                                 </button>
                              </div>
+                             {enabled && relevantAccounts.length > 1 && (
+                               <div className="px-3 pb-3 pt-1 flex flex-col gap-1.5">
+                                 <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Allowed Accounts <span className="normal-case font-normal">(leave all off = access all)</span></span>
+                                 <div className="flex flex-wrap gap-1.5">
+                                   {relevantAccounts.map((account: any) => {
+                                     const active = allowedIds.length === 0 || allowedIds.includes(account.id);
+                                     const pinned = allowedIds.includes(account.id);
+                                     return (
+                                       <button
+                                         key={account.id}
+                                         onClick={() => toggleAccount(account.id)}
+                                         className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${pinned ? 'bg-[#4A5D75] text-white border-[#4A5D75]' : active ? 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500' : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-300 line-through'}`}
+                                       >
+                                         {account.label || account.id}
+                                       </button>
+                                     );
+                                   })}
+                                 </div>
+                               </div>
+                             )}
                           </div>
                           );
                        })}

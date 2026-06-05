@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Settings, X, Loader2, Globe, Database, CalendarDays, Link, BookOpen, Inbox, Search,
-  Cpu, Server, Trash2, Plus, User
+  Cpu, Server, Trash2, Plus, User, MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, CalendarClock
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -368,6 +368,222 @@ export function ProfileSettingsModal() {
                   {semanticSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
                   {semanticSyncing ? 'Syncing' : 'Sync Now'}
                 </button>
+              </div>
+
+              {/* Slack Integration */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><MessageSquare className="w-5 h-5 text-[#6A829E]" /></div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Slack</span>
+                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Search workspace messages and prepare posts for approval.</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIntegrations((prev: any) => ({ ...prev, slack: { ...prev.slack, enabled: !prev.slack?.enabled } }))}
+                    className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${integrations.slack?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}
+                  >
+                    {integrations.slack?.enabled ? 'Enabled' : 'Enable'}
+                  </button>
+                </div>
+                {integrations.slack?.enabled && (
+                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Bot Token</label>
+                    <input
+                      type="password"
+                      value={integrations.slack?.botToken || ''}
+                      onChange={e => setIntegrations((prev: any) => ({ ...prev, slack: { ...prev.slack, botToken: e.target.value } }))}
+                      placeholder="xoxb-..."
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                    />
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      Add Slack OAuth scopes <code>channels:history</code>, <code>channels:read</code>, <code>chat:write</code>, and <code>search:read</code>, then paste the Bot User OAuth Token.
+                    </p>
+                    {integrations.slack?.botToken && (
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#7A9E8D]">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Token saved
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Google Workspace Integration */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700 flex items-center gap-1">
+                      <Mail className="w-4 h-4 text-[#C98A8A]" />
+                      <FolderOpen className="w-4 h-4 text-[#D4AA7D]" />
+                      <CalendarClock className="w-4 h-4 text-[#6A829E]" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Google Workspace</span>
+                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Gmail, Drive, and Calendar across multiple accounts.</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIntegrations((prev: any) => ({
+                      ...prev,
+                      googleWorkspaces: [...(prev.googleWorkspaces ?? []), { id: `gw-${Date.now()}`, label: '', clientId: '', clientSecret: '', refreshToken: '', connected: true, scopes: { gmail: false, drive: false, calendar: false } }]
+                    }))}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-[#4A5D75] text-white hover:bg-[#3D4D61] transition-all shadow-sm shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Account
+                  </button>
+                </div>
+
+                {(integrations.googleWorkspaces ?? []).length === 0 && (
+                  <p className="text-[10px] text-neutral-400 text-center py-2">No Google accounts added yet.</p>
+                )}
+
+                {(integrations.googleWorkspaces ?? []).map((account: any, index: number) => (
+                  <div key={account.id} className="flex flex-col gap-3 pt-4 border-t border-neutral-100 dark:border-neutral-800 animate-in slide-in-from-top-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <input
+                        type="text"
+                        value={account.label || ''}
+                        onChange={e => setIntegrations((prev: any) => {
+                          const accounts = [...(prev.googleWorkspaces ?? [])];
+                          accounts[index] = { ...accounts[index], label: e.target.value };
+                          return { ...prev, googleWorkspaces: accounts };
+                        })}
+                        placeholder="Account label, for example Work or Personal"
+                        className="flex-1 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#6A829E] font-bold transition-all"
+                      />
+                      <button
+                        onClick={() => setIntegrations((prev: any) => ({ ...prev, googleWorkspaces: (prev.googleWorkspaces ?? []).filter((_: any, i: number) => i !== index) }))}
+                        className="p-2 text-neutral-400 hover:text-[#C98A8A] transition-colors"
+                        title="Remove account"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {[
+                        { field: 'clientId', label: 'OAuth Client ID', placeholder: 'xxxx.apps.googleusercontent.com' },
+                        { field: 'clientSecret', label: 'OAuth Client Secret', placeholder: 'GOCSPX-...' },
+                      ].map(field => (
+                        <div key={field.field} className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">{field.label}</label>
+                          <input
+                            type="password"
+                            value={account[field.field] || ''}
+                            onChange={e => setIntegrations((prev: any) => {
+                              const accounts = [...(prev.googleWorkspaces ?? [])];
+                              accounts[index] = { ...accounts[index], [field.field]: e.target.value };
+                              return { ...prev, googleWorkspaces: accounts };
+                            })}
+                            placeholder={field.placeholder}
+                            className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Refresh Token</label>
+                      <input
+                        type="password"
+                        value={account.refreshToken || ''}
+                        onChange={e => setIntegrations((prev: any) => {
+                          const accounts = [...(prev.googleWorkspaces ?? [])];
+                          accounts[index] = { ...accounts[index], refreshToken: e.target.value };
+                          return { ...prev, googleWorkspaces: accounts };
+                        })}
+                        placeholder="1//0g..."
+                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Scopes</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[
+                          { id: 'gmail', label: 'Gmail', icon: Mail, color: 'text-[#C98A8A]' },
+                          { id: 'drive', label: 'Drive / Docs', icon: FolderOpen, color: 'text-[#D4AA7D]' },
+                          { id: 'calendar', label: 'Calendar', icon: CalendarClock, color: 'text-[#6A829E]' },
+                        ].map(scope => {
+                          const ScopeIcon = scope.icon;
+                          const active = account.scopes?.[scope.id];
+                          return (
+                            <button
+                              key={scope.id}
+                              onClick={() => setIntegrations((prev: any) => {
+                                const accounts = [...(prev.googleWorkspaces ?? [])];
+                                accounts[index] = { ...accounts[index], scopes: { ...accounts[index].scopes, [scope.id]: !active } };
+                                return { ...prev, googleWorkspaces: accounts };
+                              })}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${active ? 'bg-[#F0F4F8] dark:bg-[#1E2B38]/40 border-[#4A5D75]/30 text-[#4A5D75] dark:text-[#9EADC8]' : 'border-neutral-200 dark:border-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+                            >
+                              <ScopeIcon className={`w-3.5 h-3.5 ${active ? scope.color : ''}`} />
+                              {scope.label}
+                              {active && <CheckCircle2 className="w-3 h-3 text-[#7A9E8D]" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {account.clientId && account.refreshToken && (
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#7A9E8D]">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Credentials saved
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {(integrations.googleWorkspaces ?? []).length > 0 && (
+                  <p className="text-[10px] text-neutral-400 leading-relaxed pt-2 border-t border-neutral-100 dark:border-neutral-800">
+                    Enable the Gmail, Drive, and Calendar APIs in Google Cloud, create OAuth 2.0 desktop credentials, run the OAuth flow once, then paste the refresh token.
+                  </p>
+                )}
+              </div>
+
+              {/* GUS Integration */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Layers className="w-5 h-5 text-[#6A829E]" /></div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">GUS</span>
+                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Salesforce Agile Accelerator work items, stories, and sprints.</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, enabled: !prev.gus?.enabled } }))}
+                    className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${integrations.gus?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}
+                  >
+                    {integrations.gus?.enabled ? 'Enabled' : 'Enable'}
+                  </button>
+                </div>
+                {integrations.gus?.enabled && (
+                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Salesforce Instance URL</label>
+                      <input
+                        type="text"
+                        value={integrations.gus?.instanceUrl || ''}
+                        onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, instanceUrl: e.target.value } }))}
+                        placeholder="https://example.my.salesforce.com"
+                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Access Token / Session ID</label>
+                      <input
+                        type="password"
+                        value={integrations.gus?.accessToken || ''}
+                        onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, accessToken: e.target.value } }))}
+                        placeholder="00D..."
+                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                      />
+                    </div>
+                    {integrations.gus?.instanceUrl && integrations.gus?.accessToken && (
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#7A9E8D]">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Credentials saved
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Tavily Web Search Integration */}

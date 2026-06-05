@@ -70,6 +70,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   integrations: {
     tavily: { enabled: false, apiKey: '' },
     brave: { enabled: false, apiKey: '' },
+    slack: { enabled: false, botToken: '' },
+    googleWorkspaces: [],
+    gus: { enabled: false, instanceUrl: '', accessToken: '' },
     googleCalendar: { connected: false },
     openai: { apiKey: '' },
     google: { apiKey: '' },
@@ -123,6 +126,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const models = await db.get('models', []);
     const userProfile = await db.get('userProfile', '');
     const savedIntegrations = await db.get('integrations', {});
+    if (savedIntegrations.googleWorkspace && !savedIntegrations.googleWorkspaces) {
+      const legacy = savedIntegrations.googleWorkspace;
+      savedIntegrations.googleWorkspaces = legacy.connected
+        ? [{ id: 'default', label: 'Default', ...legacy }]
+        : [];
+    }
     const settings = await db.get('settings', {});
     const appSettings = await db.get('appSettings', {
       allowProfileUpdates: true,

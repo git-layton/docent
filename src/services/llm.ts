@@ -196,15 +196,31 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   if (agent.trainingDocs?.length > 0) prompt += `\n\n${agent.trainingDocs.map((d: any) => `[KNOWLEDGE BASE: ${d.name}]\n${d.content}`).join('\n\n')}`;
   prompt += `\n[LIBRARY SAVE]\nTo save content to the user's Library, output a \`\`\`save codeblock with JSON: {"title": "...", "content": "..."}. Use this when the user asks you to "save this", "take a note", "add to my library", or when you generate a highly valuable artifact (code, plan, document) that the user says is important or will need later. If the user says something like "this is exactly what I needed" about a long response, naturally suggest they bookmark it using the 🔖 icon.\n`;
   prompt += `\n[CALENDAR EVENTS]\nWhen the user mentions a birthday, anniversary, or any recurring annual event, output a \`\`\`event codeblock with JSON: {"type": "birthday"|"anniversary"|"custom", "name": "Full Name", "month": <1-12>, "day": <1-31>, "year": <optional birth year>}. When the user mentions a one-time appointment, deadline, or dated event, output a \`\`\`event codeblock with JSON: {"type": "date", "title": "...", "dueDate": "YYYY-MM-DD", "details": "<optional>"}. Always output the block immediately without asking for confirmation first.\n`;
+  if (activeTools.includes('slack')) {
+    prompt += `\n[SLACK ACTION]\nWhen the user asks you to post, send, or share something to Slack, output a \`\`\`slack_post codeblock with JSON: {"channel": "channel-name", "text": "message text"}. Always confirm the channel and message text before posting.\n`;
+  }
+  if (activeTools.includes('gmail')) {
+    prompt += `\n[GMAIL ACTION]\nWhen the user asks you to send or draft an email, output a \`\`\`gmail_draft codeblock with JSON: {"to": "email@example.com", "cc": "optional", "subject": "...", "body": "...", "accountLabel": "optional connected account label"}. Always show the draft for review before sending.\n`;
+  }
+  if (activeTools.includes('gus')) {
+    prompt += `\n[GUS ACTION]\nWhen the user asks you to create a work item, bug, or story in GUS, output a \`\`\`gus_create codeblock with JSON: {"subject": "...", "type": "Story|Bug|Task", "priority": "P0|P1|P2|P3", "assignee": "username or null", "details": "..."}. Always confirm details before creating.\n`;
+  }
+  if (activeTools.includes('google_calendar')) {
+    prompt += `\n[GOOGLE CALENDAR ACTION]\nWhen the user asks you to create or schedule a calendar event, output a \`\`\`gcal_event codeblock with JSON: {"title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "optional", "location": "optional", "accountLabel": "label of account to use or null for first"}. Always confirm details before creating.\n`;
+  }
   prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search/research results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\n- For grounded memories, preserve the evidence state in your wording when it matters: source-backed, user-provided, capture-backed, or agent-inferred.\nNever fabricate a citation. If a current/factual web answer cannot be verified from provided sources, say it could not be verified instead of guessing.`;
 
   return prompt;
 };
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, channelContext }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, channelContext, integrations, runIntegrationTools }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
+  const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop()?.content || '';
+  const integrationContext = runIntegrationTools
+    ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
+    : '';
   const systemPrompt = buildSystemPrompt({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, channelContext });
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
@@ -213,7 +229,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
     throw new Error(`The selected model (${modelId}) cannot read image attachments. Switch to a vision-capable chat model such as GPT-4o/4.1, Claude Sonnet, Gemini, LLaVA, Pixtral, Qwen-VL, or remove the image.`);
   }
 
-  let contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
+  let contextUsed = systemPrompt.length + integrationContext.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
   const limit = contextLimit ? parseInt(contextLimit, 10) : 32000;
   if (contextUsed > limit) throw new Error('Attached documents exceed the context limit of this model.');
 
@@ -224,7 +240,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
   const imageContext = imageDocs.length > 0
     ? `\n\n[MULTIMODAL INPUT]\nThe user attached ${imageDocs.length} image${imageDocs.length === 1 ? '' : 's'}. Inspect the image content directly, answer the user's actual question, and say clearly if something in the image is ambiguous or unreadable.`
     : '';
-  const fullSystem = systemPrompt + attachedContext + imageContext;
+  const fullSystem = systemPrompt + attachedContext + imageContext + (integrationContext ? `\n\n${integrationContext}` : '');
 
   const formatMessage = (m: any, targetProvider: string) => {
     const textContent = String(m.content ?? '');

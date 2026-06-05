@@ -6,6 +6,7 @@ import {
   Clock, ListTodo,
   AlignLeft, MapPin, Workflow,
   AlertTriangle, Loader2, Activity, UserPlus, Bookmark, CalendarDays,
+  MessageSquare, Mail, Layers, Send, CheckCircle2, CalendarClock,
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -18,6 +19,7 @@ import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
+import { refreshGoogleAccessToken, runIntegrationTools } from './services/integrations';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { NukeShieldModal } from './components/NukeShieldModal';
@@ -114,6 +116,31 @@ const resizeImageForVision = async (file: File): Promise<{ content: string; type
     img.onerror = () => resolve({ content: dataUrl, type: file.type || 'image/png', resized: false });
     img.src = dataUrl;
   });
+};
+
+const getGoogleActionAccount = (integrations: any, scope: 'gmail' | 'drive' | 'calendar', preferredLabel?: string | null) => {
+  const accounts: any[] = integrations?.googleWorkspaces ?? [];
+  const configured = accounts.filter((account: any) =>
+    account.connected !== false &&
+    account.scopes?.[scope] &&
+    account.clientId &&
+    account.clientSecret &&
+    account.refreshToken
+  );
+  if (preferredLabel) {
+    const preferred = configured.find((account: any) =>
+      account.label === preferredLabel || account.id === preferredLabel
+    );
+    if (preferred) return preferred;
+  }
+  return configured[0] ?? null;
+};
+
+const base64UrlEncode = (value: string) => {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
 
 
@@ -871,7 +898,7 @@ ${msg.content}`
     const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
     const _agentPinnedMessagesForPrompt = useMemoryStore.getState().globalPins.filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === useAgentStore.getState().activeFolderId) ?? useAgentStore.getState().assistants[0])?.id).map((p: any) => p.content);
     const agent = { prompt: systemInstruction, tools: {}, awareOfProfile: false, trainingDocs: [] };
-    const result = await generateTextResponse({ messages: [{ id: generateId('msg'), role: 'user', content: text }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, onChunk: null, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models });
+    const result = await generateTextResponse({ messages: [{ id: generateId('msg'), role: 'user', content: text }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, onChunk: null, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models, runIntegrationTools });
     onResult(result.replace(/```[a-zA-Z]*\n/g, '').replace(/```/g, '').trim());
   };
 
@@ -937,6 +964,7 @@ ${msg.content}`
         appSettings: _appSettings,
         integrations: _integrations,
         models: _models,
+        runIntegrationTools,
       });
 
       const plan = parseDreamerResponse(rawResponse);
@@ -1546,6 +1574,7 @@ The user message is first-party context. The assistant response and invited-agen
             integrations: _integrations,
             models: _models,
             channelContext: _channelContext,
+            runIntegrationTools,
           });
           const clipped = contribution.trim();
           if (clipped) {
@@ -1590,7 +1619,7 @@ The user message is first-party context. The assistant response and invited-agen
               if (match) {
                   const lang = (match[1] || '').toLowerCase();
                   const code = match[2];
-                  if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save') {
+                  if (!['task', 'todo', 'profile', 'save', 'event', 'slack_post', 'gmail_draft', 'gus_create', 'gcal_event'].includes(lang)) {
                       useUIStore.getState().setCanvasContent((prev: any) => {
                           if (!prev) return { id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
                           return { ...prev, content: code };
@@ -1620,6 +1649,7 @@ The user message is first-party context. The assistant response and invited-agen
           integrations: _integrations,
           models: _models,
           channelContext: _channelContext,
+          runIntegrationTools,
       });
 
       const rawModelText = String(response || currentText || '');
@@ -1691,7 +1721,7 @@ The user message is first-party context. The assistant response and invited-agen
          if (finalMatch) {
              const lang = (finalMatch[1] || '').toLowerCase();
              const code = finalMatch[2];
-             if (lang !== 'task' && lang !== 'todo' && lang !== 'profile') {
+             if (!['task', 'todo', 'profile', 'save', 'event', 'slack_post', 'gmail_draft', 'gus_create', 'gcal_event'].includes(lang)) {
                  useUIStore.getState().setCanvasContent((prev: any) => {
                      if (!prev) return prev;
                      const curHist = prev.history || [{ timestamp: Date.now(), content: prev.content }];
@@ -2003,7 +2033,140 @@ The user message is first-party context. The assistant response and invited-agen
             </div>
           );
         } catch { elements.push(<div key={`err-ev-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event block.</div>); }
-      } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'event') {
+      } else if (lang === 'slack_post') {
+        try {
+          const sd = JSON.parse(code);
+          elements.push(
+            <div key={`slack-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><MessageSquare className="w-4 h-4" /> Post to Slack</div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Channel</span>
+                <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">#{sd.channel}</span>
+              </div>
+              <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">{sd.text}</div>
+              <button onClick={async () => {
+                const _integrations = useSettingsStore.getState().integrations;
+                const token = _integrations.slack?.botToken;
+                if (!_integrations.slack?.enabled || !token) { showToast('Slack is not configured.'); return; }
+                try {
+                  const res = await fetchWithRetry('https://slack.com/api/chat.postMessage', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ channel: sd.channel, text: sd.text }),
+                  }, 1);
+                  showToast(res.ok ? 'Posted to Slack.' : `Slack error: ${res.error ?? 'post failed'}`);
+                } catch (e: any) { showToast(`Slack error: ${e.message}`); }
+              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
+                <Send className="w-3.5 h-3.5" /> Post Message
+              </button>
+            </div>
+          );
+        } catch { elements.push(<div key={`err-sl-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse Slack post.</div>); }
+      } else if (lang === 'gmail_draft') {
+        try {
+          const gd = JSON.parse(code);
+          elements.push(
+            <div key={`gmail-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#C98A8A]/30 dark:border-[#C98A8A]/20 bg-[#FFF8F8] dark:bg-[#3E2929]/20 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[#C98A8A] font-bold text-xs uppercase tracking-widest"><Mail className="w-4 h-4" /> Send Gmail</div>
+              <div className="grid grid-cols-1 gap-1.5 text-xs">
+                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">To</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.to}</span></div>
+                {gd.cc && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">CC</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.cc}</span></div>}
+                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">Subject</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.subject}</span></div>
+                {gd.accountLabel && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">Account</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.accountLabel}</span></div>}
+              </div>
+              <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">{gd.body}</div>
+              <button onClick={async () => {
+                const _integrations = useSettingsStore.getState().integrations;
+                const account = getGoogleActionAccount(_integrations, 'gmail', gd.accountLabel);
+                if (!account) { showToast('No Gmail account is configured.'); return; }
+                try {
+                  const accessToken = await refreshGoogleAccessToken(account.clientId, account.clientSecret, account.refreshToken);
+                  const raw = [`To: ${gd.to}`, gd.cc ? `Cc: ${gd.cc}` : null, `Subject: ${gd.subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', gd.body].filter(Boolean).join('\r\n');
+                  const res = await fetchWithRetry('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ raw: base64UrlEncode(raw) }),
+                  }, 1);
+                  showToast(res.id ? 'Email sent.' : 'Gmail send failed.');
+                } catch (e: any) { showToast(`Gmail error: ${e.message}`); }
+              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#C98A8A] hover:bg-[#b57070] text-white active:scale-95 transition-all">
+                <Send className="w-3.5 h-3.5" /> Send Email
+              </button>
+            </div>
+          );
+        } catch { elements.push(<div key={`err-gm-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse Gmail draft.</div>); }
+      } else if (lang === 'gus_create') {
+        try {
+          const gc = JSON.parse(code);
+          elements.push(
+            <div key={`gus-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><Layers className="w-4 h-4" /> Create GUS Work Item</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Subject</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.subject}</span></div>
+                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Type</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.type ?? 'Story'}</span></div>
+                {gc.priority && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Priority</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.priority}</span></div>}
+                {gc.assignee && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Assignee</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.assignee}</span></div>}
+              </div>
+              {gc.details && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">{gc.details}</div>}
+              <button onClick={async () => {
+                const _integrations = useSettingsStore.getState().integrations;
+                const { instanceUrl, accessToken, enabled } = _integrations.gus ?? {};
+                if (!enabled || !instanceUrl || !accessToken) { showToast('GUS is not configured.'); return; }
+                try {
+                  const body: any = { Subject__c: gc.subject, Type__c: gc.type ?? 'Story' };
+                  if (gc.priority) body.Priority__c = gc.priority;
+                  if (gc.details) body.Details__c = gc.details;
+                  const res = await fetchWithRetry(`${instanceUrl.replace(/\/$/, '')}/services/data/v59.0/sobjects/ADM_Work__c`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                  }, 1);
+                  showToast(res.id ? `Created GUS item ${res.id}.` : 'GUS create failed.');
+                } catch (e: any) { showToast(`GUS error: ${e.message}`); }
+              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Create Work Item
+              </button>
+            </div>
+          );
+        } catch { elements.push(<div key={`err-gus-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse GUS work item.</div>); }
+      } else if (lang === 'gcal_event') {
+        try {
+          const ge = JSON.parse(code);
+          elements.push(
+            <div key={`gcal-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><CalendarClock className="w-4 h-4" /> Create Google Calendar Event</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Title</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.title}</span></div>
+                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Start</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.start}</span></div>
+                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">End</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.end}</span></div>
+                {ge.location && <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Location</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.location}</span></div>}
+                {ge.accountLabel && <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Account</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.accountLabel}</span></div>}
+              </div>
+              {ge.description && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">{ge.description}</div>}
+              <button onClick={async () => {
+                const _integrations = useSettingsStore.getState().integrations;
+                const account = getGoogleActionAccount(_integrations, 'calendar', ge.accountLabel);
+                if (!account) { showToast('No Google Calendar account is configured.'); return; }
+                try {
+                  const accessToken = await refreshGoogleAccessToken(account.clientId, account.clientSecret, account.refreshToken);
+                  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                  const event: any = { summary: ge.title, start: { dateTime: ge.start, timeZone }, end: { dateTime: ge.end, timeZone } };
+                  if (ge.description) event.description = ge.description;
+                  if (ge.location) event.location = ge.location;
+                  const res = await fetchWithRetry('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(event),
+                  }, 1);
+                  showToast(res.id ? 'Event created in Google Calendar.' : 'Calendar create failed.');
+                } catch (e: any) { showToast(`Calendar error: ${e.message}`); }
+              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
+                <CalendarClock className="w-3.5 h-3.5" /> Create Event
+              </button>
+            </div>
+          );
+        } catch { elements.push(<div key={`err-gcal-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar event.</div>); }
+      } else if (code.length > 5 && !['task', 'todo', 'profile', 'save', 'event', 'slack_post', 'gmail_draft', 'gus_create', 'gcal_event'].includes(lang)) {
         const codePreview = code.split('\n').slice(0, 4).join('\n') + (code.split('\n').length > 4 ? '\n...' : '');
         elements.push(
           <div key={`art-${match.index}`} className="my-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 overflow-hidden flex flex-col group/art shadow-sm transition-all hover:border-[#899AB5]">
