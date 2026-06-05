@@ -18,6 +18,7 @@ interface SettingsStore {
     forgeInstanceId: string;
     relayUrl: string;
     relayAdminToken: string;
+    people: Array<{ id: string; label: string; role?: string }>;
     inboxOwners: Array<{ id: string; label: string }>;
   };
 
@@ -91,6 +92,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     forgeInstanceId: 'agent-forge-local',
     relayUrl: '',
     relayAdminToken: '',
+    people: [],
     inboxOwners: [
       { id: 'primary', label: 'Primary' },
       { id: 'shared', label: 'Shared' },
@@ -149,6 +151,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       forgeInstanceId: 'agent-forge-local',
       relayUrl: '',
       relayAdminToken: '',
+      people: [],
       inboxOwners: [
         { id: 'primary', label: 'Primary' },
         { id: 'shared', label: 'Shared' },

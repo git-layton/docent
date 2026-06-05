@@ -116,10 +116,8 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
   const visibleAgents = assistants
     .filter((agent: any) => agent.id !== 'forge-guide')
     .filter((agent: any) => `${agent.name} ${agent.description ?? ''}`.toLowerCase().includes(query));
-  const visiblePeople = (Array.isArray(appSettings.inboxOwners) && appSettings.inboxOwners.length
-    ? appSettings.inboxOwners
-    : [{ id: 'primary', label: 'Primary' }])
-    .filter((person: any) => `${person.id} ${person.label}`.toLowerCase().includes(query));
+  const visiblePeople = (Array.isArray(appSettings.people) ? appSettings.people : [])
+    .filter((person: any) => `${person.id} ${person.label} ${person.role ?? ''}`.toLowerCase().includes(query));
   const visibleChannels = chats
     .map((chat: any) => normalizeChatRecord(chat, activeFolderId))
     .filter((chat: any) => chat.kind === 'channel')
@@ -158,11 +156,22 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{person.label ?? person.id}</p>
-                        <p className="text-[9px] truncate text-neutral-400">Person context</p>
+                        <p className="text-[9px] truncate text-neutral-400">{person.role || 'Person profile'}</p>
                       </div>
                     </div>
                   </div>
                 ))}
+                {visiblePeople.length === 0 && (
+                  <button
+                    onClick={() => {
+                      useSettingsStore.getState().setProfileSettingsTab('people');
+                      useSettingsStore.getState().setShowProfileSettings(true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-all"
+                  >
+                    <Plus className="w-3 h-3" /> Add Person
+                  </button>
+                )}
               </div>
 
               <div className="space-y-1 pt-3">

@@ -37,18 +37,22 @@ export function ModelWizardModal({
         {/* Hidden Local Wizard Steps Commented Out For Future Use */}
         {wizardStep === 3 && (
           <div className="flex flex-col flex-1 animate-in slide-in-from-right-2 duration-300 space-y-4">
-            <h4 className="text-sm font-black mb-2 uppercase tracking-widest text-neutral-400 shrink-0">Manual Configuration</h4>
+            <h4 className="text-sm font-black mb-2 uppercase tracking-widest text-neutral-400 shrink-0">Model Connection</h4>
 
             <select value={editingModel.provider} onChange={onProviderChange} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold shrink-0">
+              <option value="ollama">Local Ollama</option>
+              <option value="lmstudio">Local LM Studio</option>
+              <option value="native">Local Agent Forge Engine</option>
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic (Claude)</option>
               <option value="google">Google (Gemini)</option>
               <option value="huggingface">Hugging Face</option>
+              <option value="custom">Custom OpenAI-Compatible</option>
             </select>
 
             <div className="shrink-0">
               <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Endpoint URL</label>
-              <input type="text" placeholder="e.g. https://api.openai.com/v1" value={editingModel.endpoint} onChange={e => setEditingModel((prev: any) => ({ ...prev, endpoint: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono placeholder:font-sans" />
+              <input type="text" placeholder={editingModel.provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : editingModel.provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : 'e.g. https://api.openai.com/v1'} value={editingModel.endpoint} onChange={e => setEditingModel((prev: any) => ({ ...prev, endpoint: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono placeholder:font-sans" />
             </div>
 
             <div className="relative shrink-0">

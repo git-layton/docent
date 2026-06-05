@@ -1711,8 +1711,60 @@ The user message is first-party context. The assistant response and invited-agen
     const { activeChatId: _activeChatId, messages: _messages, chats: _chats } = useChatStore.getState();
     const { activeFolderId: _activeFolderId, assistants: _assistants } = useAgentStore.getState();
     const _activeAssistantForDirect = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
-    if (isGenerating || !_selectedModel) return;
+    if (isGenerating) return;
     if (!_input.trim() && _attachedDocs.length === 0) return;
+
+    if (!_selectedModel) {
+      let chatId = _activeChatId;
+      if (!chatId) {
+        const existingDirect = _chats
+          .map((chat: any) => normalizeChatRecord(chat, _activeFolderId))
+          .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === _activeFolderId || chat.folderId === _activeFolderId));
+        if (existingDirect) {
+          chatId = existingDirect.id;
+          useChatStore.getState().setActiveChatId(chatId);
+        }
+      }
+      if (!chatId) {
+        chatId = generateId('c');
+        useChatStore.getState().setChats((prev: any[]) => [normalizeChatRecord({
+          id: chatId,
+          folderId: _activeFolderId,
+          primaryAgentId: _activeFolderId,
+          participantAgentIds: [_activeFolderId],
+          kind: 'dm',
+          name: `${_activeAssistantForDirect?.name ?? 'Agent'} Direct`,
+          goal: '',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }, _activeFolderId), ...prev]);
+        useChatStore.getState().setActiveChatId(chatId);
+      }
+      const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
+      const setupMsg = {
+        id: generateId('msg'),
+        role: 'bot',
+        content: `I need you to connect me to an LLM before I can answer with real intelligence.\n\nOpen **Settings > Models** and connect a local model like Ollama or LM Studio, or add a cloud model. Once a model is connected, I get my powers and this Direct keeps going.`,
+        agentId: _activeAssistantForDirect?.id,
+        agentName: _activeAssistantForDirect?.name,
+        isPinned: false,
+        timestamp: Date.now() + 1,
+      };
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId!]: [...(prev[chatId!] ?? []), userMsg, setupMsg] }));
+      useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, updatedAt: Date.now() } : c));
+      useUIStore.getState().setInput('');
+      useUIStore.getState().setAttachedDocs([]);
+      useSettingsStore.getState().setProfileSettingsTab('models');
+      useSettingsStore.getState().setShowProfileSettings(true);
+      useUIStore.getState().showToast('Connect an LLM to give Lexi a brain.', {
+        label: 'Models',
+        onClick: () => {
+          useSettingsStore.getState().setProfileSettingsTab('models');
+          useSettingsStore.getState().setShowProfileSettings(true);
+        },
+      });
+      return;
+    }
 
     if (_canvasContent && (_generationMode === 'code' || _generationMode === 'doc')) {
       useUIStore.getState().setCanvasContent((prev: any) => {
