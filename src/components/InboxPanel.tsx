@@ -18,6 +18,7 @@ import { useChatStore } from '../store/useChatStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { normalizeChatRecord } from '../services/channels';
 import { generateTextResponse } from '../services/llm';
+import { assessMemoryGatekeeper } from '../services/memoryGatekeeper';
 import {
   buildCaptureMarkdown,
   DEFAULT_INBOX_OWNERS,
@@ -288,6 +289,38 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
       const targetAgent = assistants.find((a: any) => a.id === targetId) ?? activeAgent;
       const targetChannel = channels.find((c: any) => c.id === targetId);
       const triage = await runTriage(refreshed);
+      const gatekeeperDecision = assessMemoryGatekeeper({
+        sourceKind: 'capture',
+        text: [
+          refreshed.title,
+          refreshed.note,
+          refreshed.channelHint,
+          refreshed.bodyText,
+          triage.summary,
+          ...triage.facts,
+          ...triage.tasks,
+        ].filter(Boolean).join('\n'),
+        explicitTargetKind: ['agent', 'channel', 'library'].includes(targetType) ? targetType as any : '',
+        chatKind: targetType === 'channel' ? 'channel' : 'dm',
+        urls: refreshed.urls ?? [],
+        attachments: refreshed.attachments?.map(a => ({
+          name: a.name,
+          mimeType: a.mimeType,
+          isImage: a.mimeType?.startsWith('image/'),
+        })) ?? [],
+        captureId: refreshed.id,
+      });
+      if (!gatekeeperDecision.shouldSave) {
+        await patchCapture(refreshed, {
+          status: 'needs_review',
+          title: triage.title,
+          summary: `Gatekeeper held this for review: ${gatekeeperDecision.reason}`,
+          tags: gatekeeperDecision.tags,
+          error: '',
+        } as any);
+        onToast('Gatekeeper held this capture for review.');
+        return;
+      }
       const tasksBlock = triage.tasks.length
         ? `\n\n## Possible Tasks\n${triage.tasks.map((t: string) => `- ${t}`).join('\n')}\n`
         : '';
@@ -302,6 +335,7 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
         facts: triage.facts,
         tags: triage.tags,
         targetLabel,
+        gatekeeperDecision,
       });
       const slug = slugifyCapture(triage.title || refreshed.title);
       const basePath = targetType === 'channel'
@@ -325,7 +359,7 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
         status: 'saved',
         title: triage.title,
         summary: triage.summary,
-        tags: triage.tags,
+        tags: Array.from(new Set([...triage.tags, ...gatekeeperDecision.tags])),
         processedPaths: [path],
         channelId: targetType === 'channel' ? targetId : '',
         agentId: targetType === 'agent' ? targetId : '',

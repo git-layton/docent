@@ -47,7 +47,8 @@ import { FormattedText } from './components/ui/FormattedText';
 import { CollapsibleBubble } from './components/ui/CollapsibleBubble';
 import { buildChannelContext, normalizeChatRecord, routeAgentsForChannel } from './services/channels';
 import { buildGroundedMarkdown } from './services/grounding';
-import { assessConversationMemory } from './services/memoryPolicy';
+import { assessMemoryGatekeeper } from './services/memoryGatekeeper';
+import { routeToolForMessage } from './services/toolRouter';
 import { buildSemanticMemoryNotes, hasSemanticHits, type SemanticLayerResult } from './services/semantic';
 import {
   buildSourceNotes,
@@ -1275,9 +1276,20 @@ ${msg.content}`
     if (!_agentForgePath || sources.length === 0 || !agent?.id) return null;
 
     const normalized = normalizeChatRecord(chat, agent.id);
+    const assessment = assessMemoryGatekeeper({
+      sourceKind: 'research',
+      text: question,
+      answer,
+      chatKind: normalized.kind,
+      agentTools: agent?.tools ?? {},
+      urls: sources.map(source => source.url).filter(Boolean) as string[],
+      sourcePaths: sources.map(source => source.path).filter(Boolean) as string[],
+    });
+    if (!assessment.shouldSave) return null;
+
     const title = question.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Research note';
     const slug = researchSlugify(title, 'research');
-    const basePath = normalized.kind === 'channel'
+    const basePath = assessment.destination === 'channel_memory'
       ? `${_agentForgePath}/memory/channels/${normalized.id}/research`
       : `${_agentForgePath}/memory/${agent.id}/research`;
     const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
@@ -1286,24 +1298,35 @@ ${msg.content}`
       {
         title,
         type: 'research-note',
-        scope: normalized.kind === 'channel' ? 'channel' : 'agent',
+        scope: assessment.destination === 'channel_memory' ? 'channel' : 'agent',
         agentId: agent.id,
         agentName: agent.name ?? agent.id,
-        channelId: normalized.kind === 'channel' ? normalized.id : undefined,
-        channelName: normalized.kind === 'channel' ? normalized.name : undefined,
+        channelId: assessment.destination === 'channel_memory' ? normalized.id : undefined,
+        channelName: assessment.destination === 'channel_memory' ? normalized.name : undefined,
         sourceKind: 'web_research',
         sourceLabel: 'Source-required research answer',
         sourceUrls: sources.map(source => source.url).filter(Boolean) as string[],
         sourcePaths: sources.map(source => source.path).filter(Boolean) as string[],
         derivedFrom: [`chat:${normalized.id}`],
-        evidenceState: 'source_backed',
-        verification: 'partially_verified',
-        confidence: sources.length >= 2 ? 'high' : 'medium',
-        processor: 'source-required-research',
+        evidenceState: assessment.evidenceState,
+        verification: assessment.verification,
+        confidence: assessment.confidence,
+        processor: 'memory-gatekeeper',
         sourceCount: sources.length,
-        tags: ['research', 'sources', normalized.kind === 'channel' ? 'channel-memory' : 'agent-memory'],
+        tags: assessment.tags,
       },
-      `## Question
+      `## Memory Gatekeeper
+- Level: ${assessment.level}
+- Destination: ${assessment.destination}
+- Memory type: ${assessment.memoryType}
+- Evidence: ${assessment.evidenceState}
+- Verification: ${assessment.verification}
+- Confidence: ${assessment.confidence}
+- Tool route: ${assessment.toolRoute}
+- Reason: ${assessment.reason}
+- Score: ${assessment.score}
+
+## Question
 ${question}
 
 ## Answer
@@ -1344,19 +1367,23 @@ ${buildSourceNotes(sources, 900)}`
     if (!_agentForgePath || !agent?.id) return null;
 
     const normalized = normalizeChatRecord(chat, agent.id);
-    const assessment = assessConversationMemory({
-      question,
+    const assessment = assessMemoryGatekeeper({
+      sourceKind: 'conversation',
+      text: question,
       answer,
+      agentTools: agent?.tools ?? {},
       contributions,
       attachments: attachments ?? [],
       chatKind: normalized.kind,
     });
-    if (!assessment.shouldSave) return null;
+    if (!assessment.shouldSave || assessment.destination === 'task' || assessment.destination === 'inbox_only') return null;
 
     const title = question.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Conversation note';
     const slug = researchSlugify(title, 'conversation');
-    const basePath = normalized.kind === 'channel'
+    const basePath = assessment.destination === 'channel_memory'
       ? `${_agentForgePath}/memory/channels/${normalized.id}/memos`
+      : assessment.destination === 'library'
+        ? `${_agentForgePath}/library/conversations`
       : `${_agentForgePath}/memory/${agent.id}/memos`;
     const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
     const contributionBlock = contributions.length > 0
@@ -1369,22 +1396,28 @@ ${buildSourceNotes(sources, 900)}`
       {
         title,
         type: 'autosaved-conversation',
-        scope: normalized.kind === 'channel' ? 'channel' : 'agent',
+        scope: assessment.destination === 'channel_memory' ? 'channel' : assessment.destination === 'library' ? 'library' : 'agent',
         agentId: agent.id,
         agentName: agent.name ?? agent.id,
-        channelId: normalized.kind === 'channel' ? normalized.id : undefined,
-        channelName: normalized.kind === 'channel' ? normalized.name : undefined,
+        channelId: assessment.destination === 'channel_memory' ? normalized.id : undefined,
+        channelName: assessment.destination === 'channel_memory' ? normalized.name : undefined,
         sourceKind: 'conversation',
         sourceLabel: 'User conversation and assistant response',
         derivedFrom: [`chat:${normalized.id}`],
-        evidenceState: 'mixed',
-        verification: 'needs_verification',
-        confidence: assessment.level === 'explicit' || assessment.level === 'notable' ? 'medium' : 'low',
-        processor: 'conversation-autosave',
+        evidenceState: assessment.evidenceState,
+        verification: assessment.verification,
+        confidence: assessment.confidence,
+        processor: 'memory-gatekeeper',
         tags: assessment.tags,
       },
-      `## Memory Policy
+      `## Memory Gatekeeper
 - Level: ${assessment.level}
+- Destination: ${assessment.destination}
+- Memory type: ${assessment.memoryType}
+- Evidence: ${assessment.evidenceState}
+- Verification: ${assessment.verification}
+- Confidence: ${assessment.confidence}
+- Tool route: ${assessment.toolRoute}
 - Reason: ${assessment.reason}
 - Score: ${assessment.score}
 
@@ -1439,24 +1472,16 @@ The user message is first-party context. The assistant response and invited-agen
     setIsGenerating(true);
     try {
       const history = [...historyToPass, userMsg];
-      const inputLower = userMsg.content.toLowerCase();
-      let toolUsed = null;
+      const toolDecision = routeToolForMessage({
+        message: userMsg.content,
+        agentTools: _primaryAssistant?.tools ?? {},
+        forcedTool: _forcedTool,
+      });
+      let toolUsed = toolDecision.tool;
       let toolData = "";
       let foundSources: any[] = [];
       const supportBubbles: any[] = [];
 
-      // Forced tool from slash command takes priority over keyword detection
-      if (_forcedTool === 'workspace') {
-          toolUsed = 'Knowledge Search';
-      } else if (_forcedTool === 'search') {
-          toolUsed = 'Web Search';
-      } else if (_primaryAssistant.tools?.local_workspace && /\b(notes?|memos?|memory|knowledge base|goals?|decisions?|research|workspace|saved|wrote|remember|recall|pinned)\b/i.test(inputLower)) {
-          toolUsed = 'Knowledge Search';
-      } else if (_primaryAssistant.tools?.web_search && (hasResearchIntent(userMsg.content) || /\b(search for|look up|google|current (weather|news|price|score)|today.s (weather|news)|latest (news|update)|breaking news|weather (in|for)|stock (price|market)|news about|what.s happening)\b/i.test(inputLower))) {
-          toolUsed = 'Web Search';
-      } else if (_primaryAssistant.tools?.calendar_sync && /schedule|remind|calendar|appointment|meeting|add.*event|plan.*for|set.*reminder/i.test(inputLower)) {
-          toolUsed = 'Calendar';
-      }
       if (_forcedTool) useUIStore.getState().setForcedTool(null);
 
       let messagesForLLM = [...history];

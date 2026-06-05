@@ -1,4 +1,5 @@
 import { buildGroundedMarkdown, type MemoryScope } from './grounding';
+import type { MemoryGatekeeperDecision } from './memoryGatekeeper';
 
 export type CaptureStatus = 'received' | 'processing' | 'needs_review' | 'saved' | 'failed';
 export type CaptureKind = 'text' | 'url' | 'image' | 'audio' | 'file' | 'mixed';
@@ -122,12 +123,14 @@ export const buildCaptureMarkdown = ({
   facts,
   tags,
   targetLabel,
+  gatekeeperDecision,
 }: {
   capture: CaptureItem;
   summary: string;
   facts: string[];
   tags: string[];
   targetLabel: string;
+  gatekeeperDecision?: MemoryGatekeeperDecision;
 }) => {
   const tagList = tags.length ? tags.map(t => t.replace(/[^a-zA-Z0-9-_]/g, '')).filter(Boolean) : ['inbox'];
   const scope: MemoryScope = targetLabel.startsWith('channel:')
@@ -135,6 +138,7 @@ export const buildCaptureMarkdown = ({
     : targetLabel === 'library'
       ? 'library'
       : 'agent';
+  const groundingTags = Array.from(new Set(['inbox', capture.kind, ...tagList, ...(gatekeeperDecision?.tags ?? [])]));
   const factsBlock = facts.length
     ? facts.map(f => `- ${f}`).join('\n')
     : '- No durable facts extracted.';
@@ -157,11 +161,11 @@ export const buildCaptureMarkdown = ({
       captureId: capture.id,
       rawPath: capture.rawPath,
       derivedFrom: capture.rawPath ? [capture.rawPath] : [],
-      evidenceState: 'capture_backed',
-      verification: capture.urls?.length ? 'partially_verified' : 'needs_verification',
-      confidence: 'medium',
-      processor: 'forge-inbox-triage',
-      tags: ['inbox', capture.kind, ...tagList],
+      evidenceState: gatekeeperDecision?.evidenceState ?? 'capture_backed',
+      verification: gatekeeperDecision?.verification ?? (capture.urls?.length ? 'partially_verified' : 'needs_verification'),
+      confidence: gatekeeperDecision?.confidence ?? 'medium',
+      processor: 'memory-gatekeeper',
+      tags: groundingTags,
     },
     `## Summary
 ${summary}
@@ -186,6 +190,15 @@ ${attachmentsBlock}
 - Owner: ${capture.ownerLabel || capture.ownerId}
 - Instance: ${capture.instanceId || '_None_'}
 - Share route: ${capture.shareId || '_None_'}
-- Device: ${capture.deviceName || '_None_'}`
+- Device: ${capture.deviceName || '_None_'}
+
+## Memory Gatekeeper
+- Destination: ${gatekeeperDecision?.destination ?? scope}
+- Memory type: ${gatekeeperDecision?.memoryType ?? 'capture'}
+- Evidence: ${gatekeeperDecision?.evidenceState ?? 'capture_backed'}
+- Verification: ${gatekeeperDecision?.verification ?? (capture.urls?.length ? 'partially_verified' : 'needs_verification')}
+- Confidence: ${gatekeeperDecision?.confidence ?? 'medium'}
+- Sensitivity: ${gatekeeperDecision?.sensitivity ?? 'normal'}
+- Reason: ${gatekeeperDecision?.reason ?? 'capture processed from inbox'}`
   );
 };
