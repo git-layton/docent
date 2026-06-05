@@ -95,6 +95,7 @@ Quality checks:
 
 ```bash
 npm run check
+npm run memory:test
 npm run build
 npm run relay:test
 cargo test --lib -- --test-threads=1

@@ -10,13 +10,16 @@ export interface ConversationMemoryAssessment {
   score: number;
 }
 
-interface AssessConversationMemoryInput {
+export interface AssessConversationMemoryInput {
   question: string;
   answer: string;
   chatKind?: string;
   contributions?: string[];
   attachments?: any[];
 }
+
+const memoryLevels = new Set<MemoryLevel>(['skip', 'background', 'notable', 'explicit']);
+const notifications = new Set<MemoryNotification>(['none', 'toast']);
 
 const wordCount = (text: string) => String(text || '').trim().split(/\s+/).filter(Boolean).length;
 
@@ -48,6 +51,45 @@ const trivialPatterns = [
 const sillyPatterns = [
   /\b(lol|haha|joke|silly|random thought|goofy|messing around)\b/i,
 ];
+
+export const validateConversationMemoryAssessment = (assessment: ConversationMemoryAssessment) => {
+  const errors: string[] = [];
+
+  if (!memoryLevels.has(assessment.level)) errors.push(`Unknown memory level: ${assessment.level}`);
+  if (!notifications.has(assessment.notification)) errors.push(`Unknown memory notification: ${assessment.notification}`);
+  if (!Number.isFinite(assessment.score)) errors.push('Score must be finite.');
+  if (!assessment.reason.trim()) errors.push('Reason is required.');
+  if (!assessment.tags.length) errors.push('At least one tag is required.');
+  if (new Set(assessment.tags).size !== assessment.tags.length) errors.push('Tags must be unique.');
+  if (assessment.tags.some(tag => !tag || /\s/.test(tag))) errors.push('Tags must be non-empty slug tokens.');
+
+  if (!assessment.shouldSave) {
+    if (assessment.level !== 'skip') errors.push('Skipped memories must use level "skip".');
+    if (assessment.notification !== 'none') errors.push('Skipped memories must not notify.');
+    if (assessment.tags.some(tag => tag.startsWith('memory-'))) errors.push('Skipped memories must not include persisted memory level tags.');
+  } else {
+    if (assessment.level === 'skip') errors.push('Saved memories cannot use level "skip".');
+    if (!assessment.tags.includes(`memory-${assessment.level}`)) errors.push(`Saved memories must include memory-${assessment.level}.`);
+    if (assessment.level === 'background' && assessment.notification !== 'none') errors.push('Background saves must be silent.');
+    if ((assessment.level === 'explicit' || assessment.level === 'notable') && assessment.notification !== 'toast') {
+      errors.push('Explicit and notable saves must use a toast notification.');
+    }
+  }
+
+  if (assessment.level === 'explicit' && !assessment.tags.includes('explicit-memory')) {
+    errors.push('Explicit memories must include explicit-memory tag.');
+  }
+
+  return errors;
+};
+
+const finalizeAssessment = (assessment: ConversationMemoryAssessment): ConversationMemoryAssessment => {
+  const errors = validateConversationMemoryAssessment(assessment);
+  if (errors.length > 0) {
+    throw new Error(`Invalid memory policy assessment: ${errors.join(' ')}`);
+  }
+  return assessment;
+};
 
 export const assessConversationMemory = ({
   question,
@@ -111,24 +153,24 @@ export const assessConversationMemory = ({
   if (silly) score -= 3;
 
   if (trivial || silly || score < 3) {
-    return {
+    return finalizeAssessment({
       shouldSave: false,
       level: 'skip',
       notification: 'none',
       reason: trivial ? 'trivial acknowledgement' : silly ? 'low-value casual exchange' : 'not enough durable signal',
       tags: Array.from(new Set(tags)),
       score,
-    };
+    });
   }
 
   const level: MemoryLevel = explicitMemory ? 'explicit' : score >= 7 ? 'notable' : 'background';
 
-  return {
+  return finalizeAssessment({
     shouldSave: true,
     level,
     notification: level === 'background' ? 'none' : 'toast',
     reason: reasons[0] ?? 'meaningful conversation',
     tags: Array.from(new Set([...tags, `memory-${level}`])),
     score,
-  };
+  });
 };
