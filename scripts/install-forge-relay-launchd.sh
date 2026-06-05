@@ -23,8 +23,8 @@ xml_escape() {
 }
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  PRIMARY_TOKEN="$(openssl rand -hex 24)"
-  SHARED_TOKEN="$(openssl rand -hex 24)"
+  PERSONAL_TOKEN="$(openssl rand -hex 24)"
+  TEAM_TOKEN="$(openssl rand -hex 24)"
   ADMIN_TOKEN="$(openssl rand -hex 24)"
   INSTANCE_ID="agent-forge-$(hostname | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')"
   cat > "$ENV_FILE" <<EOF
@@ -33,12 +33,12 @@ FORGE_RELAY_PORT=8765
 FORGE_RELAY_ROOT=$HOME/AgentForge
 FORGE_RELAY_INSTANCE_ID=$INSTANCE_ID
 # Token routes use ownerId:Owner Label:token:instanceId:shareId
-# Rename owner IDs/labels for your household or workspace before building Shortcuts.
-FORGE_RELAY_TOKENS=primary:Primary:$PRIMARY_TOKEN:$INSTANCE_ID:primary-shortcut,shared:Shared:$SHARED_TOKEN:$INSTANCE_ID:shared-shortcut
+# Rename owner IDs/labels for your workflow before building Shortcuts.
+FORGE_RELAY_TOKENS=personal:Personal:$PERSONAL_TOKEN:$INSTANCE_ID:personal-shortcut,team:Team:$TEAM_TOKEN:$INSTANCE_ID:team-shortcut
 FORGE_RELAY_ADMIN_TOKEN=$ADMIN_TOKEN
 EOF
   chmod 600 "$ENV_FILE"
-  echo "Created $ENV_FILE with new primary, shared, and admin tokens."
+  echo "Created $ENV_FILE with new personal, team, and admin tokens."
 else
   echo "Using existing $ENV_FILE."
 fi

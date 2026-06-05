@@ -2,8 +2,6 @@
 
 Agent Forge is a local-first personal AI command center for macOS. It gives you custom agents, browser-context capture, a Git-backed Knowledge Core, and a focused workspace for chatting, saving useful context, and recalling it later.
 
-Built by `git-layton`.
-
 ## What It Is
 
 Agent Forge is not trying to be a full AI operating system in this release. The core product is simpler and more valuable:
@@ -48,7 +46,7 @@ This build is intended as an early Mac alpha, not a broad public stable release.
 
 ## Forge Inbox + Relay
 
-Forge Inbox is the product-grade capture layer. It is not hardcoded to one household: configure capture owners such as `primary`, `partner`, `family`, or `work`, then issue a separate Shortcut token for each owner/share route.
+Forge Inbox is the product-grade capture layer. It is not hardcoded to one person, device, or household: configure capture owners such as `personal`, `team`, `work`, or `field-notes`, then issue a separate Shortcut token for each owner/share route.
 
 - Raw captures live under `~/AgentForge/inbox/raw/<owner>/<capture-id>/`.
 - Derived notes are saved into agent memory, channel memory, or the Library.

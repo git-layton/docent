@@ -294,7 +294,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   onChange={e => setPeopleDraft(e.target.value)}
                   rows={6}
                   className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono resize-none"
-                  placeholder={'layton: Layton: Owner\npartner: Partner: Family'}
+                  placeholder={'owner: Owner: Personal context\nteammate: Teammate: Work context'}
                 />
                 <button onClick={savePeople} className="w-full py-3 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all">
                   Save People

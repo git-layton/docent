@@ -52,7 +52,7 @@ The Semantic Layer is a local SQLite index built from your grounded Markdown.
 Forge Inbox is the raw capture log. It keeps the original thing you sent before AI turns it into memory.
 
 - Captures can come from desktop drops, iOS Shortcuts, a Mac-hosted Forge Relay, or future message rooms
-- Capture owners are configurable, such as \`primary\`, \`partner\`, \`family\`, or \`work\`
+- Capture owners are configurable, such as \`personal\`, \`team\`, \`work\`, or \`field-notes\`
 - Relay token routes use \`ownerId:Owner Label:token:instanceId:shareId\` so the right Shortcut/share action lands in the right inbox
 - Raw originals stay under \`~/AgentForge/inbox/raw/\`
 - Processing an item autosaves a derived note into agent memory, channel memory, or Library while preserving the raw capture
@@ -77,7 +77,7 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 - Use /memo to save thoughts to your Knowledge Core without leaving the chat
 
 ### # Channels — Shared Work Rooms
-Channels are collaborative rooms with shared memory. An agent can remain standalone, like a Star Wars CCG Specialist that remembers deck experiments across time, while a Channel can invite that specialist plus a Strategist or Logic Checker for a specific build.
+Channels are collaborative rooms with shared memory. An agent can remain standalone, like a domain specialist that remembers experiments across time, while a Channel can invite that specialist plus a Strategist or Logic Checker for a specific project.
 
 - Channel memory is saved under \`~/AgentForge/memory/channels/\`
 - Agent memory stays under that agent's own memory folder

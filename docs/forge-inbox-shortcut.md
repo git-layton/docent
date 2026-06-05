@@ -1,6 +1,6 @@
 # Forge Inbox Shortcut Setup
 
-Forge Inbox capture is generic. A Shortcut belongs to a **capture owner** and a **share route**, not to a hardcoded person. Use owner IDs like `primary`, `partner`, `family`, `work`, or `field-notes`.
+Forge Inbox capture is generic. A Shortcut belongs to a **capture owner** and a **share route**, not to a hardcoded person. Use owner IDs like `personal`, `team`, `work`, or `field-notes`.
 
 ## 1. Install the Mac Relay
 
@@ -14,7 +14,7 @@ The installer creates `~/.agent-forge-relay.env` with local tokens:
 
 ```bash
 FORGE_RELAY_INSTANCE_ID=agent-forge-home
-FORGE_RELAY_TOKENS=primary:Primary:<token>:agent-forge-home:primary-shortcut,partner:Partner:<token>:agent-forge-home:partner-shortcut
+FORGE_RELAY_TOKENS=personal:Personal:<token>:agent-forge-home:personal-shortcut,team:Team:<token>:agent-forge-home:team-shortcut
 FORGE_RELAY_ADMIN_TOKEN=<admin-token>
 ```
 
@@ -66,8 +66,8 @@ Create a Shortcut named `Send to Agent Forge` and enable **Use as Share Sheet** 
   "bodyText": "<Shortcut Input>",
   "note": "<Note>",
   "instanceId": "agent-forge-home",
-  "shareId": "primary-shortcut",
-  "deviceName": "Layton iPhone"
+  "shareId": "personal-shortcut",
+  "deviceName": "Example iPhone"
 }
 ```
 
@@ -111,8 +111,8 @@ Use the same Shortcut, but add a `Repeat with Each` block over `Shortcut Input`:
   "bodyText": "",
   "note": "<Note>",
   "instanceId": "agent-forge-home",
-  "shareId": "primary-shortcut",
-  "deviceName": "Layton iPhone",
+  "shareId": "personal-shortcut",
+  "deviceName": "Example iPhone",
   "attachments": "<Attachments>"
 }
 ```
