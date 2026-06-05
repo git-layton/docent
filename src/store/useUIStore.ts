@@ -97,7 +97,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   input: '',
   attachedDocs: [],
   generationMode: 'text',
-  isDeepThinking: false,
+  isDeepThinking: true,
   forcedTool: null,
   isPlanMode: false,
   isDragging: false,

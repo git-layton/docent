@@ -1,4 +1,4 @@
-import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Plus, Hash } from 'lucide-react';
+import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash } from 'lucide-react';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useTaskStore } from '../store/useTaskStore';
@@ -28,9 +28,23 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
   const editingChatName = useChatStore(s => s.editingChatName);
 
   const activeFolderId = useAgentStore(s => s.activeFolderId);
+  const assistants = useAgentStore(s => s.assistants);
   const showPlanner = useTaskStore(s => s.showPlanner);
 
   const createChat = (kind: 'dm' | 'channel') => {
+    const activeAgent = assistants.find((agent: any) => agent.id === activeFolderId) ?? assistants[0];
+    if (kind === 'dm') {
+      const existingDirect = chats
+        .map((chat: any) => normalizeChatRecord(chat, activeFolderId))
+        .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === activeFolderId || chat.folderId === activeFolderId));
+      if (existingDirect) {
+        useChatStore.getState().setActiveChatId(existingDirect.id);
+        useTaskStore.getState().setShowPlanner(false);
+        useUIStore.getState().setViewMode('chat');
+        return;
+      }
+    }
+
     const id = generateId('c');
     const chat = normalizeChatRecord({
       id,
@@ -38,7 +52,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
       primaryAgentId: activeFolderId,
       participantAgentIds: [activeFolderId],
       kind,
-      name: kind === 'channel' ? 'New Channel' : 'New Chat',
+      name: kind === 'channel' ? 'New Channel' : `${activeAgent?.name ?? 'Agent'} Direct`,
       goal: '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -65,7 +79,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2 no-scrollbar">
           {viewMode === 'chat' ? (
             <div className="space-y-3">
-              <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search chats..." value={chatSearchQuery} onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)} /></div>
+              <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search directs and channels..." value={chatSearchQuery} onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)} /></div>
               {/* Scoped Sidebar Chats to Active Folder ID */}
               {chats.filter(c => chatIncludesAgent(c, activeFolderId) && c.name.toLowerCase().includes(chatSearchQuery.toLowerCase())).map(chat => (
                 <div key={chat.id} onClick={() => { useChatStore.getState().setActiveChatId(chat.id); useUIStore.getState().setCanvasContent(null); useTaskStore.getState().setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-3 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
@@ -73,7 +87,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                 </div>
               ))}
               {chats.filter(c => chatIncludesAgent(c, activeFolderId)).length === 0 && (
-                  <div className="text-center text-xs text-neutral-400 font-bold mt-4">No DMs or channels found for this agent.</div>
+                  <div className="text-center text-xs text-neutral-400 font-bold mt-4">No direct message or channels found for this agent.</div>
               )}
             </div>
           ) : (
@@ -100,7 +114,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
 
         <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => createChat('dm')} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Plus className="w-4 h-4" /> DM</button>
+            <button onClick={() => createChat('dm')} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Bot className="w-4 h-4" /> Direct</button>
             <button onClick={() => createChat('channel')} className="flex items-center justify-center gap-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Hash className="w-4 h-4" /> Channel</button>
           </div>
         </div>

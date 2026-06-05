@@ -78,7 +78,7 @@ export default function SpotlightBar() {
   const [models, setModels] = useState<any[]>([]);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const [isDeepThinking, setIsDeepThinking] = useState(false);
+  const [isDeepThinking, setIsDeepThinking] = useState(true);
   const [useTab, setUseTab] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);

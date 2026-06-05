@@ -56,7 +56,7 @@ export const promoteChatToChannel = (
     folderId: primaryAgentId,
     primaryAgentId,
     participantAgentIds,
-    name: options.name ?? (normalized.name === 'New Chat' ? 'New Channel' : normalized.name),
+    name: options.name ?? (normalized.name === 'New Chat' || normalized.name.endsWith(' Direct') ? 'New Channel' : normalized.name),
     goal: options.goal ?? normalized.goal ?? '',
     updatedAt: Date.now(),
   }, primaryAgentId);

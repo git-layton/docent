@@ -88,7 +88,7 @@ export function ChatHeader({
 
   const promoteActiveChatToChannel = () => {
     if (!activeChatId || !activeChat || !normalizedChat || normalizedChat.kind === 'channel') return;
-    const nextName = normalizedChat.name === 'New Chat'
+    const nextName = normalizedChat.name === 'New Chat' || normalizedChat.name.endsWith(' Direct')
       ? `${activeAssistant?.name ?? 'Agent'} Channel`
       : normalizedChat.name;
     const promoted = promoteChatToChannel(activeChat, activeFolderId, { name: nextName });

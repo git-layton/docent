@@ -1385,7 +1385,7 @@ The user message is first-party context. The assistant response and invited-agen
     const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
     const _activeAssistant = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
     const _chatRecord = useChatStore.getState().chats.find((c: any) => c.id === chatId);
-    const _normalizedChat = normalizeChatRecord(_chatRecord ?? { id: chatId, folderId: _activeFolderId, primaryAgentId: _activeFolderId, participantAgentIds: [_activeFolderId], kind: 'dm', name: 'New Chat' }, _activeFolderId);
+    const _normalizedChat = normalizeChatRecord(_chatRecord ?? { id: chatId, folderId: _activeFolderId, primaryAgentId: _activeFolderId, participantAgentIds: [_activeFolderId], kind: 'dm', name: `${_activeAssistant?.name ?? 'Agent'} Direct` }, _activeFolderId);
     const _primaryAssistant = _assistants.find((a: any) => a.id === (_normalizedChat.primaryAgentId ?? _activeFolderId)) ?? _activeAssistant;
     const _channelContext = buildChannelContext(_normalizedChat, _assistants);
     const { models: _models, selectedModelId: _selectedModelId, appSettings: _appSettings, integrations: _integrations } = useSettingsStore.getState();
@@ -1708,12 +1708,9 @@ The user message is first-party context. The assistant response and invited-agen
     const _canvasContent = useUIStore.getState().canvasContent;
     const _generationMode = useUIStore.getState().generationMode;
     const _isPlanMode = useUIStore.getState().isPlanMode;
-    const { activeChatId: _activeChatId, messages: _messages } = useChatStore.getState();
-    const { activeFolderId: _activeFolderId } = useAgentStore.getState();
-    const _agentPinnedMessagesForPrompt = useMemoryStore.getState().globalPins
-      .filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === _activeFolderId) ?? useAgentStore.getState().assistants[0])?.id)
-      .map((p: any) => p.content);
-
+    const { activeChatId: _activeChatId, messages: _messages, chats: _chats } = useChatStore.getState();
+    const { activeFolderId: _activeFolderId, assistants: _assistants } = useAgentStore.getState();
+    const _activeAssistantForDirect = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
     if (isGenerating || !_selectedModel) return;
     if (!_input.trim() && _attachedDocs.length === 0) return;
 
@@ -1733,8 +1730,17 @@ The user message is first-party context. The assistant response and invited-agen
     }
 
     abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
-    let chatId = _activeChatId; const isNewChat = !chatId;
-    if (isNewChat) {
+    let chatId = _activeChatId;
+    if (!chatId) {
+      const existingDirect = _chats
+        .map((chat: any) => normalizeChatRecord(chat, _activeFolderId))
+        .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === _activeFolderId || chat.folderId === _activeFolderId));
+      if (existingDirect) {
+        chatId = existingDirect.id;
+        useChatStore.getState().setActiveChatId(chatId);
+      }
+    }
+    if (!chatId) {
       chatId = generateId('c');
       useChatStore.getState().setChats((prev: any[]) => [normalizeChatRecord({
         id: chatId,
@@ -1742,7 +1748,7 @@ The user message is first-party context. The assistant response and invited-agen
         primaryAgentId: _activeFolderId,
         participantAgentIds: [_activeFolderId],
         kind: 'dm',
-        name: _input.slice(0, 30) || 'New Chat',
+        name: `${_activeAssistantForDirect?.name ?? 'Agent'} Direct`,
         goal: '',
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -1753,11 +1759,6 @@ The user message is first-party context. The assistant response and invited-agen
     if(chatId) {
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), userMsg] }));
         useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, updatedAt: Date.now() } : c));
-
-        if (isNewChat && _input.trim() && !_selectedModel.modelId.includes('dall-e') && !_selectedModel.modelId.includes('image')) {
-          generateTextResponse({ messages: [{ role: 'user', content: `Generate a very short, 2 to 4 word title for a conversation starting with this prompt: "${_input.slice(0, 100)}". Return ONLY the title, no quotes, no extra text.` }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent: { tools: {} }, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models })
-          .then(title => useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, name: title.replace(/["']/g, '').trim().slice(0, 40) } : c))).catch(() => {});
-        }
 
         const currentHistory = (_messages[chatId] ?? []).filter((m: any) => !m.bubbleType && !m.isToolCall);
         useUIStore.getState().setInput('');
