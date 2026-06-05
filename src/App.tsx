@@ -58,11 +58,62 @@ import {
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB Limit
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB text/PDF limit
+const MAX_IMAGE_FILE_SIZE = 12 * 1024 * 1024; // Images are resized before sending to the model.
+const MAX_IMAGE_EDGE = 1600;
+const IMAGE_JPEG_QUALITY = 0.86;
 
 // ─── Utility Helpers ──────────────────────────────────────────────────────────
 
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(String(reader.result ?? ''));
+  reader.onerror = () => reject(reader.error ?? new Error('Failed to read file.'));
+  reader.readAsDataURL(file);
+});
+
+const readFileAsText = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(String(reader.result ?? ''));
+  reader.onerror = () => reject(reader.error ?? new Error('Failed to read file.'));
+  reader.readAsText(file);
+});
+
+const resizeImageForVision = async (file: File): Promise<{ content: string; type: string; resized: boolean }> => {
+  const dataUrl = await readFileAsDataUrl(file);
+  if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
+    return { content: dataUrl, type: file.type || 'image/png', resized: false };
+  }
+
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const longestEdge = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
+      if (!longestEdge || (longestEdge <= MAX_IMAGE_EDGE && file.size <= MAX_FILE_SIZE)) {
+        resolve({ content: dataUrl, type: file.type, resized: false });
+        return;
+      }
+
+      const scale = Math.min(1, MAX_IMAGE_EDGE / longestEdge);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+      canvas.height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve({ content: dataUrl, type: file.type, resized: false });
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const outputType = file.type === 'image/png' && file.size <= MAX_FILE_SIZE ? 'image/png' : 'image/jpeg';
+      resolve({ content: canvas.toDataURL(outputType, IMAGE_JPEG_QUALITY), type: outputType, resized: true });
+    };
+    img.onerror = () => resolve({ content: dataUrl, type: file.type || 'image/png', resized: false });
+    img.src = dataUrl;
+  });
+};
 
 
 // ─── UI Sub-components moved to src/components/ui/ ────────────────────────────
@@ -347,13 +398,9 @@ export default function App() {
   // Sync mode when switching agents
   useEffect(() => {
     if (activeAssistant) {
-      if (activeAssistant.defaultMode === 'image' && appSettings?.imageProvider === 'none') {
-         useUIStore.getState().setGenerationMode('text');
-      } else {
-         useUIStore.getState().setGenerationMode(activeAssistant.defaultMode || 'text');
-      }
+      useUIStore.getState().setGenerationMode(activeAssistant.defaultMode === 'image' ? 'text' : (activeAssistant.defaultMode || 'text'));
     }
-  }, [activeFolderId, activeAssistant, appSettings?.imageProvider]);
+  }, [activeFolderId, activeAssistant]);
 
   useEffect(() => { if (canvasContent && isSidebarOpen) useUIStore.getState().setIsSidebarOpen(false); }, [canvasContent]);
 
@@ -389,10 +436,7 @@ export default function App() {
         if (mem.showMemoCompose) mem.setShowMemoCompose(false);
         else if (mem.showMemmoPanel) mem.setShowMemmoPanel(false);
         else if (ag.showAssistantSettings) ag.setShowAssistantSettings(false);
-        else if (ss.showProfileSettings) {
-            ss.setShowProfileSettings(false);
-            ss.setImageTestState({ loading: false, error: null, successUrl: null });
-        }
+        else if (ss.showProfileSettings) ss.setShowProfileSettings(false);
         else if (ss.showModelWizard) ss.setShowModelWizard(false);
         else if (ui.showSaveModal) ui.setShowSaveModal(false);
         else if (tk.taskToDiscuss) tk.setTaskToDiscuss(null);
@@ -401,49 +445,6 @@ export default function App() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
-
-  const fetchImageModels = async () => {
-     const { setIsFetchingImageModels, setImageTestState, setImageEngineModels, setAppSettings } = useSettingsStore.getState();
-     const { appSettings: _appSettings } = useSettingsStore.getState();
-     const _activeImageKey = _appSettings.imageProvider === 'openai' ? (useSettingsStore.getState().integrations.openai?.apiKey || useSettingsStore.getState().models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey) :
-                            _appSettings.imageProvider === 'google' ? (useSettingsStore.getState().integrations.google?.apiKey || useSettingsStore.getState().models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey) :
-                            useSettingsStore.getState().integrations.customImage?.apiKey || '';
-     setIsFetchingImageModels(true);
-     setImageTestState({ loading: false, error: null, successUrl: null });
-     try {
-         let url, headers: any = {};
-         let provider = _appSettings.imageProvider;
-         let key = _activeImageKey;
-
-         if (!key && provider !== 'custom') throw new Error("API Key required to fetch models.");
-
-         if (provider === 'google') {
-             url = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`;
-         } else {
-             let base = _appSettings.imageEndpoint || 'https://api.openai.com/v1';
-             url = `${base.replace(/\/$/, '')}/models`;
-             if (key) headers['Authorization'] = `Bearer ${key}`;
-         }
-
-         const res = await fetchWithRetry(url, { method: 'GET', headers }, 1);
-         let list: any[] = [];
-         if (provider === 'google') {
-             list = (res.models || []).map((m: any) => m.name.replace('models/', ''));
-         } else {
-             list = (res.data || res.models || []).map((m: any) => m.id || m.name);
-         }
-
-         setImageEngineModels(list);
-         if (list.length > 0 && !_appSettings.imageModelId) {
-             setAppSettings((prev: any) => ({...prev, imageModelId: list.find((id: string) => id.includes('dall-e') || id.includes('imagen')) || list[0]}));
-         }
-         useUIStore.getState().showToast("Models fetched successfully.");
-     } catch (err: any) {
-         useUIStore.getState().showToast("Failed to fetch models: " + err.message);
-     } finally {
-         setIsFetchingImageModels(false);
-     }
-  };
 
   const viewImageInCanvas = useCallback((src: string) => {
       useUIStore.getState().setCanvasContent({
@@ -459,51 +460,6 @@ export default function App() {
       useUIStore.getState().setCanvasTab('preview');
       useTaskStore.getState().setShowPlanner(false);
   }, []);
-
-  const testImageEngine = async () => {
-      const { appSettings: _appSettings, integrations: _integrations, models: _models } = useSettingsStore.getState();
-      const _activeImageKey = _appSettings.imageProvider === 'openai' ? (_integrations.openai?.apiKey || _models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey) :
-                             _appSettings.imageProvider === 'google' ? (_integrations.google?.apiKey || _models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey) :
-                             _integrations.customImage?.apiKey || '';
-      useSettingsStore.getState().setImageTestState({ loading: true, error: null, successUrl: null });
-      try {
-          let imageUrl = '';
-          const promptText = "A cute cat wearing a yellow banana costume, high quality photorealistic.";
-          let provider = _appSettings.imageProvider;
-          let modelId = _appSettings.imageModelId || (provider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
-          let key = _activeImageKey;
-
-          if (provider === 'google') {
-              if (!key) throw new Error("Missing Google API Key.");
-              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predict?key=${key}`;
-              const body = { instances: { prompt: promptText }, parameters: { sampleCount: 1 } };
-              const headers = { 'Content-Type': 'application/json' };
-              const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 0);
-              if (res.predictions && res.predictions[0]) {
-                  imageUrl = `data:image/png;base64,${res.predictions[0].bytesBase64Encoded}`;
-              } else {
-                  throw new Error(res.error?.message || "Google Image generation failed or returned empty payload.");
-              }
-          } else if (provider === 'openai' || provider === 'custom') {
-              if (!key && provider === 'openai') throw new Error("Missing OpenAI API Key.");
-              const baseEndpoint = (_appSettings.imageEndpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
-              const url = `${baseEndpoint}/images/generations`;
-              const body = { model: modelId, prompt: promptText, n: 1, size: '1024x1024' };
-              const headers: any = { 'Content-Type': 'application/json' };
-              if (key) headers['Authorization'] = `Bearer ${key}`;
-
-              const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 0);
-              if (data.data && data.data[0] && data.data[0].url) {
-                  imageUrl = data.data[0].url;
-              } else {
-                  throw new Error(data.error?.message || "Generation failed.");
-              }
-          }
-          useSettingsStore.getState().setImageTestState({ loading: false, error: null, successUrl: imageUrl });
-      } catch (err: any) {
-          useSettingsStore.getState().setImageTestState({ loading: false, error: err.message || "Failed to generate image. Check your API key or network.", successUrl: null });
-      }
-  };
 
   const toggleSpeak = (msgId: string, text: string) => {
     if (speakingId === msgId) {
@@ -599,46 +555,79 @@ export default function App() {
     }
 
     // If it's a file upload drop
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      const fakeEvent = { target: { files: [file], value: '' } } as any;
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length > 0) {
+      const fakeEvent = { target: { files, value: '' } } as any;
       await handleChatFileUpload(fakeEvent);
     }
   };
 
   const handleChatFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     const ui = useUIStore.getState();
     ui.setUploadError('');
-    if (file.size > MAX_FILE_SIZE) {
-      ui.setUploadError(`File is too large. Max 5MB allowed.`);
-      ui.showToast("File is too large.");
-      e.target.value = '';
-      return;
-    }
 
-    if (file.type === 'application/pdf') {
-        ui.showToast("Parsing PDF locally... this might take a moment.");
-        try {
-           const text = await extractTextFromPDF(file);
-           ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: text, type: 'text/plain', isImage: false }]);
-           ui.showToast("PDF parsed successfully!");
-        } catch (err) {
-           ui.showToast("Failed to parse PDF.");
-           console.error(err);
+    const attachments: any[] = [];
+    const failures: string[] = [];
+
+    for (const file of files) {
+      try {
+        if (file.type.startsWith('image/')) {
+          if (file.size > MAX_IMAGE_FILE_SIZE) {
+            failures.push(`${file.name} is larger than 12MB.`);
+            continue;
+          }
+
+          if (file.type === 'image/svg+xml') {
+            const content = await readFileAsText(file);
+            attachments.push({ name: file.name, content, type: 'text/plain', isImage: false });
+            continue;
+          }
+
+          const image = await resizeImageForVision(file);
+          attachments.push({
+            name: file.name,
+            content: image.content,
+            type: image.type,
+            isImage: true,
+            originalSize: file.size,
+            resized: image.resized,
+          });
+          continue;
         }
-        e.target.value = '';
-        return;
+
+        if (file.size > MAX_FILE_SIZE) {
+          failures.push(`${file.name} is larger than 5MB.`);
+          continue;
+        }
+
+        if (file.type === 'application/pdf') {
+          ui.showToast(`Parsing ${file.name} locally...`);
+          const text = await extractTextFromPDF(file);
+          attachments.push({ name: file.name, content: text, type: 'text/plain', isImage: false });
+          continue;
+        }
+
+        const text = await readFileAsText(file);
+        attachments.push({ name: file.name, content: text, type: file.type || 'text/plain', isImage: false });
+      } catch (err) {
+        console.error('[AgentForge] Failed to attach file:', file.name, err);
+        failures.push(`${file.name} could not be read.`);
+      }
     }
 
-    const reader = new FileReader();
-    if (file.type.startsWith('image/')) {
-      reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
-      reader.readAsDataURL(file);
-    } else {
-      reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
-      reader.readAsText(file);
+    if (attachments.length > 0) {
+      ui.setAttachedDocs((prev: any[]) => [...prev, ...attachments]);
+      const imageCount = attachments.filter(doc => doc.isImage).length;
+      ui.showToast(`${attachments.length} attachment${attachments.length === 1 ? '' : 's'} added${imageCount ? ` (${imageCount} vision input${imageCount === 1 ? '' : 's'})` : ''}.`);
     }
+
+    if (failures.length > 0) {
+      ui.setUploadError(failures.join(' '));
+      ui.showToast(failures[0]);
+    }
+
     e.target.value = '';
   };
 
@@ -1593,7 +1582,7 @@ The user message is first-party context. The assistant response and invited-agen
           }
       };
 
-      const isImageRequest = _generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
+      const effectiveGenerationMode = _generationMode === 'image' ? 'text' : _generationMode;
 
       const response = await generateTextResponse({
           messages: messagesForLLM,
@@ -1602,7 +1591,7 @@ The user message is first-party context. The assistant response and invited-agen
           attachedDocs: userMsg.attachedFiles,
           agent: _primaryAssistant,
           tasks: _tasks,
-          mode: isImageRequest ? 'image' : _generationMode,
+          mode: effectiveGenerationMode,
           canvasContent: _canvasContent,
           isDeepThinking: _isDeepThinking,
           agentPinnedMessages: _agentPinnedMessagesForPrompt,
@@ -1666,7 +1655,7 @@ The user message is first-party context. The assistant response and invited-agen
                   timestamp: Date.now(),
                 }]);
               }
-            } else if (!isImageRequest) {
+            } else {
               const saved = await autosaveConversationNote({
                 chat: _normalizedChat,
                 agent: _primaryAssistant,
@@ -2338,11 +2327,7 @@ The user message is first-party context. The assistant response and invited-agen
 
       {/* Global Profile/System Settings */}
       {showProfileSettings && (
-        <ProfileSettingsModal
-          fetchImageModels={fetchImageModels}
-          testImageEngine={testImageEngine}
-          viewImageInCanvas={viewImageInCanvas}
-        />
+        <ProfileSettingsModal />
       )}
 
       {/* Save Artifact Modal */}

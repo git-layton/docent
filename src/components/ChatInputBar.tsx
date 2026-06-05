@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
-  AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic
+  AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic, ImageIcon
 } from 'lucide-react';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
 import type { SlashCommand } from './SlashCommandPalette';
@@ -85,10 +85,20 @@ export function ChatInputBar({
         {attachedDocs.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3 px-2">
             {attachedDocs.map((doc, idx) => (
-              <div key={idx} className="relative group flex items-center gap-2 px-3 py-1.5 bg-white border border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 rounded-xl text-[10px] font-black shadow-sm animate-in slide-in-from-bottom-2">
-                {doc.isImage ? <img src={doc.content} alt={doc.name} className="w-6 h-6 object-cover rounded-md" /> : <FileText className="w-4 h-4 text-[#6A829E]" />}
-                <span className="max-w-[100px] truncate">{doc.name}</span>
-                <button onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))} className="opacity-50 hover:opacity-100 hover:text-[#C98A8A]"><X className="w-3 h-3" /></button>
+              <div key={idx} className="relative group flex items-center gap-2 max-w-[220px] px-2.5 py-1.5 bg-white border border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 rounded-xl text-[10px] font-black shadow-sm animate-in slide-in-from-bottom-2">
+                {doc.isImage ? (
+                  <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 shrink-0 bg-neutral-100 dark:bg-neutral-900">
+                    <img src={doc.content} alt={doc.name} className="w-full h-full object-cover" />
+                    <div className="absolute bottom-0 right-0 bg-[#4A5D75] text-white p-0.5 rounded-tl-md"><ImageIcon className="w-2.5 h-2.5" /></div>
+                  </div>
+                ) : (
+                  <FileText className="w-4 h-4 text-[#6A829E] shrink-0" />
+                )}
+                <div className="min-w-0 flex flex-col">
+                  <span className="truncate text-neutral-700 dark:text-neutral-200">{doc.name}</span>
+                  <span className="text-[8px] uppercase tracking-widest text-neutral-400">{doc.isImage ? 'Vision input' : 'Attached file'}</span>
+                </div>
+                <button aria-label={`Remove ${doc.name}`} onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))} className="opacity-50 hover:opacity-100 hover:text-[#C98A8A] shrink-0"><X className="w-3 h-3" /></button>
               </div>
             ))}
           </div>
@@ -196,7 +206,14 @@ export function ChatInputBar({
           <div className="flex items-center gap-1 ml-auto">
             {models.length > 0 && <button onClick={onToggleListening} className={`p-1.5 rounded-lg transition-all ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
             {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-1.5 text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
-            <input type="file" ref={fileInputRef} onChange={onChatFileUpload} className="hidden" />
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={onChatFileUpload}
+              className="hidden"
+              multiple
+              accept="image/*,.pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.html,.css,.xml,.yaml,.yml"
+            />
             {!isGenerating && input.trim() && models.length > 0 && <button onClick={onEnhancePrompt} disabled={isEnhancing} className={`p-1.5 text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20 rounded-lg transition-all ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-3.5 h-3.5" /></button>}
             <button
               onClick={isGenerating ? onStop : onSend}

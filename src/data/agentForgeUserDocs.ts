@@ -130,7 +130,7 @@ Open Settings (⚙️ in the header) to:
 - Edit your **Profile** (About Me) — global context injected into all agents
 - Toggle **Allow Profile Updates** — lets agents suggest updates to your profile based on conversations
 - Configure **Forge Inbox** owners, instance ID, and relay URL
-- Configure **Image Generation** (OpenAI DALL-E, Google Imagen, or custom endpoint)
+- Connect chat models, including vision-capable models for image and screenshot understanding
 - Manage the **User Guide** (this document)
 
 ---

@@ -94,7 +94,6 @@ export function AssistantSettingsModal({
   const { setEditingAssistant, setAssistantSettingsTab, setShowAssistantSettings } = useAgentStore.getState();
 
   const models = useSettingsStore(s => s.models);
-  const appSettings = useSettingsStore(s => s.appSettings);
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
   const isDreamRunning = useMemoryStore(s => s.isDreamRunning);
@@ -129,9 +128,7 @@ export function AssistantSettingsModal({
                     <div>
                        <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Default Output Mode</label>
                        <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-2xl">
-                         {[{id:'text', lbl:'Chat'}, {id:'code',lbl:'Code Canvas'}, {id:'doc',lbl:'Doc Draft'}, {id:'image',lbl:'Image Gen'}]
-                           .filter(m => m.id !== 'image' || appSettings?.imageProvider !== 'none')
-                           .map(m => (
+                         {[{id:'text', lbl:'Chat'}, {id:'code',lbl:'Code Canvas'}, {id:'doc',lbl:'Doc Draft'}].map(m => (
                            <button key={m.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, defaultMode: m.id }))} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${editingAssistant.defaultMode === m.id || (!editingAssistant.defaultMode && m.id === 'text') ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>
                              {m.lbl}
                            </button>

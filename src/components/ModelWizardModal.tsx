@@ -1,4 +1,4 @@
-import { X, Zap, Loader2, ImageIcon, CheckCircle2, PlusCircle } from 'lucide-react';
+import { X, Zap, Loader2, CheckCircle2, PlusCircle } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 interface ModelWizardModalProps {
@@ -75,7 +75,6 @@ export function ModelWizardModal({
                       <button key={m.id} onClick={() => onToggleModelSelection(m)} className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${isSelected ? 'border-[#4A5D75] bg-[#F0F4F8] dark:bg-[#1E2B38]/20 shadow-sm' : 'border-transparent hover:bg-white dark:hover:bg-neutral-800'}`}>
                         <div className="flex flex-col text-left overflow-hidden">
                           <div className="flex items-center gap-1.5">
-                             {m.id.includes('dall-e') || m.id.includes('image') ? <span title="Image Generation Model"><ImageIcon className="w-3 h-3 text-[#D4AA7D]" /></span> : null}
                              <span className="text-xs font-bold truncate text-neutral-800 dark:text-neutral-100">{m.id}</span>
                           </div>
                           <span className="text-[9px] font-black text-[#6A829E] uppercase tracking-tight">Limit: {m.context.toLocaleString()} tokens</span>

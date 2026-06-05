@@ -12,9 +12,6 @@ interface SettingsStore {
   integrations: any;
   appSettings: {
     allowProfileUpdates: boolean;
-    imageProvider: string;
-    imageModelId: string;
-    imageEndpoint: string;
     forgeInstanceId: string;
     relayUrl: string;
     relayAdminToken: string;
@@ -25,9 +22,6 @@ interface SettingsStore {
   // Profile settings modal
   profileSettingsTab: string;
   showProfileSettings: boolean;
-  imageTestState: { loading: boolean; error: string | null; successUrl: string | null };
-  imageEngineModels: any[];
-  isFetchingImageModels: boolean;
 
   // Model wizard
   showModelWizard: boolean;
@@ -55,9 +49,6 @@ interface SettingsStore {
   setAppSettings: (fn: ((prev: any) => any) | any) => void;
   setProfileSettingsTab: (tab: string) => void;
   setShowProfileSettings: (v: boolean) => void;
-  setImageTestState: (v: { loading: boolean; error: string | null; successUrl: string | null }) => void;
-  setImageEngineModels: (v: any[]) => void;
-  setIsFetchingImageModels: (v: boolean) => void;
   setShowModelWizard: (v: boolean) => void;
   setWizardStep: (step: number) => void;
   setEditingModel: (fn: ((prev: any) => any) | any) => void;
@@ -82,13 +73,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     googleCalendar: { connected: false },
     openai: { apiKey: '' },
     google: { apiKey: '' },
-    customImage: { apiKey: '' },
   },
   appSettings: {
     allowProfileUpdates: true,
-    imageProvider: 'none',
-    imageModelId: '',
-    imageEndpoint: '',
     forgeInstanceId: 'agent-forge-local',
     relayUrl: '',
     relayAdminToken: '',
@@ -100,9 +87,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,
-  imageTestState: { loading: false, error: null, successUrl: null },
-  imageEngineModels: [],
-  isFetchingImageModels: false,
   showModelWizard: false,
   wizardStep: 3,
   editingModel: { name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 },
@@ -124,9 +108,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set(s => ({ appSettings: typeof fn === 'function' ? fn(s.appSettings) : fn })),
   setProfileSettingsTab: (tab) => set({ profileSettingsTab: tab }),
   setShowProfileSettings: (v) => set({ showProfileSettings: v }),
-  setImageTestState: (v) => set({ imageTestState: v }),
-  setImageEngineModels: (v) => set({ imageEngineModels: v }),
-  setIsFetchingImageModels: (v) => set({ isFetchingImageModels: v }),
   setShowModelWizard: (v) => set({ showModelWizard: v }),
   setWizardStep: (step) => set({ wizardStep: step }),
   setEditingModel: (fn) =>
@@ -145,9 +126,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const settings = await db.get('settings', {});
     const appSettings = await db.get('appSettings', {
       allowProfileUpdates: true,
-      imageProvider: 'none',
-      imageModelId: '',
-      imageEndpoint: '',
       forgeInstanceId: 'agent-forge-local',
       relayUrl: '',
       relayAdminToken: '',

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen, Inbox, Search,
+  Settings, X, Loader2, Globe, Database, CalendarDays, Link, BookOpen, Inbox, Search,
   Cpu, Server, Trash2, Plus, User
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -9,24 +9,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { db } from '../services/database';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
 
-interface ProfileSettingsModalProps {
-  fetchImageModels: () => void;
-  testImageEngine: () => void;
-  viewImageInCanvas: (src: string) => void;
-}
-
-export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewImageInCanvas }: ProfileSettingsModalProps) {
+export function ProfileSettingsModal() {
   const userProfile = useSettingsStore(s => s.userProfile);
   const integrations = useSettingsStore(s => s.integrations);
   const appSettings = useSettingsStore(s => s.appSettings);
   const profileSettingsTab = useSettingsStore(s => s.profileSettingsTab);
-  const imageTestState = useSettingsStore(s => s.imageTestState);
-  const imageEngineModels = useSettingsStore(s => s.imageEngineModels);
-  const isFetchingImageModels = useSettingsStore(s => s.isFetchingImageModels);
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
   const { setUserProfile, setIntegrations, setAppSettings, setProfileSettingsTab,
-    setImageTestState, setImageEngineModels, setShowProfileSettings, setShowModelWizard, setWizardStep,
+    setShowProfileSettings, setShowModelWizard, setWizardStep,
     setEditingModel, setFetchedModels, setPendingModelSelections, setFetchModelsError, setModelSearchQuery,
     setSelectedModelId, setModels } = useSettingsStore.getState();
 
@@ -165,15 +156,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     }
   };
 
-  const hasImplicitGoogleKey = models.some((m: any) => m.provider === 'google' && m.apiKey);
-  const hasImplicitOpenAIKey = models.some((m: any) => m.provider === 'openai' && m.apiKey);
-  const activeImageKey = appSettings.imageProvider === 'openai'
-    ? (integrations.openai?.apiKey || models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey)
-    : appSettings.imageProvider === 'google'
-    ? (integrations.google?.apiKey || models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey)
-    : integrations.customImage?.apiKey || '';
-
-  const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); };
+  const onClose = () => setShowProfileSettings(false);
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
       <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white flex flex-col max-h-[90vh]">
@@ -385,141 +368,6 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   {semanticSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
                   {semanticSyncing ? 'Syncing' : 'Sync Now'}
                 </button>
-              </div>
-
-              {/* Image Generation Tooling - Engineered UX */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-6">
-                 <div>
-                    <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><ImageIcon className="w-4 h-4 text-[#D4AA7D]" /> Image Engine</h4>
-                    <p className="text-xs text-neutral-500 font-medium">Configure your preferred AI image generator API. Keys are stored locally.</p>
-                 </div>
-
-                 <div>
-                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Provider</label>
-                    <select value={appSettings.imageProvider} onChange={e => { setAppSettings((prev: any) => ({ ...prev, imageProvider: e.target.value, imageModelId: '', imageEndpoint: '' })); setImageTestState({loading:false, error:null, successUrl:null}); setImageEngineModels([]); }} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold">
-                       <option value="none">Disabled</option>
-                       <option value="openai">OpenAI (DALL-E & Compatible)</option>
-                       <option value="google">Google (Imagen)</option>
-                       <option value="custom">Custom Endpoint</option>
-                    </select>
-                 </div>
-
-                 {/* Dynamic API Key Reveal & Testing */}
-                 {appSettings.imageProvider !== 'none' && (
-                    <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-neutral-50 dark:bg-neutral-950 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 flex flex-col gap-4">
-
-                       {/* Key Handling */}
-                       {appSettings.imageProvider === 'google' && hasImplicitGoogleKey ? (
-                          <div className="flex items-center gap-3 text-xs font-bold text-[#9FBBAF] bg-[#9FBBAF]/10 p-3 rounded-xl border border-[#9FBBAF]/20">
-                             <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.
-                          </div>
-                       ) : appSettings.imageProvider === 'openai' && hasImplicitOpenAIKey ? (
-                          <div className="flex items-center gap-3 text-xs font-bold text-[#9FBBAF] bg-[#9FBBAF]/10 p-3 rounded-xl border border-[#9FBBAF]/20">
-                             <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.
-                          </div>
-                       ) : (
-                          <div className="flex flex-col gap-2">
-                             <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">API Key</label>
-                             <input
-                                type="password"
-                                value={
-                                   appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
-                                   appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
-                                   integrations.customImage?.apiKey || ''
-                                }
-                                onChange={e => {
-                                   const val = e.target.value;
-                                   if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { apiKey: val } }));
-                                   else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { apiKey: val } }));
-                                   else setIntegrations((prev: any) => ({ ...prev, customImage: { apiKey: val } }));
-                                }}
-                                placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
-                                className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
-                             />
-                          </div>
-                       )}
-
-                       {/* Custom Endpoint Field */}
-                       {appSettings.imageProvider === 'custom' && (
-                          <div className="flex flex-col gap-2">
-                             <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Custom Base URL</label>
-                             <input
-                                type="text"
-                                value={appSettings.imageEndpoint || ''}
-                                onChange={e => setAppSettings((prev: any) => ({ ...prev, imageEndpoint: e.target.value }))}
-                                placeholder="https://your-custom-endpoint.com/v1"
-                                className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
-                             />
-                          </div>
-                       )}
-
-                       {/* Fetch Models & Model Selection */}
-                       <div className="flex flex-col gap-2 border-t border-neutral-200 dark:border-neutral-800 pt-4">
-                           <div className="flex items-center justify-between">
-                              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Target Model ID</label>
-                              <button onClick={fetchImageModels} disabled={isFetchingImageModels || !activeImageKey} className="text-[10px] font-black uppercase tracking-widest text-[#4A5D75] hover:text-[#2C3E50] dark:text-[#9EADC8] dark:hover:text-white disabled:opacity-50 transition-all flex items-center gap-1">
-                                  {isFetchingImageModels ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />} Fetch Models
-                              </button>
-                           </div>
-
-                           {imageEngineModels.length > 0 ? (
-                               <select value={appSettings.imageModelId || ''} onChange={e => setAppSettings((prev: any) => ({ ...prev, imageModelId: e.target.value }))} className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-bold transition-all">
-                                   <option value="" disabled>Select a model...</option>
-                                   {imageEngineModels.map(m => <option key={m} value={m}>{m}</option>)}
-                               </select>
-                           ) : (
-                               <input
-                                  type="text"
-                                  value={appSettings.imageModelId || ''}
-                                  onChange={e => setAppSettings((prev: any) => ({ ...prev, imageModelId: e.target.value }))}
-                                  placeholder={appSettings.imageProvider === 'google' ? "e.g. imagen-3.0-generate-001" : "e.g. dall-e-3"}
-                                  className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
-                               />
-                           )}
-                       </div>
-
-                       {/* TEST INTEGRATION BLOCK */}
-                       <div className="pt-4 border-t border-neutral-200 dark:border-neutral-800 flex flex-col gap-3">
-                          <button
-                             onClick={testImageEngine}
-                             disabled={imageTestState.loading || !activeImageKey || !appSettings.imageModelId}
-                             className="flex items-center justify-center gap-2 w-full py-3 bg-[#F0F4F8] hover:bg-[#D6E0EA] text-[#4A5D75] dark:bg-[#1E2B38]/30 dark:hover:bg-[#1E2B38]/50 dark:text-[#9EADC8] rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
-                          >
-                             {imageTestState.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                             {imageTestState.loading ? 'Testing...' : 'Test Connection (Cat in Banana Costume)'}
-                          </button>
-
-                          {imageTestState.loading && (
-                              <div className="p-3 bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] rounded-xl border border-[#4A5D75]/20 text-xs font-bold leading-relaxed flex items-center gap-2 animate-pulse">
-                                  <Loader2 className="w-4 h-4 animate-spin" /> Generating test image, please wait...
-                              </div>
-                          )}
-
-                          {imageTestState.error && (
-                              <div className="p-3 bg-[#C98A8A]/10 text-[#C98A8A] rounded-xl border border-[#C98A8A]/20 text-xs font-bold leading-relaxed">
-                                  {imageTestState.error}
-                              </div>
-                          )}
-                          {imageTestState.successUrl && (
-                              <div className="p-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm text-center animate-in fade-in zoom-in-95">
-                                  <img src={imageTestState.successUrl} alt="Test Success" className="w-full max-w-[200px] h-auto rounded-lg mx-auto mb-2 cursor-pointer" onClick={() => viewImageInCanvas(imageTestState.successUrl as string)} title="View full size in Canvas" />
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-[#9FBBAF] flex items-center justify-center gap-1 mt-2"><ShieldCheck className="w-3 h-3" /> Connection Successful</span>
-                              </div>
-                          )}
-                       </div>
-                    </div>
-                 )}
-
-                 {/* Output Preference */}
-                 {appSettings.imageProvider !== 'none' && (
-                     <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800">
-                        <span className="text-[10px] font-black uppercase opacity-50 mb-3 block tracking-widest">Image Delivery Method</span>
-                        <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-xl">
-                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'canvas' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'canvas' ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>Canvas Artifact</button>
-                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>In-Chat Message</button>
-                        </div>
-                     </div>
-                 )}
               </div>
 
               {/* Tavily Web Search Integration */}

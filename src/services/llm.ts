@@ -25,9 +25,31 @@ export const getContextLimit = (id: string) => {
 export const supportsVision = (modelId: string) => {
   if (!modelId) return false;
   const id = modelId.toLowerCase();
-  return id.includes('gpt-4o') || id.includes('claude-3-5') || id.includes('claude-3-opus') ||
-         id.includes('gemini-2.5') || id.includes('gemini-2.0') || id.includes('llava') ||
-         id.includes('vision') || id.includes('pixtral');
+  return [
+    'gpt-4o',
+    'gpt-4.1',
+    'gpt-5',
+    'o3',
+    'o4',
+    'claude-3',
+    'claude-4',
+    'sonnet',
+    'opus',
+    'haiku',
+    'gemini',
+    'llava',
+    'bakllava',
+    'moondream',
+    'minicpm',
+    'qwen-vl',
+    'qwen2-vl',
+    'qwen2.5-vl',
+    'pixtral',
+    'vision',
+    'vlm',
+    'image',
+    'multimodal',
+  ].some(token => id.includes(token));
 };
 
 export const trimHistoryChars = (msgs: any[], charLimit: number) => {
@@ -165,8 +187,6 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
     prompt += `\n[MODE: CODE CANVAS]\nOutput the application inside a SINGLE \`\`\`html codeblock. The codeblock MUST contain a complete, valid HTML document with embedded CSS (<style>) and JavaScript (<script>). Do NOT output separate CSS/JS blocks. It must be fully functional and ready to render in an iframe. You are an expert web developer. Ensure the UI is modern, visually appealing (using Tailwind CSS classes natively), responsive, and interactive. Make sure to implement all requested features cleanly and effectively. If deep thinking is enabled, output your <think> block first, then immediately follow it with the \`\`\`html code block. NEVER output markdown or conversational text outside of the code block.`;
   } else if (mode === 'doc') {
     prompt += `\n[MODE: DOC DRAFT]\nOutput the document as clean semantic HTML in a SINGLE \`\`\`html codeblock. DO NOT use markdown.`;
-  } else if (mode === 'image') {
-    prompt += `\n[MODE: IMAGE]\nThe user is requesting an image. If you are an image generation model, process this normally. If you are a text model, generate a highly descriptive prompt for an image generator based on the user's request.`;
   }
 
   if (agent.awareOfProfile && profile && appSettings?.allowProfileUpdates !== false) {
@@ -181,63 +201,16 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   return prompt;
 };
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, channelContext }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, channelContext }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
-
-  const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop()?.content || '';
-
-  // Intercept for dedicated Image Mode
-  if (mode === 'image' && appSettings?.imageProvider !== 'none') {
-    const promptText = lastUserMessage;
-    let imageUrl = '';
-    const imgProvider = appSettings.imageProvider;
-    const activeModelId = appSettings.imageModelId || (imgProvider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
-
-    if (imgProvider === 'google') {
-        const googleKey = integrations?.google?.apiKey || models?.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey || '';
-        if (!googleKey) throw new Error("Missing Google API Key for Image Engine.");
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModelId}:predict?key=${googleKey}`;
-        const body = { instances: { prompt: promptText }, parameters: { sampleCount: 1 } };
-        const headers = { 'Content-Type': 'application/json' };
-        const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 1, signal);
-
-        if (res.predictions && res.predictions[0]) {
-            imageUrl = `data:image/png;base64,${res.predictions[0].bytesBase64Encoded}`;
-        } else {
-            throw new Error(res.error?.message || "Google Image generation failed.");
-        }
-    } else if (imgProvider === 'openai' || imgProvider === 'custom') {
-         const oKey = imgProvider === 'openai' ? (integrations.openai?.apiKey || models?.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey || '') : (integrations.customImage?.apiKey || '');
-         if (!oKey && imgProvider === 'openai') throw new Error("Missing OpenAI API Key for Image Engine.");
-
-         const baseEndpoint = (appSettings.imageEndpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
-         const url = `${baseEndpoint}/images/generations`;
-         const body = { model: activeModelId, prompt: promptText, n: 1, size: '1024x1024' };
-         const headers: any = { 'Content-Type': 'application/json' };
-         if (oKey) headers['Authorization'] = `Bearer ${oKey}`;
-
-         const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 1, signal);
-         if (data.data && data.data[0] && data.data[0].url) {
-             imageUrl = data.data[0].url;
-         } else {
-             throw new Error(data.error?.message || "Image generation failed.");
-         }
-    }
-
-    if (imageUrl) {
-         const out = `![Generated Image](${imageUrl})\n\n*Generated with ${activeModelId}*`;
-         if (onChunk) onChunk(out);
-         return out;
-    }
-  }
 
   const systemPrompt = buildSystemPrompt({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, channelContext });
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
 
   if (imageDocs.length > 0 && !supportsVision(modelId)) {
-    throw new Error(`Model '${modelId}' does not have vision capabilities. Switch to a vision model (GPT-4o, Claude 3.5 Sonnet, Llava).`);
+    throw new Error(`The selected model (${modelId}) cannot read image attachments. Switch to a vision-capable chat model such as GPT-4o/4.1, Claude Sonnet, Gemini, LLaVA, Pixtral, Qwen-VL, or remove the image.`);
   }
 
   let contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
@@ -248,7 +221,10 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
   const safeMessages = trimHistoryChars(messages, historyBudget);
 
   const attachedContext = textDocs.length > 0 ? '\n\n' + textDocs.map((d: any) => `[ATTACHED DOC: ${d.name}]\n${d.content}`).join('\n\n') : '';
-  const fullSystem = systemPrompt + attachedContext;
+  const imageContext = imageDocs.length > 0
+    ? `\n\n[MULTIMODAL INPUT]\nThe user attached ${imageDocs.length} image${imageDocs.length === 1 ? '' : 's'}. Inspect the image content directly, answer the user's actual question, and say clearly if something in the image is ambiguous or unreadable.`
+    : '';
+  const fullSystem = systemPrompt + attachedContext + imageContext;
 
   const formatMessage = (m: any, targetProvider: string) => {
     const textContent = String(m.content ?? '');
