@@ -315,18 +315,40 @@ export function ProfileSettingsModal() {
               <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-5">
                 <div>
                   <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><User className="w-4 h-4 text-[#7A9E8D]" /> People</h4>
-                  <p className="text-xs text-neutral-500 font-medium">Real human profiles for the left rail. Inbox capture owners stay in the Inbox tab.</p>
+                  <p className="text-xs text-neutral-500 font-medium">Real humans Agent Forge can keep context about. They are not agents and they do not run models or tools.</p>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-200">People</p>
+                    <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">Human profiles for family, teammates, clients, or capture owners.</p>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-200">Agents</p>
+                    <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">AI specialists with prompts, tools, memory, and model settings.</p>
+                  </div>
+                  <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-200">Channels</p>
+                    <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">Shared project rooms where agents collaborate around a goal.</p>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Human Profiles</label>
                 <textarea
                   value={peopleDraft}
                   onChange={e => setPeopleDraft(e.target.value)}
                   rows={6}
                   className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono resize-none"
-                  placeholder={'owner: Owner: Personal context\nteammate: Teammate: Work context'}
+                  placeholder={'me: Me: Primary user\npartner: Partner: Family context\nclient: Client: Work context'}
                 />
+                  <p className="text-[10px] text-neutral-500 mt-2">One profile per line as <code>person-id: Display Name: context</code>. Leave this empty if Agent Forge is only for one person right now.</p>
+                </div>
                 <button onClick={savePeople} className="w-full py-3 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all">
                   Save People
                 </button>
+                <div className="rounded-2xl border border-[#D6E0EA] dark:border-[#2C3E50]/60 bg-[#F7FAFC] dark:bg-[#1E2B38]/20 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[#6A829E]">Capture owners</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">Shortcut and relay ownership is configured in the Inbox tab. Use the same IDs here only when a real person also needs a visible profile in the left rail.</p>
+                </div>
               </div>
             </div>
           ) : profileSettingsTab === 'inbox' ? (

@@ -145,7 +145,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                   <div
                     key={person.id}
                     onClick={() => {
-                      useSettingsStore.getState().setProfileSettingsTab('inbox');
+                      useSettingsStore.getState().setProfileSettingsTab('people');
                       useSettingsStore.getState().setShowProfileSettings(true);
                     }}
                     className="group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500"
@@ -156,7 +156,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{person.label ?? person.id}</p>
-                        <p className="text-[9px] truncate text-neutral-400">{person.role || 'Person profile'}</p>
+                        <p className="text-[9px] truncate text-neutral-400">{person.role || 'Human profile'}</p>
                       </div>
                     </div>
                   </div>
@@ -169,7 +169,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                     }}
                     className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-all"
                   >
-                    <Plus className="w-3 h-3" /> Add Person
+                    <Plus className="w-3 h-3" /> Add Profile
                   </button>
                 )}
               </div>
