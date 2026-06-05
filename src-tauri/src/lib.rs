@@ -216,6 +216,15 @@ fn ensure_inbox_dirs(root: &Path) {
     ensure_gitignore_line(root, "inbox/tmp/");
 }
 
+fn ensure_private_app_state_dir(root: &Path) {
+    let _ = std::fs::create_dir_all(root.join(".app-state"));
+    ensure_gitignore_line(root, ".app-state/");
+}
+
+fn app_state_backup_path() -> PathBuf {
+    knowledge_root().join(".app-state").join("agent_forge_db.json")
+}
+
 fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
     let output = std::process::Command::new("git")
         .args(args)
@@ -460,6 +469,7 @@ fn init_knowledge_core() -> serde_json::Value {
         let _ = std::fs::create_dir_all(root.join(subdir));
     }
     ensure_inbox_dirs(&root);
+    ensure_private_app_state_dir(&root);
 
     if root.join(".git").exists() {
         return serde_json::json!({ "initialized": false, "path": root.to_string_lossy() });
@@ -467,7 +477,7 @@ fn init_knowledge_core() -> serde_json::Value {
 
     let _ = std::fs::write(
         root.join(".gitignore"),
-        ".DS_Store\n*.tmp\n.obsidian/workspace\n.obsidian/workspace.json\n.index.db\n.lancedb/\n.models/\nworkspace/.dream_logs/\ninbox/raw/\ninbox/tmp/\n",
+        ".DS_Store\n*.tmp\n.obsidian/workspace\n.obsidian/workspace.json\n.index.db\n.lancedb/\n.models/\nworkspace/.dream_logs/\ninbox/raw/\ninbox/tmp/\n.app-state/\n",
     );
 
     let _ = std::fs::write(
@@ -486,6 +496,43 @@ fn init_knowledge_core() -> serde_json::Value {
     let _ = run_git(&["commit", "-m", "init: Knowledge Core initialized"], &root);
 
     serde_json::json!({ "initialized": true, "path": root.to_string_lossy() })
+}
+
+#[tauri::command]
+fn read_app_state_backup() -> serde_json::Value {
+    let root = knowledge_root();
+    ensure_private_app_state_dir(&root);
+    let path = app_state_backup_path();
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(state) => serde_json::json!({ "ok": true, "state": state }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "state": serde_json::json!({}) }),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::json!({ "ok": true, "state": serde_json::json!({}) })
+        }
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "state": serde_json::json!({}) }),
+    }
+}
+
+#[tauri::command]
+fn write_app_state_backup(state: serde_json::Value) -> serde_json::Value {
+    let root = knowledge_root();
+    ensure_private_app_state_dir(&root);
+    let path = app_state_backup_path();
+    let tmp_path = path.with_extension("json.tmp");
+    let body = match serde_json::to_string_pretty(&state) {
+        Ok(v) => v,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+    };
+    if let Err(e) = std::fs::write(&tmp_path, body) {
+        return serde_json::json!({ "ok": false, "error": e.to_string() });
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, &path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return serde_json::json!({ "ok": false, "error": e.to_string() });
+    }
+    serde_json::json!({ "ok": true, "path": path.to_string_lossy() })
 }
 
 #[tauri::command]
@@ -2739,6 +2786,8 @@ pub fn run() {
             safe_write_file,
             rollback_file,
             init_knowledge_core,
+            read_app_state_backup,
+            write_app_state_backup,
             write_memory,
             append_task,
             complete_task,
