@@ -814,19 +814,17 @@ ${msg.content}`
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const ss = useSettingsStore.getState();
     const provider = e.target.value; let endpoint = '';
-    if (provider === 'ollama') endpoint = 'http://127.0.0.1:11434/v1';
     if (provider === 'lmstudio') endpoint = 'http://127.0.0.1:1234/v1';
-    if (provider === 'native') endpoint = 'http://127.0.0.1:8080/v1';
     if (provider === 'huggingface') endpoint = 'https://api-inference.huggingface.co/v1';
     const existingKey = ss.models.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
-    ss.setEditingModel({ name: provider === 'native' ? 'Agent Forge Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
+    ss.setEditingModel({ name: provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
     ss.setFetchedModels([]); ss.setPendingModelSelections([]); ss.setFetchModelsError(null); ss.setModelSearchQuery('');
   };
 
   const handleFetchModels = async () => {
     const ss = useSettingsStore.getState();
     const _editingModel = ss.editingModel;
-    if (!_editingModel.apiKey && !['custom', 'ollama', 'lmstudio', 'native'].includes(_editingModel.provider)) { ss.setFetchModelsError('Please enter your API Key first.'); return; }
+    if (!_editingModel.apiKey && !['custom', 'lmstudio'].includes(_editingModel.provider)) { ss.setFetchModelsError('Please enter your API Key first.'); return; }
     ss.setIsFetchingModels(true); ss.setFetchModelsError(null); ss.setFetchedModels([]); ss.setModelSearchQuery('');
     try {
       let url = '', hdrs: any = {};
@@ -843,7 +841,7 @@ ${msg.content}`
         url = `https://api-inference.huggingface.co/v1/models`;
         if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
       } else {
-        const defaultEndpoint = provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : provider === 'native' ? 'http://127.0.0.1:8080/v1' : 'https://api.openai.com/v1';
+        const defaultEndpoint = provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : 'https://api.openai.com/v1';
         url = `${(endpoint || defaultEndpoint).replace(/\/chat\/completions$/, '')}/models`;
         if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
       }
@@ -1814,7 +1812,7 @@ The user message is first-party context. The assistant response and invited-agen
       const setupMsg = {
         id: generateId('msg'),
         role: 'bot',
-        content: `I need you to connect me to an LLM before I can answer with real intelligence.\n\nOpen **Settings > Models** and connect a local model like Ollama or LM Studio, or add a cloud model. Once a model is connected, I get my powers and this Direct keeps going.`,
+        content: `I need you to connect me to an LLM before I can answer with real intelligence.\n\nOpen **Settings > Models** and connect LM Studio for local chat, or add a cloud model. Once a model is connected, I get my powers and this Direct keeps going.`,
         agentId: _activeAssistantForDirect?.id,
         agentName: _activeAssistantForDirect?.name,
         isPinned: false,

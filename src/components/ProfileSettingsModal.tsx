@@ -53,9 +53,7 @@ export function ProfileSettingsModal() {
 
   const openModelWizard = (provider: string) => {
     const endpoint =
-      provider === 'ollama' ? 'http://127.0.0.1:11434/v1' :
       provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' :
-      provider === 'native' ? 'http://127.0.0.1:8080/v1' :
       provider === 'huggingface' ? 'https://api-inference.huggingface.co/v1' :
       provider === 'anthropic' ? 'https://api.anthropic.com/v1' :
       provider === 'google' ? '' :
@@ -63,9 +61,7 @@ export function ProfileSettingsModal() {
     const existingKey = models.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
     setEditingModel({
       name:
-        provider === 'ollama' ? 'Local Ollama' :
         provider === 'lmstudio' ? 'LM Studio Engine' :
-        provider === 'native' ? 'Agent Forge Engine' :
         provider === 'openai' ? 'OpenAI' :
         provider === 'anthropic' ? 'Claude' :
         provider === 'google' ? 'Gemini' :
@@ -270,21 +266,11 @@ export function ProfileSettingsModal() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
-                  <button onClick={() => openModelWizard('ollama')} className="p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 hover:border-[#6A829E] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/30 text-left transition-all">
-                    <Server className="w-4 h-4 text-[#7A9E8D] mb-2" />
-                    <p className="text-xs font-black uppercase tracking-widest">Ollama</p>
-                    <p className="text-[10px] text-neutral-500 mt-1 font-medium">127.0.0.1:11434</p>
-                  </button>
+                <div className="grid grid-cols-1 gap-2 mb-5">
                   <button onClick={() => openModelWizard('lmstudio')} className="p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 hover:border-[#6A829E] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/30 text-left transition-all">
                     <Server className="w-4 h-4 text-[#D4AA7D] mb-2" />
                     <p className="text-xs font-black uppercase tracking-widest">LM Studio</p>
-                    <p className="text-[10px] text-neutral-500 mt-1 font-medium">127.0.0.1:1234</p>
-                  </button>
-                  <button onClick={() => openModelWizard('native')} className="p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 hover:border-[#6A829E] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/30 text-left transition-all">
-                    <Cpu className="w-4 h-4 text-[#9EADC8] mb-2" />
-                    <p className="text-xs font-black uppercase tracking-widest">Local Engine</p>
-                    <p className="text-[10px] text-neutral-500 mt-1 font-medium">127.0.0.1:8080</p>
+                    <p className="text-[10px] text-neutral-500 mt-1 font-medium">Supported local path · 127.0.0.1:1234</p>
                   </button>
                 </div>
 

@@ -10,7 +10,7 @@ const cases = [
     run: () => {
       const rec = getLocalModelRecommendation(null);
       assert.equal(rec.tierId, 'unknown');
-      assert.equal(rec.options[0].provider, 'ollama');
+      assert.equal(rec.options[0].provider, 'lmstudio');
       assert.equal(rec.options[0].contextLimit, 8192);
     },
   },
@@ -19,6 +19,7 @@ const cases = [
     run: () => {
       const rec = getLocalModelRecommendation(8 * 1024);
       assert.equal(rec.tierId, 'light');
+      assert.ok(rec.options.every(option => option.provider === 'lmstudio'));
       assert.ok(rec.options.every(option => option.contextLimit <= 8192));
       assert.ok(rec.options.some(option => option.modelId.includes('3b')));
     },

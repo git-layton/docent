@@ -1,4 +1,4 @@
-import { X, Zap, Loader2, CheckCircle2, PlusCircle, Server, Cpu, ShieldCheck } from 'lucide-react';
+import { X, Zap, Loader2, CheckCircle2, PlusCircle, Server, ShieldCheck } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { getLocalModelRecommendation, type RecommendedLocalModel } from '../services/modelRecommendations';
@@ -76,7 +76,6 @@ export function ModelWizardModal({
 
               <div className="grid grid-cols-1 gap-2">
                 {recommendation.options.slice(0, 3).map(option => {
-                  const Icon = option.provider === 'native' ? Cpu : Server;
                   const selected = editingModel.provider === option.provider && editingModel.modelId === option.modelId;
                   return (
                     <button
@@ -86,7 +85,7 @@ export function ModelWizardModal({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2 min-w-0">
-                          <Icon className="w-4 h-4 mt-0.5 text-[#6A829E] shrink-0" />
+                          <Server className="w-4 h-4 mt-0.5 text-[#6A829E] shrink-0" />
                           <div className="min-w-0">
                             <p className="text-xs font-black text-neutral-800 dark:text-neutral-100 truncate">{option.name}</p>
                             <p className="text-[10px] font-mono text-neutral-500 truncate">{option.modelId} · {option.contextLimit.toLocaleString()} ctx</p>
@@ -104,9 +103,7 @@ export function ModelWizardModal({
             </div>
 
             <select value={editingModel.provider} onChange={onProviderChange} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold shrink-0">
-              <option value="ollama">Local Ollama</option>
               <option value="lmstudio">Local LM Studio</option>
-              <option value="native">Local Agent Forge Engine</option>
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic (Claude)</option>
               <option value="google">Google (Gemini)</option>
@@ -116,7 +113,7 @@ export function ModelWizardModal({
 
             <div className="shrink-0">
               <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Endpoint URL</label>
-              <input type="text" placeholder={editingModel.provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : editingModel.provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : 'e.g. https://api.openai.com/v1'} value={editingModel.endpoint} onChange={e => setEditingModel((prev: any) => ({ ...prev, endpoint: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono placeholder:font-sans" />
+              <input type="text" placeholder={editingModel.provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : 'e.g. https://api.openai.com/v1'} value={editingModel.endpoint} onChange={e => setEditingModel((prev: any) => ({ ...prev, endpoint: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono placeholder:font-sans" />
             </div>
 
             <div className="relative shrink-0">
