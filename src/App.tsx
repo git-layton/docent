@@ -45,6 +45,7 @@ import { FormattedText } from './components/ui/FormattedText';
 import { CollapsibleBubble } from './components/ui/CollapsibleBubble';
 import { buildChannelContext, normalizeChatRecord, routeAgentsForChannel } from './services/channels';
 import { buildGroundedMarkdown } from './services/grounding';
+import { assessConversationMemory } from './services/memoryPolicy';
 import { buildSemanticMemoryNotes, hasSemanticHits, type SemanticLayerResult } from './services/semantic';
 import {
   buildSourceNotes,
@@ -1309,12 +1310,21 @@ ${buildSourceNotes(sources, 900)}`
     question,
     answer,
     contributions,
-  }: { chat: any; agent: any; question: string; answer: string; contributions: string[] }) => {
+    attachments,
+  }: { chat: any; agent: any; question: string; answer: string; contributions: string[]; attachments?: any[] }) => {
     const _agentForgePath = useMemoryStore.getState().agentForgePath;
     if (!_agentForgePath || !agent?.id) return null;
-    if (question.trim().length < 20 || answer.trim().length < 80) return null;
 
     const normalized = normalizeChatRecord(chat, agent.id);
+    const assessment = assessConversationMemory({
+      question,
+      answer,
+      contributions,
+      attachments: attachments ?? [],
+      chatKind: normalized.kind,
+    });
+    if (!assessment.shouldSave) return null;
+
     const title = question.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Conversation note';
     const slug = researchSlugify(title, 'conversation');
     const basePath = normalized.kind === 'channel'
@@ -1323,6 +1333,9 @@ ${buildSourceNotes(sources, 900)}`
     const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
     const contributionBlock = contributions.length > 0
       ? `\n\n## Invited Agent Notes\n${contributions.join('\n\n---\n\n')}`
+      : '';
+    const attachmentBlock = (attachments ?? []).length > 0
+      ? `\n\n## Attached Inputs\n${(attachments ?? []).map((file: any) => `- ${file.name ?? 'Attachment'} (${file.isImage ? 'image/vision input' : file.type || 'file'})`).join('\n')}`
       : '';
     const content = buildGroundedMarkdown(
       {
@@ -1338,16 +1351,22 @@ ${buildSourceNotes(sources, 900)}`
         derivedFrom: [`chat:${normalized.id}`],
         evidenceState: 'mixed',
         verification: 'needs_verification',
-        confidence: 'medium',
+        confidence: assessment.level === 'explicit' || assessment.level === 'notable' ? 'medium' : 'low',
         processor: 'conversation-autosave',
-        tags: ['conversation', normalized.kind === 'channel' ? 'channel-memory' : 'agent-memory'],
+        tags: assessment.tags,
       },
-      `## User
+      `## Memory Policy
+- Level: ${assessment.level}
+- Reason: ${assessment.reason}
+- Score: ${assessment.score}
+
+## User
 ${question}
 
 ## Response
 ${answer}
 ${contributionBlock}
+${attachmentBlock}
 
 ## Interpretation Boundary
 The user message is first-party context. The assistant response and invited-agent notes are work product unless separately backed by research sources or raw captures.`
@@ -1366,7 +1385,7 @@ The user message is first-party context. The assistant response and invited-agen
       console.warn('[Memory] Autosave blocked:', result.error ?? result);
       return null;
     }
-    return { path, commit: result.commit };
+    return { path, commit: result.commit, assessment };
   }, []);
 
   const processChatRequest = async (chatId: string, userMsg: any, historyToPass: any[]) => {
@@ -1641,19 +1660,7 @@ The user message is first-party context. The assistant response and invited-agen
                 sources: foundSources,
               });
               if (saved) {
-                appendSupportBubbles([{
-                  id: generateId('bubble'),
-                  role: 'bot',
-                  content: `Saved this source-backed answer to Knowledge Core:\n\n${saved.path}`,
-                  agentId: _primaryAssistant?.id,
-                  agentName: _primaryAssistant?.name,
-                  bubbleType: 'research',
-                  bubbleTitle: 'Research autosaved',
-                  bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
-                  sources: foundSources,
-                  isPinned: false,
-                  timestamp: Date.now(),
-                }]);
+                useUIStore.getState().showToast("Research saved to Knowledge Core.");
               }
             } else {
               const saved = await autosaveConversationNote({
@@ -1662,20 +1669,14 @@ The user message is first-party context. The assistant response and invited-agen
                 question: userMsg.content,
                 answer: finalResponse,
                 contributions: contributionNotes,
+                attachments: userMsg.attachedFiles ?? [],
               });
               if (saved) {
-                appendSupportBubbles([{
-                  id: generateId('bubble'),
-                  role: 'bot',
-                  content: `Saved this exchange to Knowledge Core:\n\n${saved.path}`,
-                  agentId: _primaryAssistant?.id,
-                  agentName: _primaryAssistant?.name,
-                  bubbleType: 'memory_suggestion',
-                  bubbleTitle: 'Memory autosaved',
-                  bubbleSubtitle: _normalizedChat.kind === 'channel' ? 'Channel memory' : 'Agent memory',
-                  isPinned: false,
-                  timestamp: Date.now(),
-                }]);
+                if (saved.assessment.notification === 'toast') {
+                  useUIStore.getState().showToast(
+                    saved.assessment.level === 'explicit' ? "Memory updated." : "Notable memory saved."
+                  );
+                }
               }
             }
           } catch (e) {

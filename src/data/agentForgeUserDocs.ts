@@ -75,6 +75,7 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 - In a Channel, invited agents can contribute collapsible notes while the primary agent gives the clean final answer
 - Pin important messages to Context (⭐) — pinned content is injected into every future message with that agent
 - Use /memo to save thoughts to your Knowledge Core without leaving the chat
+- Durable conversation memory is filtered before autosave. Trivial acknowledgements and casual throwaway messages are ignored; explicit remember/save requests, decisions, preferences, files, images, plans, and multi-agent work are saved quietly.
 
 ### # Channels — Shared Work Rooms
 Channels are collaborative rooms with shared memory. An agent can remain standalone, like a domain specialist that remembers experiments across time, while a Channel can invite that specialist plus a Strategist or Logic Checker for a specific project.
@@ -100,7 +101,7 @@ When Web Search is enabled, Agent Forge treats Tavily and/or Brave Search as dis
 - Research answers should answer the question directly, not produce a dossier unless requested
 - Factual web/current claims must cite sources inline
 - If sources are missing, weak, or conflicting, the agent should say what could not be verified
-- Source-backed research is autosaved to agent or channel memory so Dream Cycle can clean it up later
+- Source-backed research is autosaved quietly to agent or channel memory so Dream Cycle can clean it up later
 
 ---
 
