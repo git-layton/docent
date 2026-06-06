@@ -13,7 +13,7 @@ import { db } from './services/database';
 import { extractTextFromPDF } from './services/pdfParser';
 import { useChatStore } from './store/useChatStore';
 import { useAgentStore, DEFAULT_ASSISTANT } from './store/useAgentStore';
-import { useSettingsStore } from './store/useSettingsStore';
+import { useSettingsStore, isLocalProvider } from './store/useSettingsStore';
 import { useMemoryStore } from './store/useMemoryStore';
 import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
@@ -36,6 +36,7 @@ import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agent
 import { AssistantSettingsModal } from './components/AssistantSettingsModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
+import { OnboardingWizard } from './components/OnboardingWizard';
 import { AppSidebar } from './components/AppSidebar';
 import { CanvasPanel } from './components/CanvasPanel';
 import { ChatHeader } from './components/ChatHeader';
@@ -77,6 +78,7 @@ export default function App() {
   const userProfile = useSettingsStore(s => s.userProfile);
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);
   const showModelWizard = useSettingsStore(s => s.showModelWizard);
+  const showOnboarding = useSettingsStore(s => s.showOnboarding);
 
   const globalPins = useMemoryStore(s => s.globalPins);
   const dreamLog = useMemoryStore(s => s.dreamLog);
@@ -203,6 +205,10 @@ export default function App() {
           }
         }
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
+
+      // Onboarding wizard — show on first launch until completed
+      const onboardingDone = await db.get('onboardingComplete', false);
+      if (!onboardingDone) useSettingsStore.getState().setShowOnboarding(true);
 
       // First-time agent intro card
       const introSeen = await db.get('agentIntroSeen', false);
@@ -876,7 +882,7 @@ export default function App() {
     const ss = useSettingsStore.getState();
     const _editingModel = ss.editingModel;
     const _pendingModelSelections = ss.pendingModelSelections;
-    const newModels = _pendingModelSelections.map((m: any) => ({ id: generateId('m'), name: m.id, provider: _editingModel.provider, modelId: m.id, endpoint: _editingModel.endpoint, apiKey: _editingModel.apiKey, contextLimit: m.context, canImage: false }));
+    const newModels = _pendingModelSelections.map((m: any) => ({ id: generateId('m'), name: m.id, provider: _editingModel.provider, modelId: m.id, endpoint: _editingModel.endpoint, apiKey: _editingModel.apiKey, contextLimit: m.context, canImage: false, isLocal: isLocalProvider(_editingModel.provider, _editingModel.endpoint) }));
     ss.setModels((prev: any[]) => [...prev, ...newModels]);
     if (!ss.selectedModelId && newModels.length > 0) ss.setSelectedModelId(newModels[0].id);
     ss.setPendingModelSelections([]); ss.setFetchedModels([]); ss.setShowModelWizard(false); ss.setWizardStep(3);
@@ -890,7 +896,7 @@ export default function App() {
   const executeAddLLM = async (cfg: any) => {
     const ss = useSettingsStore.getState();
     const id = generateId('m');
-    const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: false };
+    const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: false, isLocal: isLocalProvider(cfg.provider, cfg.endpoint) };
     ss.setModels((prev: any[]) => [...prev, mdl]); ss.setSelectedModelId(id); ss.setShowModelWizard(false); ss.setWizardStep(3); ss.setEditingModel({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
     ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [id]: 'pending' }));
     const ok = await validateModel(mdl);
@@ -2093,6 +2099,11 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Onboarding wizard */}
+      {showOnboarding && (
+        <OnboardingWizard onClose={() => useSettingsStore.getState().setShowOnboarding(false)} />
       )}
 
       {/* Model Onboarding / Engine Wizard */}

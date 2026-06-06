@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use notify::Watcher;
 use std::path::{Component, Path, PathBuf};
-use sysinfo::System;
+use sysinfo::{System, CpuRefreshKind, RefreshKind};
 use tauri::Manager;
 
 // ─── App State ───────────────────────────────────────────────────────────────
@@ -13,6 +13,9 @@ struct LlamaState {
 // Caches the active tab captured BEFORE the spotlight window steals OS focus
 #[derive(Default)]
 struct TabCache(Mutex<Option<serde_json::Value>>);
+
+// Persists a sysinfo System instance between CPU polls so delta is meaningful
+struct SysState(Mutex<System>);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -120,6 +123,34 @@ fn get_ram_stats() -> serde_json::Value {
         "total_mb": total_mb,
         "used_mb": used_mb,
         "available_mb": available_mb
+    })
+}
+
+// ─── 1.2 System Stats (CPU + RAM + Network) ──────────────────────────────────
+
+#[tauri::command]
+fn get_system_stats(state: tauri::State<SysState>) -> serde_json::Value {
+    let mut sys = state.0.lock().unwrap();
+    sys.refresh_cpu_specifics(CpuRefreshKind::everything());
+    sys.refresh_memory();
+
+    let cpu_usage = sys.global_cpu_info().cpu_usage();
+    let total_mb = sys.total_memory() / 1024 / 1024;
+    let used_mb = sys.used_memory() / 1024 / 1024;
+    let available_mb = total_mb.saturating_sub(used_mb);
+
+    // Quick internet reachability: TCP connect to Cloudflare DNS with 800ms timeout
+    let internet_ok = std::net::TcpStream::connect_timeout(
+        &"1.1.1.1:53".parse().unwrap(),
+        std::time::Duration::from_millis(800),
+    ).is_ok();
+
+    serde_json::json!({
+        "cpu_pct": (cpu_usage * 10.0).round() / 10.0,
+        "total_mb": total_mb,
+        "used_mb": used_mb,
+        "available_mb": available_mb,
+        "internet": internet_ok,
     })
 }
 
@@ -1460,6 +1491,523 @@ fn hide_spotlight(app: tauri::AppHandle) {
     }
 }
 
+// ─── Relay Setup ─────────────────────────────────────────────────────────────
+
+fn relay_env_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::PathBuf::from(home).join(".agent-forge-relay.env")
+}
+
+fn relay_plist_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::PathBuf::from(home)
+        .join("Library").join("LaunchAgents")
+        .join("com.agentforge.relay.plist")
+}
+
+fn gen_token() -> String {
+    // 24 random bytes from /dev/urandom → 48-char hex
+    let mut buf = [0u8; 24];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let _ = f.read_exact(&mut buf);
+    } else {
+        // Fallback: xorshift seeded from time + pid
+        let mut seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        seed ^= std::process::id() as u64 * 0x9e3779b97f4a7c15;
+        for chunk in buf.chunks_mut(8) {
+            seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;
+            let bytes = seed.to_le_bytes();
+            for (i, b) in chunk.iter_mut().enumerate() { *b = bytes[i % 8]; }
+        }
+    }
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+fn sanitize_instance_id(s: &str) -> String {
+    let lower = s.to_lowercase();
+    let replaced: String = lower.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    let trimmed = replaced.trim_matches('-').to_string();
+    if trimmed.is_empty() { "agent-forge-local".to_string() } else { trimmed[..trimmed.len().min(80)].to_string() }
+}
+
+fn find_node_bin() -> Option<String> {
+    let candidates = [
+        "node",
+        "/usr/local/bin/node",
+        "/opt/homebrew/bin/node",
+        "/opt/homebrew/opt/node/bin/node",
+        "/usr/bin/node",
+    ];
+    for candidate in &candidates {
+        let output = std::process::Command::new("sh").args(["-c", &format!("command -v {}", candidate)]).output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !path.is_empty() { return Some(path); }
+            }
+        }
+        if std::path::Path::new(candidate).exists() { return Some(candidate.to_string()); }
+    }
+    None
+}
+
+/// Parse owner/token lines from the env file.
+/// Returns Vec<(ownerId, ownerLabel, token, instanceId, shareId)>
+fn parse_relay_tokens(env_content: &str) -> Vec<(String, String, String, String, String)> {
+    for line in env_content.lines() {
+        let line = line.trim();
+        if line.starts_with("FORGE_RELAY_TOKENS=") {
+            let val = &line["FORGE_RELAY_TOKENS=".len()..];
+            return val.split(',')
+                .filter_map(|entry| {
+                    let parts: Vec<&str> = entry.splitn(5, ':').collect();
+                    if parts.len() >= 3 {
+                        let owner_id = parts[0].trim().to_string();
+                        let owner_label = parts[1].trim().to_string();
+                        let token = parts[2].trim().to_string();
+                        let instance_id = parts.get(3).unwrap_or(&"").trim().to_string();
+                        let share_id = parts.get(4).unwrap_or(&"").trim().to_string();
+                        if !owner_id.is_empty() && !token.is_empty() {
+                            Some((owner_id, owner_label, token, instance_id, share_id))
+                        } else { None }
+                    } else { None }
+                })
+                .collect();
+        }
+    }
+    vec![]
+}
+
+fn parse_env_value<'a>(env_content: &'a str, key: &str) -> Option<&'a str> {
+    for line in env_content.lines() {
+        let line = line.trim();
+        if line.starts_with(key) && line[key.len()..].starts_with('=') {
+            return Some(&line[key.len() + 1..]);
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
+    // Find node
+    let node_bin = match find_node_bin() {
+        Some(n) => n,
+        None => return serde_json::json!({ "ok": false, "error": "Node.js not found. Please install Node.js from https://nodejs.org and try again." }),
+    };
+
+    // Find bundled relay script
+    let relay_script = match app.path().resource_dir() {
+        Ok(dir) => dir.join("forge-relay.mjs"),
+        Err(e) => return serde_json::json!({ "ok": false, "error": format!("Could not locate relay script: {}", e) }),
+    };
+    if !relay_script.exists() {
+        return serde_json::json!({ "ok": false, "error": format!("Relay script not found at {:?}", relay_script) });
+    }
+
+    let env_path = relay_env_path();
+    let plist_path = relay_plist_path();
+    let log_dir = {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        std::path::PathBuf::from(home).join("Library").join("Logs").join("AgentForge")
+    };
+
+    // Generate env file if it doesn't exist
+    let (personal_token, team_token, admin_token, instance_id) = if !env_path.exists() {
+        let pt = gen_token();
+        let tt = gen_token();
+        let at = gen_token();
+        let hostname = std::process::Command::new("hostname").output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|_| "local".to_string());
+        let iid = sanitize_instance_id(&format!("agent-forge-{}", hostname));
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let content = format!(
+            "FORGE_RELAY_HOST=0.0.0.0\nFORGE_RELAY_PORT=8765\nFORGE_RELAY_ROOT={home}/AgentForge\nFORGE_RELAY_INSTANCE_ID={iid}\n# Token routes: ownerId:Owner Label:token:instanceId:shareId\nFORGE_RELAY_TOKENS=personal:Personal:{pt}:{iid}:personal-shortcut,team:Team:{tt}:{iid}:team-shortcut\nFORGE_RELAY_ADMIN_TOKEN={at}\n",
+            home = home, iid = iid, pt = pt, tt = tt, at = at
+        );
+        if let Err(e) = std::fs::write(&env_path, &content) {
+            return serde_json::json!({ "ok": false, "error": format!("Could not write env file: {}", e) });
+        }
+        // chmod 600
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&env_path, std::fs::Permissions::from_mode(0o600));
+        (pt, tt, at, iid)
+    } else {
+        // Read existing
+        let content = std::fs::read_to_string(&env_path).unwrap_or_default();
+        let owners = parse_relay_tokens(&content);
+        let pt = owners.first().map(|o| o.2.clone()).unwrap_or_default();
+        let tt = owners.get(1).map(|o| o.2.clone()).unwrap_or_default();
+        let at = parse_env_value(&content, "FORGE_RELAY_ADMIN_TOKEN").unwrap_or("").to_string();
+        let iid = parse_env_value(&content, "FORGE_RELAY_INSTANCE_ID").unwrap_or("agent-forge-local").to_string();
+        (pt, tt, at, iid)
+    };
+
+    // Ensure log dir exists
+    let _ = std::fs::create_dir_all(&log_dir);
+    // Ensure LaunchAgents dir exists
+    if let Some(parent) = plist_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Read env file for plist env vars
+    let env_content = std::fs::read_to_string(&env_path).unwrap_or_default();
+    let mut env_pairs = String::new();
+    for line in env_content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        if let Some(eq_pos) = line.find('=') {
+            let key = &line[..eq_pos];
+            let val = &line[eq_pos + 1..];
+            env_pairs.push_str(&format!(
+                "    <key>{}</key>\n    <string>{}</string>\n",
+                xml_escape(key), xml_escape(val)
+            ));
+        }
+    }
+
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.agentforge.relay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{node}</string>
+    <string>{script}</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+{env_pairs}  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>{log_out}</string>
+  <key>StandardErrorPath</key>
+  <string>{log_err}</string>
+</dict>
+</plist>"#,
+        node = xml_escape(&node_bin),
+        script = xml_escape(&relay_script.to_string_lossy()),
+        env_pairs = env_pairs,
+        log_out = xml_escape(&log_dir.join("forge-relay.out.log").to_string_lossy()),
+        log_err = xml_escape(&log_dir.join("forge-relay.err.log").to_string_lossy()),
+    );
+
+    if let Err(e) = std::fs::write(&plist_path, &plist) {
+        return serde_json::json!({ "ok": false, "error": format!("Could not write plist: {}", e) });
+    }
+
+    // launchctl unload (ignore error) then load
+    let _ = std::process::Command::new("launchctl")
+        .args(["unload", &plist_path.to_string_lossy()])
+        .output();
+    let load_result = std::process::Command::new("launchctl")
+        .args(["load", &plist_path.to_string_lossy()])
+        .output();
+    if let Ok(out) = load_result {
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).to_string();
+            return serde_json::json!({ "ok": false, "error": format!("launchctl load failed: {}", err) });
+        }
+    }
+
+    serde_json::json!({
+        "ok": true,
+        "instanceId": instance_id,
+        "personalToken": personal_token,
+        "teamToken": team_token,
+        "adminToken": admin_token,
+        "owners": [
+            { "id": "personal", "label": "Personal", "token": personal_token, "shareId": format!("personal-shortcut") },
+            { "id": "team", "label": "Team", "token": team_token, "shareId": format!("team-shortcut") },
+        ]
+    })
+}
+
+#[tauri::command]
+fn get_relay_status() -> serde_json::Value {
+    let env_path = relay_env_path();
+    let installed = env_path.exists();
+    let mut instance_id = String::new();
+    let mut owners: Vec<serde_json::Value> = vec![];
+
+    if installed {
+        if let Ok(content) = std::fs::read_to_string(&env_path) {
+            instance_id = parse_env_value(&content, "FORGE_RELAY_INSTANCE_ID").unwrap_or("").to_string();
+            for (oid, olabel, token, iid, sid) in parse_relay_tokens(&content) {
+                owners.push(serde_json::json!({ "id": oid, "label": olabel, "token": token, "instanceId": iid, "shareId": sid }));
+            }
+        }
+    }
+
+    // Check healthz with a short timeout — use std::net::TcpStream as a quick port check,
+    // then do a simple HTTP GET if port is open
+    let running = check_relay_health();
+
+    // Detect Tailscale hostname
+    let tailscale_hostname = get_tailscale_hostname();
+
+    serde_json::json!({
+        "installed": installed,
+        "running": running,
+        "instanceId": instance_id,
+        "owners": owners,
+        "tailscaleHostname": tailscale_hostname,
+        "error": null
+    })
+}
+
+fn check_relay_health() -> bool {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let Ok(mut stream) = TcpStream::connect_timeout(
+        &"127.0.0.1:8765".parse().unwrap(),
+        Duration::from_secs(1),
+    ) else { return false; };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = write!(stream, "GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n");
+    let mut buf = [0u8; 256];
+    if let Ok(n) = stream.read(&mut buf) {
+        let resp = String::from_utf8_lossy(&buf[..n]);
+        return resp.contains("\"ok\":true") || resp.contains("\"ok\": true");
+    }
+    false
+}
+
+fn get_tailscale_hostname() -> Option<String> {
+    // Try `tailscale status --json` to get MagicDNS hostname
+    let output = std::process::Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+        .or_else(|_| std::process::Command::new("/usr/local/bin/tailscale").args(["status", "--json"]).output())
+        .or_else(|_| std::process::Command::new("/opt/homebrew/bin/tailscale").args(["status", "--json"]).output());
+    if let Ok(out) = output {
+        if out.status.success() {
+            let json_str = String::from_utf8_lossy(&out.stdout);
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                // Try Self.DNSName first (MagicDNS)
+                if let Some(dns) = v.pointer("/Self/DNSName").and_then(|v| v.as_str()) {
+                    let trimmed = dns.trim_end_matches('.');
+                    if !trimmed.is_empty() { return Some(trimmed.to_string()); }
+                }
+                // Fall back to Self.TailscaleIPs[0]
+                if let Some(ip) = v.pointer("/Self/TailscaleIPs/0").and_then(|v| v.as_str()) {
+                    return Some(ip.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+// ─── Inbox Captures ──────────────────────────────────────────────────────────
+
+fn inbox_raw_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::PathBuf::from(home).join("AgentForge").join("inbox").join("raw")
+}
+
+fn is_safe_capture_component(s: &str) -> bool {
+    !s.is_empty()
+        && !s.contains('/')
+        && !s.contains('\\')
+        && !s.contains("..")
+        && s != "."
+}
+
+#[tauri::command]
+fn list_inbox_captures(owner_id: String) -> serde_json::Value {
+    let base = inbox_raw_path();
+    if !base.exists() {
+        return serde_json::json!({ "captures": [], "error": null });
+    }
+    let mut captures: Vec<serde_json::Value> = Vec::new();
+    let owner_dirs: Vec<_> = match std::fs::read_dir(&base) {
+        Ok(rd) => rd.filter_map(|e| e.ok()).collect(),
+        Err(e) => return serde_json::json!({ "captures": [], "error": e.to_string() }),
+    };
+    for owner_entry in owner_dirs {
+        let owner_name = owner_entry.file_name().to_string_lossy().to_string();
+        if owner_id != "all" && owner_name != owner_id {
+            continue;
+        }
+        let capture_dirs = match std::fs::read_dir(owner_entry.path()) {
+            Ok(rd) => rd.filter_map(|e| e.ok()).collect::<Vec<_>>(),
+            Err(_) => continue,
+        };
+        for capture_entry in capture_dirs {
+            let manifest_path = capture_entry.path().join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&manifest_path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                    captures.push(val);
+                }
+            }
+        }
+    }
+    // Sort newest first by createdAt
+    captures.sort_by(|a, b| {
+        let ta = a.get("createdAt").and_then(|v| v.as_i64()).unwrap_or(0);
+        let tb = b.get("createdAt").and_then(|v| v.as_i64()).unwrap_or(0);
+        tb.cmp(&ta)
+    });
+    serde_json::json!({ "captures": captures, "error": null })
+}
+
+#[tauri::command]
+fn create_inbox_capture(payload: serde_json::Value) -> serde_json::Value {
+    let owner_id = match payload.get("ownerId").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return serde_json::json!({ "ok": false, "error": "ownerId is required" }),
+    };
+    if !is_safe_capture_component(&owner_id) {
+        return serde_json::json!({ "ok": false, "error": "invalid ownerId" });
+    }
+    // Use provided id or generate one from timestamp + random suffix
+    let capture_id = match payload.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        Some(id) => id.to_string(),
+        None => {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            // Simple unique suffix from address of a stack variable
+            let suffix: u64 = ts as u64 ^ (std::process::id() as u64 * 0x9e3779b97f4a7c15);
+            format!("cap-{}-{:x}", ts, suffix & 0xffffff)
+        }
+    };
+    if !is_safe_capture_component(&capture_id) {
+        return serde_json::json!({ "ok": false, "error": "invalid capture id" });
+    }
+    let capture_dir = inbox_raw_path().join(&owner_id).join(&capture_id);
+    if let Err(e) = std::fs::create_dir_all(&capture_dir) {
+        return serde_json::json!({ "ok": false, "error": e.to_string() });
+    }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let raw_path = capture_dir.to_string_lossy().to_string();
+    let mut manifest = payload.clone();
+    let obj = match manifest.as_object_mut() {
+        Some(o) => o,
+        None => return serde_json::json!({ "ok": false, "error": "payload must be an object" }),
+    };
+    obj.insert("id".to_string(), serde_json::json!(capture_id));
+    obj.insert("ownerId".to_string(), serde_json::json!(owner_id));
+    obj.entry("createdAt").or_insert(serde_json::json!(now_ms));
+    obj.insert("updatedAt".to_string(), serde_json::json!(now_ms));
+    obj.entry("status").or_insert(serde_json::json!("received"));
+    obj.entry("attachments").or_insert(serde_json::json!([]));
+    obj.entry("urls").or_insert(serde_json::json!([]));
+    obj.entry("tags").or_insert(serde_json::json!([]));
+    obj.entry("processedPaths").or_insert(serde_json::json!([]));
+    obj.entry("error").or_insert(serde_json::json!(""));
+    obj.insert("rawPath".to_string(), serde_json::json!(raw_path));
+    let manifest_path = capture_dir.join("manifest.json");
+    match serde_json::to_string_pretty(&manifest) {
+        Ok(text) => {
+            if let Err(e) = std::fs::write(&manifest_path, text) {
+                return serde_json::json!({ "ok": false, "error": e.to_string() });
+            }
+        }
+        Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+    serde_json::json!({ "ok": true, "capture": manifest })
+}
+
+#[tauri::command]
+fn update_inbox_capture(owner_id: String, capture_id: String, patch: serde_json::Value) -> serde_json::Value {
+    if !is_safe_capture_component(&owner_id) || !is_safe_capture_component(&capture_id) {
+        return serde_json::json!({ "ok": false, "error": "invalid owner or capture id" });
+    }
+    let manifest_path = inbox_raw_path().join(&owner_id).join(&capture_id).join("manifest.json");
+    if !manifest_path.exists() {
+        return serde_json::json!({ "ok": false, "error": "capture not found" });
+    }
+    let text = match std::fs::read_to_string(&manifest_path) {
+        Ok(t) => t,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+    };
+    let mut manifest: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+    };
+    if let (Some(base), Some(updates)) = (manifest.as_object_mut(), patch.as_object()) {
+        for (k, v) in updates {
+            base.insert(k.clone(), v.clone());
+        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        base.insert("updatedAt".to_string(), serde_json::json!(now_ms));
+    } else {
+        return serde_json::json!({ "ok": false, "error": "patch must be an object" });
+    }
+    match serde_json::to_string_pretty(&manifest) {
+        Ok(t) => {
+            if let Err(e) = std::fs::write(&manifest_path, t) {
+                return serde_json::json!({ "ok": false, "error": e.to_string() });
+            }
+        }
+        Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+    serde_json::json!({ "ok": true, "capture": manifest })
+}
+
+#[tauri::command]
+fn read_inbox_attachment(owner_id: String, capture_id: String, filename: String) -> serde_json::Value {
+    if !is_safe_capture_component(&owner_id)
+        || !is_safe_capture_component(&capture_id)
+        || !is_safe_capture_component(&filename)
+    {
+        return serde_json::json!({ "data": null, "error": "invalid path component" });
+    }
+    let path = inbox_raw_path()
+        .join(&owner_id)
+        .join(&capture_id)
+        .join("attachments")
+        .join(&filename);
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            // Determine a basic mime type from extension
+            let mime = match path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str() {
+                "jpg" | "jpeg" => "image/jpeg",
+                "png" => "image/png",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "pdf" => "application/pdf",
+                "txt" => "text/plain",
+                "mp3" => "audio/mpeg",
+                "mp4" => "video/mp4",
+                "m4a" => "audio/mp4",
+                _ => "application/octet-stream",
+            };
+            serde_json::json!({ "data": bytes, "mimeType": mime, "error": null })
+        }
+        Err(e) => serde_json::json!({ "data": null, "error": e.to_string() }),
+    }
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1469,6 +2017,9 @@ pub fn run() {
             pid: Mutex::new(None),
         })
         .manage(TabCache::default())
+        .manage(SysState(Mutex::new(System::new_with_specifics(
+            RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
+        ))))
         .setup(|app| {
             // ── Spotlight window ──────────────────────────────────────────────
             let spotlight_url = if cfg!(debug_assertions) {
@@ -1540,6 +2091,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_ram_stats,
+            get_system_stats,
             spawn_llama_server,
             sigstop_llama_server,
             sigcont_llama_server,
@@ -1568,6 +2120,12 @@ pub fn run() {
             get_active_tab,
             show_spotlight,
             hide_spotlight,
+            setup_relay,
+            get_relay_status,
+            list_inbox_captures,
+            create_inbox_capture,
+            update_inbox_capture,
+            read_inbox_attachment,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application")

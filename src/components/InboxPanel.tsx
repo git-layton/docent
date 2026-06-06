@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  AlertTriangle,
-  CheckCircle2,
   FileText,
   Image,
   Inbox,
   Link,
   Loader2,
-  Play,
+  MessageSquare,
   RefreshCw,
   Send,
   User,
@@ -16,18 +14,13 @@ import {
 import { useAgentStore } from '../store/useAgentStore';
 import { useChatStore } from '../store/useChatStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { normalizeChatRecord } from '../services/channels';
-import { generateTextResponse } from '../services/llm';
-import { evaluateMemoryGate } from '../services/memoryGatekeeper';
 import {
-  buildCaptureMarkdown,
   DEFAULT_INBOX_OWNERS,
   formatCaptureAge,
   inferCaptureKind,
   mergeInboxOwners,
   normalizeInboxOwners,
   ownerLabel,
-  slugifyCapture,
   type CaptureItem,
 } from '../services/inbox';
 
@@ -35,78 +28,59 @@ interface InboxPanelProps {
   agentForgePath: string;
   activeAgentId: string;
   onToast: (msg: string) => void;
+  onOpenChat?: () => void;
 }
 
-const emptyTriage = (capture: CaptureItem) => ({
-  title: capture.title || 'Inbox Capture',
-  summary: capture.bodyText || capture.note || 'Captured item saved for later review.',
-  facts: [] as string[],
-  tags: ['inbox', capture.kind || 'capture'],
-  tasks: [] as string[],
-});
+const generateId = (prefix: string) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-function parseJsonObject(text: string): any | null {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
-  const raw = fenced ?? text;
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
+function buildCaptureOpeningMessage(capture: CaptureItem): string {
+  const parts: string[] = [];
+  if (capture.title && capture.title !== 'Untitled capture') {
+    parts.push(`**${capture.title}**`);
   }
+  if (capture.note) parts.push(`_Note: ${capture.note}_`);
+  if (capture.bodyText) parts.push(capture.bodyText);
+  if (capture.urls?.length) {
+    parts.push(capture.urls.map((u: string) => u).join('\n'));
+  }
+  if (capture.attachments?.length) {
+    parts.push(capture.attachments.map((a: any) => `📎 ${a.name}`).join('\n'));
+  }
+  return parts.join('\n\n').trim() || 'I captured something — can you help me figure out what to do with it?';
 }
 
-function fileToPayload(file: File): Promise<{ name: string; mimeType: string; dataBase64: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const data = String(reader.result ?? '');
-      resolve({ name: file.name, mimeType: file.type || 'application/octet-stream', dataBase64: data });
-    };
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
+function statusDot(status: string) {
+  if (status === 'saved') return 'bg-emerald-400';
+  if (status === 'failed') return 'bg-red-400';
+  if (status === 'processing') return 'bg-blue-400 animate-pulse';
+  if (status === 'needs_review') return 'bg-amber-400';
+  return 'bg-neutral-300 dark:bg-neutral-600';
 }
 
-function statusStyle(status: string) {
-  if (status === 'saved') return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900';
-  if (status === 'failed') return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-900';
-  if (status === 'processing') return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-300 dark:border-blue-900';
-  if (status === 'needs_review') return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900';
-  return 'bg-neutral-50 text-neutral-600 border-neutral-200 dark:bg-neutral-900 dark:text-neutral-300 dark:border-neutral-800';
-}
-
-export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPanelProps) {
+export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onToast, onOpenChat }: InboxPanelProps) {
   const assistants = useAgentStore(s => s.assistants);
-  const models = useSettingsStore(s => s.models);
-  const selectedModelId = useSettingsStore(s => s.selectedModelId);
+  const setActiveFolderId = useAgentStore(s => s.setActiveFolderId);
   const appSettings = useSettingsStore(s => s.appSettings);
-  const integrations = useSettingsStore(s => s.integrations);
-  const userProfile = useSettingsStore(s => s.userProfile);
-  const chats = useChatStore(s => s.chats);
+  const setChats = useChatStore(s => s.setChats);
+  const setMessages = useChatStore(s => s.setMessages);
+  const setActiveChatId = useChatStore(s => s.setActiveChatId);
 
   const [ownerFilter, setOwnerFilter] = useState<string>('all');
   const [captures, setCaptures] = useState<CaptureItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [quickText, setQuickText] = useState('');
   const [quickNote, setQuickNote] = useState('');
   const [quickOwner, setQuickOwner] = useState<string>('primary');
+  // Per-capture agent picker state
+  const [captureAgents, setCaptureAgents] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const selectedModel = models.find((m: any) => m.id === selectedModelId) ?? models[0];
-  const activeAgent = assistants.find((a: any) => a.id === activeAgentId) ?? assistants[0];
-  const configuredOwners = useMemo(() => normalizeInboxOwners(appSettings.inboxOwners), [appSettings.inboxOwners]);
-  const ownerOptions = useMemo(() => mergeInboxOwners(configuredOwners, captures), [configuredOwners, captures]);
-  const channels = useMemo(
-    () => chats.map((chat: any) => normalizeChatRecord(chat, activeAgentId)).filter((chat: any) => chat.kind === 'channel'),
-    [chats, activeAgentId],
-  );
+  const configuredOwners = normalizeInboxOwners(appSettings.inboxOwners);
+  const ownerOptions = mergeInboxOwners(configuredOwners, captures);
 
   useEffect(() => {
-    if (!ownerOptions.some(owner => owner.id === quickOwner)) {
+    if (!ownerOptions.some(o => o.id === quickOwner)) {
       setQuickOwner(ownerOptions[0]?.id ?? DEFAULT_INBOX_OWNERS[0].id);
     }
   }, [ownerOptions, quickOwner]);
@@ -126,34 +100,7 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
     }
   }
 
-  useEffect(() => {
-    loadCaptures();
-  }, [ownerFilter]);
-
-  function targetFor(capture: CaptureItem) {
-    if (capture.targetKind === 'library') return 'library:library';
-    if (capture.channelId) return `channel:${capture.channelId}`;
-    if (capture.agentId) return `agent:${capture.agentId}`;
-    const hint = capture.channelHint?.toLowerCase().trim();
-    const hinted = hint
-      ? channels.find((c: any) => c.id.toLowerCase() === hint || c.name.toLowerCase().includes(hint))
-      : null;
-    if (hinted) return `channel:${hinted.id}`;
-    return `agent:${activeAgentId}`;
-  }
-
-  async function patchCapture(capture: CaptureItem, patch: Partial<CaptureItem>) {
-    const result = await invoke<{ ok: boolean; capture?: CaptureItem; error?: string }>('update_inbox_capture', {
-      ownerId: capture.ownerId,
-      captureId: capture.id,
-      patch,
-    });
-    if (!result.ok) throw new Error(result.error ?? 'Could not update capture');
-    if (result.capture) {
-      setCaptures(prev => prev.map(c => c.id === capture.id ? result.capture! : c));
-    }
-    return result.capture;
-  }
+  useEffect(() => { loadCaptures(); }, [ownerFilter]);
 
   async function createLocalCapture(payload: any) {
     const result = await invoke<{ ok: boolean; capture?: CaptureItem; error?: string }>('create_inbox_capture', { payload });
@@ -190,7 +137,7 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
   async function addFiles(files: FileList | null) {
     if (!files?.length) return;
     try {
-      const attachments = await Promise.all(Array.from(files).map(fileToPayload));
+      const attachments = Array.from(files).map(f => ({ name: f.name, mimeType: f.type || 'application/octet-stream', size: f.size }));
       await createLocalCapture({
         ownerId: quickOwner,
         source: 'desktop_drop',
@@ -213,214 +160,68 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
     }
   }
 
-  async function readImageAttachments(capture: CaptureItem) {
-    const imageAttachments = (capture.attachments ?? [])
-      .filter(a => a.mimeType?.startsWith('image/'))
-      .slice(0, 4);
-    const files = [];
-    for (const attachment of imageAttachments) {
-      const result = await invoke<{ ok: boolean; name: string; mimeType: string; dataUrl: string; error?: string }>('read_inbox_attachment', {
-        ownerId: capture.ownerId,
-        captureId: capture.id,
-        attachmentId: attachment.id,
-      }).catch(() => null);
-      if (result?.ok) {
-        files.push({ name: result.name, type: result.mimeType, content: result.dataUrl, isImage: true });
-      }
-    }
-    return files;
+  function agentForCapture(captureId: string) {
+    const picked = captureAgents[captureId];
+    if (picked) return assistants.find((a: any) => a.id === picked) ?? assistants[0];
+    return assistants.find((a: any) => a.id === activeAgentId) ?? assistants[0];
   }
 
-  async function runTriage(capture: CaptureItem) {
-    const attachments = capture.attachments?.length
-      ? capture.attachments.map(a => `- ${a.name} (${a.mimeType || 'file'}, ${a.size} bytes)`).join('\n')
-      : '- None';
-    const urls = capture.urls?.length ? capture.urls.map(url => `- ${url}`).join('\n') : '- None';
-    const prompt = `Triage this Forge Inbox capture. Return ONLY valid JSON with keys: title, summary, facts, tags, tasks.\n\nRules:\n- Keep title under 80 characters.\n- Summary should be direct and useful.\n- Facts are durable facts worth remembering and must be directly visible in the capture, note, URL list, or attachment text/image.\n- Do not turn guesses, OCR uncertainty, or your own interpretation into facts.\n- Tags are lowercase short words.\n- Tasks are possible to-dos, not commands to execute.\n\nOwner: ${ownerLabel(capture.ownerId, ownerOptions)}\nInstance: ${capture.instanceId || '(none)'}\nShare route: ${capture.shareId || '(none)'}\nDevice: ${capture.deviceName || '(none)'}\nSource: ${capture.source}\nKind: ${capture.kind}\nNote: ${capture.note || '(none)'}\nChannel hint: ${capture.channelHint || '(none)'}\nURLs:\n${urls}\nAttachments:\n${attachments}\nText:\n${capture.bodyText || '(no text)'}`;
+  function openChatWithCapture(capture: CaptureItem) {
+    const agent = agentForCapture(capture.id);
+    if (!agent) { onToast('No agent available.'); return; }
 
-    const imageFiles = await readImageAttachments(capture);
-    const agent = {
-      id: 'forge-inbox-triage',
-      name: 'Forge Inbox Triage',
-      prompt: 'You turn raw captures into concise, auditable notes. Separate observed facts from interpretation. Do not invent details that are not visible in the capture.',
-      tools: {},
-      trainingDocs: [],
-      awareOfProfile: true,
+    const chatId = generateId('c');
+    const opening = buildCaptureOpeningMessage(capture);
+    const userMsg = {
+      id: generateId('msg'),
+      role: 'user',
+      content: opening,
+      attachedFiles: [],
+      isPinned: false,
+      timestamp: Date.now(),
+      _captureId: capture.id,
     };
 
-    const response = await generateTextResponse({
-      messages: [{ role: 'user', content: prompt, attachedFiles: imageFiles }],
-      modelConfig: selectedModel,
-      profile: userProfile,
-      attachedDocs: [],
-      agent,
-      tasks: [],
-      mode: 'text',
-      canvasContent: null,
-      isDeepThinking: false,
-      agentPinnedMessages: [],
-      signal: null,
-      appSettings,
-      integrations,
-      models,
-    });
-    const parsed = parseJsonObject(response);
-    if (!parsed) return emptyTriage(capture);
-    return {
-      title: String(parsed.title ?? capture.title ?? 'Inbox Capture').slice(0, 120),
-      summary: String(parsed.summary ?? capture.bodyText ?? capture.note ?? 'Captured item saved for later review.'),
-      facts: Array.isArray(parsed.facts) ? parsed.facts.map((f: any) => String(f)).filter(Boolean).slice(0, 12) : [],
-      tags: Array.isArray(parsed.tags) ? parsed.tags.map((t: any) => String(t).toLowerCase()).filter(Boolean).slice(0, 12) : ['inbox'],
-      tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map((t: any) => String(t)).filter(Boolean).slice(0, 8) : [],
-    };
+    setActiveFolderId(agent.id);
+    setChats((prev: any[]) => [
+      { id: chatId, folderId: agent.id, name: capture.title?.slice(0, 40) || 'Inbox capture', updatedAt: Date.now() },
+      ...prev,
+    ]);
+    setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [userMsg] }));
+    setActiveChatId(chatId);
+    onOpenChat?.();
+    onToast(`Opened with ${agent.name}`);
   }
-
-  async function processCapture(capture: CaptureItem) {
-    if (!selectedModel) {
-      onToast('Pick a model before processing Inbox captures.');
-      return;
-    }
-    setProcessingIds(prev => new Set(prev).add(capture.id));
-    try {
-      await patchCapture(capture, { status: 'processing', error: '' } as any);
-      const refreshed = captures.find(c => c.id === capture.id) ?? capture;
-      const target = targetFor(refreshed);
-      const [targetType, targetId] = target.split(':');
-      const targetAgent = assistants.find((a: any) => a.id === targetId) ?? activeAgent;
-      const targetChannel = channels.find((c: any) => c.id === targetId);
-      const triage = await runTriage(refreshed);
-      const gatekeeperDecision = evaluateMemoryGate({
-        text: [
-          refreshed.title,
-          refreshed.note,
-          refreshed.channelHint,
-          refreshed.bodyText,
-          triage.summary,
-          ...triage.facts,
-          ...triage.tasks,
-        ].filter(Boolean).join('\n'),
-        channelId: targetType === 'channel' ? targetId : undefined,
-        agentId: targetType === 'agent' ? targetId : undefined,
-        sourceUrls: refreshed.urls ?? [],
-        attachedFiles: refreshed.attachments?.map(a => ({
-          name: a.name,
-          type: a.mimeType,
-          isImage: a.mimeType?.startsWith('image/'),
-        })) ?? [],
-      });
-      if (!gatekeeperDecision.shouldSave) {
-        await patchCapture(refreshed, {
-          status: 'needs_review',
-          title: triage.title,
-          summary: `Gatekeeper held this for review: ${gatekeeperDecision.reason}`,
-          tags: gatekeeperDecision.tags,
-          error: '',
-        } as any);
-        onToast('Gatekeeper held this capture for review.');
-        return;
-      }
-      const tasksBlock = triage.tasks.length
-        ? `\n\n## Possible Tasks\n${triage.tasks.map((t: string) => `- ${t}`).join('\n')}\n`
-        : '';
-      const targetLabel = targetType === 'channel'
-        ? `channel:${targetChannel?.name ?? targetId}`
-        : targetType === 'library'
-          ? 'library'
-          : `agent:${targetAgent?.name ?? targetId}`;
-      const content = buildCaptureMarkdown({
-        capture: { ...refreshed, title: triage.title },
-        summary: `${triage.summary}${tasksBlock}`,
-        facts: triage.facts,
-        tags: triage.tags,
-        targetLabel,
-        gatekeeperDecision,
-      });
-      const slug = slugifyCapture(triage.title || refreshed.title);
-      const basePath = targetType === 'channel'
-        ? `${agentForgePath}/memory/channels/${targetId}/inbox`
-        : targetType === 'library'
-          ? `${agentForgePath}/library/inbox`
-          : `${agentForgePath}/memory/${targetId}/inbox`;
-      const path = `${basePath}/${slug}-${refreshed.createdAt || Date.now()}.md`;
-      const writeResult = await invoke<{ blocked: boolean; commit: string | null; error?: string }>('write_memory', {
-        path,
-        content,
-        commitMessage: `inbox: ${triage.title}`,
-        agentId: targetType === 'agent' ? targetId : activeAgentId,
-        contextTokens: null,
-        ramState: null,
-      });
-      if (writeResult.blocked) {
-        throw new Error(writeResult.error ?? 'Nuke Shield blocked the Inbox write');
-      }
-      await patchCapture(refreshed, {
-        status: 'saved',
-        title: triage.title,
-        summary: triage.summary,
-        tags: Array.from(new Set([...triage.tags, ...gatekeeperDecision.tags])),
-        processedPaths: [path],
-        channelId: targetType === 'channel' ? targetId : '',
-        agentId: targetType === 'agent' ? targetId : '',
-        targetKind: targetType as any,
-        error: '',
-      } as any);
-      onToast('Inbox capture processed and saved.');
-    } catch (e: any) {
-      await patchCapture(capture, { status: 'failed', error: e?.message ?? String(e) } as any).catch(() => {});
-      onToast(`Processing failed: ${e?.message ?? String(e)}`);
-    } finally {
-      setProcessingIds(prev => {
-        const next = new Set(prev);
-        next.delete(capture.id);
-        return next;
-      });
-      loadCaptures();
-    }
-  }
-
-  async function processAll() {
-    const todo = captures.filter(c => c.status !== 'saved' && c.status !== 'processing');
-    for (const capture of todo) {
-      await processCapture(capture);
-    }
-  }
-
-  async function updateTarget(capture: CaptureItem, target: string) {
-    const [type, id] = target.split(':');
-    await patchCapture(capture, {
-      channelId: type === 'channel' ? id : '',
-      agentId: type === 'agent' ? id : '',
-      targetKind: type as any,
-    } as any).catch((e: any) => onToast(`Could not update target: ${e?.message ?? String(e)}`));
-  }
-
-  const visible = captures;
-  const pendingCount = captures.filter(c => c.status !== 'saved').length;
 
   return (
     <div className="p-4 space-y-4">
+      {/* Header */}
       <div className="rounded-xl border border-[#4A5D75]/20 bg-[#4A5D75]/5 dark:bg-[#4A5D75]/10 p-3">
         <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#9EADC8]">
           <Inbox className="w-4 h-4" />
           Forge Inbox
         </div>
         <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">
-          Raw captures stay here first. Processing saves derived notes into agent memory, channel memory, or library.
+          Drop anything here. Open it with an agent when you're ready to talk about it.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-neutral-100 dark:bg-neutral-900">
-        {['all', ...ownerOptions.map(owner => owner.id)].map(owner => (
-          <button
-            key={owner}
-            onClick={() => setOwnerFilter(owner)}
-            className={`py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${ownerFilter === owner ? 'bg-white dark:bg-neutral-800 text-[#4A5D75] shadow-sm' : 'text-neutral-400 hover:text-neutral-600'}`}
-          >
-            {owner === 'all' ? 'All' : ownerLabel(owner, ownerOptions)}
-          </button>
-        ))}
-      </div>
+      {/* Owner filter */}
+      {ownerOptions.length > 1 && (
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-neutral-100 dark:bg-neutral-900">
+          {['all', ...ownerOptions.map(o => o.id)].map(owner => (
+            <button
+              key={owner}
+              onClick={() => setOwnerFilter(owner)}
+              className={`py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${ownerFilter === owner ? 'bg-white dark:bg-neutral-800 text-[#4A5D75] shadow-sm' : 'text-neutral-400 hover:text-neutral-600'}`}
+            >
+              {owner === 'all' ? 'All' : ownerLabel(owner, ownerOptions)}
+            </button>
+          ))}
+        </div>
+      )}
 
+      {/* Quick capture */}
       <div className="space-y-2 rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
         <div className="flex items-center gap-2">
           <select
@@ -428,127 +229,117 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
             onChange={e => setQuickOwner(e.target.value)}
             className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg px-2 py-1.5 text-[11px] font-bold outline-none"
           >
-            {ownerOptions.map(owner => <option key={owner.id} value={owner.id}>{owner.label}</option>)}
+            {ownerOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
           <input
             value={quickNote}
             onChange={e => setQuickNote(e.target.value)}
-            placeholder="optional note or channel hint"
+            placeholder="optional note"
             className="min-w-0 flex-1 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg px-2 py-1.5 text-[11px] outline-none"
           />
         </div>
         <textarea
           value={quickText}
           onChange={e => setQuickText(e.target.value)}
-          placeholder="drop a quick raw capture here"
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addTextCapture(); }}
+          placeholder="paste text, a URL, or a thought…"
           rows={3}
           className="w-full resize-none bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg px-3 py-2 text-xs outline-none"
         />
         <div className="flex gap-2">
-          <button onClick={addTextCapture} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-[10px] font-black uppercase tracking-widest transition-colors">
+          <button onClick={addTextCapture} disabled={!quickText.trim()} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#4A5D75] hover:bg-[#3D4D61] disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest transition-colors">
             <Send className="w-3.5 h-3.5" />
-            Add Text
+            Capture
           </button>
           <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 text-neutral-500 dark:text-neutral-300 text-[10px] font-black uppercase tracking-widest hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors">
             <FileText className="w-3.5 h-3.5" />
-            Add File
+            File
           </button>
           <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => addFiles(e.target.files)} />
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <button onClick={loadCaptures} disabled={isLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 text-[10px] font-black uppercase tracking-widest text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-900 disabled:opacity-50">
-          {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          Refresh
-        </button>
-        <button onClick={processAll} disabled={processingIds.size > 0 || pendingCount === 0} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#D4AA7D] hover:bg-[#BE966B] text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50 disabled:hover:bg-[#D4AA7D]">
-          <Play className="w-3.5 h-3.5" />
-          Process All ({pendingCount})
-        </button>
-      </div>
+      {/* Refresh */}
+      <button onClick={loadCaptures} disabled={isLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 text-[10px] font-black uppercase tracking-widest text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-900 disabled:opacity-50 transition-colors">
+        {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+        Refresh
+      </button>
 
+      {/* Capture list */}
       {isLoading ? (
-        <div className="text-center py-8 text-neutral-400 text-xs">Loading captures...</div>
-      ) : visible.length === 0 ? (
+        <div className="text-center py-8 text-neutral-400 text-xs">Loading…</div>
+      ) : captures.length === 0 ? (
         <div className="text-center py-12 text-neutral-400">
           <Inbox className="w-10 h-10 mx-auto mb-3 opacity-20" />
-          <p className="text-xs font-bold">No captures yet.</p>
-          <p className="text-[10px] mt-1 opacity-70">Use the Shortcut or add a local capture above.</p>
+          <p className="text-xs font-bold">Nothing here yet.</p>
+          <p className="text-[10px] mt-1 opacity-70">Captures from your phone or the box above will appear here.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {visible.map(capture => {
-            const isBusy = processingIds.has(capture.id) || capture.status === 'processing';
-            return (
-              <div key={`${capture.ownerId}-${capture.id}`} className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-950">
-                <div className="p-3 space-y-2">
-                  <div className="flex items-start gap-2">
-                    {capture.kind === 'image' || capture.attachments?.some(a => a.mimeType?.startsWith('image/'))
-                      ? <Image className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
-                      : capture.urls?.length
-                        ? <Link className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
-                        : <FileText className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 truncate">{capture.title || 'Untitled capture'}</p>
-                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                        <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">
-                          <User className="w-3 h-3" />
-                          {ownerLabel(capture.ownerId, ownerOptions)}
-                        </span>
-                        <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${statusStyle(capture.status)}`}>
-                          {capture.status.replace('_', ' ')}
-                        </span>
-                        <span className="text-[9px] text-neutral-400">{formatCaptureAge(capture.createdAt)}</span>
-                      </div>
+        <div className="space-y-2">
+          {captures.map(capture => (
+            <div key={`${capture.ownerId}-${capture.id}`} className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 overflow-hidden">
+              <div className="p-3 space-y-2.5">
+                {/* Title row */}
+                <div className="flex items-start gap-2">
+                  <div className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(capture.status)}`} />
+                  {capture.kind === 'image' || capture.attachments?.some((a: any) => a.mimeType?.startsWith('image/'))
+                    ? <Image className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+                    : capture.urls?.length
+                      ? <Link className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+                      : <FileText className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 truncate">{capture.title || 'Untitled capture'}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[9px] text-neutral-400 flex items-center gap-1">
+                        <User className="w-2.5 h-2.5" />
+                        {ownerLabel(capture.ownerId, ownerOptions)}
+                      </span>
+                      <span className="text-[9px] text-neutral-400">{formatCaptureAge(capture.createdAt)}</span>
                     </div>
-                    {capture.status === 'saved' && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
-                    {capture.status === 'failed' && <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />}
-                  </div>
-
-                  {capture.bodyText && <p className="text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400 line-clamp-3">{capture.bodyText}</p>}
-                  {capture.note && <p className="text-[10px] leading-relaxed text-[#4A5D75] dark:text-[#9EADC8]">Note: {capture.note}</p>}
-                  {capture.summary && <p className="text-[10px] leading-relaxed text-emerald-700 dark:text-emerald-300">Saved: {capture.summary}</p>}
-                  {capture.error && <p className="text-[10px] leading-relaxed text-red-500">Error: {capture.error}</p>}
-
-                  <div className="flex flex-wrap gap-1">
-                    {(capture.attachments ?? []).slice(0, 3).map(a => (
-                      <span key={a.id} className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-900 text-neutral-500 font-bold truncate max-w-[130px]">
-                        {a.name}
-                      </span>
-                    ))}
-                    {(capture.urls ?? []).slice(0, 2).map(url => (
-                      <span key={url} className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-900 text-neutral-500 font-bold truncate max-w-[160px]">
-                        {url}
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <select
-                      value={targetFor(capture)}
-                      onChange={e => updateTarget(capture, e.target.value)}
-                      disabled={isBusy}
-                      className="min-w-0 flex-1 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none disabled:opacity-60"
-                    >
-                      <option value={`agent:${activeAgentId}`}>Agent: {activeAgent?.name ?? 'Assistant'}</option>
-                      {assistants.map((agent: any) => <option key={agent.id} value={`agent:${agent.id}`}>Agent: {agent.name}</option>)}
-                      {channels.map((channel: any) => <option key={channel.id} value={`channel:${channel.id}`}>Channel: {channel.name}</option>)}
-                      <option value="library:library">Library</option>
-                    </select>
-                    <button
-                      onClick={() => processCapture(capture)}
-                      disabled={isBusy}
-                      className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                    >
-                      {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                      Process
-                    </button>
                   </div>
                 </div>
+
+                {/* Preview */}
+                {(capture.bodyText || capture.note) && (
+                  <p className="text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400 line-clamp-2 pl-6">
+                    {capture.note ? `${capture.note} — ` : ''}{capture.bodyText}
+                  </p>
+                )}
+
+                {/* Attachments / URLs preview */}
+                {(capture.attachments?.length > 0 || capture.urls?.length > 0) && (
+                  <div className="flex flex-wrap gap-1 pl-6">
+                    {capture.attachments?.slice(0, 2).map((a: any) => (
+                      <span key={a.id} className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-900 text-neutral-500 font-bold truncate max-w-[140px]">{a.name}</span>
+                    ))}
+                    {capture.urls?.slice(0, 1).map((url: string) => (
+                      <span key={url} className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-900 text-neutral-500 font-bold truncate max-w-[160px]">{url}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Agent picker + Chat CTA */}
+                <div className="flex items-center gap-2 pl-6">
+                  <select
+                    value={captureAgents[capture.id] ?? activeAgentId}
+                    onChange={e => setCaptureAgents(prev => ({ ...prev, [capture.id]: e.target.value }))}
+                    className="min-w-0 flex-1 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none"
+                  >
+                    {assistants.map((a: any) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => openChatWithCapture(capture)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-[10px] font-black uppercase tracking-widest transition-colors shrink-0"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    Chat
+                  </button>
+                </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -34,6 +34,9 @@
     ],
     "externalBin": [
       "bin/llama-server"
+    ],
+    "resources": [
+      "../scripts/forge-relay.mjs"
     ]
   }
 }

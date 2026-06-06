@@ -1,9 +1,29 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
 
+export const LOCAL_PROVIDERS = ['ollama', 'lmstudio', 'native'] as const;
+
+export const isLocalProvider = (provider: string, endpoint?: string): boolean => {
+  if ((LOCAL_PROVIDERS as readonly string[]).includes(provider)) return true;
+  if (endpoint && /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(endpoint)) return true;
+  return false;
+};
+
+export interface Model {
+  id: string;
+  name: string;
+  provider: string;
+  modelId: string;
+  endpoint: string;
+  apiKey: string;
+  contextLimit: number;
+  canImage: boolean;
+  isLocal: boolean;
+}
+
 interface SettingsStore {
   // Model management
-  models: any[];
+  models: Model[];
   selectedModelId: string;
   modelValidation: Record<string, string>;
 
@@ -43,9 +63,16 @@ interface SettingsStore {
   isFetchingModels: boolean;
   fetchModelsError: string | null;
   pendingModelSelections: Array<{ id: string; context: number }>;
+  modelTab: 'cloud' | 'local';
+
+  // Onboarding
+  onboardingComplete: boolean;
+  showOnboarding: boolean;
+  setOnboardingComplete: (v: boolean) => void;
+  setShowOnboarding: (v: boolean) => void;
 
   // Actions
-  setModels: (fn: ((prev: any[]) => any[]) | any[]) => void;
+  setModels: (fn: ((prev: Model[]) => Model[]) | Model[]) => void;
   setSelectedModelId: (id: string) => void;
   setModelValidation: (fn: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void;
   setUserProfile: (v: string) => void;
@@ -64,6 +91,7 @@ interface SettingsStore {
   setIsFetchingModels: (v: boolean) => void;
   setFetchModelsError: (e: string | null) => void;
   setPendingModelSelections: (fn: ((prev: any[]) => any[]) | any[]) => void;
+  setModelTab: (tab: 'cloud' | 'local') => void;
 
   hydrate: () => Promise<void>;
   persist: () => Promise<void>;
@@ -104,6 +132,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   isFetchingModels: false,
   fetchModelsError: null,
   pendingModelSelections: [],
+  modelTab: 'cloud',
+  onboardingComplete: false,
+  showOnboarding: false,
+
+  setOnboardingComplete: (v) => set({ onboardingComplete: v }),
+  setShowOnboarding: (v) => set({ showOnboarding: v }),
 
   setModels: (fn) =>
     set(s => ({ models: typeof fn === 'function' ? fn(s.models) : fn })),
@@ -130,9 +164,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setFetchModelsError: (e) => set({ fetchModelsError: e }),
   setPendingModelSelections: (fn) =>
     set(s => ({ pendingModelSelections: typeof fn === 'function' ? fn(s.pendingModelSelections) : fn })),
+  setModelTab: (tab) => set({ modelTab: tab }),
 
   hydrate: async () => {
-    const models = await db.get('models', []);
+    const rawModels: any[] = await db.get('models', []);
+    // Migrate legacy models that predate the isLocal field
+    const models: Model[] = rawModels.map((m: any) => ({
+      ...m,
+      isLocal: m.isLocal ?? isLocalProvider(m.provider ?? '', m.endpoint ?? ''),
+      canImage: m.canImage ?? false,
+    }));
     const userProfile = await db.get('userProfile', '');
     const savedIntegrations = await db.get('integrations', {});
     const settings = await db.get('settings', {});
@@ -152,21 +193,24 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       }
       delete savedIntegrations.googleWorkspace;
     }
+    const onboardingComplete = await db.get('onboardingComplete', false);
     set(s => ({
       models,
       userProfile,
       integrations: { ...s.integrations, ...savedIntegrations },
       appSettings: { ...s.appSettings, ...appSettings },
       selectedModelId: settings.selectedModelId ?? '',
+      onboardingComplete,
     }));
   },
 
   persist: async () => {
-    const { models, userProfile, integrations, appSettings, selectedModelId } = get();
+    const { models, userProfile, integrations, appSettings, selectedModelId, onboardingComplete } = get();
     await db.set('models', models);
     await db.set('userProfile', userProfile);
     await db.set('integrations', integrations);
     await db.set('appSettings', appSettings);
     await db.set('settings', { selectedModelId });
+    await db.set('onboardingComplete', onboardingComplete);
   },
 }));

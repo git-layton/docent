@@ -5,6 +5,18 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 
+// Single source of truth for capture shape — write fields and patchable fields
+// are derived from this so adding a new field only requires one edit here.
+const CAPTURE_SCHEMA = {
+  write: ['id', 'ownerId', 'ownerLabel', 'instanceId', 'shareId', 'deviceName',
+          'source', 'kind', 'status', 'createdAt', 'updatedAt', 'title',
+          'bodyText', 'urls', 'attachments', 'note', 'channelHint', 'channelId',
+          'agentId', 'targetKind', 'tags', 'rawPath', 'processedPaths', 'error', 'summary'],
+  patch:  ['status', 'ownerLabel', 'instanceId', 'shareId', 'deviceName', 'title',
+           'bodyText', 'note', 'channelHint', 'channelId', 'agentId', 'targetKind',
+           'tags', 'processedPaths', 'summary', 'error'],
+};
+
 const PORT = Number(process.env.FORGE_RELAY_PORT || 8765);
 const HOST = process.env.FORGE_RELAY_HOST || '0.0.0.0';
 const ROOT = expandHome(process.env.FORGE_RELAY_ROOT || '~/AgentForge');
@@ -244,7 +256,7 @@ async function patchCapture(auth, captureId, patch) {
     const manifestPath = path.join(RAW_ROOT, ownerId, sanitizeId(captureId), 'manifest.json');
     try {
       const capture = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-      for (const key of ['status', 'ownerLabel', 'instanceId', 'shareId', 'deviceName', 'title', 'bodyText', 'note', 'channelHint', 'channelId', 'agentId', 'targetKind', 'tags', 'processedPaths', 'summary', 'error']) {
+      for (const key of CAPTURE_SCHEMA.patch) {
         if (Object.prototype.hasOwnProperty.call(patch, key)) capture[key] = patch[key];
       }
       capture.updatedAt = Date.now();
@@ -303,3 +315,16 @@ server.listen(PORT, HOST, () => {
   console.log(`Forge Relay listening on http://${HOST}:${PORT}`);
   console.log(`Writing captures to ${RAW_ROOT}`);
 });
+
+function shutdown(signal) {
+  console.log(`[relay] ${signal} received — closing server`);
+  server.close(err => {
+    if (err) console.error('[relay] Close error:', err);
+    process.exit(err ? 1 : 0);
+  });
+  // Force-exit after 5 s if pending connections don't drain
+  setTimeout(() => { console.error('[relay] Drain timeout — forcing exit'); process.exit(1); }, 5000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

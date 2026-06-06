@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import {
   Menu, Settings, ChevronDown, Globe, CalendarDays,
-  AlertTriangle, Activity, BookOpen, Plus, Search, Trash2,
+  AlertTriangle, BookOpen, Plus, Search, Trash2,
   Database
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { ContextMeter } from './ui/ContextMeter';
+import { ActivityMonitor } from './ActivityMonitor';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -122,14 +123,15 @@ export function ChatHeader({
               {(ramStats.available_mb / 1024).toFixed(1)}GB
             </div>
           )}
-          <button onClick={() => useUIStore.getState().setShowConsole(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showConsole ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : hasErrorLogs ? 'text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`} title="Open App Console">
-            {hasErrorLogs ? (
+          <ActivityMonitor />
+          {hasErrorLogs && (
+            <button onClick={() => useUIStore.getState().setShowConsole(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showConsole ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30'}`} title="Open App Console">
               <div className="relative">
                 <AlertTriangle className="w-5 h-5 animate-pulse text-[#C98A8A]" />
                 <span className="absolute -top-1.5 -right-1.5 bg-[#C98A8A] text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full shadow-sm">{errorLogsCount}</span>
               </div>
-            ) : <Activity className="w-5 h-5" />}
-          </button>
+            </button>
+          )}
           <button onClick={() => useTaskStore.getState().setShowPlanner(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showPlanner ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}>
             <CalendarDays className="w-5 h-5" />
             {tasks.filter(t => !t.completed).length > 0 && <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#6A829E] text-white text-[9px] font-black">{tasks.filter(t => !t.completed).length}</span>}
