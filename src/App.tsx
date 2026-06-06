@@ -1259,6 +1259,40 @@ export default function App() {
                     }
                 }
 
+                // Brave Search Fetch
+                if (_integrations.brave?.enabled && _integrations.brave?.apiKey) {
+                    try {
+                        const braveData = await fetchWithRetry(
+                            `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`,
+                            {
+                                method: 'GET',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'Accept-Encoding': 'gzip',
+                                    'X-Subscription-Token': _integrations.brave.apiKey,
+                                },
+                            },
+                            1
+                        );
+                        if (braveData?.web?.results) {
+                            braveData.web.results.slice(0, 5).forEach((r: any) => {
+                                if (!foundSources.some((x: any) => x.url === r.url)) {
+                                    foundSources.push({ title: r.title, url: r.url, snippet: r.description ?? '' });
+                                }
+                            });
+                        }
+                    } catch (braveErr: any) {
+                        const msg = braveErr?.message ?? String(braveErr);
+                        const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
+                        useUIStore.getState().showToast(
+                            isAuth
+                                ? 'Brave Search: Invalid API key — check Settings → Integrations.'
+                                : `Brave search failed: ${msg}`
+                        );
+                        console.warn("Brave search failed:", braveErr);
+                    }
+                }
+
                 // Wikipedia Fetch — via Tauri HTTP backend
                 const wikiQuery = query.split(' ').slice(0, 4).join(' ').trim();
                 if (wikiQuery) {
@@ -1871,7 +1905,7 @@ export default function App() {
         onCompose={() => { useMemoryStore.getState().setShowMemmoPanel(false); useMemoryStore.getState().setShowMemoCompose(true); }}
         agentForgePath={agentForgePath}
         onToast={showToast}
-        initialTab={memmoPanelTab}
+        initialTab={memmoPanelTab === 'inbox' ? 'library' : memmoPanelTab}
         pinnedTokenEstimate={Math.round(agentPinnedMessagesForPrompt.join('').length / 4)}
         onDeleteFile={async (path) => {
           const result = await invoke<{ ok: boolean; error?: string }>('delete_memory_file', { path });

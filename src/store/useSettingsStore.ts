@@ -38,6 +38,7 @@ interface SettingsStore {
     dreamAutoEnabled?: boolean;
     forgeInstanceId?: string;
     inboxOwners?: Array<{ id: string; label: string }>;
+    people?: Array<{ id: string; label: string; role?: string }>;
   };
 
   // Profile settings modal
@@ -103,6 +104,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   modelValidation: {},
   userProfile: '',
   integrations: {
+    brave: { enabled: false, apiKey: '' },
     tavily: { enabled: false, apiKey: '' },
     googleCalendar: { connected: false },
     openai: { apiKey: '' },
