@@ -12,16 +12,20 @@ interface SettingsStore {
   integrations: any;
   appSettings: {
     allowProfileUpdates: boolean;
-    forgeInstanceId: string;
-    relayUrl: string;
-    relayAdminToken: string;
-    people: Array<{ id: string; label: string; role?: string }>;
-    inboxOwners: Array<{ id: string; label: string }>;
+    imageProvider: string;
+    imageModelId: string;
+    imageEndpoint: string;
+    dreamAutoEnabled?: boolean;
+    forgeInstanceId?: string;
+    inboxOwners?: Array<{ id: string; label: string }>;
   };
 
   // Profile settings modal
   profileSettingsTab: string;
   showProfileSettings: boolean;
+  imageTestState: { loading: boolean; error: string | null; successUrl: string | null };
+  imageEngineModels: any[];
+  isFetchingImageModels: boolean;
 
   // Model wizard
   showModelWizard: boolean;
@@ -49,6 +53,9 @@ interface SettingsStore {
   setAppSettings: (fn: ((prev: any) => any) | any) => void;
   setProfileSettingsTab: (tab: string) => void;
   setShowProfileSettings: (v: boolean) => void;
+  setImageTestState: (v: { loading: boolean; error: string | null; successUrl: string | null }) => void;
+  setImageEngineModels: (v: any[]) => void;
+  setIsFetchingImageModels: (v: boolean) => void;
   setShowModelWizard: (v: boolean) => void;
   setWizardStep: (step: number) => void;
   setEditingModel: (fn: ((prev: any) => any) | any) => void;
@@ -69,27 +76,26 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   userProfile: '',
   integrations: {
     tavily: { enabled: false, apiKey: '' },
-    brave: { enabled: false, apiKey: '' },
-    slack: { enabled: false, botToken: '' },
-    googleWorkspaces: [],
-    gus: { enabled: false, instanceUrl: '', accessToken: '' },
     googleCalendar: { connected: false },
     openai: { apiKey: '' },
     google: { apiKey: '' },
+    customImage: { apiKey: '' },
+    slack: { enabled: false, botToken: '' },
+    googleWorkspaces: [],
+    gus: { enabled: false, instanceUrl: '', accessToken: '' },
   },
   appSettings: {
     allowProfileUpdates: true,
-    forgeInstanceId: 'agent-forge-local',
-    relayUrl: '',
-    relayAdminToken: '',
-    people: [],
-    inboxOwners: [
-      { id: 'primary', label: 'Primary' },
-      { id: 'shared', label: 'Shared' },
-    ],
+    imageProvider: 'none',
+    imageModelId: '',
+    imageEndpoint: '',
+    dreamAutoEnabled: true,
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,
+  imageTestState: { loading: false, error: null, successUrl: null },
+  imageEngineModels: [],
+  isFetchingImageModels: false,
   showModelWizard: false,
   wizardStep: 3,
   editingModel: { name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 },
@@ -111,6 +117,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set(s => ({ appSettings: typeof fn === 'function' ? fn(s.appSettings) : fn })),
   setProfileSettingsTab: (tab) => set({ profileSettingsTab: tab }),
   setShowProfileSettings: (v) => set({ showProfileSettings: v }),
+  setImageTestState: (v) => set({ imageTestState: v }),
+  setImageEngineModels: (v) => set({ imageEngineModels: v }),
+  setIsFetchingImageModels: (v) => set({ isFetchingImageModels: v }),
   setShowModelWizard: (v) => set({ showModelWizard: v }),
   setWizardStep: (step) => set({ wizardStep: step }),
   setEditingModel: (fn) =>
@@ -126,24 +135,23 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const models = await db.get('models', []);
     const userProfile = await db.get('userProfile', '');
     const savedIntegrations = await db.get('integrations', {});
-    if (savedIntegrations.googleWorkspace && !savedIntegrations.googleWorkspaces) {
-      const legacy = savedIntegrations.googleWorkspace;
-      savedIntegrations.googleWorkspaces = legacy.connected
-        ? [{ id: 'default', label: 'Default', ...legacy }]
-        : [];
-    }
     const settings = await db.get('settings', {});
     const appSettings = await db.get('appSettings', {
       allowProfileUpdates: true,
-      forgeInstanceId: 'agent-forge-local',
-      relayUrl: '',
-      relayAdminToken: '',
-      people: [],
-      inboxOwners: [
-        { id: 'primary', label: 'Primary' },
-        { id: 'shared', label: 'Shared' },
-      ],
+      imageProvider: 'none',
+      imageModelId: '',
+      imageEndpoint: '',
     });
+    // Migrate legacy single googleWorkspace → googleWorkspaces array
+    if (savedIntegrations.googleWorkspace && !savedIntegrations.googleWorkspaces) {
+      const gw = savedIntegrations.googleWorkspace;
+      if (gw.connected && gw.clientId) {
+        savedIntegrations.googleWorkspaces = [{ id: 'default', label: 'Default', ...gw }];
+      } else {
+        savedIntegrations.googleWorkspaces = [];
+      }
+      delete savedIntegrations.googleWorkspace;
+    }
     set(s => ({
       models,
       userProfile,

@@ -25,31 +25,9 @@ export const getContextLimit = (id: string) => {
 export const supportsVision = (modelId: string) => {
   if (!modelId) return false;
   const id = modelId.toLowerCase();
-  return [
-    'gpt-4o',
-    'gpt-4.1',
-    'gpt-5',
-    'o3',
-    'o4',
-    'claude-3',
-    'claude-4',
-    'sonnet',
-    'opus',
-    'haiku',
-    'gemini',
-    'llava',
-    'bakllava',
-    'moondream',
-    'minicpm',
-    'qwen-vl',
-    'qwen2-vl',
-    'qwen2.5-vl',
-    'pixtral',
-    'vision',
-    'vlm',
-    'image',
-    'multimodal',
-  ].some(token => id.includes(token));
+  return id.includes('gpt-4o') || id.includes('claude-3-5') || id.includes('claude-3-opus') ||
+         id.includes('gemini-2.5') || id.includes('gemini-2.0') || id.includes('llava') ||
+         id.includes('vision') || id.includes('pixtral');
 };
 
 export const trimHistoryChars = (msgs: any[], charLimit: number) => {
@@ -117,7 +95,6 @@ export const validateModel = async (model: any) => {
   try {
     const { provider, endpoint, apiKey } = model;
     if (provider === 'web-llm') return true;
-    if (validateLocalGenerationConfig(model)) return false;
 
     let url, headers: any = {};
 
@@ -137,10 +114,7 @@ export const validateModel = async (model: any) => {
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    const data = await fetchWithRetry(url, { method: 'GET', headers }, 1);
-    if (provider === 'lmstudio') {
-      return extractModelIdsFromListResponse(data).includes(String(model.modelId || '').trim());
-    }
+    await fetchWithRetry(url, { method: 'GET', headers }, 1);
     return true;
   } catch (err: any) {
     console.error(`Validation failed for ${model.id}:`, err.message);
@@ -148,72 +122,11 @@ export const validateModel = async (model: any) => {
   }
 };
 
-export const extractModelIdsFromListResponse = (data: any) =>
-  (data?.data ?? data?.models ?? [])
-    .map((model: any) => String(model?.id ?? model?.name ?? model ?? '').trim())
-    .filter(Boolean);
-
-export const isPlaceholderLocalModelId = (modelId: string) => {
-  const id = String(modelId || '').trim().toLowerCase();
-  return /^local-(?:model|gguf|\d+b|[a-z0-9.-]*instruct|[a-z0-9.-]*reliable|[a-z0-9.-]*fast)$/.test(id);
-};
-
-export const validateLocalGenerationConfig = (model: any) => {
-  if (!model) return null;
-  if (model.provider === 'ollama' || model.provider === 'native') {
-    return 'This local model path is no longer supported in Agent Forge. Reconnect local chat through LM Studio in Settings > Models.';
-  }
-  if (model.provider !== 'lmstudio') return null;
-  const endpoint = String(model.endpoint || '').trim();
-  const modelId = String(model.modelId || '').trim();
-  if (!endpoint) {
-    return 'LM Studio is selected, but the endpoint is empty. Start the LM Studio local server and use http://127.0.0.1:1234/v1.';
-  }
-  if (!modelId || isPlaceholderLocalModelId(modelId)) {
-    return 'LM Studio needs the exact loaded model ID. In Settings > Models, start the LM Studio local server, click Fetch Models, then choose the model LM Studio returns.';
-  }
-  return null;
-};
-
-export const explainGenerationError = (err: any, modelConfig: any) => {
-  const raw = String(err?.message ?? err ?? 'Unknown generation error');
-  if (modelConfig?.provider !== 'lmstudio') return raw;
-  const lower = raw.toLowerCase();
-
-  if (lower.includes('failed to fetch') || lower.includes('load failed') || lower.includes('cors/network') || lower.includes('network')) {
-    return 'LM Studio is not reachable at the configured endpoint. Open LM Studio, load a chat/instruct model, start the Local Server, and confirm the endpoint is http://127.0.0.1:1234/v1.';
-  }
-  if (lower.includes('model') && (lower.includes('not found') || lower.includes('does not exist') || lower.includes('not loaded'))) {
-    return 'LM Studio rejected the model ID. Open Settings > Models, click Fetch Models for LM Studio, and select the exact model ID returned by the running LM Studio server.';
-  }
-  if (lower.includes('no models') || lower.includes('load a model')) {
-    return 'LM Studio is running, but no model appears to be loaded. Load a chat/instruct model in LM Studio, start the Local Server, then try again.';
-  }
-  if (raw === 'CONTEXT_LIMIT_EXCEEDED' || lower.includes('context')) {
-    return 'The LM Studio request exceeded the model context window. Use a smaller context limit in Settings > Models or send a shorter message.';
-  }
-  return `LM Studio generation failed: ${raw}`;
-};
-
-export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, channelContext }: any) => {
+export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings }: any) => {
   let prompt = (agent.prompt ?? '') + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}\n`;
 
   const activeTools = Object.keys(agent.tools ?? {}).filter(k => agent.tools[k]);
   if (activeTools.length > 0) prompt += `[ACTIVE TOOLS]\n${activeTools.join(', ')}\n\n`;
-
-  prompt += `[GROUNDING RULES]
-- Treat the Knowledge Core as non-parametric memory: use retrieved notes, library files, channel memory, and pinned context to update your working model for this answer.
-- Keep provenance attached. Distinguish user-provided facts, source-backed facts, raw captures, and agent-inferred work product.
-- Use semantic facts/relations when provided to track entities, preferences, decisions, failures, and prior attempts across time.
-- If retrieved memories conflict, prefer newer source-backed or user-provided evidence and state the conflict instead of smoothing it away.
-- Do not upgrade low-confidence or agent-inferred memory into certain truth. Say what is known, what is inferred, and what still needs verification.
-- For planning or building, use retrieved memories as constraints and history so the user does not have to repeat what was already tried.
-
-`;
-
-  if (channelContext?.kind === 'channel') {
-    prompt += `[CHANNEL]\nName: ${channelContext.title}\nGoal: ${channelContext.goal || 'Not set'}\nInvited agents: ${(channelContext.participants ?? []).map((p: any) => `${p.name}${p.description ? ` (${p.description})` : ''}`).join(', ')}\nUse invited agent contributions when provided, but return one clear final answer.\n\n`;
-  }
 
   if (canvasContent?.content) {
     prompt += `[OPEN ARTIFACT: ${canvasContent.title}]\n\`\`\`\n${canvasContent.content}\n\`\`\`\nIf asked to modify it, output the ENTIRE updated artifact in a SINGLE codeblock.\n\n`;
@@ -225,7 +138,7 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   }
 
   if (agentPinnedMessages && agentPinnedMessages.length > 0) {
-    prompt += `[PINNED AGENT CONTEXT]\nThese are high-priority memories or saved snippets for this agent. Use them, but still respect provenance and uncertainty:\n${agentPinnedMessages.map((m: any) => `- ${m}`).join('\n')}\n\n`;
+    prompt += `[AGENT MEMORIES (KNOWLEDGE BASE)]\nRemember these core facts the user explicitly pinned for you:\n${agentPinnedMessages.map((m: any) => `- ${m}`).join('\n')}\n\n`;
   }
 
   if (isDeepThinking) {
@@ -238,6 +151,8 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
     prompt += `\n[MODE: CODE CANVAS]\nOutput the application inside a SINGLE \`\`\`html codeblock. The codeblock MUST contain a complete, valid HTML document with embedded CSS (<style>) and JavaScript (<script>). Do NOT output separate CSS/JS blocks. It must be fully functional and ready to render in an iframe. You are an expert web developer. Ensure the UI is modern, visually appealing (using Tailwind CSS classes natively), responsive, and interactive. Make sure to implement all requested features cleanly and effectively. If deep thinking is enabled, output your <think> block first, then immediately follow it with the \`\`\`html code block. NEVER output markdown or conversational text outside of the code block.`;
   } else if (mode === 'doc') {
     prompt += `\n[MODE: DOC DRAFT]\nOutput the document as clean semantic HTML in a SINGLE \`\`\`html codeblock. DO NOT use markdown.`;
+  } else if (mode === 'image') {
+    prompt += `\n[MODE: IMAGE]\nThe user is requesting an image. If you are an image generation model, process this normally. If you are a text model, generate a highly descriptive prompt for an image generator based on the user's request.`;
   }
 
   if (agent.awareOfProfile && profile && appSettings?.allowProfileUpdates !== false) {
@@ -251,7 +166,7 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
     prompt += `\n[SLACK ACTION]\nWhen the user asks you to post, send, or share something to Slack, output a \`\`\`slack_post codeblock with JSON: {"channel": "channel-name", "text": "message text"}. Always confirm the channel and message text before posting.\n`;
   }
   if (activeTools.includes('gmail')) {
-    prompt += `\n[GMAIL ACTION]\nWhen the user asks you to send or draft an email, output a \`\`\`gmail_draft codeblock with JSON: {"to": "email@example.com", "cc": "optional", "subject": "...", "body": "...", "accountLabel": "optional connected account label"}. Always show the draft for review before sending.\n`;
+    prompt += `\n[GMAIL ACTION]\nWhen the user asks you to send or draft an email, output a \`\`\`gmail_draft codeblock with JSON: {"to": "email@example.com", "cc": "optional", "subject": "...", "body": "..."}. Always show the draft for review before sending.\n`;
   }
   if (activeTools.includes('gus')) {
     prompt += `\n[GUS ACTION]\nWhen the user asks you to create a work item, bug, or story in GUS, output a \`\`\`gus_create codeblock with JSON: {"subject": "...", "type": "Story|Bug|Task", "priority": "P0|P1|P2|P3", "assignee": "username or null", "details": "..."}. Always confirm details before creating.\n`;
@@ -259,30 +174,77 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   if (activeTools.includes('google_calendar')) {
     prompt += `\n[GOOGLE CALENDAR ACTION]\nWhen the user asks you to create or schedule a calendar event, output a \`\`\`gcal_event codeblock with JSON: {"title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "optional", "location": "optional", "accountLabel": "label of account to use or null for first"}. Always confirm details before creating.\n`;
   }
-  prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search/research results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\n- For grounded memories, preserve the evidence state in your wording when it matters: source-backed, user-provided, capture-backed, or agent-inferred.\nNever fabricate a citation. If a current/factual web answer cannot be verified from provided sources, say it could not be verified instead of guessing.`;
+
+  prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\nNever fabricate a citation. If the answer is not in the provided context, say so explicitly.`;
 
   return prompt;
 };
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, channelContext, integrations, runIntegrationTools }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
-  const localConfigError = validateLocalGenerationConfig(modelConfig);
-  if (localConfigError) throw new Error(localConfigError);
 
   const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop()?.content || '';
+
+  // Intercept for dedicated Image Mode
+  if (mode === 'image' && appSettings?.imageProvider !== 'none') {
+    const promptText = lastUserMessage;
+    let imageUrl = '';
+    const imgProvider = appSettings.imageProvider;
+    const activeModelId = appSettings.imageModelId || (imgProvider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
+
+    if (imgProvider === 'google') {
+        const googleKey = integrations?.google?.apiKey || models?.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey || '';
+        if (!googleKey) throw new Error("Missing Google API Key for Image Engine.");
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModelId}:predict?key=${googleKey}`;
+        const body = { instances: { prompt: promptText }, parameters: { sampleCount: 1 } };
+        const headers = { 'Content-Type': 'application/json' };
+        const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 1, signal);
+
+        if (res.predictions && res.predictions[0]) {
+            imageUrl = `data:image/png;base64,${res.predictions[0].bytesBase64Encoded}`;
+        } else {
+            throw new Error(res.error?.message || "Google Image generation failed.");
+        }
+    } else if (imgProvider === 'openai' || imgProvider === 'custom') {
+         const oKey = imgProvider === 'openai' ? (integrations.openai?.apiKey || models?.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey || '') : (integrations.customImage?.apiKey || '');
+         if (!oKey && imgProvider === 'openai') throw new Error("Missing OpenAI API Key for Image Engine.");
+
+         const baseEndpoint = (appSettings.imageEndpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
+         const url = `${baseEndpoint}/images/generations`;
+         const body = { model: activeModelId, prompt: promptText, n: 1, size: '1024x1024' };
+         const headers: any = { 'Content-Type': 'application/json' };
+         if (oKey) headers['Authorization'] = `Bearer ${oKey}`;
+
+         const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 1, signal);
+         if (data.data && data.data[0] && data.data[0].url) {
+             imageUrl = data.data[0].url;
+         } else {
+             throw new Error(data.error?.message || "Image generation failed.");
+         }
+    }
+
+    if (imageUrl) {
+         const out = `![Generated Image](${imageUrl})\n\n*Generated with ${activeModelId}*`;
+         if (onChunk) onChunk(out);
+         return out;
+    }
+  }
+
   const integrationContext = runIntegrationTools
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
-  const systemPrompt = buildSystemPrompt({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, channelContext });
+
+  const systemPrompt = buildSystemPrompt({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings })
+    + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
 
   if (imageDocs.length > 0 && !supportsVision(modelId)) {
-    throw new Error(`The selected model (${modelId}) cannot read image attachments. Switch to a vision-capable chat model such as GPT-4o/4.1, Claude Sonnet, Gemini, LLaVA, Pixtral, Qwen-VL, or remove the image.`);
+    throw new Error(`Model '${modelId}' does not have vision capabilities. Switch to a vision model (GPT-4o, Claude 3.5 Sonnet, Llava).`);
   }
 
-  let contextUsed = systemPrompt.length + integrationContext.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
+  let contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
   const limit = contextLimit ? parseInt(contextLimit, 10) : 32000;
   if (contextUsed > limit) throw new Error('Attached documents exceed the context limit of this model.');
 
@@ -290,10 +252,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
   const safeMessages = trimHistoryChars(messages, historyBudget);
 
   const attachedContext = textDocs.length > 0 ? '\n\n' + textDocs.map((d: any) => `[ATTACHED DOC: ${d.name}]\n${d.content}`).join('\n\n') : '';
-  const imageContext = imageDocs.length > 0
-    ? `\n\n[MULTIMODAL INPUT]\nThe user attached ${imageDocs.length} image${imageDocs.length === 1 ? '' : 's'}. Inspect the image content directly, answer the user's actual question, and say clearly if something in the image is ambiguous or unreadable.`
-    : '';
-  const fullSystem = systemPrompt + attachedContext + imageContext + (integrationContext ? `\n\n${integrationContext}` : '');
+  const fullSystem = systemPrompt + attachedContext;
 
   const formatMessage = (m: any, targetProvider: string) => {
     const textContent = String(m.content ?? '');
@@ -335,8 +294,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
     body = { contents: safeMessages.map(m => formatMessage(m, 'google')), systemInstruction: { parts: [{ text: fullSystem }] } };
 
     // Google Preview block does not support stream. We fallback to simulating it after fetch completes.
-    const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal)
-      .catch((err: any) => { throw new Error(explainGenerationError(err, modelConfig)); });
+    const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal);
     const fullText = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response received.');
 
     if (onChunk) {
@@ -364,8 +322,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
   }
 
   // Pure SSE Streaming logic
-  const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal, true)
-    .catch((err: any) => { throw new Error(explainGenerationError(err, modelConfig)); });
+  const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal, true);
 
   if (!res.body) {
       const data = await res.json();
@@ -420,10 +377,6 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
       }
   } finally {
       reader.releaseLock();
-  }
-
-  if (!fullText.trim() && provider === 'lmstudio') {
-    throw new Error('LM Studio returned an empty response. Confirm the loaded model supports chat completions and try Fetch Models again in Settings > Models.');
   }
 
   return fullText;

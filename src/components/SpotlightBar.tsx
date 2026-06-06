@@ -7,9 +7,6 @@ type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 import { FormattedText } from './ui/FormattedText';
-import { buildGroundedMarkdown } from '../services/grounding';
-import { normalizeChatRecord } from '../services/channels';
-import { DEFAULT_ASSISTANT } from '../store/useAgentStore';
 
 /** Renders assistant markdown: code fences get a styled block, everything else goes to FormattedText. */
 function SpotlightMd({ text }: { text: string }) {
@@ -34,17 +31,7 @@ function SpotlightMd({ text }: { text: string }) {
 }
 
 interface Msg { id: string; role: 'user' | 'assistant'; content: string; timestamp: number; }
-interface Chat {
-  id: string;
-  folderId?: string;
-  name: string;
-  updatedAt?: number;
-  kind?: 'dm' | 'channel' | 'local';
-  primaryAgentId?: string;
-  participantAgentIds?: string[];
-  createdAt?: number;
-  goal?: string;
-}
+interface Chat { id: string; folderId: string; name: string; updatedAt: number; }
 
 const RECENT_COUNT = 5;
 
@@ -90,7 +77,7 @@ export default function SpotlightBar() {
   const [models, setModels] = useState<any[]>([]);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const [isDeepThinking, setIsDeepThinking] = useState(true);
+  const [isDeepThinking, setIsDeepThinking] = useState(false);
   const [useTab, setUseTab] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -139,15 +126,12 @@ export default function SpotlightBar() {
       if (!onboarded) setShowOnboarding(true);
       if (!hotkeyOnboarded) setShowHotkeyOnboarding(true);
       if (storedBrowser === 'chrome' || storedBrowser === 'safari') setPreferredBrowser(storedBrowser);
-      const availableAgents = (storedAgents.length ? storedAgents : [DEFAULT_ASSISTANT]).filter((agent: any) => agent.id !== 'forge-guide');
-      const finalAgents = availableAgents.length ? availableAgents : [DEFAULT_ASSISTANT];
-      setAgents(finalAgents);
-      setSelectedAgentId(finalAgents[0]?.id ?? DEFAULT_ASSISTANT.id);
+      if (storedAgents.length) { setAgents(storedAgents); setSelectedAgentId(storedAgents[0].id); }
       if (storedModels.length) {
         setModels(storedModels);
         setSelectedModelId(storedSettings.selectedModelId || storedModels[0]?.id || '');
       }
-      setChats(storedChats.map((chat: any) => normalizeChatRecord(chat)));
+      setChats(storedChats);
       setMessages(storedMessages);
       if (storedChats.length) setActiveChatId(storedChats[0].id); // most recent first
     })();
@@ -193,19 +177,10 @@ export default function SpotlightBar() {
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', onKey); };
   }, []);
 
-  const startAgentDirect = useCallback(() => {
+  const startNewChat = useCallback(() => {
     const chatId = newId();
     const folderId = selectedAgentId || selectedAgent?.id || 'f-default';
-    const chat: Chat = normalizeChatRecord({
-      id: chatId,
-      folderId,
-      primaryAgentId: folderId,
-      participantAgentIds: [folderId],
-      kind: 'dm',
-      name: `${selectedAgent?.name ?? 'Agent'} Direct`,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }, folderId);
+    const chat: Chat = { id: chatId, folderId, name: 'New chat', updatedAt: Date.now() };
     setChats(prev => {
       const updated = [chat, ...prev];
       persistChats(updated, messages);
@@ -246,42 +221,27 @@ export default function SpotlightBar() {
 
   const send = async (command: string) => {
     setInput('');
-    // Reuse or create the selected agent's persistent Direct when nothing is active.
+    // Create new chat if none active
     let chatId = activeChatId;
     let currentChats = chats;
     let folderId = selectedAgentId || 'f-default';
     if (!chatId) {
-      const existingDirect = chats
-        .map((chat: any) => normalizeChatRecord(chat, folderId))
-        .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === folderId || chat.folderId === folderId));
-      if (existingDirect) {
-        chatId = existingDirect.id;
-        setActiveChatId(chatId);
-      } else {
-        chatId = newId();
-        const chat: Chat = normalizeChatRecord({
-          id: chatId,
-          folderId,
-          primaryAgentId: folderId,
-          participantAgentIds: [folderId],
-          kind: 'dm',
-          name: `${selectedAgent?.name ?? 'Agent'} Direct`,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        }, folderId);
-        currentChats = [chat, ...chats];
-        setChats(currentChats);
-        setActiveChatId(chatId);
-      }
+      chatId = newId();
+      const chat: Chat = { id: chatId, folderId, name: truncate(command, 32), updatedAt: Date.now() };
+      currentChats = [chat, ...chats];
+      setChats(currentChats);
+      setActiveChatId(chatId);
     }
 
     const userMsg: Msg = { id: `u-${Date.now()}`, role: 'user', content: command, timestamp: Date.now() };
     const assistantId = `a-${Date.now() + 1}`;
     const assistantMsg: Msg = { id: assistantId, role: 'assistant', content: '', timestamp: Date.now() + 1 };
 
+    // Auto-name on first message
+    const isFirst = (messages[chatId] ?? []).length === 0;
     const updatedMsgs = { ...messages, [chatId]: [...(messages[chatId] ?? []), userMsg, assistantMsg] };
     const updatedChats = currentChats.map(c =>
-      c.id === chatId ? { ...c, updatedAt: Date.now() } : c
+      c.id === chatId ? { ...c, name: isFirst ? truncate(command, 32) : c.name, updatedAt: Date.now() } : c
     );
     setMessages(updatedMsgs);
     setChats(updatedChats);
@@ -366,31 +326,10 @@ export default function SpotlightBar() {
         const now = new Date();
         const slug = slugify(tab?.title || command);
         const filename = `${now.toISOString().slice(0, 10)}-${slug}-${now.getTime()}.md`;
+        const frontmatter = `---\ntitle: "${(tab?.title || command).replace(/"/g, "'")}"\nsource: "${tab?.url || ''}"\nagent: "${selectedAgent?.name || 'default'}"\ndate: "${now.toISOString()}"\n---\n\n`;
         await invoke('write_memory', {
           path: `${kc.path}/memory/research/${filename}`,
-          content: buildGroundedMarkdown(
-            {
-              title: tab?.title || command,
-              type: 'spotlight-capture',
-              scope: 'global',
-              createdAt: now.toISOString(),
-              agentId: selectedAgent?.id,
-              agentName: selectedAgent?.name || 'default',
-              sourceKind: 'browser_spotlight',
-              sourceLabel: tab?.title || 'Browser tab',
-              sourceUrl: tab?.url || '',
-              evidenceState: tab?.url ? 'source_backed' : 'mixed',
-              verification: tab?.url ? 'partially_verified' : 'needs_verification',
-              confidence: 'medium',
-              processor: 'spotlight',
-              tags: ['spotlight', 'research'],
-            },
-            `## Command
-${command}
-
-## Response
-${finalContent}`
-          ),
+          content: frontmatter + `**${command}**\n\n${finalContent}`,
           commit_message: `spotlight: ${command.slice(0, 60)}`,
           agent_id: null, context_tokens: null, ram_state: null,
         });
@@ -413,7 +352,7 @@ ${finalContent}`
     }
   };
 
-  const sortedChats = [...chats].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const sortedChats = [...chats].sort((a, b) => b.updatedAt - a.updatedAt);
   const visibleChats = showAll ? sortedChats : sortedChats.slice(0, RECENT_COUNT);
 
   return (
@@ -445,7 +384,7 @@ ${finalContent}`
               <button onClick={() => setShowHistory(v => !v)}
                 className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white px-1.5 py-1 rounded-lg hover:bg-white/5 transition-all max-w-[200px]">
                 <Clock className="w-3 h-3 text-slate-500 shrink-0" />
-                <span className="truncate">{activeChat?.name ?? 'Directs'}</span>
+                <span className="truncate">{activeChat?.name ?? 'Chats'}</span>
                 <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" />
               </button>
             )}
@@ -460,15 +399,15 @@ ${finalContent}`
               <div className="absolute left-0 top-full mt-1 w-64 rounded-xl overflow-hidden z-50 shadow-2xl"
                 style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.3)' }}>
                 <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Recent Directs</span>
-                  <button onClick={startAgentDirect}
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">All chats</span>
+                  <button onClick={startNewChat}
                     className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 px-2 py-0.5 rounded-lg hover:bg-indigo-900/20 transition-all">
                     <Plus className="w-3 h-3" /> New
                   </button>
                 </div>
                 <div className="max-h-72 overflow-y-auto custom-scrollbar">
                   {visibleChats.length === 0 && (
-                    <p className="text-xs text-slate-600 text-center px-3 py-4">No directs yet</p>
+                    <p className="text-xs text-slate-600 text-center px-3 py-4">No chats yet</p>
                   )}
                   {visibleChats.map(chat => (
                     <button key={chat.id} onClick={() => switchChat(chat.id)}
@@ -477,7 +416,7 @@ ${finalContent}`
                       <div className="text-[10px] text-slate-600 mt-0.5 flex gap-2">
                         <span>{(messages[chat.id] ?? []).length} msgs</span>
                         <span>·</span>
-                        <span>{new Date(chat.updatedAt ?? chat.createdAt ?? Date.now()).toLocaleDateString()}</span>
+                        <span>{new Date(chat.updatedAt).toLocaleDateString()}</span>
                       </div>
                     </button>
                   ))}
@@ -494,10 +433,10 @@ ${finalContent}`
 
           <div className="flex-1" data-tauri-drag-region />
 
-          {/* Agent direct */}
-          <button onClick={startAgentDirect}
+          {/* New chat */}
+          <button onClick={startNewChat}
             className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/20 transition-all shrink-0">
-            <Plus className="w-3 h-3" /> Direct
+            <Plus className="w-3 h-3" /> New chat
           </button>
 
           {/* Close */}

@@ -1,4 +1,4 @@
-import { hasResearchIntent } from './research.ts';
+import { hasResearchIntent } from './research';
 
 export type RoutedTool = 'Knowledge Search' | 'Web Search' | 'Calendar';
 

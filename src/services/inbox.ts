@@ -1,5 +1,17 @@
 import { buildGroundedMarkdown, type MemoryScope } from './grounding';
-import type { MemoryGatekeeperDecision } from './memoryGatekeeper';
+
+// Loose gatekeeper shape — compatible with both the current and git versions of the interface
+interface GatekeeperDecisionLike {
+  shouldSave?: boolean;
+  destination?: string;
+  memoryType?: string;
+  evidenceState?: string;
+  verification?: string;
+  confidence?: string;
+  sensitivity?: string;
+  reason?: string;
+  tags?: string[];
+}
 
 export type CaptureStatus = 'received' | 'processing' | 'needs_review' | 'saved' | 'failed';
 export type CaptureKind = 'text' | 'url' | 'image' | 'audio' | 'file' | 'mixed';
@@ -130,7 +142,7 @@ export const buildCaptureMarkdown = ({
   facts: string[];
   tags: string[];
   targetLabel: string;
-  gatekeeperDecision?: MemoryGatekeeperDecision;
+  gatekeeperDecision?: GatekeeperDecisionLike;
 }) => {
   const tagList = tags.length ? tags.map(t => t.replace(/[^a-zA-Z0-9-_]/g, '')).filter(Boolean) : ['inbox'];
   const scope: MemoryScope = targetLabel.startsWith('channel:')
@@ -161,9 +173,9 @@ export const buildCaptureMarkdown = ({
       captureId: capture.id,
       rawPath: capture.rawPath,
       derivedFrom: capture.rawPath ? [capture.rawPath] : [],
-      evidenceState: gatekeeperDecision?.evidenceState ?? 'capture_backed',
-      verification: gatekeeperDecision?.verification ?? (capture.urls?.length ? 'partially_verified' : 'needs_verification'),
-      confidence: gatekeeperDecision?.confidence ?? 'medium',
+      evidenceState: (gatekeeperDecision?.evidenceState ?? 'capture_backed') as any,
+      verification: (gatekeeperDecision?.verification ?? (capture.urls?.length ? 'partially_verified' : 'needs_verification')) as any,
+      confidence: (gatekeeperDecision?.confidence ?? 'medium') as any,
       processor: 'memory-gatekeeper',
       tags: groundingTags,
     },

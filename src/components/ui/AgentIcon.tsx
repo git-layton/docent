@@ -5,10 +5,10 @@ export const AVAILABLE_TOOLS = [
   { id: 'local_workspace', name: 'Knowledge Base', icon: Database, desc: "Search your Knowledge Base — memos, notes, and saved files." },
   { id: 'calendar_sync', name: 'Local Planner', icon: CalendarDays, desc: 'Agent can add events & reminders to your local tasks.md planner.' },
   { id: 'slack', name: 'Slack', icon: MessageSquare, desc: 'Search messages and post to Slack channels.', requiresIntegration: 'slack' },
-  { id: 'gmail', name: 'Gmail', icon: Mail, desc: 'Read and send email via connected Gmail accounts.', requiresIntegration: 'googleWorkspaces', requiresScope: 'gmail' },
-  { id: 'google_drive', name: 'Google Drive', icon: FolderOpen, desc: 'Search files, docs, and folders in connected Drive accounts.', requiresIntegration: 'googleWorkspaces', requiresScope: 'drive' },
-  { id: 'google_calendar', name: 'Google Calendar', icon: CalendarClock, desc: 'Read and create events across connected Google calendars.', requiresIntegration: 'googleWorkspaces', requiresScope: 'calendar' },
-  { id: 'gus', name: 'GUS', icon: Layers, desc: 'Search and create Salesforce Agile Accelerator work items.', requiresIntegration: 'gus' },
+  { id: 'gmail', name: 'Gmail', icon: Mail, desc: 'Read and send email via Gmail.', requiresIntegration: 'googleWorkspace', requiresScope: 'gmail' },
+  { id: 'google_drive', name: 'Google Drive', icon: FolderOpen, desc: 'Read and write Google Drive files, Docs, and Sheets.', requiresIntegration: 'googleWorkspace', requiresScope: 'drive' },
+  { id: 'gus', name: 'GUS', icon: Layers, desc: 'Query work items, stories, and sprints in Salesforce Agile Accelerator.', requiresIntegration: 'gus' },
+  { id: 'google_calendar', name: 'Google Calendar', icon: CalendarClock, desc: 'Read and create events across your connected Google calendars.', requiresIntegration: 'googleWorkspaces' },
 ];
 
 export const BOT_COLORS = [

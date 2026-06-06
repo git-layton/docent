@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, Pin, PinOff, FileText, Pencil, ChevronDown, ChevronRight, Trash2, RotateCcw, Archive, Bookmark } from 'lucide-react';
 import { KnowledgeDropZone } from './KnowledgeDropZone';
-import { InboxPanel } from './InboxPanel';
 
 interface PinnedMessage {
   chatId: string;
@@ -31,7 +30,7 @@ interface Props {
   onRestoreArchive?: (archivePath: string) => Promise<void>;
 }
 
-type Tab = 'inbox' | 'pins' | 'notes' | 'library' | 'archive';
+type Tab = 'pins' | 'notes' | 'library' | 'archive';
 
 interface FileEntry {
   name: string;
@@ -150,7 +149,6 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
   }
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: 'inbox',   label: 'Inbox'   },
     { id: 'library', label: 'Library' },
     { id: 'pins',    label: 'Context', count: pinnedMessages.length },
     { id: 'notes',   label: 'Notes'   },
@@ -175,9 +173,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
           <div>
             <span className="text-xs font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">
-              Memory + Inbox
+              Your Library
             </span>
-            <p className="text-[9px] text-neutral-400 mt-0.5">Captures, notes, and library files in ~/AgentForge/</p>
+            <p className="text-[9px] text-neutral-400 mt-0.5">Saved to ~/AgentForge/ · searched by your agents</p>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
             <X className="w-4 h-4" />
@@ -208,15 +206,6 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-
-          {/* ── Inbox tab ── */}
-          {tab === 'inbox' && (
-            <InboxPanel
-              agentForgePath={agentForgePath}
-              activeAgentId={agentId}
-              onToast={onToast}
-            />
-          )}
 
           {/* ── Pins tab ── */}
           {tab === 'pins' && (

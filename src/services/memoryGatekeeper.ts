@@ -1,286 +1,378 @@
-import {
-  assessConversationMemory,
-  type MemoryLevel,
-  type MemoryNotification,
-} from './memoryPolicy.ts';
-import {
-  type ConfidenceState,
-  type EvidenceState,
-  type VerificationState,
-} from './grounding.ts';
-import { routeToolForMessage, type RoutedTool } from './toolRouter.ts';
-
-export type GatekeeperSourceKind = 'conversation' | 'capture' | 'research' | 'manual' | 'integration';
-export type GatekeeperDestination = 'agent_memory' | 'channel_memory' | 'library' | 'task' | 'inbox_only' | 'skip';
-export type GatekeeperMemoryType =
+export type MemoryClassification = 'skip' | 'background' | 'notable' | 'explicit';
+export type MemoryDestination = 'agent_memory' | 'channel_memory' | 'library' | 'task' | 'inbox_only' | 'skip';
+export type MemoryType =
   | 'preference'
   | 'decision'
-  | 'requirement'
   | 'fact'
   | 'project_context'
   | 'medical'
   | 'research'
   | 'todo'
-  | 'document'
-  | 'multimodal'
-  | 'conversation'
-  | 'capture';
-export type SensitivityLevel = 'normal' | 'sensitive' | 'high';
+  | 'none';
+export type EvidenceState = 'first_party' | 'source_backed' | 'inferred' | 'needs_verification' | 'conflicting';
+export type ConfidenceLabel = 'low' | 'medium' | 'high';
+export type ToolRoute = 'memory_search' | 'web_search' | 'browser' | 'integrations' | 'files' | 'calendar' | 'another_agent' | 'none';
+export type PrivacyLabel = 'normal' | 'personal' | 'sensitive';
 
 export interface MemoryGatekeeperInput {
-  sourceKind: GatekeeperSourceKind;
   text: string;
-  answer?: string;
-  chatKind?: 'dm' | 'channel' | 'local';
-  explicitTargetKind?: 'agent' | 'channel' | 'library' | 'task' | '';
-  agentTools?: Record<string, any>;
+  agentId?: string | null;
+  agentName?: string | null;
+  channelId?: string | null;
+  chatId?: string | null;
   forcedTool?: string | null;
-  urls?: string[];
+  enabledTools?: Record<string, boolean>;
   sourcePaths?: string[];
-  attachments?: Array<{ name?: string; type?: string; mimeType?: string; isImage?: boolean }>;
-  contributions?: string[];
-  captureId?: string;
+  sourceUrls?: string[];
+  attachedFiles?: Array<{ name?: string; type?: string; isImage?: boolean }>;
 }
 
 export interface MemoryGatekeeperDecision {
-  schemaVersion: 'memory-gatekeeper-v1';
   shouldSave: boolean;
-  destination: GatekeeperDestination;
-  memoryType: GatekeeperMemoryType;
-  level: MemoryLevel;
-  notification: MemoryNotification;
+  classification: MemoryClassification;
+  destination: MemoryDestination;
+  memoryType: MemoryType;
   evidenceState: EvidenceState;
-  verification: VerificationState;
-  confidence: ConfidenceState;
-  toolRoute: RoutedTool | 'None';
-  toolReason: string;
-  sensitivity: SensitivityLevel;
+  confidence: ConfidenceLabel;
+  privacy: PrivacyLabel;
   reason: string;
   tags: string[];
-  score: number;
+  toolRoutes: ToolRoute[];
+  warnings: string[];
+  provenance: {
+    source: 'user' | 'file' | 'web' | 'mixed';
+    sourcePaths: string[];
+    sourceUrls: string[];
+  };
 }
 
-const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
+const CLASSIFICATIONS = ['skip', 'background', 'notable', 'explicit'] as const;
+const DESTINATIONS = ['agent_memory', 'channel_memory', 'library', 'task', 'inbox_only', 'skip'] as const;
+const MEMORY_TYPES = ['preference', 'decision', 'fact', 'project_context', 'medical', 'research', 'todo', 'none'] as const;
+const EVIDENCE_STATES = ['first_party', 'source_backed', 'inferred', 'needs_verification', 'conflicting'] as const;
+const CONFIDENCE_LABELS = ['low', 'medium', 'high'] as const;
+const TOOL_ROUTES = ['memory_search', 'web_search', 'browser', 'integrations', 'files', 'calendar', 'another_agent', 'none'] as const;
+const PRIVACY_LABELS = ['normal', 'personal', 'sensitive'] as const;
 
-const wordCount = (text: string) =>
-  String(text || '').trim().split(/\s+/).filter(Boolean).length;
+const TRIVIAL_RE = /^(lol|lmao|haha|thanks|thank you|thx|ok|okay|yes|no|yep|nah|cool|nice|got it|sounds good|perfect)[.!?\s]*$/i;
+const EXPLICIT_MEMORY_RE = /\b(remember this|remember that|remember my|remember:|please remember|save this|save that|save to memory|add to memory|note this|take a note|pin this|log this|add this to (my )?(memory|library)|save to library)\b/i;
+const TASK_RE = /\b(to-?do|task|remind me|schedule|appointment|meeting|deadline|follow up|call .* by|email .* by|add .* to planner)\b/i;
+const DECISION_RE = /\b(we decided|decision|agreed|approved|chosen|final decision|supported|not supported|standardize|settled on|ship with|decided that)\b/i;
+const PREFERENCE_RE = /\b(prefers?|preference|likes?|dislikes?|favorite|always wants?|never wants?|morning appointments?|evening appointments?)\b/i;
+const MEDICAL_RE = /\b(medical|doctor|medication|medicine|diagnosis|symptom|allerg(?:y|ic)|blood pressure|lab result|prescription|dose|health note|medical note|appointment with)\b/i;
+const RESEARCH_RE = /\b(research|paper|study|source|claim|evidence|according to|article|citation|web claim|wikipedia|brave search)\b/i;
+const PROJECT_RE = /\b(project|product|architecture|feature|bug|deck|failed because|root cause|star wars|ccg|force generation|agent forge|implementation)\b/i;
+const EXTERNAL_CLAIM_RE = /\b(according to|the web says|research says|study says|source says|claim:|unsourced|i read that|article says|wikipedia says)\b/i;
+const INFERRED_RE = /\b(i think|maybe|probably|seems like|might be|my guess|inferred|appears to)\b/i;
+const CONFLICT_RE = /\b(conflicts? with|contradicts?|actually|correction|correcting|no longer|replace the previous|supersedes)\b/i;
+const CHANNEL_RE = /\b(in this channel|for this channel|channel memory|product channel|team channel)\b/i;
+const PERSONAL_RE = /\b(my|me|i|wife|husband|partner|child|kid|daughter|son|family|home|address|phone|email)\b/i;
+const QUESTION_RE = /^(what|who|when|where|why|how|can you|could you|please (search|find)|search|look up|find)\b/i;
+const MEMORY_SEARCH_RE = /\b(notes?|memos?|memory|knowledge base|goals?|decisions?|research|workspace|saved|wrote|recall|pinned|what did we decide|what do you remember)\b/i;
+const WEB_SEARCH_RE = /\b(search for|look up|google|web search|current (weather|news|price|score)|today'?s (weather|news)|latest (news|update)|breaking news|weather (in|for)|stock (price|market)|news about|what'?s happening)\b/i;
+const BROWSER_RE = /\b(browser|open (the )?(site|page|url)|current page|web page|navigate to|inspect this page)\b/i;
+const FILES_RE = /\b(file|folder|document|pdf|screenshot|attached|attachment|download|upload)\b/i;
+const INTEGRATIONS_RE = /\b(slack|gmail|email|google drive|drive|gus|work item|calendar event|spreadsheet|sheet)\b/i;
+const URL_RE = /\bhttps?:\/\/[^\s)>\]]+/gi;
 
-const explicitMemoryPattern = /\b(remember|save this|save that|keep this|note this|add this|add to memory|update memory|don't forget|for future reference)\b/i;
-const preferencePattern = /\b(i prefer|i like|i hate|my preference|always use|never use|works best for me)\b/i;
-const decisionPattern = /\b(decided|decision|we chose|we agreed|final call|ship with|officially)\b/i;
-const requirementPattern = /\b(requirement|constraint|must|must not|needs to|has to|assumption|acceptance criteria)\b/i;
-const projectPattern = /\b(project|repo|repository|release|feature|bug|fix|build|deploy|commit|architecture|roadmap|integration|model|agent|channel|knowledge base)\b/i;
-const medicalPattern = /\b(medical|doctor|medication|medicine|allergy|symptom|diagnosis|health|clinic|hospital|prescription|lab result)\b/i;
-const todoPattern = /\b(todo|to-do|task|remind|follow up|follow-up|deadline|appointment|schedule)\b/i;
-const documentPattern = /\b(receipt|invoice|document|pdf|file|paper|form|tax|contract|letter)\b/i;
+function uniq<T>(values: T[]): T[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
 
-const classifyMemoryType = (text: string, input: MemoryGatekeeperInput): GatekeeperMemoryType => {
-  const combined = text.toLowerCase();
-  const hasImage = (input.attachments ?? []).some(a => a?.isImage || String(a?.type ?? a?.mimeType ?? '').startsWith('image/'));
+function pickOne<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(value as T) ? value as T : fallback;
+}
 
-  if (medicalPattern.test(combined)) return 'medical';
-  if (todoPattern.test(combined)) return 'todo';
-  if (input.sourceKind === 'research' || (input.urls ?? []).length > 0 && /\b(source|research|cite|verify|web|current|latest)\b/i.test(combined)) return 'research';
-  if (preferencePattern.test(combined)) return 'preference';
-  if (decisionPattern.test(combined)) return 'decision';
-  if (requirementPattern.test(combined)) return 'requirement';
-  if (documentPattern.test(combined)) return 'document';
-  if (hasImage) return 'multimodal';
-  if (projectPattern.test(combined)) return 'project_context';
-  if (input.sourceKind === 'capture') return 'capture';
-  return 'conversation';
-};
+function stripSystemPrefixes(text: string): string {
+  return String(text ?? '').replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim();
+}
 
-const classifySensitivity = (text: string, memoryType: GatekeeperMemoryType): SensitivityLevel => {
-  if (memoryType === 'medical') return 'high';
-  if (/\b(api key|token|password|secret|ssn|social security|credit card|bank|legal|tax|salary)\b/i.test(text)) return 'high';
-  if (/\b(family|child|wife|husband|partner|address|phone|email)\b/i.test(text)) return 'sensitive';
-  return 'normal';
-};
+function extractUrls(text: string): string[] {
+  return text.match(URL_RE)?.map(url => url.replace(/[.,;:]+$/, '')) ?? [];
+}
 
-const destinationFor = (input: MemoryGatekeeperInput, memoryType: GatekeeperMemoryType): GatekeeperDestination => {
-  if (input.explicitTargetKind === 'library') return 'library';
-  if (input.explicitTargetKind === 'task') return 'task';
-  if (input.explicitTargetKind === 'channel') return 'channel_memory';
-  if (input.explicitTargetKind === 'agent') return 'agent_memory';
-  if (memoryType === 'todo') return 'task';
-  if (input.chatKind === 'channel') return 'channel_memory';
-  if (input.sourceKind === 'capture') return 'inbox_only';
-  return 'agent_memory';
-};
+function provenanceSource(sourcePaths: string[], sourceUrls: string[]): MemoryGatekeeperDecision['provenance']['source'] {
+  if (sourcePaths.length > 0 && sourceUrls.length > 0) return 'mixed';
+  if (sourcePaths.length > 0) return 'file';
+  if (sourceUrls.length > 0) return 'web';
+  return 'user';
+}
 
-const evidenceFor = (input: MemoryGatekeeperInput): EvidenceState => {
-  if (input.sourceKind === 'research') return 'source_backed';
-  if (input.sourceKind === 'capture') return 'capture_backed';
-  if ((input.urls ?? []).length > 0 || (input.sourcePaths ?? []).length > 0) return 'source_backed';
-  if ((input.answer ?? '').trim() || (input.contributions ?? []).length > 0) return 'mixed';
-  if (input.sourceKind === 'conversation' || input.sourceKind === 'manual') return 'user_provided';
-  return 'unverified';
-};
+function makeDefaultDecision(input?: Partial<MemoryGatekeeperInput>): MemoryGatekeeperDecision {
+  const text = stripSystemPrefixes(input?.text ?? '');
+  const sourcePaths = uniq(input?.sourcePaths ?? []);
+  const sourceUrls = uniq([...(input?.sourceUrls ?? []), ...extractUrls(text)]);
+  return {
+    shouldSave: false,
+    classification: 'skip',
+    destination: 'skip',
+    memoryType: 'none',
+    evidenceState: 'first_party',
+    confidence: 'low',
+    privacy: 'normal',
+    reason: 'No durable memory signal found.',
+    tags: [],
+    toolRoutes: ['none'],
+    warnings: [],
+    provenance: {
+      source: provenanceSource(sourcePaths, sourceUrls),
+      sourcePaths,
+      sourceUrls,
+    },
+  };
+}
 
-const verificationFor = (
-  evidenceState: EvidenceState,
-  memoryType: GatekeeperMemoryType,
-  input: MemoryGatekeeperInput,
-): VerificationState => {
-  if (memoryType === 'medical') return 'needs_verification';
-  if (evidenceState === 'source_backed') return input.sourceKind === 'research' ? 'partially_verified' : 'needs_verification';
-  if (evidenceState === 'capture_backed') return (input.urls ?? []).length > 0 ? 'partially_verified' : 'needs_verification';
-  if (evidenceState === 'user_provided' && ['preference', 'decision', 'requirement'].includes(memoryType)) return 'verified';
-  return 'needs_verification';
-};
+function routeToolCandidates(input: MemoryGatekeeperInput, text: string, isExplicitMemory: boolean): ToolRoute[] {
+  const enabled = input.enabledTools ?? {};
+  const forced = input.forcedTool;
+  const routes: ToolRoute[] = [];
 
-const confidenceFor = (
-  level: MemoryLevel,
-  evidenceState: EvidenceState,
-  memoryType: GatekeeperMemoryType,
-): ConfidenceState => {
-  if (memoryType === 'medical') return 'low';
-  if (evidenceState === 'source_backed' || evidenceState === 'capture_backed') return 'medium';
-  if (level === 'explicit') return 'high';
-  if (level === 'notable') return 'medium';
-  if (level === 'background') return 'low';
-  return 'unknown';
-};
+  if (forced === 'workspace') routes.push('memory_search');
+  if (forced === 'search') routes.push('web_search');
+  if (forced) return routes.length > 0 ? routes : ['none'];
 
-const saveDecisionForNonConversation = (input: MemoryGatekeeperInput) => {
-  const text = input.text.trim();
-  const hasPayload = Boolean(text || (input.urls ?? []).length || (input.attachments ?? []).length || input.captureId);
-  const explicit = explicitMemoryPattern.test(text);
-  const durable = [projectPattern, medicalPattern, todoPattern, documentPattern, preferencePattern, decisionPattern, requirementPattern]
-    .some(pattern => pattern.test(text));
-  const score = (explicit ? 7 : 0)
-    + (durable ? 3 : 0)
-    + ((input.urls ?? []).length > 0 ? 3 : 0)
-    + ((input.attachments ?? []).length > 0 ? 3 : 0)
-    + (wordCount(text) > 12 ? 1 : 0);
-
-  if (!hasPayload || score < 2) {
-    return {
-      shouldSave: false,
-      level: 'skip' as MemoryLevel,
-      notification: 'none' as MemoryNotification,
-      reason: hasPayload ? 'not enough durable signal' : 'empty capture',
-      score,
-      tags: ['gatekeeper'],
-    };
+  if ((enabled.calendar_sync || enabled.google_calendar) && TASK_RE.test(text)) routes.push('calendar');
+  if (enabled.local_workspace && !isExplicitMemory && MEMORY_SEARCH_RE.test(text)) routes.push('memory_search');
+  if (enabled.web_search && WEB_SEARCH_RE.test(text)) routes.push('web_search');
+  if (BROWSER_RE.test(text)) routes.push('browser');
+  if (FILES_RE.test(text) || (input.attachedFiles?.length ?? 0) > 0) routes.push('files');
+  if (Object.keys(enabled).some(key => enabled[key] && ['slack', 'gmail', 'google_drive', 'google_calendar', 'gus'].includes(key)) && INTEGRATIONS_RE.test(text)) {
+    routes.push('integrations');
   }
 
-  const level: MemoryLevel = explicit ? 'explicit' : score >= 7 ? 'notable' : 'background';
+  return uniq(routes).length > 0 ? uniq(routes) : ['none'];
+}
+
+export function validateMemoryGatekeeperDecision(
+  raw: Partial<MemoryGatekeeperDecision>,
+  fallbackInput?: Partial<MemoryGatekeeperInput>,
+): MemoryGatekeeperDecision {
+  const fallback = makeDefaultDecision(fallbackInput);
+  const classification = pickOne(raw.classification, CLASSIFICATIONS, fallback.classification);
+  const shouldSave = Boolean(raw.shouldSave) && classification !== 'skip';
+  const destination = shouldSave
+    ? pickOne(raw.destination, DESTINATIONS, fallback.destination === 'skip' ? 'agent_memory' : fallback.destination)
+    : 'skip';
+
   return {
-    shouldSave: true,
-    level,
-    notification: level === 'background' ? 'none' as MemoryNotification : 'toast' as MemoryNotification,
-    reason: explicit ? 'explicit memory request' : durable ? 'durable capture or work signal' : 'source or attachment should be preserved',
-    score,
-    tags: ['gatekeeper', `memory-${level}`],
+    shouldSave,
+    classification,
+    destination,
+    memoryType: pickOne(raw.memoryType, MEMORY_TYPES, fallback.memoryType),
+    evidenceState: pickOne(raw.evidenceState, EVIDENCE_STATES, fallback.evidenceState),
+    confidence: pickOne(raw.confidence, CONFIDENCE_LABELS, fallback.confidence),
+    privacy: pickOne(raw.privacy, PRIVACY_LABELS, fallback.privacy),
+    reason: String(raw.reason || fallback.reason),
+    tags: uniq((raw.tags ?? fallback.tags).map(tag => String(tag).trim().toLowerCase()).filter(tag => tag.length > 0)),
+    toolRoutes: uniq((raw.toolRoutes ?? fallback.toolRoutes).map(route => pickOne(route, TOOL_ROUTES, 'none'))),
+    warnings: uniq((raw.warnings ?? fallback.warnings).map(warning => String(warning)).filter(warning => warning.length > 0)),
+    provenance: {
+      source: pickOne(raw.provenance?.source, ['user', 'file', 'web', 'mixed'] as const, fallback.provenance.source),
+      sourcePaths: uniq(raw.provenance?.sourcePaths ?? fallback.provenance.sourcePaths),
+      sourceUrls: uniq(raw.provenance?.sourceUrls ?? fallback.provenance.sourceUrls),
+    },
   };
-};
+}
 
-export const assessMemoryGatekeeper = (input: MemoryGatekeeperInput): MemoryGatekeeperDecision => {
-  const text = String(input.text || '');
-  const answer = String(input.answer || '');
-  const combined = `${text}\n${answer}`.trim();
-  const base = input.sourceKind === 'conversation'
-    ? assessConversationMemory({
-      question: text,
-      answer,
-      chatKind: input.chatKind,
-      contributions: input.contributions ?? [],
-      attachments: input.attachments ?? [],
-    })
-    : saveDecisionForNonConversation(input);
+export function evaluateMemoryGate(input: MemoryGatekeeperInput): MemoryGatekeeperDecision {
+  const cleanedText = stripSystemPrefixes(input.text);
+  const text = cleanedText.toLowerCase();
+  const sourcePaths = uniq(input.sourcePaths ?? []);
+  const sourceUrls = uniq([...(input.sourceUrls ?? []), ...extractUrls(cleanedText)]);
+  const tags = new Set<string>();
+  const warnings = new Set<string>();
 
-  const memoryType = classifyMemoryType(combined || text, input);
-  const evidenceState = evidenceFor(input);
-  const verification = verificationFor(evidenceState, memoryType, input);
-  const confidence = confidenceFor(base.level, evidenceState, memoryType);
-  const route = routeToolForMessage({
-    message: text,
-    agentTools: input.agentTools ?? {},
-    forcedTool: input.forcedTool ?? null,
+  if (!cleanedText || TRIVIAL_RE.test(cleanedText)) {
+    return validateMemoryGatekeeperDecision({
+      ...makeDefaultDecision({ ...input, text: cleanedText, sourcePaths, sourceUrls }),
+      toolRoutes: routeToolCandidates(input, text, false),
+    }, input);
+  }
+
+  const explicit = EXPLICIT_MEMORY_RE.test(cleanedText);
+  const isTask = TASK_RE.test(cleanedText);
+  const isDecision = DECISION_RE.test(cleanedText);
+  const isPreference = PREFERENCE_RE.test(cleanedText);
+  const isMedical = MEDICAL_RE.test(cleanedText);
+  const isResearch = RESEARCH_RE.test(cleanedText);
+  const isProject = PROJECT_RE.test(cleanedText);
+  const isExternalClaim = EXTERNAL_CLAIM_RE.test(cleanedText);
+  const isInferred = INFERRED_RE.test(cleanedText);
+  const isConflicting = CONFLICT_RE.test(cleanedText);
+  const isChannelScoped = CHANNEL_RE.test(cleanedText) || Boolean(input.channelId);
+  const hasSource = sourcePaths.length > 0 || sourceUrls.length > 0;
+  const hasAttachment = (input.attachedFiles?.length ?? 0) > 0;
+  const isQuestion = QUESTION_RE.test(cleanedText);
+
+  let classification: MemoryClassification = 'background';
+  if (explicit) classification = 'explicit';
+  else if (isDecision || isPreference || isMedical || isTask || (isProject && !isQuestion)) classification = 'notable';
+
+  let memoryType: MemoryType = 'fact';
+  if (isPreference) memoryType = 'preference';
+  else if (isDecision) memoryType = 'decision';
+  else if (isTask) memoryType = 'todo';
+  else if (isMedical) memoryType = 'medical';
+  else if (isResearch || hasSource) memoryType = 'research';
+  else if (isProject) memoryType = 'project_context';
+  else if (classification === 'background') memoryType = 'none';
+
+  let evidenceState: EvidenceState = 'first_party';
+  if (hasSource) evidenceState = 'source_backed';
+  else if (isConflicting) evidenceState = 'conflicting';
+  else if (isExternalClaim) evidenceState = 'needs_verification';
+  else if (isInferred) evidenceState = 'inferred';
+
+  let confidence: ConfidenceLabel = 'medium';
+  if (evidenceState === 'source_backed' || (classification === 'explicit' && evidenceState === 'first_party')) confidence = 'high';
+  if (evidenceState === 'first_party' && (memoryType === 'decision' || memoryType === 'medical')) confidence = 'high';
+  if (evidenceState === 'needs_verification' || evidenceState === 'conflicting') confidence = 'low';
+  if (classification === 'background') confidence = 'low';
+
+  let privacy: PrivacyLabel = 'normal';
+  if (isMedical) privacy = 'sensitive';
+  else if (PERSONAL_RE.test(cleanedText) || isPreference) privacy = 'personal';
+
+  let shouldSave = classification === 'explicit' || classification === 'notable';
+  if (classification === 'background' && (hasSource || hasAttachment)) shouldSave = true;
+  if (isQuestion && !explicit && !isDecision && !isTask) shouldSave = false;
+  if (evidenceState === 'needs_verification' && !explicit && !hasSource) shouldSave = false;
+
+  let destination: MemoryDestination = 'skip';
+  if (shouldSave) {
+    if (isTask) destination = 'task';
+    else if (isChannelScoped && (isDecision || explicit)) destination = 'channel_memory';
+    else if (hasSource || hasAttachment || (explicit && /\blibrary\b/i.test(cleanedText))) destination = 'library';
+    else if (evidenceState === 'needs_verification' || evidenceState === 'conflicting') destination = 'inbox_only';
+    else destination = 'agent_memory';
+  }
+
+  if (destination === 'channel_memory' && !input.channelId) {
+    warnings.add('Channel-scoped memory was detected without a concrete channel id.');
+  }
+  if (evidenceState === 'needs_verification') {
+    warnings.add('Unsourced external claim must not be promoted as verified knowledge.');
+  }
+  if (privacy === 'sensitive') {
+    warnings.add('Sensitive memory requires narrow provenance and careful surfacing.');
+  }
+
+  [memoryType, evidenceState, confidence, privacy, destination].forEach(tag => {
+    if (tag !== 'none' && tag !== 'skip') tags.add(tag);
   });
-  const destination = base.shouldSave ? destinationFor(input, memoryType) : 'skip';
-  const sensitivity = classifySensitivity(combined || text, memoryType);
-  const tags = unique([
-    ...base.tags,
-    'memory-gatekeeper',
-    input.sourceKind,
-    memoryType,
-    destination,
-    evidenceState,
-    verification,
-    confidence,
-    sensitivity !== 'normal' ? `sensitivity-${sensitivity}` : '',
-  ]);
+  if (input.agentId) tags.add(`agent:${input.agentId}`);
+  if (input.channelId) tags.add(`channel:${input.channelId}`);
+  if (/star wars|ccg|force generation/i.test(cleanedText)) tags.add('star-wars-ccg');
 
-  return {
-    schemaVersion: 'memory-gatekeeper-v1',
-    shouldSave: base.shouldSave,
+  const reason = shouldSave
+    ? `Classified as ${classification} ${memoryType} memory with ${evidenceState} evidence.`
+    : evidenceState === 'needs_verification'
+      ? 'External claim lacks provenance, so it should be verified before saving.'
+      : 'No durable memory save is recommended.';
+
+  return validateMemoryGatekeeperDecision({
+    shouldSave,
+    classification,
     destination,
     memoryType,
-    level: base.level,
-    notification: base.notification,
     evidenceState,
-    verification,
     confidence,
-    toolRoute: route.tool ?? 'None',
-    toolReason: route.reason,
-    sensitivity,
-    reason: base.reason,
-    tags,
-    score: base.score,
-  };
-};
+    privacy,
+    reason,
+    tags: Array.from(tags),
+    toolRoutes: routeToolCandidates(input, text, explicit),
+    warnings: Array.from(warnings),
+    provenance: {
+      source: provenanceSource(sourcePaths, sourceUrls),
+      sourcePaths,
+      sourceUrls,
+    },
+  }, input);
+}
 
-export const validateMemoryGatekeeperDecision = (decision: MemoryGatekeeperDecision) => {
-  const errors: string[] = [];
-  if (decision.schemaVersion !== 'memory-gatekeeper-v1') errors.push('Unknown gatekeeper schema version.');
-  if (!decision.shouldSave && decision.destination !== 'skip') errors.push('Skipped items must use destination "skip".');
-  if (decision.shouldSave && decision.destination === 'skip') errors.push('Saved items cannot use destination "skip".');
-  if (decision.level === 'skip' && decision.shouldSave) errors.push('Saved items cannot use level "skip".');
-  if (decision.level !== 'skip' && !decision.shouldSave) errors.push('Unsaved items must use level "skip".');
-  if (decision.evidenceState === 'source_backed' && decision.verification === 'verified') errors.push('Source-backed memories are only fully verified after source extraction/confirmation.');
-  if (decision.evidenceState === 'unverified' && decision.confidence === 'high') errors.push('Unverified memories cannot be high confidence.');
-  if (decision.memoryType === 'medical' && decision.verification === 'verified') errors.push('Medical memories cannot be marked verified by the gatekeeper alone.');
-  if (!decision.tags.includes('memory-gatekeeper')) errors.push('Gatekeeper tag is required.');
-  if (new Set(decision.tags).size !== decision.tags.length) errors.push('Tags must be unique.');
-  return errors;
-};
+export function selectPrimaryToolRoute(decision: MemoryGatekeeperDecision): ToolRoute | null {
+  return decision.toolRoutes.find(route => route !== 'none') ?? null;
+}
 
-export const buildGatekeeperModelPrompt = (input: MemoryGatekeeperInput) => `You are a local Agent Forge Memory Gatekeeper classifier.
-Return ONLY compact JSON with keys: memoryType, reason, tags.
-Do not decide final verification, confidence, or destination. Local policy will enforce those.
+export function extractMemoryCandidateText(text: string): string {
+  let cleaned = stripSystemPrefixes(text);
+  cleaned = cleaned
+    .replace(/^(please\s+)?(remember|save this to library|save to library|add this to library|add to library|save|note|take a note|add to memory|log this|pin this)\s*/i, '')
+    .replace(/^(this|that)\s*[:\-]?\s*/i, '')
+    .trim();
+  if (/^(this|that|save this|remember this|note this)$/i.test(cleaned)) return '';
+  return cleaned;
+}
 
-Text:
-${input.text}
+export function shouldPersistGatekeeperDecision(decision: MemoryGatekeeperDecision, originalText: string): boolean {
+  if (!decision.shouldSave || decision.classification !== 'explicit') return false;
+  if (!['agent_memory', 'channel_memory', 'library'].includes(decision.destination)) return false;
+  return extractMemoryCandidateText(originalText).length >= 12;
+}
 
-Answer:
-${input.answer ?? ''}`;
+function sanitizeSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'default';
+}
 
-export const mergeModelGatekeeperSuggestion = (
-  localDecision: MemoryGatekeeperDecision,
-  suggestion: any,
-): MemoryGatekeeperDecision => {
-  if (!suggestion || typeof suggestion !== 'object') return localDecision;
-  const memoryType = typeof suggestion.memoryType === 'string'
-    ? suggestion.memoryType as GatekeeperMemoryType
-    : localDecision.memoryType;
-  const allowedTypes: GatekeeperMemoryType[] = [
-    'preference', 'decision', 'requirement', 'fact', 'project_context', 'medical', 'research',
-    'todo', 'document', 'multimodal', 'conversation', 'capture',
-  ];
-  const safeType = allowedTypes.includes(memoryType) ? memoryType : localDecision.memoryType;
-  const extraTags = Array.isArray(suggestion.tags)
-    ? suggestion.tags.map((tag: any) => String(tag).toLowerCase().replace(/[^a-z0-9_-]+/g, '-')).filter(Boolean).slice(0, 8)
-    : [];
+function yamlString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
 
-  return {
-    ...localDecision,
-    memoryType: safeType,
-    reason: typeof suggestion.reason === 'string' && suggestion.reason.trim()
-      ? suggestion.reason.trim().slice(0, 240)
-      : localDecision.reason,
-    tags: unique([...localDecision.tags, ...extraTags, safeType]),
-  };
-};
+function titleFromText(text: string): string {
+  const candidate = extractMemoryCandidateText(text) || stripSystemPrefixes(text);
+  return candidate.replace(/\s+/g, ' ').split(/[.!?\n]/)[0].trim().slice(0, 80) || 'Saved Memory';
+}
+
+export function buildGatekeeperMemoryWrite(input: {
+  rootPath: string;
+  agentId: string;
+  chatId?: string | null;
+  channelId?: string | null;
+  text: string;
+  decision: MemoryGatekeeperDecision;
+  now?: Date;
+}): { path: string; title: string; content: string } {
+  const now = input.now ?? new Date();
+  const title = titleFromText(input.text);
+  const slug = `${sanitizeSegment(title)}-${now.getTime()}`;
+  const agentId = sanitizeSegment(input.agentId || 'default');
+  const chatId = input.chatId ? sanitizeSegment(input.chatId) : '';
+  const channelId = input.channelId ? sanitizeSegment(input.channelId) : chatId;
+  const basePath = input.decision.destination === 'library'
+    ? `${input.rootPath}/library`
+    : input.decision.destination === 'channel_memory'
+      ? `${input.rootPath}/memory/${agentId}/channels/${channelId || 'default'}`
+      : `${input.rootPath}/memory/${agentId}/gatekeeper`;
+  const path = `${basePath}/${slug}.md`;
+  const candidate = extractMemoryCandidateText(input.text);
+  const frontmatter = [
+    '---',
+    `title: ${yamlString(title)}`,
+    `created_at: ${yamlString(now.toISOString())}`,
+    `destination: ${input.decision.destination}`,
+    `memory_type: ${input.decision.memoryType}`,
+    `evidence_state: ${input.decision.evidenceState}`,
+    `confidence: ${input.decision.confidence}`,
+    `privacy: ${input.decision.privacy}`,
+    `agent_id: ${yamlString(agentId)}`,
+    input.chatId ? `chat_id: ${yamlString(input.chatId)}` : null,
+    input.channelId ? `channel_id: ${yamlString(input.channelId)}` : null,
+    `tags: [${input.decision.tags.map(yamlString).join(', ')}]`,
+    `source_paths: [${input.decision.provenance.sourcePaths.map(yamlString).join(', ')}]`,
+    `source_urls: [${input.decision.provenance.sourceUrls.map(yamlString).join(', ')}]`,
+    '---',
+  ].filter(Boolean).join('\n');
+
+  const body = [
+    frontmatter,
+    '',
+    `# ${title}`,
+    '',
+    `Gatekeeper reason: ${input.decision.reason}`,
+    '',
+    '## Memory',
+    candidate,
+  ].join('\n');
+
+  return { path, title, content: body };
+}

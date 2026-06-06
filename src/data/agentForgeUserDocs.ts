@@ -24,39 +24,10 @@ Press ⌘⇧F from Chrome or Safari to instantly open a floating Spotlight windo
 Your agents store memory in \`~/AgentForge/\`, a git-backed directory on your Mac:
 - **Notes** — freeform memos, goals, decisions, research
 - **Library** — bookmarked content saved for later reference
-- **Inbox** — raw captures from Shortcuts, relay, desktop drops, or future message rooms
 - **Archive** — deleted notes (recoverable)
 - **Completed Tasks** — audit trail of finished work
 
-Open the Memory Panel (book icon in the header) to browse Inbox, Pins, Notes, Library, and Archive.
-
-### Grounded Memory
-Agent Forge saves memories as grounded Markdown, not anonymous summaries.
-
-- Every new note records its scope: agent, channel, library, or global
-- Every new note records source kind, evidence state, verification state, confidence, and source paths or URLs when available
-- User-provided and source-backed facts are stronger than agent-inferred work product
-- Raw Inbox captures stay separate from derived notes so the original evidence is not lost
-- Dream Cycle is allowed to merge and clean memories, but it must preserve provenance and conflicts
-
-### Semantic Layer
-The Semantic Layer is a local SQLite index built from your grounded Markdown.
-
-- It extracts documents, entities, facts, and relationships from the knowledge you give Agent Forge
-- It keeps provenance on each extracted item, including scope, evidence state, verification, confidence, and source file
-- It helps agents answer questions like “what have we tried?”, “what failed?”, “what does this person prefer?”, and “what is related to this project?”
-- It is an index, not the source of truth. The Markdown files and raw captures remain the durable memory
-- Knowledge Search uses semantic facts/relations alongside vector search snippets
-
-### 📥 Forge Inbox — Capture Anywhere
-Forge Inbox is the raw capture log. It keeps the original thing you sent before AI turns it into memory.
-
-- Captures can come from desktop drops, iOS Shortcuts, a Mac-hosted Forge Relay, or future message rooms
-- Capture owners are configurable, such as \`personal\`, \`team\`, \`work\`, or \`field-notes\`
-- Relay token routes use \`ownerId:Owner Label:token:instanceId:shareId\` so the right Shortcut/share action lands in the right inbox
-- Raw originals stay under \`~/AgentForge/inbox/raw/\`
-- Processing an item autosaves a derived note into agent memory, channel memory, or Library while preserving the raw capture
-- A Channel capture becomes part of that Channel's shared memory after processing
+Open the Memory Panel (book icon in the header) to browse Pins, Notes, Library, and Archive.
 
 ### 📅 Planner — Tasks & Calendar
 The Planner (calendar icon in header) combines a task list with a calendar view:
@@ -68,23 +39,10 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 
 ### 💬 Chat & Agents
 - Each agent has a custom system prompt, training docs, and tool access
-- Use the left column like Slack: People, Agents, and Channels
-- Click an Agent when you want one persistent Direct where that specialist keeps its own memory
-- Use a Channel when you want multiple invited agents to collaborate around one named goal
-- Start simple in a Direct; click the # button in the header to promote the active thread into a Channel when it becomes a project or needs specialists
-- In a Channel, invited agents can contribute collapsible notes while the primary agent gives the clean final answer
+- Switch agents using the dropdown in the top-left
+- Start a new chat with the + button
 - Pin important messages to Context (⭐) — pinned content is injected into every future message with that agent
 - Use /memo to save thoughts to your Knowledge Core without leaving the chat
-- Durable conversation memory is filtered before autosave. Trivial acknowledgements and casual throwaway messages are ignored; explicit remember/save requests, decisions, preferences, files, images, plans, and multi-agent work are saved quietly.
-
-### # Channels — Shared Work Rooms
-Channels are collaborative rooms with shared memory. An agent can remain standalone, like a domain specialist that remembers experiments across time, while a Channel can invite that specialist plus a Strategist or Logic Checker for a specific project.
-
-- Channel memory is saved under \`~/AgentForge/memory/channels/\`
-- Agent memory stays under that agent's own memory folder
-- Promoting a Direct to a Channel preserves the existing message thread and adds channel metadata
-- Knowledge Search in a channel can use agent memory, channel memory, and the shared Library
-- Dream Cycle can refine channel memory later without erasing the original audit trail
 
 ### 🎨 Canvas
 When an agent generates code, diagrams, or documents, it appears in the Canvas panel (toggle with the split-screen icon). Save canvas content to your Library.
@@ -94,14 +52,6 @@ Dream Cycle is an experimental, manual memory cleanup tool. Run it from Agent Se
 
 ### 🔍 Knowledge Search
 Your agent automatically searches your Knowledge Core when relevant. You can force a knowledge search for any message with ⌘⇧K.
-
-### 🌐 Source-Required Research
-When Web Search is enabled, Agent Forge treats Tavily and/or Brave Search as discovery engines and combines them with direct URL reading, active browser context, and Wikipedia fallback.
-
-- Research answers should answer the question directly, not produce a dossier unless requested
-- Factual web/current claims must cite sources inline
-- If sources are missing, weak, or conflicting, the agent should say what could not be verified
-- Source-backed research is autosaved quietly to agent or channel memory so Dream Cycle can clean it up later
 
 ---
 
@@ -130,8 +80,7 @@ When Web Search is enabled, Agent Forge treats Tavily and/or Brave Search as dis
 Open Settings (⚙️ in the header) to:
 - Edit your **Profile** (About Me) — global context injected into all agents
 - Toggle **Allow Profile Updates** — lets agents suggest updates to your profile based on conversations
-- Configure **Forge Inbox** owners, instance ID, and relay URL
-- Connect chat models, including vision-capable models for image and screenshot understanding
+- Configure **Image Generation** (OpenAI DALL-E, Google Imagen, or custom endpoint)
 - Manage the **User Guide** (this document)
 
 ---
@@ -140,7 +89,6 @@ Open Settings (⚙️ in the header) to:
 
 - **Context Pins are powerful** — pin a project brief or key facts to Context and your agent will always remember them
 - **Use /memo freely** — quick captures during work get organized into your Knowledge Core
-- **Use Inbox for raw life dumps** — the raw capture log is useful even before anything is processed
 - **The Library is permanent** — bookmarked content in Library never expires (unlike chats)
 - **Multiple agents for different roles** — create a "Researcher", a "Coder", and a "Writer" agent, each trained differently
 - **Spotlight works mid-task** — press ⌘⇧F while reading an article, a GitHub issue, or a doc to get instant AI help without copy-pasting

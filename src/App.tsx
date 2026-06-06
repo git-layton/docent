@@ -18,8 +18,9 @@ import { useMemoryStore } from './store/useMemoryStore';
 import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 
-import { getContextLimit, validateModel, validateLocalGenerationConfig, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
-import { refreshGoogleAccessToken, runIntegrationTools } from './services/integrations';
+import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
+import { runIntegrationTools } from './services/integrations';
+import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { NukeShieldModal } from './components/NukeShieldModal';
@@ -44,105 +45,14 @@ import { ChatInputBar } from './components/ChatInputBar';
 import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
-import { CollapsibleBubble } from './components/ui/CollapsibleBubble';
-import { buildChannelContext, normalizeChatRecord, routeAgentsForChannel } from './services/channels';
-import { buildGroundedMarkdown } from './services/grounding';
-import { assessMemoryGatekeeper } from './services/memoryGatekeeper';
-import { routeToolForMessage } from './services/toolRouter';
-import { buildSemanticMemoryNotes, hasSemanticHits, type SemanticLayerResult } from './services/semantic';
-import {
-  buildSourceNotes,
-  dedupeSources,
-  extractSearchQuery,
-  extractUrls,
-  hasResearchIntent,
-  slugify as researchSlugify,
-  type ResearchSource,
-} from './services/research';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB text/PDF limit
-const MAX_IMAGE_FILE_SIZE = 12 * 1024 * 1024; // Images are resized before sending to the model.
-const MAX_IMAGE_EDGE = 1600;
-const IMAGE_JPEG_QUALITY = 0.86;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB Limit
 
 // ─── Utility Helpers ──────────────────────────────────────────────────────────
 
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onloadend = () => resolve(String(reader.result ?? ''));
-  reader.onerror = () => reject(reader.error ?? new Error('Failed to read file.'));
-  reader.readAsDataURL(file);
-});
-
-const readFileAsText = (file: File) => new Promise<string>((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onloadend = () => resolve(String(reader.result ?? ''));
-  reader.onerror = () => reject(reader.error ?? new Error('Failed to read file.'));
-  reader.readAsText(file);
-});
-
-const resizeImageForVision = async (file: File): Promise<{ content: string; type: string; resized: boolean }> => {
-  const dataUrl = await readFileAsDataUrl(file);
-  if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
-    return { content: dataUrl, type: file.type || 'image/png', resized: false };
-  }
-
-  return new Promise(resolve => {
-    const img = new Image();
-    img.onload = () => {
-      const longestEdge = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
-      if (!longestEdge || (longestEdge <= MAX_IMAGE_EDGE && file.size <= MAX_FILE_SIZE)) {
-        resolve({ content: dataUrl, type: file.type, resized: false });
-        return;
-      }
-
-      const scale = Math.min(1, MAX_IMAGE_EDGE / longestEdge);
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
-      canvas.height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve({ content: dataUrl, type: file.type, resized: false });
-        return;
-      }
-
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const outputType = file.type === 'image/png' && file.size <= MAX_FILE_SIZE ? 'image/png' : 'image/jpeg';
-      resolve({ content: canvas.toDataURL(outputType, IMAGE_JPEG_QUALITY), type: outputType, resized: true });
-    };
-    img.onerror = () => resolve({ content: dataUrl, type: file.type || 'image/png', resized: false });
-    img.src = dataUrl;
-  });
-};
-
-const getGoogleActionAccount = (integrations: any, scope: 'gmail' | 'drive' | 'calendar', preferredLabel?: string | null) => {
-  const accounts: any[] = integrations?.googleWorkspaces ?? [];
-  const configured = accounts.filter((account: any) =>
-    account.connected !== false &&
-    account.scopes?.[scope] &&
-    account.clientId &&
-    account.clientSecret &&
-    account.refreshToken
-  );
-  if (preferredLabel) {
-    const preferred = configured.find((account: any) =>
-      account.label === preferredLabel || account.id === preferredLabel
-    );
-    if (preferred) return preferred;
-  }
-  return configured[0] ?? null;
-};
-
-const base64UrlEncode = (value: string) => {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
 
 
 // ─── UI Sub-components moved to src/components/ui/ ────────────────────────────
@@ -307,9 +217,6 @@ export default function App() {
         }
       } catch (e) { console.warn('[AgentForge] Dream log check skipped:', e); }
 
-      // Dream Cycle remains manual for the release build so the user can review
-      // memory consolidation changes before trusting the automation.
-
       // Hardware profile — scale thresholds to total installed RAM
       invoke<{ critical_mb: number; cooldown_mb: number; recovery_mb: number; hud_show_mb: number; hud_warn_mb: number; rag_results: number; rag_snippet_chars: number }>('get_hardware_profile')
         .then(profile => useUIStore.getState().setHwProfile(profile))
@@ -317,11 +224,29 @@ export default function App() {
 
       // Start background file watcher for Knowledge Core indexing
       invoke('init_file_watcher').catch(() => {});
-      invoke('sync_semantic_layer').catch(() => {});
 
       } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { useUIStore.getState().setIsDbLoaded(true); }
     };
     boot();
+
+    // Auto-schedule Dream Cycle — 30min warm-up, then every 24h.
+    // Declared here (not inside boot) so the cleanup return can reach warmupTimeout.
+    const DREAM_WARMUP_MS = 30 * 60 * 1000;
+    const DREAM_INTERVAL_MS = 24 * 60 * 60 * 1000;
+    const scheduleDream = () => {
+      dreamTimerRef.current = setInterval(() => {
+        const { appSettings: s } = useSettingsStore.getState();
+        if (s.dreamAutoEnabled === false) return;
+        runDreamCycle(activeAssistantRef.current ?? undefined, selectedModelRef.current ?? undefined);
+      }, DREAM_INTERVAL_MS);
+    };
+    const warmupTimeout = setTimeout(() => {
+      const { appSettings: s } = useSettingsStore.getState();
+      if (s.dreamAutoEnabled !== false) {
+        runDreamCycle(activeAssistantRef.current ?? undefined, selectedModelRef.current ?? undefined);
+      }
+      scheduleDream();
+    }, DREAM_WARMUP_MS);
 
     // RAM polling — every 2s (reaper only fires if a llama-server was actually spawned)
     const ramInterval = setInterval(async () => {
@@ -367,6 +292,7 @@ export default function App() {
 
     return () => {
       clearInterval(ramInterval);
+      clearTimeout(warmupTimeout);
       if (dreamTimerRef.current) clearInterval(dreamTimerRef.current);
     };
   }, []);
@@ -427,9 +353,13 @@ export default function App() {
   // Sync mode when switching agents
   useEffect(() => {
     if (activeAssistant) {
-      useUIStore.getState().setGenerationMode(activeAssistant.defaultMode === 'image' ? 'text' : (activeAssistant.defaultMode || 'text'));
+      if (activeAssistant.defaultMode === 'image' && appSettings?.imageProvider === 'none') {
+         useUIStore.getState().setGenerationMode('text');
+      } else {
+         useUIStore.getState().setGenerationMode(activeAssistant.defaultMode || 'text');
+      }
     }
-  }, [activeFolderId, activeAssistant]);
+  }, [activeFolderId, activeAssistant, appSettings?.imageProvider]);
 
   useEffect(() => { if (canvasContent && isSidebarOpen) useUIStore.getState().setIsSidebarOpen(false); }, [canvasContent]);
 
@@ -465,7 +395,10 @@ export default function App() {
         if (mem.showMemoCompose) mem.setShowMemoCompose(false);
         else if (mem.showMemmoPanel) mem.setShowMemmoPanel(false);
         else if (ag.showAssistantSettings) ag.setShowAssistantSettings(false);
-        else if (ss.showProfileSettings) ss.setShowProfileSettings(false);
+        else if (ss.showProfileSettings) {
+            ss.setShowProfileSettings(false);
+            ss.setImageTestState({ loading: false, error: null, successUrl: null });
+        }
         else if (ss.showModelWizard) ss.setShowModelWizard(false);
         else if (ui.showSaveModal) ui.setShowSaveModal(false);
         else if (tk.taskToDiscuss) tk.setTaskToDiscuss(null);
@@ -474,6 +407,49 @@ export default function App() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
+
+  const fetchImageModels = async () => {
+     const { setIsFetchingImageModels, setImageTestState, setImageEngineModels, setAppSettings } = useSettingsStore.getState();
+     const { appSettings: _appSettings } = useSettingsStore.getState();
+     const _activeImageKey = _appSettings.imageProvider === 'openai' ? (useSettingsStore.getState().integrations.openai?.apiKey || useSettingsStore.getState().models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey) :
+                            _appSettings.imageProvider === 'google' ? (useSettingsStore.getState().integrations.google?.apiKey || useSettingsStore.getState().models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey) :
+                            useSettingsStore.getState().integrations.customImage?.apiKey || '';
+     setIsFetchingImageModels(true);
+     setImageTestState({ loading: false, error: null, successUrl: null });
+     try {
+         let url, headers: any = {};
+         let provider = _appSettings.imageProvider;
+         let key = _activeImageKey;
+
+         if (!key && provider !== 'custom') throw new Error("API Key required to fetch models.");
+
+         if (provider === 'google') {
+             url = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`;
+         } else {
+             let base = _appSettings.imageEndpoint || 'https://api.openai.com/v1';
+             url = `${base.replace(/\/$/, '')}/models`;
+             if (key) headers['Authorization'] = `Bearer ${key}`;
+         }
+
+         const res = await fetchWithRetry(url, { method: 'GET', headers }, 1);
+         let list: any[] = [];
+         if (provider === 'google') {
+             list = (res.models || []).map((m: any) => m.name.replace('models/', ''));
+         } else {
+             list = (res.data || res.models || []).map((m: any) => m.id || m.name);
+         }
+
+         setImageEngineModels(list);
+         if (list.length > 0 && !_appSettings.imageModelId) {
+             setAppSettings((prev: any) => ({...prev, imageModelId: list.find((id: string) => id.includes('dall-e') || id.includes('imagen')) || list[0]}));
+         }
+         useUIStore.getState().showToast("Models fetched successfully.");
+     } catch (err: any) {
+         useUIStore.getState().showToast("Failed to fetch models: " + err.message);
+     } finally {
+         setIsFetchingImageModels(false);
+     }
+  };
 
   const viewImageInCanvas = useCallback((src: string) => {
       useUIStore.getState().setCanvasContent({
@@ -489,6 +465,51 @@ export default function App() {
       useUIStore.getState().setCanvasTab('preview');
       useTaskStore.getState().setShowPlanner(false);
   }, []);
+
+  const testImageEngine = async () => {
+      const { appSettings: _appSettings, integrations: _integrations, models: _models } = useSettingsStore.getState();
+      const _activeImageKey = _appSettings.imageProvider === 'openai' ? (_integrations.openai?.apiKey || _models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey) :
+                             _appSettings.imageProvider === 'google' ? (_integrations.google?.apiKey || _models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey) :
+                             _integrations.customImage?.apiKey || '';
+      useSettingsStore.getState().setImageTestState({ loading: true, error: null, successUrl: null });
+      try {
+          let imageUrl = '';
+          const promptText = "A cute cat wearing a yellow banana costume, high quality photorealistic.";
+          let provider = _appSettings.imageProvider;
+          let modelId = _appSettings.imageModelId || (provider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
+          let key = _activeImageKey;
+
+          if (provider === 'google') {
+              if (!key) throw new Error("Missing Google API Key.");
+              const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predict?key=${key}`;
+              const body = { instances: { prompt: promptText }, parameters: { sampleCount: 1 } };
+              const headers = { 'Content-Type': 'application/json' };
+              const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 0);
+              if (res.predictions && res.predictions[0]) {
+                  imageUrl = `data:image/png;base64,${res.predictions[0].bytesBase64Encoded}`;
+              } else {
+                  throw new Error(res.error?.message || "Google Image generation failed or returned empty payload.");
+              }
+          } else if (provider === 'openai' || provider === 'custom') {
+              if (!key && provider === 'openai') throw new Error("Missing OpenAI API Key.");
+              const baseEndpoint = (_appSettings.imageEndpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
+              const url = `${baseEndpoint}/images/generations`;
+              const body = { model: modelId, prompt: promptText, n: 1, size: '1024x1024' };
+              const headers: any = { 'Content-Type': 'application/json' };
+              if (key) headers['Authorization'] = `Bearer ${key}`;
+
+              const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 0);
+              if (data.data && data.data[0] && data.data[0].url) {
+                  imageUrl = data.data[0].url;
+              } else {
+                  throw new Error(data.error?.message || "Generation failed.");
+              }
+          }
+          useSettingsStore.getState().setImageTestState({ loading: false, error: null, successUrl: imageUrl });
+      } catch (err: any) {
+          useSettingsStore.getState().setImageTestState({ loading: false, error: err.message || "Failed to generate image. Check your API key or network.", successUrl: null });
+      }
+  };
 
   const toggleSpeak = (msgId: string, text: string) => {
     if (speakingId === msgId) {
@@ -584,79 +605,46 @@ export default function App() {
     }
 
     // If it's a file upload drop
-    const files = Array.from(e.dataTransfer.files ?? []);
-    if (files.length > 0) {
-      const fakeEvent = { target: { files, value: '' } } as any;
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      const fakeEvent = { target: { files: [file], value: '' } } as any;
       await handleChatFileUpload(fakeEvent);
     }
   };
 
   const handleChatFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (files.length === 0) return;
+    const file = e.target.files?.[0]; if (!file) return;
     const ui = useUIStore.getState();
     ui.setUploadError('');
-
-    const attachments: any[] = [];
-    const failures: string[] = [];
-
-    for (const file of files) {
-      try {
-        if (file.type.startsWith('image/')) {
-          if (file.size > MAX_IMAGE_FILE_SIZE) {
-            failures.push(`${file.name} is larger than 12MB.`);
-            continue;
-          }
-
-          if (file.type === 'image/svg+xml') {
-            const content = await readFileAsText(file);
-            attachments.push({ name: file.name, content, type: 'text/plain', isImage: false });
-            continue;
-          }
-
-          const image = await resizeImageForVision(file);
-          attachments.push({
-            name: file.name,
-            content: image.content,
-            type: image.type,
-            isImage: true,
-            originalSize: file.size,
-            resized: image.resized,
-          });
-          continue;
-        }
-
-        if (file.size > MAX_FILE_SIZE) {
-          failures.push(`${file.name} is larger than 5MB.`);
-          continue;
-        }
-
-        if (file.type === 'application/pdf') {
-          ui.showToast(`Parsing ${file.name} locally...`);
-          const text = await extractTextFromPDF(file);
-          attachments.push({ name: file.name, content: text, type: 'text/plain', isImage: false });
-          continue;
-        }
-
-        const text = await readFileAsText(file);
-        attachments.push({ name: file.name, content: text, type: file.type || 'text/plain', isImage: false });
-      } catch (err) {
-        console.error('[AgentForge] Failed to attach file:', file.name, err);
-        failures.push(`${file.name} could not be read.`);
-      }
+    if (file.size > MAX_FILE_SIZE) {
+      ui.setUploadError(`File is too large. Max 5MB allowed.`);
+      ui.showToast("File is too large.");
+      e.target.value = '';
+      return;
     }
 
-    if (attachments.length > 0) {
-      ui.setAttachedDocs((prev: any[]) => [...prev, ...attachments]);
-      const imageCount = attachments.filter(doc => doc.isImage).length;
-      ui.showToast(`${attachments.length} attachment${attachments.length === 1 ? '' : 's'} added${imageCount ? ` (${imageCount} vision input${imageCount === 1 ? '' : 's'})` : ''}.`);
+    if (file.type === 'application/pdf') {
+        ui.showToast("Parsing PDF locally... this might take a moment.");
+        try {
+           const text = await extractTextFromPDF(file);
+           ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: text, type: 'text/plain', isImage: false }]);
+           ui.showToast("PDF parsed successfully!");
+        } catch (err) {
+           ui.showToast("Failed to parse PDF.");
+           console.error(err);
+        }
+        e.target.value = '';
+        return;
     }
 
-    if (failures.length > 0) {
-      ui.setUploadError(failures.join(' '));
-      ui.showToast(failures[0]);
+    const reader = new FileReader();
+    if (file.type.startsWith('image/')) {
+      reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
+      reader.readAsDataURL(file);
+    } else {
+      reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
+      reader.readAsText(file);
     }
-
     e.target.value = '';
   };
 
@@ -754,6 +742,39 @@ export default function App() {
      useUIStore.getState().setSavedApps((prev: any[]) => [item, ...prev]);
   }, []);
 
+  const persistGatekeeperMemory = useCallback(async (chatId: string, userMsg: any, decision: ReturnType<typeof evaluateMemoryGate>, agent: any) => {
+    if (!shouldPersistGatekeeperDecision(decision, userMsg.content)) return;
+    const rootPath = useMemoryStore.getState().agentForgePath;
+    if (!rootPath || !((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
+
+    const write = buildGatekeeperMemoryWrite({
+      rootPath,
+      agentId: agent?.id ?? 'default',
+      chatId,
+      channelId: decision.destination === 'channel_memory' ? chatId : null,
+      text: userMsg.content,
+      decision,
+    });
+
+    try {
+      const result = await invoke<{ blocked?: boolean; error?: string }>('write_memory', {
+        path: write.path,
+        content: write.content,
+        commitMessage: `memory: ${write.title}`,
+        agentId: agent?.id ?? null,
+        contextTokens: null,
+        ramState: null,
+      });
+      if (result.blocked) {
+        console.warn('[MemoryGatekeeper] Memory write blocked:', result.error);
+        return;
+      }
+      showToast(decision.destination === 'library' ? 'Saved to Library.' : 'Saved to agent memory.');
+    } catch (e) {
+      console.warn('[MemoryGatekeeper] Could not persist memory:', e);
+    }
+  }, [showToast]);
+
   const handleBookmark = useCallback(async (msg: any) => {
     const { activeChatId: _cid } = useChatStore.getState();
     const { globalPins: _pins, agentForgePath: _afp, saveGlobalPins: _save } = useMemoryStore.getState();
@@ -765,25 +786,7 @@ export default function App() {
       const firstLine = msg.content.replace(/^#+\s*/m, '').split(/[.!?\n]/)[0].trim().slice(0, 60) || 'Saved Note';
       const slug = firstLine.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) + '_' + Date.now();
       try {
-        const fileContent = buildGroundedMarkdown(
-          {
-            title: firstLine,
-            type: 'bookmarked-chat',
-            scope: 'library',
-            agentId: activeAssistant?.id,
-            agentName: activeAssistant?.name,
-            sourceKind: 'chat_bookmark',
-            sourceLabel: 'User bookmarked chat response',
-            derivedFrom: [_cid ? `chat:${_cid}` : 'chat'],
-            evidenceState: 'mixed',
-            verification: 'needs_verification',
-            confidence: 'medium',
-            processor: 'bookmark',
-            tags: ['bookmark', 'library'],
-          },
-          `## Saved Response
-${msg.content}`
-        );
+        const fileContent = `# ${firstLine}\n\nSaved from chat · ${new Date().toLocaleDateString()}\n\n---\n\n${msg.content}`;
         await invoke('write_memory', {
           path: `${_afp}/library/${slug}.md`,
           content: fileContent,
@@ -814,17 +817,19 @@ ${msg.content}`
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const ss = useSettingsStore.getState();
     const provider = e.target.value; let endpoint = '';
+    if (provider === 'ollama') endpoint = 'http://127.0.0.1:11434/v1';
     if (provider === 'lmstudio') endpoint = 'http://127.0.0.1:1234/v1';
+    if (provider === 'native') endpoint = 'http://127.0.0.1:8080/v1';
     if (provider === 'huggingface') endpoint = 'https://api-inference.huggingface.co/v1';
     const existingKey = ss.models.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
-    ss.setEditingModel({ name: provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
+    ss.setEditingModel({ name: provider === 'native' ? 'Agent Forge Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
     ss.setFetchedModels([]); ss.setPendingModelSelections([]); ss.setFetchModelsError(null); ss.setModelSearchQuery('');
   };
 
   const handleFetchModels = async () => {
     const ss = useSettingsStore.getState();
     const _editingModel = ss.editingModel;
-    if (!_editingModel.apiKey && !['custom', 'lmstudio'].includes(_editingModel.provider)) { ss.setFetchModelsError('Please enter your API Key first.'); return; }
+    if (!_editingModel.apiKey && !['custom', 'ollama', 'lmstudio', 'native'].includes(_editingModel.provider)) { ss.setFetchModelsError('Please enter your API Key first.'); return; }
     ss.setIsFetchingModels(true); ss.setFetchModelsError(null); ss.setFetchedModels([]); ss.setModelSearchQuery('');
     try {
       let url = '', hdrs: any = {};
@@ -841,7 +846,7 @@ ${msg.content}`
         url = `https://api-inference.huggingface.co/v1/models`;
         if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
       } else {
-        const defaultEndpoint = provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : 'https://api.openai.com/v1';
+        const defaultEndpoint = provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : provider === 'native' ? 'http://127.0.0.1:8080/v1' : 'https://api.openai.com/v1';
         url = `${(endpoint || defaultEndpoint).replace(/\/chat\/completions$/, '')}/models`;
         if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
       }
@@ -886,12 +891,6 @@ ${msg.content}`
     const ss = useSettingsStore.getState();
     const id = generateId('m');
     const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: false };
-    const localError = validateLocalGenerationConfig(mdl);
-    if (localError) {
-      ss.setFetchModelsError(localError);
-      useUIStore.getState().showToast('LM Studio needs a real loaded model ID.');
-      return;
-    }
     ss.setModels((prev: any[]) => [...prev, mdl]); ss.setSelectedModelId(id); ss.setShowModelWizard(false); ss.setWizardStep(3); ss.setEditingModel({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
     ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [id]: 'pending' }));
     const ok = await validateModel(mdl);
@@ -903,7 +902,7 @@ ${msg.content}`
     const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
     const _agentPinnedMessagesForPrompt = useMemoryStore.getState().globalPins.filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === useAgentStore.getState().activeFolderId) ?? useAgentStore.getState().assistants[0])?.id).map((p: any) => p.content);
     const agent = { prompt: systemInstruction, tools: {}, awareOfProfile: false, trainingDocs: [] };
-    const result = await generateTextResponse({ messages: [{ id: generateId('msg'), role: 'user', content: text }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, onChunk: null, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models, runIntegrationTools });
+    const result = await generateTextResponse({ messages: [{ id: generateId('msg'), role: 'user', content: text }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, onChunk: null, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models });
     onResult(result.replace(/```[a-zA-Z]*\n/g, '').replace(/```/g, '').trim());
   };
 
@@ -917,24 +916,18 @@ ${msg.content}`
     const _agentForgePath = useMemoryStore.getState().agentForgePath;
     const activeAgent = agent ?? _activeAssistant;
     const activeModel = model ?? _selectedModel;
-    const _activeChatId = useChatStore.getState().activeChatId;
-    const _activeChat = useChatStore.getState().chats.find((c: any) => c.id === _activeChatId);
-    const _activeChannel = _activeChat ? normalizeChatRecord(_activeChat, activeAgent?.id ?? 'f-default') : null;
-    const dreamScope = _activeChannel?.kind === 'channel'
-      ? { type: 'channel', id: _activeChannel.id, label: _activeChannel.name, prefix: `memory/channels/${_activeChannel.id}/` }
-      : { type: 'agent', id: activeAgent?.id, label: activeAgent?.name, prefix: `memory/${activeAgent?.id}/` };
     if (isDreamRunningRef.current || !_agentForgePath || !activeAgent || !activeModel) return;
     isDreamRunningRef.current = true;
     useMemoryStore.getState().setIsDreamRunning(true);
     useUIStore.getState().showToast('🌙 Dream Cycle starting...');
 
     try {
-      // Read all memory files for the active agent or active channel
+      // Read all memory files for the active agent
       const memoryFiles: { path: string; name: string; content: string }[] = [];
 
-      const listed = dreamScope.type === 'channel'
-        ? await invoke<{ files: Array<{ path: string; name: string }> }>('list_channel_memory_files', { channelId: dreamScope.id })
-        : await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', { agentId: activeAgent.id });
+      const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', {
+        agentId: activeAgent.id,
+      });
       for (const file of listed.files ?? []) {
         const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: file.path }).catch(() => ({ ok: false, content: '' }));
         if (read.ok && read.content.trim()) memoryFiles.push({ path: file.path, name: file.name, content: read.content });
@@ -950,8 +943,8 @@ ${msg.content}`
       const maxChars = Math.floor(modelLimit * 0.75) * 4;
 
       // Call the Dreamer LLM
-      const systemPrompt = buildDreamerSystemPrompt(dreamScope.prefix);
-      const userMessage = buildDreamerUserMessage(memoryFiles, dreamScope.label || activeAgent.name, maxChars);
+      const systemPrompt = buildDreamerSystemPrompt();
+      const userMessage = buildDreamerUserMessage(memoryFiles, activeAgent.name, activeAgent.id, maxChars, { currentDate: new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) });
 
       const rawResponse = await generateTextResponse({
         messages: [{ id: 'dream-1', role: 'user', content: userMessage }],
@@ -969,7 +962,6 @@ ${msg.content}`
         appSettings: _appSettings,
         integrations: _integrations,
         models: _models,
-        runIntegrationTools,
       });
 
       const plan = parseDreamerResponse(rawResponse);
@@ -991,7 +983,7 @@ ${msg.content}`
             // Validate all source paths exist
             const validSources = op.source_paths.filter((p: string) => knownPaths.has(p));
             if (validSources.length < 2) continue;
-            if (op.target_path.startsWith('/') || op.target_path.includes('..') || !op.target_path.startsWith(dreamScope.prefix)) continue;
+            if (op.target_path.startsWith('/') || op.target_path.includes('..') || !op.target_path.startsWith(`memory/${activeAgent.id}/`)) continue;
 
             // Write merged content
             const targetFullPath = `${_agentForgePath}/${op.target_path}`;
@@ -1050,6 +1042,21 @@ ${msg.content}`
             });
             if (writeResult.blocked) continue;
             dreamItems.push({ id, type: 'updated', description: op.description, archive_paths: [], original_paths: [], target_file: op.target_path, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
+
+          } else if (op.type === 'notice') {
+            if (!op.title?.trim() || !op.body?.trim()) continue;
+            dreamItems.push({
+              id,
+              type: 'noticed',
+              description: op.description,
+              notice_title: op.title,
+              notice_body: op.body,
+              notice_agent_id: op.agentId,
+              archive_paths: [],
+              original_paths: [],
+              git_commits: [],
+              undone: false,
+            });
           }
         } catch (opErr) {
           console.warn('[DreamCycle] Operation failed:', opErr);
@@ -1133,463 +1140,146 @@ ${msg.content}`
     catch { } finally { setIsEnhancingPrompt(false); }
   };
 
-  const collectResearchSources = useCallback(async (input: string, integrations: any): Promise<ResearchSource[]> => {
-    const query = extractSearchQuery(input);
-    const sources: ResearchSource[] = [];
-    const directUrls = extractUrls(input);
-    const wantsCurrentPage = /\b(this page|current page|browser tab|article|site|url|webpage)\b/i.test(input);
-
-    for (const url of directUrls) {
-      const read = await invoke<{ ok: boolean; text: string; error?: string }>('read_url_text', { url }).catch(() => ({ ok: false, text: '', error: 'URL text unavailable' }));
-      sources.push({
-        title: url,
-        url,
-        snippet: read.ok ? read.text.slice(0, 500) : read.error ?? 'URL text unavailable',
-        text: read.ok ? read.text : '',
-      });
-    }
-
-    if (wantsCurrentPage) {
-      const tab = await invoke<{ title: string; url: string; text: string; error?: string }>('get_active_tab', { preferred: 'auto' }).catch(() => null);
-      if (tab?.url) {
-        sources.push({
-          title: tab.title || tab.url,
-          url: tab.url,
-          snippet: tab.text?.slice(0, 500) || 'Active tab text unavailable',
-          text: tab.text || '',
-        });
-      }
-    }
-
-    if (integrations.tavily?.enabled && integrations.tavily?.apiKey) {
-      try {
-        const tvData = await fetchWithRetry(
-          'https://api.tavily.com/search',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              api_key: integrations.tavily.apiKey,
-              query,
-              max_results: 5,
-              search_depth: 'advanced',
-              include_answer: true,
-            }),
-          },
-          1
-        );
-        for (const result of tvData.results ?? []) {
-          const read = result.url
-            ? await invoke<{ ok: boolean; text: string; error?: string }>('read_url_text', { url: result.url }).catch(() => ({ ok: false, text: '', error: 'URL text unavailable' }))
-            : { ok: false, text: '', error: 'URL text unavailable' };
-          sources.push({
-            title: result.title || result.url || 'Web result',
-            url: result.url,
-            snippet: result.content || read.text.slice(0, 500),
-            text: read.ok ? read.text : result.content || '',
-          });
-        }
-      } catch (tvErr: any) {
-        const msg = tvErr?.message ?? String(tvErr);
-        const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
-        useUIStore.getState().showToast(
-          isAuth ? 'Tavily key rejected. Check Settings > Integrations.' : `Tavily search failed: ${msg}`
-        );
-      }
-    } else if (integrations.tavily?.enabled && !integrations.tavily?.apiKey) {
-      useUIStore.getState().showToast('Tavily is enabled but missing an API key.');
-    }
-
-    if (integrations.brave?.enabled && integrations.brave?.apiKey) {
-      try {
-        const braveData = await fetchWithRetry(
-          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&text_decorations=false`,
-          {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              'X-Subscription-Token': integrations.brave.apiKey,
-            },
-          },
-          1
-        );
-        for (const result of braveData?.web?.results ?? []) {
-          const read = result.url
-            ? await invoke<{ ok: boolean; text: string; error?: string }>('read_url_text', { url: result.url }).catch(() => ({ ok: false, text: '', error: 'URL text unavailable' }))
-            : { ok: false, text: '', error: 'URL text unavailable' };
-          sources.push({
-            title: result.title || result.url || 'Brave result',
-            url: result.url,
-            snippet: result.description || read.text.slice(0, 500),
-            text: read.ok ? read.text : result.description || '',
-          });
-        }
-      } catch (braveErr: any) {
-        const msg = braveErr?.message ?? String(braveErr);
-        const isAuth = msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('unauthorized');
-        useUIStore.getState().showToast(
-          isAuth ? 'Brave key rejected. Check Settings > Integrations.' : `Brave search failed: ${msg}`
-        );
-      }
-    } else if (integrations.brave?.enabled && !integrations.brave?.apiKey) {
-      useUIStore.getState().showToast('Brave Search is enabled but missing an API key.');
-    }
-
-    if (
-      hasResearchIntent(input)
-      && !integrations.tavily?.enabled
-      && !integrations.brave?.enabled
-      && directUrls.length === 0
-      && !wantsCurrentPage
-    ) {
-      useUIStore.getState().showToast('Search providers are off. Using browser, URLs, and Wikipedia fallback.');
-    }
-
-    const wikiQuery = query.split(' ').slice(0, 6).join(' ').trim();
-    if (wikiQuery) {
-      try {
-        const wikiData = await fetchWithRetry(
-          `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`,
-          { method: 'GET' },
-          1
-        );
-        for (const s of (wikiData?.query?.search ?? []).slice(0, 2)) {
-          const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`;
-          sources.push({
-            title: `Wikipedia: ${s.title}`,
-            url,
-            snippet: String(s.snippet ?? '').replace(/<[^>]*>?/gm, ''),
-          });
-        }
-      } catch (wikiErr) {
-        console.warn('Wikipedia search failed:', wikiErr);
-      }
-    }
-
-    return dedupeSources(sources).slice(0, 8);
-  }, []);
-
-  const autosaveResearchNote = useCallback(async ({
-    chat,
-    agent,
-    question,
-    answer,
-    sources,
-  }: { chat: any; agent: any; question: string; answer: string; sources: ResearchSource[] }) => {
-    const _agentForgePath = useMemoryStore.getState().agentForgePath;
-    if (!_agentForgePath || sources.length === 0 || !agent?.id) return null;
-
-    const normalized = normalizeChatRecord(chat, agent.id);
-    const assessment = assessMemoryGatekeeper({
-      sourceKind: 'research',
-      text: question,
-      answer,
-      chatKind: normalized.kind,
-      agentTools: agent?.tools ?? {},
-      urls: sources.map(source => source.url).filter(Boolean) as string[],
-      sourcePaths: sources.map(source => source.path).filter(Boolean) as string[],
-    });
-    if (!assessment.shouldSave) return null;
-
-    const title = question.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Research note';
-    const slug = researchSlugify(title, 'research');
-    const basePath = assessment.destination === 'channel_memory'
-      ? `${_agentForgePath}/memory/channels/${normalized.id}/research`
-      : `${_agentForgePath}/memory/${agent.id}/research`;
-    const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
-    const sourceLines = sources.map((source, i) => `${i + 1}. [${source.title}](${source.url ?? source.path ?? ''})`).join('\n');
-    const content = buildGroundedMarkdown(
-      {
-        title,
-        type: 'research-note',
-        scope: assessment.destination === 'channel_memory' ? 'channel' : 'agent',
-        agentId: agent.id,
-        agentName: agent.name ?? agent.id,
-        channelId: assessment.destination === 'channel_memory' ? normalized.id : undefined,
-        channelName: assessment.destination === 'channel_memory' ? normalized.name : undefined,
-        sourceKind: 'web_research',
-        sourceLabel: 'Source-required research answer',
-        sourceUrls: sources.map(source => source.url).filter(Boolean) as string[],
-        sourcePaths: sources.map(source => source.path).filter(Boolean) as string[],
-        derivedFrom: [`chat:${normalized.id}`],
-        evidenceState: assessment.evidenceState,
-        verification: assessment.verification,
-        confidence: assessment.confidence,
-        processor: 'memory-gatekeeper',
-        sourceCount: sources.length,
-        tags: assessment.tags,
-      },
-      `## Memory Gatekeeper
-- Level: ${assessment.level}
-- Destination: ${assessment.destination}
-- Memory type: ${assessment.memoryType}
-- Evidence: ${assessment.evidenceState}
-- Verification: ${assessment.verification}
-- Confidence: ${assessment.confidence}
-- Tool route: ${assessment.toolRoute}
-- Reason: ${assessment.reason}
-- Score: ${assessment.score}
-
-## Question
-${question}
-
-## Answer
-${answer}
-
-## Sources
-${sourceLines}
-
-## Source Excerpts
-${buildSourceNotes(sources, 900)}`
-    );
-
-    const result = await invoke<{ blocked: boolean; commit: string | null; error?: string }>('write_memory', {
-      path,
-      content,
-      commitMessage: `research: ${title}`,
-      agentId: agent.id,
-      contextTokens: null,
-      ramState: null,
-    }).catch((e: any) => ({ blocked: true, commit: null, error: e?.message ?? String(e) }));
-
-    if (result.blocked) {
-      console.warn('[Research] Autosave blocked:', result.error ?? result);
-      return null;
-    }
-    return { path, commit: result.commit };
-  }, []);
-
-  const autosaveConversationNote = useCallback(async ({
-    chat,
-    agent,
-    question,
-    answer,
-    contributions,
-    attachments,
-  }: { chat: any; agent: any; question: string; answer: string; contributions: string[]; attachments?: any[] }) => {
-    const _agentForgePath = useMemoryStore.getState().agentForgePath;
-    if (!_agentForgePath || !agent?.id) return null;
-
-    const normalized = normalizeChatRecord(chat, agent.id);
-    const assessment = assessMemoryGatekeeper({
-      sourceKind: 'conversation',
-      text: question,
-      answer,
-      agentTools: agent?.tools ?? {},
-      contributions,
-      attachments: attachments ?? [],
-      chatKind: normalized.kind,
-    });
-    if (!assessment.shouldSave || assessment.destination === 'task' || assessment.destination === 'inbox_only') return null;
-
-    const title = question.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Conversation note';
-    const slug = researchSlugify(title, 'conversation');
-    const basePath = assessment.destination === 'channel_memory'
-      ? `${_agentForgePath}/memory/channels/${normalized.id}/memos`
-      : assessment.destination === 'library'
-        ? `${_agentForgePath}/library/conversations`
-      : `${_agentForgePath}/memory/${agent.id}/memos`;
-    const path = `${basePath}/${new Date().toISOString().slice(0, 10)}-${slug}-${Date.now()}.md`;
-    const contributionBlock = contributions.length > 0
-      ? `\n\n## Invited Agent Notes\n${contributions.join('\n\n---\n\n')}`
-      : '';
-    const attachmentBlock = (attachments ?? []).length > 0
-      ? `\n\n## Attached Inputs\n${(attachments ?? []).map((file: any) => `- ${file.name ?? 'Attachment'} (${file.isImage ? 'image/vision input' : file.type || 'file'})`).join('\n')}`
-      : '';
-    const content = buildGroundedMarkdown(
-      {
-        title,
-        type: 'autosaved-conversation',
-        scope: assessment.destination === 'channel_memory' ? 'channel' : assessment.destination === 'library' ? 'library' : 'agent',
-        agentId: agent.id,
-        agentName: agent.name ?? agent.id,
-        channelId: assessment.destination === 'channel_memory' ? normalized.id : undefined,
-        channelName: assessment.destination === 'channel_memory' ? normalized.name : undefined,
-        sourceKind: 'conversation',
-        sourceLabel: 'User conversation and assistant response',
-        derivedFrom: [`chat:${normalized.id}`],
-        evidenceState: assessment.evidenceState,
-        verification: assessment.verification,
-        confidence: assessment.confidence,
-        processor: 'memory-gatekeeper',
-        tags: assessment.tags,
-      },
-      `## Memory Gatekeeper
-- Level: ${assessment.level}
-- Destination: ${assessment.destination}
-- Memory type: ${assessment.memoryType}
-- Evidence: ${assessment.evidenceState}
-- Verification: ${assessment.verification}
-- Confidence: ${assessment.confidence}
-- Tool route: ${assessment.toolRoute}
-- Reason: ${assessment.reason}
-- Score: ${assessment.score}
-
-## User
-${question}
-
-## Response
-${answer}
-${contributionBlock}
-${attachmentBlock}
-
-## Interpretation Boundary
-The user message is first-party context. The assistant response and invited-agent notes are work product unless separately backed by research sources or raw captures.`
-    );
-
-    const result = await invoke<{ blocked: boolean; commit: string | null; error?: string }>('write_memory', {
-      path,
-      content,
-      commitMessage: `memory: ${title}`,
-      agentId: agent.id,
-      contextTokens: null,
-      ramState: null,
-    }).catch((e: any) => ({ blocked: true, commit: null, error: e?.message ?? String(e) }));
-
-    if (result.blocked) {
-      console.warn('[Memory] Autosave blocked:', result.error ?? result);
-      return null;
-    }
-    return { path, commit: result.commit, assessment };
-  }, []);
-
   const processChatRequest = async (chatId: string, userMsg: any, historyToPass: any[]) => {
     // Read store state at call time (avoids stale closure issues)
     const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
     const _activeAssistant = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
-    const _chatRecord = useChatStore.getState().chats.find((c: any) => c.id === chatId);
-    const _normalizedChat = normalizeChatRecord(_chatRecord ?? { id: chatId, folderId: _activeFolderId, primaryAgentId: _activeFolderId, participantAgentIds: [_activeFolderId], kind: 'dm', name: `${_activeAssistant?.name ?? 'Agent'} Direct` }, _activeFolderId);
-    const _primaryAssistant = _assistants.find((a: any) => a.id === (_normalizedChat.primaryAgentId ?? _activeFolderId)) ?? _activeAssistant;
-    const _channelContext = buildChannelContext(_normalizedChat, _assistants);
     const { models: _models, selectedModelId: _selectedModelId, appSettings: _appSettings, integrations: _integrations } = useSettingsStore.getState();
     const _selectedModel = _models.find((m: any) => m.id === _selectedModelId) ?? _models[0] ?? null;
     const _hwProfile = useUIStore.getState().hwProfile;
     const _forcedTool = useUIStore.getState().forcedTool;
     const _globalPins = useMemoryStore.getState().globalPins;
-    const _agentPinnedMessagesForPrompt = _globalPins.filter((p: any) => p.agentId === _primaryAssistant?.id).map((p: any) => p.content);
+    const _agentPinnedMessagesForPrompt = _globalPins.filter((p: any) => p.agentId === _activeAssistant?.id).map((p: any) => p.content);
     const _generationMode = useUIStore.getState().generationMode;
     const _isDeepThinking = useUIStore.getState().isDeepThinking;
     const _canvasContent = useUIStore.getState().canvasContent;
     const _tasks = useTaskStore.getState().tasks;
     const _userProfile = useSettingsStore.getState().userProfile;
-    let activeBotId: string | null = null;
-    let activeToolMsgId: string | null = null;
-    let generationTimedOut = false;
-    let generationTimeout: ReturnType<typeof setTimeout> | null = null;
-    const clearGenerationTimeout = () => {
-      if (generationTimeout) clearTimeout(generationTimeout);
-      generationTimeout = null;
-    };
-    const resetGenerationTimeout = () => {
-      clearGenerationTimeout();
-      if (_selectedModel?.provider !== 'lmstudio') return;
-      generationTimeout = setTimeout(() => {
-        generationTimedOut = true;
-        abortControllerRef.current?.abort();
-      }, currentTextRef.current ? 120000 : 90000);
-    };
-    const currentTextRef = { current: '' };
-    const finishActiveBotWithError = (message: string) => {
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
-        const existing = prev[chatId] ?? [];
-        const clean = existing.filter((m: any) => !activeToolMsgId || m.id !== activeToolMsgId);
-        if (!activeBotId || !clean.some((m: any) => m.id === activeBotId)) {
-          return {
-            ...prev,
-            [chatId]: [
-              ...clean,
-              { id: generateId('err'), role: 'bot', content: message, isPinned: false, isStreaming: false, timestamp: Date.now() },
-            ],
-          };
-        }
-        return {
-          ...prev,
-          [chatId]: clean.map((m: any) => {
-            if (m.id !== activeBotId) return m;
-            const existingText = String(m.content ?? '').trim();
-            return {
-              ...m,
-              content: existingText ? `${existingText}\n\n${message}` : message,
-              isStreaming: false,
-            };
-          }),
-        };
-      });
-    };
 
     setIsGenerating(true);
     try {
       const history = [...historyToPass, userMsg];
-      const toolDecision = routeToolForMessage({
-        message: userMsg.content,
-        agentTools: _primaryAssistant?.tools ?? {},
-        forcedTool: _forcedTool,
-      });
-      let toolUsed = toolDecision.tool;
+      const inputLower = userMsg.content.toLowerCase();
+      let toolUsed = null;
       let toolData = "";
       let foundSources: any[] = [];
-      const supportBubbles: any[] = [];
+      const gatekeeperDecision = evaluateMemoryGate({
+        text: userMsg.content,
+        agentId: _activeAssistant?.id ?? null,
+        agentName: _activeAssistant?.name ?? null,
+        chatId,
+        forcedTool: _forcedTool,
+        enabledTools: _activeAssistant?.tools ?? {},
+        attachedFiles: userMsg.attachedFiles ?? [],
+      });
 
+      await persistGatekeeperMemory(chatId, userMsg, gatekeeperDecision, _activeAssistant);
+
+      const primaryToolRoute = selectPrimaryToolRoute(gatekeeperDecision);
+      if (primaryToolRoute === 'memory_search') {
+          toolUsed = 'Knowledge Search';
+      } else if (primaryToolRoute === 'web_search') {
+          toolUsed = 'Web Search';
+      } else if (primaryToolRoute === 'calendar') {
+          toolUsed = 'Calendar';
+      }
       if (_forcedTool) useUIStore.getState().setForcedTool(null);
 
       let messagesForLLM = [...history];
 
       if (toolUsed) {
         const toolMsgId = generateId('tool');
-        activeToolMsgId = toolMsgId;
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false, timestamp: Date.now() }] }));
 
         if (toolUsed === 'Knowledge Search') {
              try {
                  let ragData = "No relevant documents found in Knowledge Core.";
-                 let semanticData = "No semantic memory map matches.";
                  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
-                     const cleanQuery = userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim();
                      const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge_semantic', {
-                           query: cleanQuery,
-                           agentId: _primaryAssistant?.id ?? null,
-                           channelId: _normalizedChat.kind === 'channel' ? _normalizedChat.id : null,
-                           maxResults: _hwProfile?.rag_results ?? 5,
-                           snippetChars: _hwProfile?.rag_snippet_chars ?? 400
-                         }
+                         'search_knowledge_semantic', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: _activeAssistant?.id ?? null, maxResults: _hwProfile?.rag_results ?? 5, snippetChars: _hwProfile?.rag_snippet_chars ?? 400 }
                      );
                      const hits = kcResult.results ?? [];
                      if (hits.length > 0) {
                          ragData = hits.map((h: any, i: number) => `[${i + 1}] ${h.title}\n${h.snippet}`).join('\n\n---\n\n');
                          hits.forEach((h: any) => foundSources.push({ title: h.title, path: h.path, snippet: h.snippet }));
                      }
-                     const semanticResult = await invoke<SemanticLayerResult>(
-                       'search_semantic_layer', {
-                         query: cleanQuery,
-                         agentId: _primaryAssistant?.id ?? null,
-                         channelId: _normalizedChat.kind === 'channel' ? _normalizedChat.id : null,
-                         maxResults: 8,
-                       }
-                     ).catch(() => null);
-                     if (semanticResult && hasSemanticHits(semanticResult)) {
-                       semanticData = buildSemanticMemoryNotes(semanticResult);
-                       for (const hit of semanticResult.facts ?? []) {
-                         foundSources.push({ title: hit.title, path: hit.path, snippet: hit.fact });
-                       }
-                       for (const hit of semanticResult.relations ?? []) {
-                         foundSources.push({ title: hit.title, path: hit.path, snippet: `${hit.source} --${hit.relation}--> ${hit.target}` });
-                       }
-                     }
                  }
-                 toolData += `\n\n[SYSTEM NOTE: KNOWLEDGE SEARCH RESULTS]\n${ragData}\n\n[SYSTEM NOTE: SEMANTIC MEMORY MAP]\n${semanticData}\n\n[LOCAL MEMORY RULE]\nUse semantic facts/relations to understand what the user has given Agent Forge over time. Prefer user-provided, source-backed, and capture-backed facts over agent-inferred notes. Cite local facts as [[Title]]. If memory is low-confidence, stale, inferred, or conflicting, say so and avoid overstating it.\n[END SEARCH]`;
+                 toolData += `\n\n[SYSTEM NOTE: KNOWLEDGE SEARCH RESULTS]\n${ragData}\n[END SEARCH]`;
              } catch (e: any) {
                  console.error('Local RAG failed:', e);
                  toolData += `\n\n[SYSTEM NOTE: LOCAL RAG FAILED]\nError: ${e.message}\n[END SEARCH]`;
              }
         } else if (toolUsed === 'Web Search') {
             try {
-                const researchSources = await collectResearchSources(userMsg.content, _integrations);
-                foundSources = researchSources;
-                if (researchSources.length > 0) {
-                    toolData += `\n\n[SYSTEM NOTE: VERIFIED WEB/RESEARCH SOURCES]\n${buildSourceNotes(researchSources)}\n\n[SOURCE RULE]\nAnswer the user's actual question directly and concisely. Cite every factual web/current claim using [Source: Title](URL). Do not write a long dossier unless the user explicitly asks for a report. If the sources are weak or conflict, say so.\n[END SEARCH]`;
+                const query = userMsg.content.replace(/search( for)?|who is|what is|find/gi, '').trim() || userMsg.content;
+
+                // Tavily Fetch — via Tauri HTTP backend to bypass WebView CORS
+                if (_integrations.tavily?.enabled) {
+                    if (!_integrations.tavily?.apiKey) {
+                        useUIStore.getState().showToast("Tavily API key missing. Please add it in Settings → Integrations.");
+                    } else {
+                        try {
+                            const tvData = await fetchWithRetry(
+                                'https://api.tavily.com/search',
+                                {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        api_key: _integrations.tavily.apiKey,
+                                        query,
+                                        max_results: 3,
+                                        search_depth: "advanced",
+                                        include_answer: true
+                                    })
+                                },
+                                1
+                            );
+                            if (tvData.results) {
+                                tvData.results.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.content }));
+                            }
+                            if (tvData.answer) {
+                                toolData += `\n[TAVILY AI SUMMARY]\n${tvData.answer}\n`;
+                            }
+                        } catch (tvErr: any) {
+                            const msg = tvErr?.message ?? String(tvErr);
+                            const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
+                            useUIStore.getState().showToast(
+                                isAuth
+                                    ? 'Tavily: Invalid API key — check Settings → Integrations.'
+                                    : `Tavily search failed: ${msg}`
+                            );
+                            console.warn("Tavily search failed:", tvErr);
+                        }
+                    }
+                }
+
+                // Wikipedia Fetch — via Tauri HTTP backend
+                const wikiQuery = query.split(' ').slice(0, 4).join(' ').trim();
+                if (wikiQuery) {
+                    try {
+                        const wikiData = await fetchWithRetry(
+                            `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`,
+                            { method: 'GET' },
+                            1
+                        );
+                        if (wikiData?.query?.search) {
+                            wikiData.query.search.slice(0, 2).forEach((s: any) => {
+                                const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`;
+                                if (!foundSources.some((x: any) => x.url === url)) {
+                                    foundSources.push({ title: `Wikipedia: ${s.title}`, url, snippet: s.snippet.replace(/<[^>]*>?/gm, '') });
+                                }
+                            });
+                        }
+                    } catch (wikiErr: any) {
+                        console.warn("Wikipedia search failed:", wikiErr);
+                    }
+                }
+                
+                if (foundSources.length > 0) {
+                    const searchResults = foundSources.map(s => `- ${s.title}: ${s.snippet} (URL: ${s.url})`).join('\n');
+                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\n${searchResults}\n[END SEARCH]`;
                 } else {
-                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo verified sources were found. Do not answer factual/current claims as verified. Tell the user you could not verify the answer with sources and ask for a URL, a source, or search-provider setup if needed.\n[END SEARCH]`;
+                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo relevant results found online.\n[END SEARCH]`;
                 }
             } catch (e: any) {
                 console.error('Web search failed:', e);
@@ -1609,87 +1299,21 @@ The user message is first-party context. The assistant response and invited-agen
 
         await new Promise(r => setTimeout(r, 800));
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
-        activeToolMsgId = null;
         
         if (toolData) {
             // Only inject toolData into the LLM payload — never into stored messages (avoids SYSTEM NOTE bleed in chat bubbles)
             messagesForLLM = history.map(m => m.id === userMsg.id ? { ...m, content: m.content + toolData } : m);
         }
       }
-
-      const routedAgents = routeAgentsForChannel(userMsg.content, _normalizedChat, _assistants, _primaryAssistant?.id ?? _activeFolderId);
-      const contributorAgents = _normalizedChat.kind === 'channel'
-        ? routedAgents.filter((agent: any) => agent.id !== _primaryAssistant?.id).slice(0, 2)
-        : [];
-      const contributionNotes: string[] = [];
-
-      for (const agent of contributorAgents) {
-        try {
-          const contribution = await generateTextResponse({
-            messages: [{
-              id: generateId('msg'),
-              role: 'user',
-              content: `${userMsg.content}${toolData}\n\n[CHANNEL REQUEST]\nYou are contributing inside "${_normalizedChat.name}". Channel goal: ${_normalizedChat.goal || 'not set'}.\nGive concise specialist notes for the primary agent. Do not write the final answer. If sources are present, cite only those sources.`,
-            }],
-            modelConfig: _selectedModel,
-            profile: _userProfile,
-            attachedDocs: userMsg.attachedFiles,
-            agent: {
-              ...agent,
-              prompt: `${agent.prompt ?? ''}\n\n[CHANNEL CONTRIBUTION MODE]\nYou are one invited specialist in a multi-agent Agent Forge channel. Contribute only from your role. Be brief, specific, and useful to the final synthesizer.`,
-            },
-            tasks: _tasks,
-            mode: 'text',
-            canvasContent: _canvasContent,
-            isDeepThinking: false,
-            agentPinnedMessages: _globalPins.filter((p: any) => p.agentId === agent.id).map((p: any) => p.content),
-            onChunk: null,
-            signal: abortControllerRef.current?.signal,
-            appSettings: _appSettings,
-            integrations: _integrations,
-            models: _models,
-            channelContext: _channelContext,
-            runIntegrationTools,
-          });
-          const clipped = contribution.trim();
-          if (clipped) {
-            contributionNotes.push(`[${agent.name}]\n${clipped}`);
-            supportBubbles.push({
-              id: generateId('bubble'),
-              role: 'bot',
-              content: clipped,
-              agentId: agent.id,
-              agentName: agent.name,
-              bubbleType: 'thinking',
-              bubbleTitle: `${agent.name} contribution`,
-              bubbleSubtitle: agent.description || 'Invited channel specialist',
-              isPinned: false,
-              timestamp: Date.now(),
-            });
-          }
-        } catch (e) {
-          console.warn('[Channel] Agent contribution failed:', agent?.name, e);
-        }
-      }
-
-      if (contributionNotes.length > 0) {
-        const contributionData = `\n\n[SYSTEM NOTE: INVITED AGENT CONTRIBUTIONS]\n${contributionNotes.join('\n\n---\n\n')}\n[END CONTRIBUTIONS]`;
-        messagesForLLM = messagesForLLM.map(m => m.id === userMsg.id ? { ...m, content: m.content + contributionData } : m);
-      }
       
       const botId = generateId('msg');
-      activeBotId = botId;
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, agentId: _primaryAssistant?.id, agentName: _primaryAssistant?.name, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
 
       let currentText = '';
       let lastCanvasSync = Date.now();
-      currentTextRef.current = '';
-      resetGenerationTimeout();
 
       const handleChunk = (chunk: string) => {
           currentText += chunk;
-          currentTextRef.current = currentText;
-          resetGenerationTimeout();
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: currentText } : m) }));
 
           const now = Date.now();
@@ -1699,7 +1323,7 @@ The user message is first-party context. The assistant response and invited-agen
               if (match) {
                   const lang = (match[1] || '').toLowerCase();
                   const code = match[2];
-                  if (!['task', 'todo', 'profile', 'save', 'event', 'slack_post', 'gmail_draft', 'gus_create', 'gcal_event'].includes(lang)) {
+                  if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
                       useUIStore.getState().setCanvasContent((prev: any) => {
                           if (!prev) return { id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
                           return { ...prev, content: code };
@@ -1710,16 +1334,16 @@ The user message is first-party context. The assistant response and invited-agen
           }
       };
 
-      const effectiveGenerationMode = _generationMode === 'image' ? 'text' : _generationMode;
+      const isImageRequest = _generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
 
       const response = await generateTextResponse({
           messages: messagesForLLM,
           modelConfig: _selectedModel,
           profile: _userProfile,
           attachedDocs: userMsg.attachedFiles,
-          agent: _primaryAssistant,
+          agent: _activeAssistant,
           tasks: _tasks,
-          mode: effectiveGenerationMode,
+          mode: isImageRequest ? 'image' : _generationMode,
           canvasContent: _canvasContent,
           isDeepThinking: _isDeepThinking,
           agentPinnedMessages: _agentPinnedMessagesForPrompt,
@@ -1728,81 +1352,18 @@ The user message is first-party context. The assistant response and invited-agen
           appSettings: _appSettings,
           integrations: _integrations,
           models: _models,
-          channelContext: _channelContext,
           runIntegrationTools,
       });
-      clearGenerationTimeout();
 
-      const rawModelText = String(response || currentText || '');
-      const visibleModelText = rawModelText.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim();
-      let finalResponse = rawModelText.trim()
-        ? rawModelText
-        : 'I did not receive a text response from the selected model. Try again, or switch to another connected model.';
-      if (rawModelText.trim() && !visibleModelText && /<think>/i.test(rawModelText)) {
-        const closedThink = rawModelText.includes('</think>') ? rawModelText : `${rawModelText}\n</think>`;
-        finalResponse = `${closedThink}\n\nI finished thinking, but the model did not return a visible answer. Try again, or switch to another connected model.`;
-      }
-      const hasVisibleModelAnswer = Boolean(rawModelText.trim() && (visibleModelText || !/<think>/i.test(rawModelText)));
-
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: finalResponse, isStreaming: false } : m) }));
-
-      const appendSupportBubbles = (bubbles: any[]) => {
-        if (bubbles.length === 0) return;
-        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
-          ...prev,
-          [chatId]: [
-            ...(prev[chatId] ?? []),
-            ...bubbles.filter((bubble: any) => !(prev[chatId] ?? []).some((m: any) => m.id === bubble.id)),
-          ],
-        }));
-      };
-
-      appendSupportBubbles([...supportBubbles]);
-
-      if (hasVisibleModelAnswer) {
-        void (async () => {
-          try {
-            if (toolUsed === 'Web Search' && foundSources.length > 0) {
-              const saved = await autosaveResearchNote({
-                chat: _normalizedChat,
-                agent: _primaryAssistant,
-                question: userMsg.content,
-                answer: finalResponse,
-                sources: foundSources,
-              });
-              if (saved) {
-                useUIStore.getState().showToast("Research saved to Knowledge Core.");
-              }
-            } else {
-              const saved = await autosaveConversationNote({
-                chat: _normalizedChat,
-                agent: _primaryAssistant,
-                question: userMsg.content,
-                answer: finalResponse,
-                contributions: contributionNotes,
-                attachments: userMsg.attachedFiles ?? [],
-              });
-              if (saved) {
-                if (saved.assessment.notification === 'toast') {
-                  useUIStore.getState().showToast(
-                    saved.assessment.level === 'explicit' ? "Memory updated." : "Notable memory saved."
-                  );
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('[Memory] Autosave failed without blocking response:', e);
-          }
-        })();
-      }
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
 
       if (_generationMode === 'code' || _generationMode === 'doc') {
-         const contentWithoutThink = finalResponse.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
+         const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
          const finalMatch = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)```/);
          if (finalMatch) {
              const lang = (finalMatch[1] || '').toLowerCase();
              const code = finalMatch[2];
-             if (!['task', 'todo', 'profile', 'save', 'event', 'slack_post', 'gmail_draft', 'gus_create', 'gcal_event'].includes(lang)) {
+             if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
                  useUIStore.getState().setCanvasContent((prev: any) => {
                      if (!prev) return prev;
                      const curHist = prev.history || [{ timestamp: Date.now(), content: prev.content }];
@@ -1819,17 +1380,9 @@ The user message is first-party context. The assistant response and invited-agen
       }
 
     } catch (err: any) {
-      clearGenerationTimeout();
-      if (err.name === 'AbortError' && !generationTimedOut) {
-        finishActiveBotWithError('### Generation Stopped\nThe request was cancelled.');
-        return;
-      }
-      const message = generationTimedOut
-        ? '### LM Studio Timed Out\nNo tokens arrived from LM Studio. Make sure LM Studio is open, a chat/instruct model is loaded, the Local Server is started, and the selected model ID matches the model returned by Fetch Models.'
-        : `### Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`;
-      finishActiveBotWithError(message);
+      if (err.name === 'AbortError') { setIsGenerating(false); return; }
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`, isPinned: false, timestamp: Date.now() }] }));
     } finally {
-      clearGenerationTimeout();
       setIsGenerating(false);
     }
   };
@@ -1842,63 +1395,14 @@ The user message is first-party context. The assistant response and invited-agen
     const _canvasContent = useUIStore.getState().canvasContent;
     const _generationMode = useUIStore.getState().generationMode;
     const _isPlanMode = useUIStore.getState().isPlanMode;
-    const { activeChatId: _activeChatId, messages: _messages, chats: _chats } = useChatStore.getState();
-    const { activeFolderId: _activeFolderId, assistants: _assistants } = useAgentStore.getState();
-    const _activeAssistantForDirect = _assistants.find((a: any) => a.id === _activeFolderId) ?? _assistants[0];
-    if (isGenerating) return;
-    if (!_input.trim() && _attachedDocs.length === 0) return;
+    const { activeChatId: _activeChatId, messages: _messages } = useChatStore.getState();
+    const { activeFolderId: _activeFolderId } = useAgentStore.getState();
+    const _agentPinnedMessagesForPrompt = useMemoryStore.getState().globalPins
+      .filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === _activeFolderId) ?? useAgentStore.getState().assistants[0])?.id)
+      .map((p: any) => p.content);
 
-    if (!_selectedModel) {
-      let chatId = _activeChatId;
-      if (!chatId) {
-        const existingDirect = _chats
-          .map((chat: any) => normalizeChatRecord(chat, _activeFolderId))
-          .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === _activeFolderId || chat.folderId === _activeFolderId));
-        if (existingDirect) {
-          chatId = existingDirect.id;
-          useChatStore.getState().setActiveChatId(chatId);
-        }
-      }
-      if (!chatId) {
-        chatId = generateId('c');
-        useChatStore.getState().setChats((prev: any[]) => [normalizeChatRecord({
-          id: chatId,
-          folderId: _activeFolderId,
-          primaryAgentId: _activeFolderId,
-          participantAgentIds: [_activeFolderId],
-          kind: 'dm',
-          name: `${_activeAssistantForDirect?.name ?? 'Agent'} Direct`,
-          goal: '',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        }, _activeFolderId), ...prev]);
-        useChatStore.getState().setActiveChatId(chatId);
-      }
-      const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
-      const setupMsg = {
-        id: generateId('msg'),
-        role: 'bot',
-        content: `I need you to connect me to an LLM before I can answer with real intelligence.\n\nOpen **Settings > Models** and connect LM Studio for local chat, or add a cloud model. Once a model is connected, I get my powers and this Direct keeps going.`,
-        agentId: _activeAssistantForDirect?.id,
-        agentName: _activeAssistantForDirect?.name,
-        isPinned: false,
-        timestamp: Date.now() + 1,
-      };
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId!]: [...(prev[chatId!] ?? []), userMsg, setupMsg] }));
-      useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, updatedAt: Date.now() } : c));
-      useUIStore.getState().setInput('');
-      useUIStore.getState().setAttachedDocs([]);
-      useSettingsStore.getState().setProfileSettingsTab('models');
-      useSettingsStore.getState().setShowProfileSettings(true);
-      useUIStore.getState().showToast('Connect an LLM to give Lexi a brain.', {
-        label: 'Models',
-        onClick: () => {
-          useSettingsStore.getState().setProfileSettingsTab('models');
-          useSettingsStore.getState().setShowProfileSettings(true);
-        },
-      });
-      return;
-    }
+    if (isGenerating || !_selectedModel) return;
+    if (!_input.trim() && _attachedDocs.length === 0) return;
 
     if (_canvasContent && (_generationMode === 'code' || _generationMode === 'doc')) {
       useUIStore.getState().setCanvasContent((prev: any) => {
@@ -1916,29 +1420,10 @@ The user message is first-party context. The assistant response and invited-agen
     }
 
     abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
-    let chatId = _activeChatId;
-    if (!chatId) {
-      const existingDirect = _chats
-        .map((chat: any) => normalizeChatRecord(chat, _activeFolderId))
-        .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === _activeFolderId || chat.folderId === _activeFolderId));
-      if (existingDirect) {
-        chatId = existingDirect.id;
-        useChatStore.getState().setActiveChatId(chatId);
-      }
-    }
-    if (!chatId) {
+    let chatId = _activeChatId; const isNewChat = !chatId;
+    if (isNewChat) {
       chatId = generateId('c');
-      useChatStore.getState().setChats((prev: any[]) => [normalizeChatRecord({
-        id: chatId,
-        folderId: _activeFolderId,
-        primaryAgentId: _activeFolderId,
-        participantAgentIds: [_activeFolderId],
-        kind: 'dm',
-        name: `${_activeAssistantForDirect?.name ?? 'Agent'} Direct`,
-        goal: '',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      }, _activeFolderId), ...prev]);
+      useChatStore.getState().setChats((prev: any[]) => [{ id: chatId, folderId: _activeFolderId, name: _input.slice(0, 30) || 'New Session', updatedAt: Date.now() }, ...prev]);
       useChatStore.getState().setActiveChatId(chatId);
     }
     const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
@@ -1946,7 +1431,12 @@ The user message is first-party context. The assistant response and invited-agen
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), userMsg] }));
         useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, updatedAt: Date.now() } : c));
 
-        const currentHistory = (_messages[chatId] ?? []).filter((m: any) => !m.bubbleType && !m.isToolCall);
+        if (isNewChat && _input.trim() && !_selectedModel.modelId.includes('dall-e') && !_selectedModel.modelId.includes('image')) {
+          generateTextResponse({ messages: [{ role: 'user', content: `Generate a very short, 2 to 4 word title for a conversation starting with this prompt: "${_input.slice(0, 100)}". Return ONLY the title, no quotes, no extra text.` }], modelConfig: _selectedModel, profile: '', attachedDocs: [], agent: { tools: {} }, tasks: [], mode: 'text', canvasContent: null, isDeepThinking: false, agentPinnedMessages: _agentPinnedMessagesForPrompt, signal: null, appSettings: _appSettings, integrations: _integrations, models: _models })
+          .then(title => useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, name: title.replace(/["']/g, '').trim().slice(0, 40) } : c))).catch(() => {});
+        }
+
+        const currentHistory = _messages[chatId] ?? [];
         useUIStore.getState().setInput('');
         useUIStore.getState().setAttachedDocs([]);
 
@@ -1968,7 +1458,7 @@ The user message is first-party context. The assistant response and invited-agen
      if (msgIdx === -1) return;
 
      const targetMsg = chatMsgs[msgIdx];
-     const historyToKeep = chatMsgs.slice(0, msgIdx).filter((m: any) => !m.bubbleType && !m.isToolCall);
+     const historyToKeep = chatMsgs.slice(0, msgIdx);
      const newMsg = { ...targetMsg, id: generateId('msg'), content: _emc, timestamp: Date.now() };
 
      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({...prev, [_activeChatId]: [...historyToKeep, newMsg]}));
@@ -1996,20 +1486,6 @@ The user message is first-party context. The assistant response and invited-agen
     if (typeof rawText !== 'string') return elements;
     const openFileInPanel = (path?: string) => { useMemoryStore.getState().setShowMemmoPanel(true); useMemoryStore.getState().setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'notes' : 'pins'); };
     if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} /></div>;
-
-    if (msg.bubbleType) {
-      return (
-        <CollapsibleBubble
-          title={msg.bubbleTitle ?? msg.agentName ?? 'Agent work'}
-          subtitle={msg.bubbleSubtitle}
-          type={msg.bubbleType}
-          defaultOpen={false}
-        >
-          <FormattedText text={rawText} sources={sources} onSaveImage={saveImageToLibrary} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} />
-          {sources && sources.length > 0 && <SourcesTray sources={sources} onOpenFile={openFileInPanel} />}
-        </CollapsibleBubble>
-      );
-    }
 
     // --- Deep Thinking Parser ---
     let displayContent = rawText;
@@ -2125,6 +1601,7 @@ The user message is first-party context. The assistant response and invited-agen
       } else if (lang === 'slack_post') {
         try {
           const sd = JSON.parse(code);
+          const _integrations = useSettingsStore.getState().integrations;
           elements.push(
             <div key={`slack-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
               <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><MessageSquare className="w-4 h-4" /> Post to Slack</div>
@@ -2134,16 +1611,16 @@ The user message is first-party context. The assistant response and invited-agen
               </div>
               <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">{sd.text}</div>
               <button onClick={async () => {
-                const _integrations = useSettingsStore.getState().integrations;
                 const token = _integrations.slack?.botToken;
-                if (!_integrations.slack?.enabled || !token) { showToast('Slack is not configured.'); return; }
+                if (!token) { showToast('Slack not configured.'); return; }
                 try {
-                  const res = await fetchWithRetry('https://slack.com/api/chat.postMessage', {
+                  const { fetchWithRetry: fw } = await import('./services/llm');
+                  const res = await fw('https://slack.com/api/chat.postMessage', {
                     method: 'POST',
                     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ channel: sd.channel, text: sd.text }),
                   }, 1);
-                  showToast(res.ok ? 'Posted to Slack.' : `Slack error: ${res.error ?? 'post failed'}`);
+                  if (res.ok) { showToast('✅ Posted to Slack'); } else { showToast(`Slack error: ${res.error}`); }
                 } catch (e: any) { showToast(`Slack error: ${e.message}`); }
               }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
                 <Send className="w-3.5 h-3.5" /> Post Message
@@ -2154,29 +1631,33 @@ The user message is first-party context. The assistant response and invited-agen
       } else if (lang === 'gmail_draft') {
         try {
           const gd = JSON.parse(code);
+          const _integrations = useSettingsStore.getState().integrations;
           elements.push(
             <div key={`gmail-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#C98A8A]/30 dark:border-[#C98A8A]/20 bg-[#FFF8F8] dark:bg-[#3E2929]/20 flex flex-col gap-3 shadow-sm">
-              <div className="flex items-center gap-2 text-[#C98A8A] font-bold text-xs uppercase tracking-widest"><Mail className="w-4 h-4" /> Send Gmail</div>
+              <div className="flex items-center gap-2 text-[#C98A8A] font-bold text-xs uppercase tracking-widest"><Mail className="w-4 h-4" /> Send Gmail Draft</div>
               <div className="grid grid-cols-1 gap-1.5 text-xs">
                 <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">To</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.to}</span></div>
                 {gd.cc && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">CC</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.cc}</span></div>}
                 <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">Subject</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.subject}</span></div>
-                {gd.accountLabel && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">Account</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.accountLabel}</span></div>}
               </div>
               <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">{gd.body}</div>
               <button onClick={async () => {
-                const _integrations = useSettingsStore.getState().integrations;
-                const account = getGoogleActionAccount(_integrations, 'gmail', gd.accountLabel);
-                if (!account) { showToast('No Gmail account is configured.'); return; }
+                const gw = _integrations.googleWorkspace;
+                if (!gw?.connected || !gw.clientId || !gw.clientSecret || !gw.refreshToken) { showToast('Google Workspace not configured.'); return; }
                 try {
-                  const accessToken = await refreshGoogleAccessToken(account.clientId, account.clientSecret, account.refreshToken);
-                  const raw = [`To: ${gd.to}`, gd.cc ? `Cc: ${gd.cc}` : null, `Subject: ${gd.subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', gd.body].filter(Boolean).join('\r\n');
-                  const res = await fetchWithRetry('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ raw: base64UrlEncode(raw) }),
+                  const { fetchWithRetry: fw } = await import('./services/llm');
+                  const tokenRes = await fw('https://oauth2.googleapis.com/token', {
+                    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ client_id: gw.clientId, client_secret: gw.clientSecret, refresh_token: gw.refreshToken, grant_type: 'refresh_token' }).toString(),
                   }, 1);
-                  showToast(res.id ? 'Email sent.' : 'Gmail send failed.');
+                  if (!tokenRes.access_token) throw new Error('Token refresh failed');
+                  const raw = [`To: ${gd.to}`, gd.cc ? `Cc: ${gd.cc}` : null, `Subject: ${gd.subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', gd.body].filter(Boolean).join('\r\n');
+                  const encoded = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                  const res = await fw('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                    method: 'POST', headers: { Authorization: `Bearer ${tokenRes.access_token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ raw: encoded }),
+                  }, 1);
+                  if (res.id) { showToast('✅ Email sent'); } else { showToast('Gmail send failed'); }
                 } catch (e: any) { showToast(`Gmail error: ${e.message}`); }
               }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#C98A8A] hover:bg-[#b57070] text-white active:scale-95 transition-all">
                 <Send className="w-3.5 h-3.5" /> Send Email
@@ -2187,6 +1668,7 @@ The user message is first-party context. The assistant response and invited-agen
       } else if (lang === 'gus_create') {
         try {
           const gc = JSON.parse(code);
+          const _integrations = useSettingsStore.getState().integrations;
           elements.push(
             <div key={`gus-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
               <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><Layers className="w-4 h-4" /> Create GUS Work Item</div>
@@ -2196,21 +1678,22 @@ The user message is first-party context. The assistant response and invited-agen
                 {gc.priority && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Priority</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.priority}</span></div>}
                 {gc.assignee && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Assignee</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.assignee}</span></div>}
               </div>
-              {gc.details && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">{gc.details}</div>}
+              {gc.details && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">{gc.details}</div>}
               <button onClick={async () => {
-                const _integrations = useSettingsStore.getState().integrations;
-                const { instanceUrl, accessToken, enabled } = _integrations.gus ?? {};
-                if (!enabled || !instanceUrl || !accessToken) { showToast('GUS is not configured.'); return; }
+                const { instanceUrl, accessToken } = _integrations.gus ?? {};
+                if (!instanceUrl || !accessToken) { showToast('GUS not configured.'); return; }
                 try {
+                  const { fetchWithRetry: fw } = await import('./services/llm');
+                  const url = `${instanceUrl.replace(/\/$/, '')}/services/data/v59.0/sobjects/ADM_Work__c`;
                   const body: any = { Subject__c: gc.subject, Type__c: gc.type ?? 'Story' };
                   if (gc.priority) body.Priority__c = gc.priority;
                   if (gc.details) body.Details__c = gc.details;
-                  const res = await fetchWithRetry(`${instanceUrl.replace(/\/$/, '')}/services/data/v59.0/sobjects/ADM_Work__c`, {
+                  const res = await fw(url, {
                     method: 'POST',
                     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                   }, 1);
-                  showToast(res.id ? `Created GUS item ${res.id}.` : 'GUS create failed.');
+                  if (res.id) { showToast(`✅ Created ${res.id}`); } else { showToast('GUS create failed'); }
                 } catch (e: any) { showToast(`GUS error: ${e.message}`); }
               }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Create Work Item
@@ -2221,6 +1704,7 @@ The user message is first-party context. The assistant response and invited-agen
       } else if (lang === 'gcal_event') {
         try {
           const ge = JSON.parse(code);
+          const _integrations = useSettingsStore.getState().integrations;
           elements.push(
             <div key={`gcal-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
               <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><CalendarClock className="w-4 h-4" /> Create Google Calendar Event</div>
@@ -2231,23 +1715,28 @@ The user message is first-party context. The assistant response and invited-agen
                 {ge.location && <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Location</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.location}</span></div>}
                 {ge.accountLabel && <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Account</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.accountLabel}</span></div>}
               </div>
-              {ge.description && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">{ge.description}</div>}
+              {ge.description && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">{ge.description}</div>}
               <button onClick={async () => {
-                const _integrations = useSettingsStore.getState().integrations;
-                const account = getGoogleActionAccount(_integrations, 'calendar', ge.accountLabel);
-                if (!account) { showToast('No Google Calendar account is configured.'); return; }
+                const workspaces: any[] = _integrations.googleWorkspaces ?? [];
+                const acct = ge.accountLabel
+                  ? workspaces.find((a: any) => a.label === ge.accountLabel)
+                  : workspaces.find((a: any) => a.scopes?.calendar && a.clientId && a.refreshToken);
+                if (!acct) { showToast('No Google Calendar account configured.'); return; }
                 try {
-                  const accessToken = await refreshGoogleAccessToken(account.clientId, account.clientSecret, account.refreshToken);
-                  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                  const event: any = { summary: ge.title, start: { dateTime: ge.start, timeZone }, end: { dateTime: ge.end, timeZone } };
+                  const { fetchWithRetry: fw } = await import('./services/llm');
+                  const tokenRes = await fw('https://oauth2.googleapis.com/token', {
+                    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ client_id: acct.clientId, client_secret: acct.clientSecret, refresh_token: acct.refreshToken, grant_type: 'refresh_token' }).toString(),
+                  }, 1);
+                  if (!tokenRes.access_token) throw new Error('Token refresh failed');
+                  const event: any = { summary: ge.title, start: { dateTime: ge.start }, end: { dateTime: ge.end } };
                   if (ge.description) event.description = ge.description;
                   if (ge.location) event.location = ge.location;
-                  const res = await fetchWithRetry('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                  const res = await fw('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+                    method: 'POST', headers: { Authorization: `Bearer ${tokenRes.access_token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify(event),
                   }, 1);
-                  showToast(res.id ? 'Event created in Google Calendar.' : 'Calendar create failed.');
+                  if (res.id) { showToast('✅ Event created in Google Calendar'); } else { showToast('Calendar create failed'); }
                 } catch (e: any) { showToast(`Calendar error: ${e.message}`); }
               }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
                 <CalendarClock className="w-3.5 h-3.5" /> Create Event
@@ -2255,7 +1744,7 @@ The user message is first-party context. The assistant response and invited-agen
             </div>
           );
         } catch { elements.push(<div key={`err-gcal-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar event.</div>); }
-      } else if (code.length > 5 && !['task', 'todo', 'profile', 'save', 'event', 'slack_post', 'gmail_draft', 'gus_create', 'gcal_event'].includes(lang)) {
+      } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'event') {
         const codePreview = code.split('\n').slice(0, 4).join('\n') + (code.split('\n').length > 4 ? '\n...' : '');
         elements.push(
           <div key={`art-${match.index}`} className="my-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 overflow-hidden flex flex-col group/art shadow-sm transition-all hover:border-[#899AB5]">
@@ -2580,7 +2069,11 @@ The user message is first-party context. The assistant response and invited-agen
 
       {/* Global Profile/System Settings */}
       {showProfileSettings && (
-        <ProfileSettingsModal />
+        <ProfileSettingsModal
+          fetchImageModels={fetchImageModels}
+          testImageEngine={testImageEngine}
+          viewImageInCanvas={viewImageInCanvas}
+        />
       )}
 
       {/* Save Artifact Modal */}

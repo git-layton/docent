@@ -94,6 +94,7 @@ export function AssistantSettingsModal({
   const { setEditingAssistant, setAssistantSettingsTab, setShowAssistantSettings } = useAgentStore.getState();
 
   const models = useSettingsStore(s => s.models);
+  const appSettings = useSettingsStore(s => s.appSettings);
   const integrations = useSettingsStore(s => s.integrations);
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
@@ -129,7 +130,9 @@ export function AssistantSettingsModal({
                     <div>
                        <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Default Output Mode</label>
                        <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-2xl">
-                         {[{id:'text', lbl:'Chat'}, {id:'code',lbl:'Code Canvas'}, {id:'doc',lbl:'Doc Draft'}].map(m => (
+                         {[{id:'text', lbl:'Chat'}, {id:'code',lbl:'Code Canvas'}, {id:'doc',lbl:'Doc Draft'}, {id:'image',lbl:'Image Gen'}]
+                           .filter(m => m.id !== 'image' || appSettings?.imageProvider !== 'none')
+                           .map(m => (
                            <button key={m.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, defaultMode: m.id }))} className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${editingAssistant.defaultMode === m.id || (!editingAssistant.defaultMode && m.id === 'text') ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>
                              {m.lbl}
                            </button>
@@ -160,41 +163,32 @@ export function AssistantSettingsModal({
                     <div className="space-y-2">
                        {AVAILABLE_TOOLS.map(tool => {
                           const Icon = tool.icon, enabled = editingAssistant.tools?.[tool.id] ?? false;
-                          const meta = tool as any;
-                          const needsSetup = meta.requiresIntegration && (() => {
-                            const key = meta.requiresIntegration;
-                            const scope = meta.requiresScope;
-                            const value = (integrations as any)[key];
-                            if (!value) return true;
-                            if (key === 'slack') return !value.enabled || !value.botToken;
-                            if (key === 'gus') return !value.enabled || !value.instanceUrl || !value.accessToken;
+                          const needsSetup = (tool as any).requiresIntegration && (() => {
+                            const key = (tool as any).requiresIntegration;
+                            const scope = (tool as any).requiresScope;
+                            const intg = (integrations as any)[key];
+                            if (!intg) return true;
+                            if (key === 'slack') return !intg.botToken;
                             if (key === 'googleWorkspaces') {
-                              const accounts: any[] = value ?? [];
-                              const configured = accounts.filter((account: any) => account.connected !== false && account.clientId && account.clientSecret && account.refreshToken);
-                              if (configured.length === 0) return true;
-                              return scope ? !configured.some((account: any) => account.scopes?.[scope]) : false;
+                              const accounts: any[] = intg ?? [];
+                              if (accounts.length === 0) return true;
+                              if (scope) return !accounts.some((a: any) => a.scopes?.[scope]);
+                              return false;
                             }
                             return false;
                           })();
                           const isGoogleTool = ['gmail', 'google_drive', 'google_calendar'].includes(tool.id);
-                          const googleAccounts: any[] = (integrations as any).googleWorkspaces ?? [];
-                          const scopeMap: Record<string, string> = { gmail: 'gmail', google_drive: 'drive', google_calendar: 'calendar' };
+                          const gwAccounts: any[] = (integrations as any).googleWorkspaces ?? [];
                           const relevantAccounts = isGoogleTool
-                            ? googleAccounts.filter((account: any) =>
-                                account.id &&
-                                account.connected !== false &&
-                                account.scopes?.[scopeMap[tool.id]] &&
-                                account.clientId &&
-                                account.clientSecret &&
-                                account.refreshToken
-                              )
+                            ? gwAccounts.filter((a: any) => {
+                                const scopeMap: Record<string, string> = { gmail: 'gmail', google_drive: 'drive', google_calendar: 'calendar' };
+                                return a.scopes?.[scopeMap[tool.id]] && a.clientId && a.refreshToken;
+                              })
                             : [];
                           const allowedIds: string[] = editingAssistant.toolAccounts?.[tool.id] ?? [];
-                          const toggleAccount = (accountId: string) => {
+                          const toggleAccount = (acctId: string) => {
                             const current: string[] = editingAssistant.toolAccounts?.[tool.id] ?? [];
-                            const next = current.includes(accountId)
-                              ? current.filter((id: string) => id !== accountId)
-                              : [...current, accountId];
+                            const next = current.includes(acctId) ? current.filter((x: string) => x !== acctId) : [...current, acctId];
                             setEditingAssistant((prev: any) => ({ ...prev, toolAccounts: { ...(prev.toolAccounts ?? {}), [tool.id]: next } }));
                           };
                           return (
@@ -207,7 +201,7 @@ export function AssistantSettingsModal({
                                   <span className="text-[9px] text-neutral-500">{tool.desc}</span>
                                   {needsSetup && (
                                     <span className="text-[9px] font-bold text-amber-500 flex items-center gap-1 mt-0.5">
-                                      <AlertTriangle className="w-2.5 h-2.5" /> Setup required in System Settings - Integrations
+                                      <AlertTriangle className="w-2.5 h-2.5" /> Setup required in System Settings → Integrations
                                     </span>
                                   )}
                                 </div>
@@ -220,16 +214,16 @@ export function AssistantSettingsModal({
                                <div className="px-3 pb-3 pt-1 flex flex-col gap-1.5">
                                  <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Allowed Accounts <span className="normal-case font-normal">(leave all off = access all)</span></span>
                                  <div className="flex flex-wrap gap-1.5">
-                                   {relevantAccounts.map((account: any) => {
-                                     const active = allowedIds.length === 0 || allowedIds.includes(account.id);
-                                     const pinned = allowedIds.includes(account.id);
+                                   {relevantAccounts.map((acct: any) => {
+                                     const active = allowedIds.length === 0 || allowedIds.includes(acct.id);
+                                     const pinned = allowedIds.includes(acct.id);
                                      return (
                                        <button
-                                         key={account.id}
-                                         onClick={() => toggleAccount(account.id)}
+                                         key={acct.id}
+                                         onClick={() => toggleAccount(acct.id)}
                                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${pinned ? 'bg-[#4A5D75] text-white border-[#4A5D75]' : active ? 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500' : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-300 line-through'}`}
                                        >
-                                         {account.label || account.id}
+                                         {acct.label || acct.id}
                                        </button>
                                      );
                                    })}

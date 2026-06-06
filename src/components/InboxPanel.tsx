@@ -18,7 +18,7 @@ import { useChatStore } from '../store/useChatStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { normalizeChatRecord } from '../services/channels';
 import { generateTextResponse } from '../services/llm';
-import { assessMemoryGatekeeper } from '../services/memoryGatekeeper';
+import { evaluateMemoryGate } from '../services/memoryGatekeeper';
 import {
   buildCaptureMarkdown,
   DEFAULT_INBOX_OWNERS,
@@ -289,8 +289,7 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
       const targetAgent = assistants.find((a: any) => a.id === targetId) ?? activeAgent;
       const targetChannel = channels.find((c: any) => c.id === targetId);
       const triage = await runTriage(refreshed);
-      const gatekeeperDecision = assessMemoryGatekeeper({
-        sourceKind: 'capture',
+      const gatekeeperDecision = evaluateMemoryGate({
         text: [
           refreshed.title,
           refreshed.note,
@@ -300,15 +299,14 @@ export function InboxPanel({ agentForgePath, activeAgentId, onToast }: InboxPane
           ...triage.facts,
           ...triage.tasks,
         ].filter(Boolean).join('\n'),
-        explicitTargetKind: ['agent', 'channel', 'library'].includes(targetType) ? targetType as any : '',
-        chatKind: targetType === 'channel' ? 'channel' : 'dm',
-        urls: refreshed.urls ?? [],
-        attachments: refreshed.attachments?.map(a => ({
+        channelId: targetType === 'channel' ? targetId : undefined,
+        agentId: targetType === 'agent' ? targetId : undefined,
+        sourceUrls: refreshed.urls ?? [],
+        attachedFiles: refreshed.attachments?.map(a => ({
           name: a.name,
-          mimeType: a.mimeType,
+          type: a.mimeType,
           isImage: a.mimeType?.startsWith('image/'),
         })) ?? [],
-        captureId: refreshed.id,
       });
       if (!gatekeeperDecision.shouldSave) {
         await patchCapture(refreshed, {

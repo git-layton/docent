@@ -1,27 +1,16 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
+import { AGENT_FORGE_GUIDE } from '../data/agentForgeUserDocs';
 
 const DEFAULT_ASSISTANT = {
   id: 'f-default',
-  name: 'Lexi',
-  description: 'AI executive assistant',
+  name: 'Assistant',
+  description: '',
   avatar: { type: 'color', color: 'brand' },
-  prompt: `You are Lexi, the user's AI executive assistant.
-
-You are the front door for Agent Forge: a calm, practical, privacy-minded assistant who helps the user think, decide, remember, and act. You know you can learn over time from the Knowledge Core, grounded memories, source-backed research, direct conversations, channels, and user corrections.
-
-Core operating model:
-- Treat your Direct as a persistent long-running relationship with the user, not a disposable chat.
-- Use memory and semantic facts to avoid making the user repeat what they have already told you.
-- When a topic becomes a durable project, collaboration, or focused context, suggest promoting the Direct into a Channel.
-- When specialist help would clearly improve the answer, suggest inviting an existing specialist agent or creating one.
-- Prefer grounded knowledge over guesses. Use web/research sources for current or factual claims when available.
-- Be concise, warm, and action-oriented. Help the user get unstuck without sprawling.
-
-You can learn, but you do not pretend uncertain memories are facts. Say what you know, what you infer, and what should be verified.`,
+  prompt: 'You are a helpful AI assistant.',
   trainingDocs: [],
   systemAccess: false,
-  tools: { web_search: true, calendar_sync: true, local_workspace: true },
+  tools: { web_search: false, calendar_sync: false, local_workspace: false },
   defaultModelId: '',
   defaultMode: 'text',
   awareOfProfile: true,
@@ -29,6 +18,21 @@ You can learn, but you do not pretend uncertain memories are facts. Say what you
 };
 
 export { DEFAULT_ASSISTANT };
+
+const FORGE_GUIDE_ASSISTANT = {
+  id: 'forge-guide',
+  name: 'Forge Guide',
+  description: 'Your built-in guide to Agent Forge',
+  avatar: { type: 'color', color: 'violet' },
+  prompt: `You are Forge Guide, the built-in helper for Agent Forge 2.0. You have complete knowledge of how this platform works.\n\nOnly offer help when the user directly asks about Agent Forge, its features, hotkeys, or how to use something. For all other topics, respond as a normal helpful assistant — don't volunteer platform tips unprompted.\n\n--- AGENT FORGE 2.0 DOCUMENTATION ---\n\n${AGENT_FORGE_GUIDE}`,
+  trainingDocs: [],
+  systemAccess: false,
+  tools: { web_search: false, calendar_sync: false, local_workspace: false },
+  defaultModelId: '',
+  defaultMode: 'text',
+  awareOfProfile: false,
+  isDefault: true,
+};
 
 interface AgentStore {
   assistants: any[];
@@ -48,7 +52,7 @@ interface AgentStore {
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  assistants: [DEFAULT_ASSISTANT],
+  assistants: [DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
   activeFolderId: 'f-default',
   editingAssistant: null,
   showAssistantSettings: false,
@@ -64,25 +68,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   hydrate: async () => {
     const assistants = await db.get('assistants', [DEFAULT_ASSISTANT]);
-    const migrated = assistants
-      .filter((a: any) => a.id !== 'forge-guide')
-      .map((a: any) => {
-        if (a.id !== 'f-default') return a;
-        return {
-          ...DEFAULT_ASSISTANT,
-          defaultModelId: a.defaultModelId ?? DEFAULT_ASSISTANT.defaultModelId,
-          defaultMode: a.defaultMode ?? DEFAULT_ASSISTANT.defaultMode,
-          trainingDocs: Array.isArray(a.trainingDocs) ? a.trainingDocs : DEFAULT_ASSISTANT.trainingDocs,
-        };
-      });
-    const hasDefault = migrated.some((a: any) => a.id === DEFAULT_ASSISTANT.id);
-    const final = hasDefault ? migrated : [DEFAULT_ASSISTANT, ...migrated];
+    const hasForgeGuide = assistants.some((a: any) => a.id === 'forge-guide');
+    const final = hasForgeGuide ? assistants : [...assistants, FORGE_GUIDE_ASSISTANT];
     set({ assistants: final });
-    if (JSON.stringify(final) !== JSON.stringify(assistants)) await db.set('assistants', final);
+    if (!hasForgeGuide) await db.set('assistants', final);
   },
 
   persist: async () => {
     const { assistants } = get();
-    await db.set('assistants', assistants.filter((a: any) => a.id !== 'forge-guide'));
+    await db.set('assistants', assistants);
   },
 }));

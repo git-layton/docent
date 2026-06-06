@@ -1,5 +1,4 @@
 use std::sync::Mutex;
-use std::collections::{HashMap, HashSet};
 use notify::Watcher;
 use std::path::{Component, Path, PathBuf};
 use sysinfo::System;
@@ -65,164 +64,6 @@ fn is_safe_agent_id(agent_id: &str) -> bool {
         && !agent_id.contains('\\')
         && agent_id != "."
         && agent_id != ".."
-}
-
-fn is_safe_capture_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 120
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-        && id != "."
-        && id != ".."
-}
-
-fn sanitize_file_stem(input: &str, fallback: &str) -> String {
-    let mut out = input
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
-                c
-            } else if c.is_whitespace() {
-                '-'
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    while out.contains("--") {
-        out = out.replace("--", "-");
-    }
-    let trimmed = out.trim_matches(&['-', '_', '.'][..]).to_string();
-    let safe = if trimmed.is_empty() { fallback.to_string() } else { trimmed };
-    safe.chars().take(96).collect()
-}
-
-fn now_millis() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-}
-
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
-    let mut i = 0;
-    while i < bytes.len() {
-        let b0 = bytes[i];
-        let b1 = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
-        let b2 = if i + 2 < bytes.len() { bytes[i + 2] } else { 0 };
-        out.push(TABLE[(b0 >> 2) as usize] as char);
-        out.push(TABLE[(((b0 & 0b0000_0011) << 4) | (b1 >> 4)) as usize] as char);
-        if i + 1 < bytes.len() {
-            out.push(TABLE[(((b1 & 0b0000_1111) << 2) | (b2 >> 6)) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        if i + 2 < bytes.len() {
-            out.push(TABLE[(b2 & 0b0011_1111) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        i += 3;
-    }
-    out
-}
-
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(input.len() * 3 / 4);
-    let mut block = [0u8; 4];
-    let mut block_len = 0usize;
-    let mut padding = 0usize;
-
-    for ch in input.chars().filter(|c| !c.is_whitespace()) {
-        let value = match ch {
-            'A'..='Z' => ch as u8 - b'A',
-            'a'..='z' => ch as u8 - b'a' + 26,
-            '0'..='9' => ch as u8 - b'0' + 52,
-            '+' => 62,
-            '/' => 63,
-            '=' => {
-                padding += 1;
-                0
-            }
-            _ => return Err("Attachment data is not valid base64".to_string()),
-        };
-
-        block[block_len] = value;
-        block_len += 1;
-        if block_len == 4 {
-            out.push((block[0] << 2) | (block[1] >> 4));
-            if padding < 2 {
-                out.push((block[1] << 4) | (block[2] >> 2));
-            }
-            if padding < 1 {
-                out.push((block[2] << 6) | block[3]);
-            }
-            block = [0u8; 4];
-            block_len = 0;
-            padding = 0;
-        }
-    }
-
-    if block_len != 0 {
-        if block_len == 1 {
-            return Err("Attachment base64 data is incomplete".to_string());
-        }
-        while block_len < 4 {
-            block[block_len] = 0;
-            block_len += 1;
-            padding += 1;
-        }
-        out.push((block[0] << 2) | (block[1] >> 4));
-        if padding < 2 {
-            out.push((block[1] << 4) | (block[2] >> 2));
-        }
-        if padding < 1 {
-            out.push((block[2] << 6) | block[3]);
-        }
-    }
-
-    Ok(out)
-}
-
-fn ensure_gitignore_line(root: &Path, line: &str) {
-    let path = root.join(".gitignore");
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    if !existing.lines().any(|l| l.trim() == line.trim()) {
-        let mut next = existing;
-        if !next.is_empty() && !next.ends_with('\n') {
-            next.push('\n');
-        }
-        next.push_str(line);
-        next.push('\n');
-        let _ = std::fs::write(path, next);
-    }
-}
-
-fn ensure_inbox_dirs(root: &Path) {
-    for subdir in &[
-        "inbox",
-        "inbox/raw",
-        "inbox/raw/primary",
-        "inbox/raw/shared",
-        "inbox/processed",
-        "inbox/tmp",
-    ] {
-        let _ = std::fs::create_dir_all(root.join(subdir));
-    }
-    ensure_gitignore_line(root, "inbox/raw/");
-    ensure_gitignore_line(root, "inbox/tmp/");
-}
-
-fn ensure_private_app_state_dir(root: &Path) {
-    let _ = std::fs::create_dir_all(root.join(".app-state"));
-    ensure_gitignore_line(root, ".app-state/");
-}
-
-fn app_state_backup_path() -> PathBuf {
-    knowledge_root().join(".app-state").join("agent_forge_db.json")
 }
 
 fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
@@ -465,11 +306,9 @@ fn init_knowledge_core() -> serde_json::Value {
     let root = knowledge_root();
 
     // Always ensure subdirectory structure exists (idempotent)
-    for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "memory/channels", "library"] {
+    for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "library"] {
         let _ = std::fs::create_dir_all(root.join(subdir));
     }
-    ensure_inbox_dirs(&root);
-    ensure_private_app_state_dir(&root);
 
     if root.join(".git").exists() {
         return serde_json::json!({ "initialized": false, "path": root.to_string_lossy() });
@@ -477,7 +316,7 @@ fn init_knowledge_core() -> serde_json::Value {
 
     let _ = std::fs::write(
         root.join(".gitignore"),
-        ".DS_Store\n*.tmp\n.obsidian/workspace\n.obsidian/workspace.json\n.index.db\n.lancedb/\n.models/\nworkspace/.dream_logs/\ninbox/raw/\ninbox/tmp/\n.app-state/\n",
+        ".DS_Store\n*.tmp\n.obsidian/workspace\n.obsidian/workspace.json\n.index.db\n.lancedb/\n.models/\nworkspace/.dream_logs/\n",
     );
 
     let _ = std::fs::write(
@@ -496,43 +335,6 @@ fn init_knowledge_core() -> serde_json::Value {
     let _ = run_git(&["commit", "-m", "init: Knowledge Core initialized"], &root);
 
     serde_json::json!({ "initialized": true, "path": root.to_string_lossy() })
-}
-
-#[tauri::command]
-fn read_app_state_backup() -> serde_json::Value {
-    let root = knowledge_root();
-    ensure_private_app_state_dir(&root);
-    let path = app_state_backup_path();
-    match std::fs::read_to_string(&path) {
-        Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
-            Ok(state) => serde_json::json!({ "ok": true, "state": state }),
-            Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "state": serde_json::json!({}) }),
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            serde_json::json!({ "ok": true, "state": serde_json::json!({}) })
-        }
-        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "state": serde_json::json!({}) }),
-    }
-}
-
-#[tauri::command]
-fn write_app_state_backup(state: serde_json::Value) -> serde_json::Value {
-    let root = knowledge_root();
-    ensure_private_app_state_dir(&root);
-    let path = app_state_backup_path();
-    let tmp_path = path.with_extension("json.tmp");
-    let body = match serde_json::to_string_pretty(&state) {
-        Ok(v) => v,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
-    };
-    if let Err(e) = std::fs::write(&tmp_path, body) {
-        return serde_json::json!({ "ok": false, "error": e.to_string() });
-    }
-    if let Err(e) = std::fs::rename(&tmp_path, &path) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return serde_json::json!({ "ok": false, "error": e.to_string() });
-    }
-    serde_json::json!({ "ok": true, "path": path.to_string_lossy() })
 }
 
 #[tauri::command]
@@ -617,11 +419,6 @@ fn write_memory(
         }
     }
 
-    if let Ok(conn) = open_index_db() {
-        let _ = queue_file_for_index(&conn, &file_path.to_string_lossy());
-        let _ = index_semantic_file(&conn, &file_path);
-    }
-
     let prune_suggested = rel_path.ends_with("index.md") && content.lines().count() > 200;
 
     serde_json::json!({
@@ -684,7 +481,7 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
 }
 
 #[tauri::command]
-fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, channel_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
+fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let root = knowledge_root();
     let query_lower = query.to_lowercase();
     let keywords: Vec<&str> = query_lower.split_whitespace().collect();
@@ -706,12 +503,6 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
         root.join("library"),
         memory_dir,
     ];
-    if let Some(ref cid) = channel_id {
-        if !is_safe_agent_id(cid) {
-            return serde_json::json!({ "results": [], "error": "Invalid channel id" });
-        }
-        dirs_to_search.push(root.join("memory").join("channels").join(cid));
-    }
     if let Some(ref ep) = extra_path {
         if let Ok(p) = knowledge_path_from_input(ep) {
             if p.exists() { dirs_to_search.push(p); }
@@ -787,12 +578,6 @@ fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
         .find(|l| l.starts_with('['))
         .map(|l| l.to_string());
 
-    if let Ok(conn) = open_index_db() {
-        let p = tasks_path.to_string_lossy().to_string();
-        let _ = queue_file_for_index(&conn, &p);
-        let _ = index_semantic_file(&conn, &tasks_path);
-    }
-
     serde_json::json!({ "commit": commit_hash })
 }
 
@@ -828,12 +613,6 @@ fn complete_task(
     let short: String = title.chars().take(50).collect();
     let msg = format!("complete: {}", short);
     let _ = run_git(&["commit", "-m", &msg], &repo_root);
-
-    if let Ok(conn) = open_index_db() {
-        let p = path.to_string_lossy().to_string();
-        let _ = queue_file_for_index(&conn, &p);
-        let _ = index_semantic_file(&conn, &path);
-    }
 
     serde_json::json!({ "ok": true })
 }
@@ -916,73 +695,7 @@ fn open_index_db() -> Result<rusqlite::Connection, String> {
             vector        BLOB NOT NULL,
             last_modified INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_bv_file ON brain_vectors(file_path);
-        CREATE TABLE IF NOT EXISTS semantic_documents (
-            file_path      TEXT PRIMARY KEY,
-            title          TEXT NOT NULL,
-            scope          TEXT NOT NULL,
-            memory_type    TEXT NOT NULL,
-            agent_id       TEXT,
-            channel_id     TEXT,
-            source_kind    TEXT,
-            evidence_state TEXT,
-            verification   TEXT,
-            confidence     TEXT,
-            tags           TEXT,
-            source_urls    TEXT,
-            source_paths   TEXT,
-            raw_path       TEXT,
-            created        TEXT,
-            last_modified  INTEGER NOT NULL,
-            indexed_at     INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS semantic_entities (
-            entity_key     TEXT PRIMARY KEY,
-            name           TEXT NOT NULL,
-            normalized     TEXT NOT NULL,
-            kind           TEXT NOT NULL,
-            file_path      TEXT NOT NULL,
-            title          TEXT NOT NULL,
-            scope          TEXT NOT NULL,
-            evidence_state TEXT,
-            confidence     TEXT,
-            last_modified  INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS semantic_facts (
-            fact_key       TEXT PRIMARY KEY,
-            fact           TEXT NOT NULL,
-            subject        TEXT,
-            predicate      TEXT,
-            object         TEXT,
-            file_path      TEXT NOT NULL,
-            title          TEXT NOT NULL,
-            scope          TEXT NOT NULL,
-            agent_id       TEXT,
-            channel_id     TEXT,
-            source_kind    TEXT,
-            evidence_state TEXT,
-            verification   TEXT,
-            confidence     TEXT,
-            source_urls    TEXT,
-            raw_path       TEXT,
-            last_modified  INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS semantic_relations (
-            relation_key   TEXT PRIMARY KEY,
-            source         TEXT NOT NULL,
-            relation       TEXT NOT NULL,
-            target         TEXT NOT NULL,
-            file_path      TEXT NOT NULL,
-            title          TEXT NOT NULL,
-            scope          TEXT NOT NULL,
-            evidence_state TEXT,
-            confidence     TEXT,
-            last_modified  INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_sem_doc_scope ON semantic_documents(scope, agent_id, channel_id);
-        CREATE INDEX IF NOT EXISTS idx_sem_entity_norm ON semantic_entities(normalized);
-        CREATE INDEX IF NOT EXISTS idx_sem_fact_path ON semantic_facts(file_path);
-        CREATE INDEX IF NOT EXISTS idx_sem_relation_path ON semantic_relations(file_path);",
+        CREATE INDEX IF NOT EXISTS idx_bv_file ON brain_vectors(file_path);",
     ).map_err(|e| e.to_string())?;
     Ok(conn)
 }
@@ -1017,436 +730,6 @@ fn walk_and_queue_dir(dir: &std::path::Path, conn: &rusqlite::Connection) -> u32
         }
     }
     count
-}
-
-#[derive(Clone)]
-struct SemanticEntity {
-    name: String,
-    kind: String,
-}
-
-#[derive(Clone)]
-struct SemanticFact {
-    fact: String,
-    subject: String,
-    predicate: String,
-    object: String,
-}
-
-fn now_secs_i64() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
-
-fn split_frontmatter(content: &str) -> (HashMap<String, String>, String) {
-    if !content.starts_with("---") {
-        return (HashMap::new(), content.to_string());
-    }
-    let rest = &content[3..];
-    let Some(end) = rest.find("\n---") else {
-        return (HashMap::new(), content.to_string());
-    };
-    let frontmatter = &rest[..end];
-    let body = rest[end + 4..].trim_start().to_string();
-    let mut map = HashMap::new();
-    for line in frontmatter.lines() {
-        let Some((key, value)) = line.split_once(':') else { continue };
-        let clean_value = value
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .to_string();
-        map.insert(key.trim().to_lowercase(), clean_value);
-    }
-    (map, body)
-}
-
-fn metadata_value(meta: &HashMap<String, String>, key: &str, fallback: &str) -> String {
-    meta.get(&key.to_lowercase())
-        .map(|v| v.trim().trim_matches('"').to_string())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| fallback.to_string())
-}
-
-fn parse_arrayish(value: &str) -> Vec<String> {
-    let trimmed = value.trim().trim_matches('[').trim_matches(']');
-    trimmed
-        .split(',')
-        .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
-        .filter(|v| !v.is_empty())
-        .collect()
-}
-
-fn normalize_semantic_name(input: &str) -> String {
-    input
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { ' ' })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn clean_semantic_value(input: &str) -> String {
-    input
-        .trim()
-        .trim_start_matches("- ")
-        .trim_start_matches("* ")
-        .trim_start_matches(char::is_numeric)
-        .trim_start_matches('.')
-        .trim()
-        .trim_matches('"')
-        .trim_matches('`')
-        .to_string()
-}
-
-fn push_entity(entities: &mut Vec<SemanticEntity>, seen: &mut HashSet<String>, name: &str, kind: &str) {
-    let clean = clean_semantic_value(name);
-    if clean.len() < 2 || clean.len() > 120 { return; }
-    let normalized = normalize_semantic_name(&clean);
-    if normalized.is_empty() { return; }
-    let key = format!("{}:{}", kind.to_lowercase(), normalized);
-    if seen.insert(key) {
-        entities.push(SemanticEntity { name: clean, kind: kind.to_lowercase() });
-    }
-}
-
-fn split_entity_values(value: &str) -> Vec<String> {
-    value
-        .split(&[',', ';'][..])
-        .flat_map(|part| part.split(" and "))
-        .map(clean_semantic_value)
-        .filter(|v| v.len() >= 2 && v.len() <= 120)
-        .take(8)
-        .collect()
-}
-
-fn is_semantic_label(label: &str) -> Option<&'static str> {
-    match label.trim().to_lowercase().as_str() {
-        "person" | "people" | "owner" => Some("person"),
-        "project" | "app" | "product" => Some("project"),
-        "deck" | "build" | "strategy" => Some("strategy"),
-        "document" | "file" | "source" => Some("document"),
-        "trip" | "place" | "location" => Some("place"),
-        "organization" | "org" | "company" => Some("organization"),
-        "game" => Some("game"),
-        "agent" | "assistant" => Some("agent"),
-        "channel" => Some("channel"),
-        "tool" | "provider" | "model" => Some("tool"),
-        "topic" | "entity" => Some("topic"),
-        "preference" | "prefers" => Some("preference"),
-        "decision" | "goal" | "task" | "problem" | "outcome" | "failure" | "success" => Some("fact"),
-        _ => None,
-    }
-}
-
-fn is_capitalish_word(word: &str) -> bool {
-    let clean = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-');
-    if clean.len() < 2 { return false; }
-    let upper_count = clean.chars().filter(|c| c.is_ascii_uppercase()).count();
-    clean.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) || upper_count >= 2
-}
-
-fn extract_capitalized_entities(text: &str) -> Vec<String> {
-    let stop = HashSet::from([
-        "The", "This", "That", "These", "Those", "When", "Where", "What", "Why", "How",
-        "Agent", "Forge", "Grounding", "Summary", "Question", "Answer", "Sources",
-    ]);
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for line in text.lines().take(240) {
-        let words: Vec<&str> = line.split_whitespace().collect();
-        let mut i = 0usize;
-        while i < words.len() {
-            if !is_capitalish_word(words[i]) {
-                i += 1;
-                continue;
-            }
-            let mut phrase = Vec::new();
-            let mut j = i;
-            while j < words.len() && phrase.len() < 5 {
-                let w = words[j].trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-');
-                let connector = matches!(w, "of" | "the" | "and" | "for" | "in");
-                if is_capitalish_word(w) || (connector && !phrase.is_empty()) {
-                    phrase.push(w);
-                    j += 1;
-                } else {
-                    break;
-                }
-            }
-            if phrase.len() >= 2 {
-                let candidate = phrase.join(" ");
-                let first = phrase.first().copied().unwrap_or("");
-                let normalized = normalize_semantic_name(&candidate);
-                if !stop.contains(first) && normalized.len() > 3 && seen.insert(normalized) {
-                    out.push(candidate);
-                    if out.len() >= 30 { return out; }
-                }
-            }
-            i = j.max(i + 1);
-        }
-    }
-    out
-}
-
-fn extract_semantic_entities(title: &str, body: &str, meta: &HashMap<String, String>) -> Vec<SemanticEntity> {
-    let mut entities = Vec::new();
-    let mut seen = HashSet::new();
-    push_entity(&mut entities, &mut seen, title, "topic");
-
-    for tag in parse_arrayish(meta.get("tags").map(String::as_str).unwrap_or("")) {
-        push_entity(&mut entities, &mut seen, &tag, "tag");
-    }
-
-    for line in body.lines() {
-        let clean = clean_semantic_value(line);
-        let Some((label, value)) = clean.split_once(':') else { continue };
-        if let Some(kind) = is_semantic_label(label) {
-            for item in split_entity_values(value) {
-                push_entity(&mut entities, &mut seen, &item, kind);
-            }
-        }
-        if entities.len() >= 80 { break; }
-    }
-
-    for phrase in extract_capitalized_entities(body) {
-        push_entity(&mut entities, &mut seen, &phrase, "mention");
-        if entities.len() >= 100 { break; }
-    }
-
-    entities
-}
-
-fn is_fact_heading(heading: &str) -> bool {
-    let h = heading.to_lowercase();
-    ["fact", "decision", "preference", "failure", "outcome", "problem", "learned", "tried", "task", "summary", "note"]
-        .iter()
-        .any(|needle| h.contains(needle))
-}
-
-fn should_keep_fact_line(heading: &str, line: &str) -> bool {
-    let lower = line.to_lowercase();
-    is_fact_heading(heading)
-        || [" tried ", " failed ", " because ", " prefers ", " decided ", " wants ", " needs ", " learned ", " works ", " does not "]
-            .iter()
-            .any(|needle| lower.contains(needle))
-}
-
-fn relation_from_fact(title: &str, fact: &str) -> Option<(String, String, String)> {
-    let clean = clean_semantic_value(fact);
-    if let Some(parts) = clean.split_once("->") {
-        let subject = clean_semantic_value(parts.0);
-        let rest = clean_semantic_value(parts.1);
-        if let Some((predicate, object)) = rest.split_once("->") {
-            return Some((subject, normalize_semantic_name(predicate).replace(' ', "_"), clean_semantic_value(object)));
-        }
-    }
-    if let Some((label, value)) = clean.split_once(':') {
-        if let Some(kind) = is_semantic_label(label) {
-            return Some((title.to_string(), kind.to_string(), clean_semantic_value(value)));
-        }
-    }
-    let lower = clean.to_lowercase();
-    for (needle, relation) in [
-        (" failed because ", "failed_because"),
-        (" because ", "because"),
-        (" prefers ", "prefers"),
-        (" decided ", "decided"),
-        (" wants ", "wants"),
-        (" needs ", "needs"),
-        (" tried ", "tried"),
-    ] {
-        if let Some(idx) = lower.find(needle) {
-            let subject = clean_semantic_value(&clean[..idx]);
-            let object = clean_semantic_value(&clean[idx + needle.len()..]);
-            if !subject.is_empty() && !object.is_empty() {
-                return Some((subject, relation.to_string(), object));
-            }
-        }
-    }
-    None
-}
-
-fn extract_semantic_facts(title: &str, body: &str) -> Vec<SemanticFact> {
-    let mut facts = Vec::new();
-    let mut seen = HashSet::new();
-    let mut heading = String::new();
-
-    for raw_line in body.lines() {
-        let line = raw_line.trim();
-        if let Some(h) = line.strip_prefix("## ") {
-            heading = h.trim().to_string();
-            continue;
-        }
-        if heading.eq_ignore_ascii_case("Grounding") || heading.eq_ignore_ascii_case("Learning Status") {
-            continue;
-        }
-        let clean = clean_semantic_value(line);
-        if clean.len() < 8 || clean.len() > 500 { continue; }
-        let is_bullet = line.starts_with("- ") || line.starts_with("* ");
-        let labelled = clean.split_once(':').and_then(|(label, _)| is_semantic_label(label)).is_some();
-        if !is_bullet && !labelled && !should_keep_fact_line(&heading, &clean) { continue; }
-        if !seen.insert(clean.to_lowercase()) { continue; }
-
-        let (subject, predicate, object) = relation_from_fact(title, &clean)
-            .unwrap_or_else(|| (title.to_string(), "mentions".to_string(), clean.clone()));
-        facts.push(SemanticFact { fact: clean, subject, predicate, object });
-        if facts.len() >= 60 { break; }
-    }
-
-    facts
-}
-
-fn infer_semantic_scope(path: &Path, meta: &HashMap<String, String>) -> (String, Option<String>, Option<String>) {
-    let root = knowledge_root();
-    let rel = path.strip_prefix(&root).unwrap_or(path);
-    let parts: Vec<String> = rel.components()
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-        .collect();
-    let mut scope = metadata_value(meta, "scope", "");
-    let mut agent_id = meta.get("agent_id").cloned();
-    let mut channel_id = meta.get("channel_id").cloned();
-
-    if parts.first().map(String::as_str) == Some("library") {
-        scope = if scope.is_empty() { "library".to_string() } else { scope };
-    } else if parts.first().map(String::as_str) == Some("memory") {
-        if parts.get(1).map(String::as_str) == Some("channels") {
-            scope = if scope.is_empty() { "channel".to_string() } else { scope };
-            if channel_id.as_deref().unwrap_or("").is_empty() {
-                channel_id = parts.get(2).cloned();
-            }
-        } else if let Some(second) = parts.get(1) {
-            let reserved = ["goals", "decisions", "metrics", "research", "memos", "tasks.md", "completed_tasks.md", "agent-forge-guide.md"];
-            if !reserved.contains(&second.as_str()) && !second.starts_with('.') {
-                scope = if scope.is_empty() { "agent".to_string() } else { scope };
-                if agent_id.as_deref().unwrap_or("").is_empty() {
-                    agent_id = Some(second.clone());
-                }
-            } else {
-                scope = if scope.is_empty() { "global".to_string() } else { scope };
-            }
-        }
-    }
-
-    if scope.is_empty() { scope = "global".to_string(); }
-    (scope, agent_id.filter(|v| !v.is_empty()), channel_id.filter(|v| !v.is_empty()))
-}
-
-fn delete_semantic_for_file(conn: &rusqlite::Connection, file_path: &str) {
-    let _ = conn.execute("DELETE FROM semantic_documents WHERE file_path = ?1", rusqlite::params![file_path]);
-    let _ = conn.execute("DELETE FROM semantic_entities WHERE file_path = ?1", rusqlite::params![file_path]);
-    let _ = conn.execute("DELETE FROM semantic_facts WHERE file_path = ?1", rusqlite::params![file_path]);
-    let _ = conn.execute("DELETE FROM semantic_relations WHERE file_path = ?1", rusqlite::params![file_path]);
-}
-
-fn index_semantic_file(conn: &rusqlite::Connection, path: &Path) -> Result<u32, String> {
-    if path.components().any(|c| c.as_os_str() == ".archive") { return Ok(0); }
-    if !matches!(path.extension().and_then(|e| e.to_str()), Some("md") | Some("txt")) { return Ok(0); }
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let path_str = path.to_string_lossy().to_string();
-    let (meta, body) = split_frontmatter(&content);
-    let title = metadata_value(&meta, "title", &extract_title(&content, path));
-    let memory_type = metadata_value(&meta, "type", "note");
-    let source_kind = metadata_value(&meta, "source_kind", "");
-    let evidence_state = metadata_value(&meta, "evidence_state", "unverified");
-    let verification = metadata_value(&meta, "verification", "needs_verification");
-    let confidence = metadata_value(&meta, "confidence", "unknown");
-    let tags = meta.get("tags").cloned().unwrap_or_default();
-    let source_urls = meta.get("source_urls").cloned().unwrap_or_default();
-    let source_paths = meta.get("source_paths").cloned().unwrap_or_default();
-    let raw_path = metadata_value(&meta, "raw_path", "");
-    let created = metadata_value(&meta, "created", "");
-    let (scope, agent_id, channel_id) = infer_semantic_scope(path, &meta);
-    let mtime = std::fs::metadata(path).ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let indexed_at = now_secs_i64();
-
-    delete_semantic_for_file(conn, &path_str);
-    conn.execute(
-        "INSERT OR REPLACE INTO semantic_documents
-         (file_path,title,scope,memory_type,agent_id,channel_id,source_kind,evidence_state,verification,confidence,tags,source_urls,source_paths,raw_path,created,last_modified,indexed_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
-        rusqlite::params![
-            &path_str, &title, &scope, &memory_type, agent_id.as_deref(), channel_id.as_deref(),
-            &source_kind, &evidence_state, &verification, &confidence, &tags, &source_urls, &source_paths,
-            &raw_path, &created, mtime, indexed_at
-        ],
-    ).map_err(|e| e.to_string())?;
-
-    let entities = extract_semantic_entities(&title, &body, &meta);
-    for entity in &entities {
-        let normalized = normalize_semantic_name(&entity.name);
-        if normalized.is_empty() { continue; }
-        let entity_key = format!("{}::entity::{}::{}", path_str, entity.kind, normalized);
-        let _ = conn.execute(
-            "INSERT OR REPLACE INTO semantic_entities
-             (entity_key,name,normalized,kind,file_path,title,scope,evidence_state,confidence,last_modified)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-            rusqlite::params![entity_key, entity.name, normalized, entity.kind, &path_str, &title, &scope, &evidence_state, &confidence, mtime],
-        );
-    }
-
-    let facts = extract_semantic_facts(&title, &body);
-    for (i, fact) in facts.iter().enumerate() {
-        let fact_key = format!("{}::fact::{}", path_str, i);
-        let _ = conn.execute(
-            "INSERT OR REPLACE INTO semantic_facts
-             (fact_key,fact,subject,predicate,object,file_path,title,scope,agent_id,channel_id,source_kind,evidence_state,verification,confidence,source_urls,raw_path,last_modified)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
-            rusqlite::params![
-                fact_key, fact.fact, fact.subject, fact.predicate, fact.object, &path_str, &title, &scope,
-                agent_id.as_deref(), channel_id.as_deref(), &source_kind, &evidence_state, &verification,
-                &confidence, &source_urls, &raw_path, mtime
-            ],
-        );
-        if fact.predicate != "mentions" && !fact.subject.is_empty() && !fact.object.is_empty() {
-            let relation_key = format!("{}::rel::{}", path_str, i);
-            let _ = conn.execute(
-                "INSERT OR REPLACE INTO semantic_relations
-                 (relation_key,source,relation,target,file_path,title,scope,evidence_state,confidence,last_modified)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-                rusqlite::params![relation_key, fact.subject, fact.predicate, fact.object, &path_str, &title, &scope, &evidence_state, &confidence, mtime],
-            );
-        }
-    }
-
-    Ok((entities.len() + facts.len()) as u32)
-}
-
-fn score_semantic_text(query: &str, terms: &[String], fields: &[&str]) -> i64 {
-    let haystack = fields.join(" ").to_lowercase();
-    let mut score = 0i64;
-    let q = query.to_lowercase();
-    if !q.is_empty() && haystack.contains(&q) { score += 12; }
-    for term in terms {
-        if term.len() < 3 { continue; }
-        score += haystack.matches(term).count() as i64 * 3;
-    }
-    score
-}
-
-fn path_allowed(path: &str, agent_id: &Option<String>, channel_id: &Option<String>) -> bool {
-    let root = knowledge_root();
-    let library_prefix = root.join("library").to_string_lossy().to_string();
-    if path.starts_with(&library_prefix) { return true; }
-    if let Some(aid) = agent_id {
-        let prefix = root.join("memory").join(aid).to_string_lossy().to_string();
-        if path.starts_with(&prefix) { return true; }
-    } else {
-        let prefix = root.join("memory").to_string_lossy().to_string();
-        if path.starts_with(&prefix) { return true; }
-    }
-    if let Some(cid) = channel_id {
-        let prefix = root.join("memory").join("channels").join(cid).to_string_lossy().to_string();
-        if path.starts_with(&prefix) { return true; }
-    }
-    false
 }
 
 #[tauri::command]
@@ -1568,7 +851,6 @@ fn init_file_watcher() {
             for path in ready {
                 debounce.remove(&path);
                 let _ = queue_file_for_index(&conn, &path.to_string_lossy());
-                let _ = index_semantic_file(&conn, &path);
             }
         }
     });
@@ -1593,7 +875,6 @@ fn init_file_watcher() {
                     let ps = path.to_string_lossy().to_string();
                     let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path=?1", rusqlite::params![&ps]);
                     let _ = conn.execute("DELETE FROM pending_index WHERE file_path=?1", rusqlite::params![&ps]);
-                    delete_semantic_for_file(&conn, &ps);
                 }
                 // git rm + commit; fall back to fs::remove_file
                 if let Ok(rel) = path.strip_prefix(&purge_root) {
@@ -1616,215 +897,7 @@ fn sync_knowledge_core_index() -> serde_json::Value {
         Err(e) => return serde_json::json!({ "ok": false, "error": e }),
     };
     let queued = walk_and_queue_dir(&root, &conn);
-    let mut semantic_indexed = 0u32;
-    if let Ok(files) = walk_md_files(&root) {
-        for file in files {
-            if index_semantic_file(&conn, &file).is_ok() {
-                semantic_indexed += 1;
-            }
-        }
-    }
-    serde_json::json!({ "ok": true, "queued": queued, "semantic_indexed": semantic_indexed })
-}
-
-#[tauri::command]
-fn sync_semantic_layer() -> serde_json::Value {
-    let root = knowledge_root();
-    let conn = match open_index_db() {
-        Ok(c) => c,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-    };
-    let files = match walk_md_files(&root) {
-        Ok(files) => files,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-    };
-    let mut indexed = 0u32;
-    let mut errors = 0u32;
-    for file in files {
-        match index_semantic_file(&conn, &file) {
-            Ok(_) => indexed += 1,
-            Err(_) => errors += 1,
-        }
-    }
-    serde_json::json!({ "ok": true, "indexed": indexed, "errors": errors })
-}
-
-#[tauri::command]
-fn get_semantic_layer_status() -> serde_json::Value {
-    let conn = match open_index_db() {
-        Ok(c) => c,
-        Err(e) => return serde_json::json!({ "error": e }),
-    };
-    let documents: i64 = conn.query_row("SELECT COUNT(*) FROM semantic_documents", [], |r| r.get(0)).unwrap_or(0);
-    let entities: i64 = conn.query_row("SELECT COUNT(*) FROM semantic_entities", [], |r| r.get(0)).unwrap_or(0);
-    let facts: i64 = conn.query_row("SELECT COUNT(*) FROM semantic_facts", [], |r| r.get(0)).unwrap_or(0);
-    let relations: i64 = conn.query_row("SELECT COUNT(*) FROM semantic_relations", [], |r| r.get(0)).unwrap_or(0);
-    serde_json::json!({ "documents": documents, "entities": entities, "facts": facts, "relations": relations })
-}
-
-#[tauri::command]
-fn search_semantic_layer(query: String, agent_id: Option<String>, channel_id: Option<String>, max_results: Option<usize>) -> serde_json::Value {
-    let max_results = max_results.unwrap_or(8).clamp(1, 20);
-    if let Some(ref id) = agent_id {
-        if !is_safe_agent_id(id) {
-            return serde_json::json!({ "documents": [], "entities": [], "facts": [], "relations": [], "error": "Invalid agent id" });
-        }
-    }
-    if let Some(ref id) = channel_id {
-        if !is_safe_agent_id(id) {
-            return serde_json::json!({ "documents": [], "entities": [], "facts": [], "relations": [], "error": "Invalid channel id" });
-        }
-    }
-    let conn = match open_index_db() {
-        Ok(c) => c,
-        Err(e) => return serde_json::json!({ "documents": [], "entities": [], "facts": [], "relations": [], "error": e }),
-    };
-    let terms: Vec<String> = query.to_lowercase().split_whitespace().map(|s| s.to_string()).collect();
-
-    let mut documents: Vec<(i64, serde_json::Value)> = Vec::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT file_path,title,scope,memory_type,agent_id,channel_id,source_kind,evidence_state,verification,confidence,tags,source_urls,raw_path FROM semantic_documents") {
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(7)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(8)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(9)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(10)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(11)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(12)?.unwrap_or_default(),
-            ))
-        });
-        if let Ok(rows) = rows {
-            for row in rows.flatten() {
-                let (path, title, scope, memory_type, aid, cid, source_kind, evidence, verification, confidence, tags, urls, raw_path) = row;
-                if !path_allowed(&path, &agent_id, &channel_id) { continue; }
-                let score = score_semantic_text(&query, &terms, &[&title, &scope, &memory_type, &aid, &cid, &source_kind, &tags]);
-                if score > 0 {
-                    documents.push((score, serde_json::json!({
-                        "path": path, "title": title, "scope": scope, "type": memory_type,
-                        "agentId": aid, "channelId": cid, "sourceKind": source_kind,
-                        "evidenceState": evidence, "verification": verification, "confidence": confidence,
-                        "tags": tags, "sourceUrls": urls, "rawPath": raw_path, "score": score
-                    })));
-                }
-            }
-        }
-    }
-
-    let mut entities: Vec<(i64, serde_json::Value)> = Vec::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT name,normalized,kind,file_path,title,scope,evidence_state,confidence FROM semantic_entities") {
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(7)?.unwrap_or_default(),
-            ))
-        });
-        if let Ok(rows) = rows {
-            for row in rows.flatten() {
-                let (name, normalized, kind, path, title, scope, evidence, confidence) = row;
-                if !path_allowed(&path, &agent_id, &channel_id) { continue; }
-                let score = score_semantic_text(&query, &terms, &[&name, &normalized, &kind, &title]);
-                if score > 0 {
-                    entities.push((score, serde_json::json!({
-                        "name": name, "kind": kind, "path": path, "title": title, "scope": scope,
-                        "evidenceState": evidence, "confidence": confidence, "score": score
-                    })));
-                }
-            }
-        }
-    }
-
-    let mut facts: Vec<(i64, serde_json::Value)> = Vec::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT fact,subject,predicate,object,file_path,title,scope,agent_id,channel_id,source_kind,evidence_state,verification,confidence,source_urls,raw_path FROM semantic_facts") {
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, Option<String>>(7)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(8)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(9)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(10)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(11)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(12)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(13)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(14)?.unwrap_or_default(),
-            ))
-        });
-        if let Ok(rows) = rows {
-            for row in rows.flatten() {
-                let (fact, subject, predicate, object, path, title, scope, aid, cid, source_kind, evidence, verification, confidence, source_urls, raw_path) = row;
-                if !path_allowed(&path, &agent_id, &channel_id) { continue; }
-                let score = score_semantic_text(&query, &terms, &[&fact, &subject, &predicate, &object, &title, &source_kind]);
-                if score > 0 {
-                    facts.push((score, serde_json::json!({
-                        "fact": fact, "subject": subject, "predicate": predicate, "object": object,
-                        "path": path, "title": title, "scope": scope, "agentId": aid, "channelId": cid,
-                        "sourceKind": source_kind, "evidenceState": evidence, "verification": verification,
-                        "confidence": confidence, "sourceUrls": source_urls, "rawPath": raw_path, "score": score
-                    })));
-                }
-            }
-        }
-    }
-
-    let mut relations: Vec<(i64, serde_json::Value)> = Vec::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT source,relation,target,file_path,title,scope,evidence_state,confidence FROM semantic_relations") {
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(7)?.unwrap_or_default(),
-            ))
-        });
-        if let Ok(rows) = rows {
-            for row in rows.flatten() {
-                let (source, relation, target, path, title, scope, evidence, confidence) = row;
-                if !path_allowed(&path, &agent_id, &channel_id) { continue; }
-                let score = score_semantic_text(&query, &terms, &[&source, &relation, &target, &title]);
-                if score > 0 {
-                    relations.push((score, serde_json::json!({
-                        "source": source, "relation": relation, "target": target,
-                        "path": path, "title": title, "scope": scope,
-                        "evidenceState": evidence, "confidence": confidence, "score": score
-                    })));
-                }
-            }
-        }
-    }
-
-    documents.sort_by(|a, b| b.0.cmp(&a.0));
-    entities.sort_by(|a, b| b.0.cmp(&a.0));
-    facts.sort_by(|a, b| b.0.cmp(&a.0));
-    relations.sort_by(|a, b| b.0.cmp(&a.0));
-
-    serde_json::json!({
-        "documents": documents.into_iter().take(max_results).map(|(_, v)| v).collect::<Vec<_>>(),
-        "entities": entities.into_iter().take(max_results).map(|(_, v)| v).collect::<Vec<_>>(),
-        "facts": facts.into_iter().take(max_results).map(|(_, v)| v).collect::<Vec<_>>(),
-        "relations": relations.into_iter().take(max_results).map(|(_, v)| v).collect::<Vec<_>>()
-    })
+    serde_json::json!({ "ok": true, "queued": queued })
 }
 
 #[tauri::command]
@@ -1847,7 +920,7 @@ fn get_index_status() -> serde_json::Value {
 }
 
 #[tauri::command]
-fn search_knowledge_semantic(query: String, agent_id: Option<String>, channel_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
+fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let max_results = max_results.unwrap_or(5);
     let snippet_chars = snippet_chars.unwrap_or(400);
     if let Some(ref id) = agent_id {
@@ -1855,29 +928,24 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, channel_id
             return serde_json::json!({ "results": [], "error": "Invalid agent id" });
         }
     }
-    if let Some(ref id) = channel_id {
-        if !is_safe_agent_id(id) {
-            return serde_json::json!({ "results": [], "error": "Invalid channel id" });
-        }
-    }
 
     // Fall back to keyword search if model not loaded yet
     let embedder = match get_or_init_embedder() {
         Ok(e) => e,
-        Err(_) => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)),
+        Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
     };
 
     let query_vec: Vec<f32> = {
         let guard = embedder.lock().unwrap();
         match guard.embed(vec![query.as_str()], None) {
             Ok(mut e) if !e.is_empty() => e.remove(0),
-            _ => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)),
+            _ => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
         }
     };
 
     let conn = match open_index_db() {
         Ok(c) => c,
-        Err(_) => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)),
+        Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
     };
 
     let root = knowledge_root();
@@ -1885,23 +953,20 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, channel_id
         .map(|id| root.join("memory").join(id).to_string_lossy().to_string())
         .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
     let library_prefix = root.join("library").to_string_lossy().to_string();
-    let channel_prefix = channel_id.as_ref()
-        .map(|id| root.join("memory").join("channels").join(id).to_string_lossy().to_string())
-        .unwrap_or_else(|| "__no_channel_memory__".to_string());
 
     let rows: Vec<(String, String, Vec<u8>)> = {
         let mut stmt = match conn.prepare(
-            "SELECT file_path, content, vector FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2 OR file_path LIKE ?3"
-        ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars)) };
+            "SELECT file_path, content, vector FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
+        ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)) };
 
         stmt.query_map(
-            rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%"), format!("{channel_prefix}%")],
+            rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%")],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).map(|it| it.flatten().collect()).unwrap_or_default()
     };
 
     if rows.is_empty() {
-        return search_knowledge(query, None, agent_id, channel_id, Some(max_results), Some(snippet_chars));
+        return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars));
     }
 
     let mut scored: Vec<(f32, String, String)> = rows.into_iter()
@@ -1958,7 +1023,6 @@ fn delete_memory_file(path: String) -> serde_json::Value {
     if let Ok(conn) = open_index_db() {
         let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path_str]);
         let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&file_path_str]);
-        delete_semantic_for_file(&conn, &file_path_str);
     }
 
     // Try git rm + commit to maintain audit trail
@@ -2009,7 +1073,6 @@ fn archive_memory_file(path: String) -> serde_json::Value {
     if let Ok(conn) = open_index_db() {
         let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path_str]);
         let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&file_path_str]);
-        delete_semantic_for_file(&conn, &file_path_str);
     }
 
     if std::fs::rename(&file_path, &archive_path).is_err() {
@@ -2063,7 +1126,6 @@ fn restore_archived_file(archive_path: String, original_path: String) -> serde_j
     if let Ok(conn) = open_index_db() {
         let p = dest.to_string_lossy().to_string();
         let _ = queue_file_for_index(&conn, &p);
-        let _ = index_semantic_file(&conn, &dest);
     }
 
     let _ = run_git(&["add", "-A"], &repo_root);
@@ -2167,297 +1229,6 @@ fn list_agent_memory_files(agent_id: String) -> serde_json::Value {
             .cmp(a["name"].as_str().unwrap_or(""))
     });
     serde_json::json!({ "files": files })
-}
-
-#[tauri::command]
-fn list_channel_memory_files(channel_id: String) -> serde_json::Value {
-    if !is_safe_agent_id(&channel_id) {
-        return serde_json::json!({ "files": [], "error": "Invalid channel id" });
-    }
-    let dir = knowledge_root().join("memory").join("channels").join(channel_id);
-    let mut files = Vec::new();
-    collect_knowledge_files(&dir, &mut files, true);
-    files.sort_by(|a, b| {
-        b["name"].as_str().unwrap_or("")
-            .cmp(a["name"].as_str().unwrap_or(""))
-    });
-    serde_json::json!({ "files": files })
-}
-
-fn inbox_capture_dir(owner_id: &str, capture_id: &str) -> Result<PathBuf, String> {
-    if !is_safe_agent_id(owner_id) {
-        return Err("Invalid inbox owner id".to_string());
-    }
-    if !is_safe_capture_id(capture_id) {
-        return Err("Invalid capture id".to_string());
-    }
-    Ok(knowledge_root().join("inbox").join("raw").join(owner_id).join(capture_id))
-}
-
-fn read_inbox_manifest(dir: &Path) -> Option<serde_json::Value> {
-    let content = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
-    serde_json::from_str(&content).ok()
-}
-
-fn write_inbox_manifest(dir: &Path, manifest: &serde_json::Value) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let content = serde_json::to_string_pretty(manifest).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("manifest.json"), content).map_err(|e| e.to_string())
-}
-
-fn collect_inbox_owner_dirs(owner_id: Option<String>) -> Vec<(String, PathBuf)> {
-    let root = knowledge_root().join("inbox").join("raw");
-    if let Some(owner) = owner_id {
-        if owner != "all" && is_safe_agent_id(&owner) {
-            return vec![(owner.clone(), root.join(owner))];
-        }
-    }
-    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new(); };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_dir() { return None; }
-            let owner = entry.file_name().to_string_lossy().to_string();
-            if is_safe_agent_id(&owner) { Some((owner, path)) } else { None }
-        })
-        .collect()
-}
-
-#[tauri::command]
-fn list_inbox_captures(owner_id: Option<String>) -> serde_json::Value {
-    let root = knowledge_root();
-    ensure_inbox_dirs(&root);
-
-    let mut captures = Vec::new();
-    for (_owner, owner_dir) in collect_inbox_owner_dirs(owner_id) {
-        let Ok(entries) = std::fs::read_dir(owner_dir) else { continue; };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() { continue; }
-            if let Some(manifest) = read_inbox_manifest(&path) {
-                captures.push(manifest);
-            }
-        }
-    }
-
-    captures.sort_by(|a, b| {
-        b["createdAt"].as_u64().unwrap_or(0)
-            .cmp(&a["createdAt"].as_u64().unwrap_or(0))
-    });
-
-    serde_json::json!({ "captures": captures })
-}
-
-#[tauri::command]
-fn read_inbox_capture(owner_id: String, capture_id: String) -> serde_json::Value {
-    let dir = match inbox_capture_dir(&owner_id, &capture_id) {
-        Ok(d) => d,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-    };
-    match read_inbox_manifest(&dir) {
-        Some(capture) => serde_json::json!({ "ok": true, "capture": capture }),
-        None => serde_json::json!({ "ok": false, "error": "Capture not found" }),
-    }
-}
-
-#[tauri::command]
-fn create_inbox_capture(payload: serde_json::Value) -> serde_json::Value {
-    let root = knowledge_root();
-    ensure_inbox_dirs(&root);
-
-    let raw_owner = payload["ownerId"].as_str().unwrap_or("primary").to_lowercase();
-    let owner_id = sanitize_file_stem(&raw_owner, "primary").to_lowercase();
-    if !is_safe_agent_id(&owner_id) {
-        return serde_json::json!({ "ok": false, "error": "Invalid inbox owner id" });
-    }
-
-    let requested_id = payload["id"].as_str().unwrap_or("");
-    let capture_id = if is_safe_capture_id(requested_id) {
-        requested_id.to_string()
-    } else {
-        format!("cap-{}", now_millis())
-    };
-
-    let dir = match inbox_capture_dir(&owner_id, &capture_id) {
-        Ok(d) => d,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-    };
-
-    if dir.join("manifest.json").exists() {
-        if let Some(capture) = read_inbox_manifest(&dir) {
-            return serde_json::json!({ "ok": true, "duplicate": true, "capture": capture });
-        }
-    }
-
-    let mut saved_attachments = Vec::new();
-    let mut total_bytes = 0usize;
-    if let Some(attachments) = payload["attachments"].as_array() {
-        let attachments_dir = dir.join("attachments");
-        if let Err(e) = std::fs::create_dir_all(&attachments_dir) {
-            return serde_json::json!({ "ok": false, "error": e.to_string() });
-        }
-        for (idx, attachment) in attachments.iter().take(25).enumerate() {
-            let name = attachment["name"].as_str().unwrap_or("attachment");
-            let mime_type = attachment["mimeType"].as_str()
-                .or_else(|| attachment["type"].as_str())
-                .unwrap_or("application/octet-stream");
-            let data_raw = attachment["dataBase64"].as_str()
-                .or_else(|| attachment["data"].as_str())
-                .or_else(|| attachment["dataUrl"].as_str())
-                .unwrap_or("");
-            if data_raw.trim().is_empty() { continue; }
-            let base64_data = data_raw
-                .split_once(',')
-                .map(|(_, data)| data)
-                .unwrap_or(data_raw)
-                .trim();
-            let bytes = match base64_decode(base64_data) {
-                Ok(bytes) => bytes,
-                Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-            };
-            let byte_count = bytes.len();
-            total_bytes += byte_count;
-            if total_bytes > 50 * 1024 * 1024 {
-                return serde_json::json!({ "ok": false, "error": "Capture attachments exceed 50MB limit" });
-            }
-            let attachment_id = format!("att-{}-{}", idx + 1, now_millis());
-            let file_name = format!("{}-{}", idx + 1, sanitize_file_stem(name, "attachment"));
-            let file_path = attachments_dir.join(file_name);
-            if let Err(e) = std::fs::write(&file_path, bytes) {
-                return serde_json::json!({ "ok": false, "error": e.to_string() });
-            }
-            saved_attachments.push(serde_json::json!({
-                "id": attachment_id,
-                "name": name,
-                "mimeType": mime_type,
-                "size": byte_count,
-                "path": file_path.to_string_lossy()
-            }));
-        }
-    }
-
-    let now = now_millis() as u64;
-    let urls = payload["urls"].as_array().cloned().unwrap_or_default();
-    let manifest = serde_json::json!({
-        "id": capture_id,
-        "ownerId": owner_id,
-        "ownerLabel": payload["ownerLabel"].as_str().unwrap_or(""),
-        "instanceId": payload["instanceId"].as_str().unwrap_or(""),
-        "shareId": payload["shareId"].as_str().unwrap_or(""),
-        "deviceName": payload["deviceName"].as_str().unwrap_or(""),
-        "source": payload["source"].as_str().unwrap_or("desktop_drop"),
-        "kind": payload["kind"].as_str().unwrap_or("mixed"),
-        "status": payload["status"].as_str().unwrap_or("received"),
-        "createdAt": payload["createdAt"].as_u64().unwrap_or(now),
-        "updatedAt": now,
-        "title": payload["title"].as_str().unwrap_or("Untitled capture"),
-        "bodyText": payload["bodyText"].as_str().unwrap_or(""),
-        "urls": urls,
-        "attachments": saved_attachments,
-        "note": payload["note"].as_str().unwrap_or(""),
-        "channelHint": payload["channelHint"].as_str().unwrap_or(""),
-        "channelId": payload["channelId"].as_str().unwrap_or(""),
-        "agentId": payload["agentId"].as_str().unwrap_or(""),
-        "targetKind": payload["targetKind"].as_str().unwrap_or(""),
-        "tags": payload["tags"].as_array().cloned().unwrap_or_default(),
-        "rawPath": dir.to_string_lossy(),
-        "processedPaths": [],
-        "error": ""
-    });
-
-    match write_inbox_manifest(&dir, &manifest) {
-        Ok(_) => serde_json::json!({ "ok": true, "duplicate": false, "capture": manifest }),
-        Err(e) => serde_json::json!({ "ok": false, "error": e }),
-    }
-}
-
-#[tauri::command]
-fn update_inbox_capture(owner_id: String, capture_id: String, patch: serde_json::Value) -> serde_json::Value {
-    let dir = match inbox_capture_dir(&owner_id, &capture_id) {
-        Ok(d) => d,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-    };
-    let Some(mut manifest) = read_inbox_manifest(&dir) else {
-        return serde_json::json!({ "ok": false, "error": "Capture not found" });
-    };
-
-    let allowed = [
-        "status",
-        "ownerLabel",
-        "instanceId",
-        "shareId",
-        "deviceName",
-        "title",
-        "bodyText",
-        "note",
-        "channelHint",
-        "channelId",
-        "agentId",
-        "targetKind",
-        "tags",
-        "processedPaths",
-        "summary",
-        "error",
-    ];
-    for key in allowed {
-        if let Some(value) = patch.get(key) {
-            manifest[key] = value.clone();
-        }
-    }
-    manifest["updatedAt"] = serde_json::json!(now_millis() as u64);
-
-    match write_inbox_manifest(&dir, &manifest) {
-        Ok(_) => serde_json::json!({ "ok": true, "capture": manifest }),
-        Err(e) => serde_json::json!({ "ok": false, "error": e }),
-    }
-}
-
-#[tauri::command]
-fn read_inbox_attachment(owner_id: String, capture_id: String, attachment_id: String) -> serde_json::Value {
-    let dir = match inbox_capture_dir(&owner_id, &capture_id) {
-        Ok(d) => d,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-    };
-    let Some(manifest) = read_inbox_manifest(&dir) else {
-        return serde_json::json!({ "ok": false, "error": "Capture not found" });
-    };
-    let Some(attachments) = manifest["attachments"].as_array() else {
-        return serde_json::json!({ "ok": false, "error": "Attachment not found" });
-    };
-    let Some(attachment) = attachments.iter().find(|a| a["id"].as_str() == Some(attachment_id.as_str())) else {
-        return serde_json::json!({ "ok": false, "error": "Attachment not found" });
-    };
-    let mime_type = attachment["mimeType"].as_str().unwrap_or("application/octet-stream");
-    if let Some(data_url) = attachment["dataUrl"].as_str() {
-        return serde_json::json!({
-            "ok": true,
-            "name": attachment["name"].as_str().unwrap_or("attachment"),
-            "mimeType": mime_type,
-            "dataUrl": data_url
-        });
-    }
-    let Some(path) = attachment["path"].as_str() else {
-        return serde_json::json!({ "ok": false, "error": "Attachment path missing" });
-    };
-    if path.trim().is_empty() {
-        return serde_json::json!({ "ok": false, "error": "Attachment data missing" });
-    }
-    let file_path = match knowledge_path_from_input(path) {
-        Ok(p) => p,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
-    };
-    let bytes = match std::fs::read(file_path) {
-        Ok(b) => b,
-        Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
-    };
-    let encoded = base64_encode(&bytes);
-    serde_json::json!({
-        "ok": true,
-        "name": attachment["name"].as_str().unwrap_or("attachment"),
-        "mimeType": mime_type,
-        "dataUrl": format!("data:{};base64,{}", mime_type, encoded)
-    })
 }
 
 #[tauri::command]
@@ -2580,17 +1351,6 @@ fn fetch_url_text(url: &str) -> Option<String> {
     }
     // Limit to ~12k chars
     Some(trimmed.chars().take(12000).collect())
-}
-
-#[tauri::command]
-fn read_url_text(url: String) -> serde_json::Value {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return serde_json::json!({ "ok": false, "error": "Only http(s) URLs can be read", "text": "" });
-    }
-    match fetch_url_text(&url) {
-        Some(text) => serde_json::json!({ "ok": true, "url": url, "text": text }),
-        None => serde_json::json!({ "ok": false, "url": url, "error": "Could not read URL text", "text": "" }),
-    }
 }
 
 /// Try to get tab info from Chrome. Returns (title, url, text, "chrome") or None.
@@ -2786,8 +1546,6 @@ pub fn run() {
             safe_write_file,
             rollback_file,
             init_knowledge_core,
-            read_app_state_backup,
-            write_app_state_backup,
             write_memory,
             append_task,
             complete_task,
@@ -2796,11 +1554,8 @@ pub fn run() {
             get_hardware_profile,
             init_file_watcher,
             sync_knowledge_core_index,
-            sync_semantic_layer,
             get_index_status,
-            get_semantic_layer_status,
             search_knowledge_semantic,
-            search_semantic_layer,
             delete_memory_file,
             archive_memory_file,
             restore_archived_file,
@@ -2808,15 +1563,8 @@ pub fn run() {
             write_dream_log,
             list_archive_files,
             list_agent_memory_files,
-            list_channel_memory_files,
-            list_inbox_captures,
-            read_inbox_capture,
-            create_inbox_capture,
-            update_inbox_capture,
-            read_inbox_attachment,
             list_library_files,
             read_knowledge_file,
-            read_url_text,
             get_active_tab,
             show_spotlight,
             hide_spotlight,
@@ -2834,163 +1582,4 @@ pub fn run() {
                 }
             }
         });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    static TEST_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    struct TestHome {
-        old_home: Option<String>,
-        home: PathBuf,
-    }
-
-    impl Drop for TestHome {
-        fn drop(&mut self) {
-            if let Some(old_home) = &self.old_home {
-                std::env::set_var("HOME", old_home);
-            } else {
-                std::env::remove_var("HOME");
-            }
-            let _ = std::fs::remove_dir_all(&self.home);
-        }
-    }
-
-    fn unique_test_home(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "agent-forge-{name}-{}-{}",
-            std::process::id(),
-            now_millis()
-        ))
-    }
-
-    fn set_test_home(name: &str) -> TestHome {
-        let old_home = std::env::var("HOME").ok();
-        let home = unique_test_home(name);
-        std::fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
-        TestHome { old_home, home }
-    }
-
-    #[test]
-    fn semantic_layer_indexes_grounded_facts_and_relations() {
-        let _home_lock = TEST_HOME_LOCK.lock().unwrap();
-        let _home = set_test_home("semantic-layer");
-
-        let kc = init_knowledge_core();
-        assert_eq!(kc["initialized"].as_bool(), Some(true));
-        let root = knowledge_root();
-        let memory_path = root
-            .join("memory")
-            .join("f-starwars")
-            .join("memos")
-            .join("vader-isb-test.md");
-        let content = r#"---
-title: "Vader ISB deck test"
-type: "manual-memmo"
-scope: "agent"
-agent_id: "f-starwars"
-source_kind: "manual_entry"
-evidence_state: "user_provided"
-verification: "verified"
-confidence: "high"
-tags: ["star-wars-ccg", "deck-test"]
----
-
-# Vader ISB deck test
-
-## Summary
-- Vader/ISB failed because early force generation was weak.
-- Decision: Do not rebuild Vader/ISB unless early force generation is solved.
-"#;
-
-        let write = write_memory(
-            memory_path.to_string_lossy().to_string(),
-            content.to_string(),
-            "test: semantic deck memory".to_string(),
-            Some("f-starwars".to_string()),
-            None,
-            None,
-        );
-        assert_eq!(write["blocked"].as_bool(), Some(false));
-
-        let sync = sync_semantic_layer();
-        assert_eq!(sync["ok"].as_bool(), Some(true));
-        assert!(sync["indexed"].as_u64().unwrap_or(0) >= 1);
-
-        let status = get_semantic_layer_status();
-        assert!(status["documents"].as_i64().unwrap_or(0) >= 1);
-        assert!(status["facts"].as_i64().unwrap_or(0) >= 1);
-        assert!(status["relations"].as_i64().unwrap_or(0) >= 1);
-
-        let result = search_semantic_layer(
-            "Vader ISB early force generation".to_string(),
-            Some("f-starwars".to_string()),
-            None,
-            Some(8),
-        );
-        let facts = result["facts"].as_array().cloned().unwrap_or_default();
-        let relations = result["relations"].as_array().cloned().unwrap_or_default();
-        assert!(
-            facts.iter().any(|fact| fact["fact"].as_str().unwrap_or("").contains("early force generation")),
-            "expected semantic fact about early force generation, got {facts:?}"
-        );
-        assert!(
-            relations.iter().any(|rel| rel["relation"].as_str() == Some("failed_because")),
-            "expected failed_because relation, got {relations:?}"
-        );
-    }
-
-    #[test]
-    fn inbox_capture_writes_attachments_as_raw_files() {
-        let _home_lock = TEST_HOME_LOCK.lock().unwrap();
-        let _home = set_test_home("inbox-attachments");
-
-        let kc = init_knowledge_core();
-        assert_eq!(kc["initialized"].as_bool(), Some(true));
-
-        let payload = serde_json::json!({
-            "ownerId": "primary",
-            "id": "cap-attachment-test",
-            "source": "desktop_drop",
-            "kind": "file",
-            "title": "Attachment test",
-            "bodyText": "Keep the original attachment out of manifest JSON.",
-            "attachments": [{
-                "name": "note.txt",
-                "mimeType": "text/plain",
-                "dataBase64": "aGVsbG8gZm9yZ2U="
-            }]
-        });
-
-        let created = create_inbox_capture(payload);
-        assert_eq!(created["ok"].as_bool(), Some(true));
-        assert_eq!(created["duplicate"].as_bool(), Some(false));
-
-        let capture = &created["capture"];
-        let attachments = capture["attachments"].as_array().unwrap();
-        assert_eq!(attachments.len(), 1);
-        assert!(attachments[0]["dataUrl"].is_null());
-        let path = attachments[0]["path"].as_str().unwrap();
-        assert!(Path::new(path).exists(), "attachment path should exist: {path}");
-        assert_eq!(std::fs::read(path).unwrap(), b"hello forge");
-
-        let read = read_inbox_attachment(
-            "primary".to_string(),
-            "cap-attachment-test".to_string(),
-            attachments[0]["id"].as_str().unwrap().to_string(),
-        );
-        assert_eq!(read["ok"].as_bool(), Some(true));
-        assert_eq!(read["name"].as_str(), Some("note.txt"));
-        assert_eq!(read["dataUrl"].as_str(), Some("data:text/plain;base64,aGVsbG8gZm9yZ2U="));
-
-        let duplicate = create_inbox_capture(serde_json::json!({
-            "ownerId": "primary",
-            "id": "cap-attachment-test"
-        }));
-        assert_eq!(duplicate["ok"].as_bool(), Some(true));
-        assert_eq!(duplicate["duplicate"].as_bool(), Some(true));
-    }
 }

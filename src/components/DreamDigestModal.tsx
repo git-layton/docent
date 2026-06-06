@@ -1,10 +1,15 @@
 import { useState } from 'react';
-import { X, Loader2, RotateCcw } from 'lucide-react';
+import { Sparkles, X, Loader2, RotateCcw } from 'lucide-react';
 
 export interface DreamItem {
   id: string;
-  type: 'merged' | 'updated' | 'pruned';
+  type: 'merged' | 'updated' | 'pruned' | 'noticed';
   description: string;
+  // notice-specific
+  notice_title?: string;
+  notice_body?: string;
+  notice_agent_id?: string;
+  // memory op fields
   archive_paths: string[];
   original_paths: string[];
   target_file?: string;
@@ -63,6 +68,7 @@ export function DreamDigestModal({ log, onClose, onUndo }: Props) {
     }
   }
 
+  const notices = log.items.filter(i => i.type === 'noticed');
   const grouped = {
     merged: log.items.filter(i => i.type === 'merged'),
     updated: log.items.filter(i => i.type === 'updated'),
@@ -103,6 +109,35 @@ export function DreamDigestModal({ log, onClose, onUndo }: Props) {
             <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center py-8">
               No changes were recorded in this Dream Cycle.
             </p>
+          )}
+
+          {/* Notices — shown first, styled like agent messages */}
+          {notices.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300">
+                  Noticed
+                </span>
+                <span className="text-xs text-neutral-400">{notices.length}</span>
+              </div>
+              <div className="space-y-3">
+                {notices.map(item => (
+                  <div key={item.id} className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-4">
+                    <div className="flex items-start gap-2.5">
+                      <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        {item.notice_title && (
+                          <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200 mb-1">{item.notice_title}</p>
+                        )}
+                        {item.notice_body && (
+                          <p className="text-sm text-indigo-800 dark:text-indigo-300 leading-relaxed">{item.notice_body}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {(['merged', 'updated', 'pruned'] as const).map(type => {

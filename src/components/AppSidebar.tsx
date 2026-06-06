@@ -1,11 +1,8 @@
-import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus } from 'lucide-react';
+import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Plus } from 'lucide-react';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
-import { useSettingsStore } from '../store/useSettingsStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
-import { normalizeChatRecord } from '../services/channels';
-import { AgentIcon } from './ui/AgentIcon';
 
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -30,105 +27,14 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
   const editingChatName = useChatStore(s => s.editingChatName);
 
   const activeFolderId = useAgentStore(s => s.activeFolderId);
-  const assistants = useAgentStore(s => s.assistants);
-  const appSettings = useSettingsStore(s => s.appSettings);
   const showPlanner = useTaskStore(s => s.showPlanner);
-
-  const openDirect = (agent: any) => {
-    const existingDirect = chats
-      .map((chat: any) => normalizeChatRecord(chat, agent.id))
-      .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === agent.id || chat.folderId === agent.id));
-    if (existingDirect) {
-      useAgentStore.getState().setActiveFolderId(agent.id);
-      useChatStore.getState().setActiveChatId(existingDirect.id);
-      if (agent.defaultModelId) useSettingsStore.getState().setSelectedModelId(agent.defaultModelId);
-      useTaskStore.getState().setShowPlanner(false);
-      useUIStore.getState().setCanvasContent(null);
-      useUIStore.getState().setViewMode('chat');
-      return;
-    }
-    const id = generateId('c');
-    const chat = normalizeChatRecord({
-      id,
-      folderId: agent.id,
-      primaryAgentId: agent.id,
-      participantAgentIds: [agent.id],
-      kind: 'dm',
-      name: `${agent?.name ?? 'Agent'} Direct`,
-      goal: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }, agent.id);
-    useAgentStore.getState().setActiveFolderId(agent.id);
-    useChatStore.getState().setChats((prev: any[]) => [chat, ...prev]);
-    useChatStore.getState().setActiveChatId(id);
-    useChatStore.getState().setMessages((prev: any) => ({ ...prev, [id]: [] }));
-    if (agent.defaultModelId) useSettingsStore.getState().setSelectedModelId(agent.defaultModelId);
-    useTaskStore.getState().setShowPlanner(false);
-    useUIStore.getState().setCanvasContent(null);
-    useUIStore.getState().setViewMode('chat');
-  };
-
-  const createChannel = () => {
-    const id = generateId('c');
-    const chat = normalizeChatRecord({
-      id,
-      folderId: activeFolderId,
-      primaryAgentId: activeFolderId,
-      participantAgentIds: [activeFolderId],
-      kind: 'channel',
-      name: 'New Channel',
-      goal: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }, activeFolderId);
-    useChatStore.getState().setChats((prev: any[]) => [chat, ...prev]);
-    useChatStore.getState().setActiveChatId(id);
-    useChatStore.getState().setMessages((prev: any) => ({ ...prev, [id]: [] }));
-    useTaskStore.getState().setShowPlanner(false);
-    useUIStore.getState().setCanvasContent(null);
-    useUIStore.getState().setViewMode('chat');
-  };
-
-  const createAgent = () => {
-    useAgentStore.getState().setEditingAssistant({
-      id: 'new',
-      name: 'New Specialist',
-      description: '',
-      prompt: 'You are a focused specialist agent. Learn from grounded memory, cite sources when needed, and collaborate in channels when invited.',
-      avatar: { type: 'color', color: 'sage' },
-      trainingDocs: [],
-      systemAccess: false,
-      tools: {},
-      awareOfProfile: true,
-      defaultModelId: '',
-      defaultMode: 'text',
-    });
-    useAgentStore.getState().setAssistantSettingsTab('config');
-    useAgentStore.getState().setShowAssistantSettings(true);
-  };
-
-  const renameChat = (chatId: string, name: string) => {
-    useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, name: name || 'Unnamed' } : c));
-  };
-
-  const query = chatSearchQuery.toLowerCase();
-  const visibleAgents = assistants
-    .filter((agent: any) => agent.id !== 'forge-guide')
-    .filter((agent: any) => `${agent.name} ${agent.description ?? ''}`.toLowerCase().includes(query));
-  const visiblePeople = (Array.isArray(appSettings.people) ? appSettings.people : [])
-    .filter((person: any) => `${person.id} ${person.label} ${person.role ?? ''}`.toLowerCase().includes(query));
-  const visibleChannels = chats
-    .map((chat: any) => normalizeChatRecord(chat, activeFolderId))
-    .filter((chat: any) => chat.kind === 'channel')
-    .filter((chat: any) => `${chat.name} ${chat.goal ?? ''}`.toLowerCase().includes(query));
 
   return (
     <div className={`shrink-0 transition-all duration-300 border-r border-neutral-200 dark:border-neutral-800 z-[60] bg-white dark:bg-neutral-950 overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
       <div className="w-72 h-full flex flex-col">
         <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3 bg-[#2C3E50]">
           <div className="p-2 bg-[#9EADC8] rounded-xl shadow-md shrink-0"><Bot className="w-5 h-5 text-[#2C3E50]" /></div>
-          <div><span className="text-sm font-black tracking-tighter uppercase text-white block">Agent Forge</span><span className="text-[9px] font-bold uppercase tracking-widest text-[#9EADC8]">Personal AI Command Center</span></div>
+          <div><span className="text-sm font-black tracking-tighter uppercase text-white block">Agent Forge</span><span className="text-[9px] font-bold uppercase tracking-widest text-[#9EADC8]">Your AI Studio</span></div>
         </div>
 
         <div className="flex p-1 gap-1 mx-4 mt-4 bg-neutral-100 dark:bg-neutral-800 rounded-xl shrink-0">
@@ -138,89 +44,16 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2 no-scrollbar">
           {viewMode === 'chat' ? (
             <div className="space-y-3">
-              <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search people, agents, channels..." value={chatSearchQuery} onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)} /></div>
-              <div className="space-y-1">
-                <div className="px-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">People</div>
-                {visiblePeople.map((person: any) => (
-                  <div
-                    key={person.id}
-                    onClick={() => {
-                      useSettingsStore.getState().setProfileSettingsTab('people');
-                      useSettingsStore.getState().setShowProfileSettings(true);
-                    }}
-                    className="group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="p-1.5 rounded-lg bg-[#EEF3F0] dark:bg-[#2C3E35]/30">
-                        <User className="w-3.5 h-3.5 text-[#7A9E8D]" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{person.label ?? person.id}</p>
-                        <p className="text-[9px] truncate text-neutral-400">{person.role || 'Human profile'}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {visiblePeople.length === 0 && (
-                  <button
-                    onClick={() => {
-                      useSettingsStore.getState().setProfileSettingsTab('people');
-                      useSettingsStore.getState().setShowProfileSettings(true);
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-all"
-                  >
-                    <Plus className="w-3 h-3" /> Add Profile
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-1 pt-3">
-                <div className="px-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">Agents</div>
-                {visibleAgents.map((agent: any) => {
-                  const direct = chats
-                    .map((chat: any) => normalizeChatRecord(chat, agent.id))
-                    .find((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === agent.id || chat.folderId === agent.id));
-                  const isActive = activeChatId === direct?.id || (!activeChatId && activeFolderId === agent.id);
-                  return (
-                    <div key={agent.id} onClick={() => openDirect(agent)} className={`group flex items-center justify-between px-3 py-3 rounded-xl cursor-pointer transition-all ${isActive && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <AgentIcon agent={agent} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{agent.name}</p>
-                          <p className="text-[9px] truncate text-neutral-400">{agent.description || 'Persistent direct memory'}</p>
-                        </div>
-                      </div>
-                      <button onClick={e => { e.stopPropagation(); useAgentStore.getState().setEditingAssistant({ ...agent }); useAgentStore.getState().setAssistantSettingsTab('config'); useAgentStore.getState().setShowAssistantSettings(true); }} className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-[#6A829E] transition-all p-1">
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-                {visibleAgents.length === 0 && <div className="text-center text-xs text-neutral-400 font-bold mt-4">No agents match this search.</div>}
-              </div>
-
-              <div className="space-y-1 pt-3">
-                <div className="px-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">Channels</div>
-                {visibleChannels.map((chat: any) => (
-                  <div key={chat.id} onClick={() => { useAgentStore.getState().setActiveFolderId(chat.primaryAgentId ?? activeFolderId); useChatStore.getState().setActiveChatId(chat.id); useUIStore.getState().setCanvasContent(null); useTaskStore.getState().setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-3 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
-                    {editingChatId === chat.id ? (
-                      <input autoFocus value={editingChatName} onChange={e => useChatStore.getState().setEditingChatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { renameChat(chat.id, editingChatName); useChatStore.getState().setEditingChatId(null); } else if (e.key === 'Escape') useChatStore.getState().setEditingChatId(null); }} onBlur={() => { renameChat(chat.id, editingChatName); useChatStore.getState().setEditingChatId(null); }} className="w-full bg-white dark:bg-neutral-950 text-xs font-bold px-2 py-1 rounded outline-none border border-[#6A829E]" />
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2 truncate flex-1">
-                          <Hash className="w-3 h-3 text-[#6A829E] shrink-0" />
-                          <span className="text-xs truncate flex-1">{chat.name}</span>
-                        </div>
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={(e) => { e.stopPropagation(); useChatStore.getState().setEditingChatId(chat.id); useChatStore.getState().setEditingChatName(chat.name); }} className="text-neutral-400 hover:text-[#6A829E]"><Edit2 className="w-3 h-3" /></button>
-                          <button onClick={e => { e.stopPropagation(); useChatStore.getState().setChats((prev: any[]) => prev.filter((c: any) => c.id !== chat.id)); if (activeChatId === chat.id) useChatStore.getState().setActiveChatId(null); }} className="text-neutral-400 hover:text-[#C98A8A]"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-                {visibleChannels.length === 0 && <div className="text-center text-xs text-neutral-400 font-bold mt-3">No channels yet.</div>}
-              </div>
+              <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search chats..." value={chatSearchQuery} onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)} /></div>
+              {/* Scoped Sidebar Chats to Active Folder ID */}
+              {chats.filter(c => c.folderId === activeFolderId && c.name.toLowerCase().includes(chatSearchQuery.toLowerCase())).map(chat => (
+                <div key={chat.id} onClick={() => { useChatStore.getState().setActiveChatId(chat.id); useUIStore.getState().setCanvasContent(null); useTaskStore.getState().setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-3 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
+                  {editingChatId === chat.id ? (<input autoFocus value={editingChatName} onChange={e => useChatStore.getState().setEditingChatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); useChatStore.getState().setEditingChatId(null); } else if (e.key === 'Escape') useChatStore.getState().setEditingChatId(null); }} onBlur={() => { useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chat.id ? { ...c, name: editingChatName || 'Unnamed' } : c)); useChatStore.getState().setEditingChatId(null); }} className="w-full bg-white dark:bg-neutral-950 text-xs font-bold px-2 py-1 rounded outline-none border border-[#6A829E]" />) : (<><span className="text-xs truncate flex-1">{chat.name}</span><div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); useChatStore.getState().setEditingChatId(chat.id); useChatStore.getState().setEditingChatName(chat.name); }} className="text-neutral-400 hover:text-[#6A829E]"><Edit2 className="w-3 h-3" /></button><button onClick={e => { e.stopPropagation(); useChatStore.getState().setChats((prev: any[]) => prev.filter((c: any) => c.id !== chat.id)); if (activeChatId === chat.id) useChatStore.getState().setActiveChatId(null); }} className="text-neutral-400 hover:text-[#C98A8A]"><Trash2 className="w-3.5 h-3.5" /></button></div></>)}
+                </div>
+              ))}
+              {chats.filter(c => c.folderId === activeFolderId).length === 0 && (
+                  <div className="text-center text-xs text-neutral-400 font-bold mt-4">No chats found for this bot.</div>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -245,10 +78,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         </div>
 
         <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={createAgent} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Plus className="w-4 h-4" /> Agent</button>
-            <button onClick={createChannel} className="flex items-center justify-center gap-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Hash className="w-4 h-4" /> Channel</button>
-          </div>
+          <button onClick={() => { const id = generateId('c'); useChatStore.getState().setChats((prev: any[]) => [{ id, folderId: activeFolderId, name: 'New Session', updatedAt: Date.now() }, ...prev]); useChatStore.getState().setActiveChatId(id); useChatStore.getState().setMessages((prev: any) => ({ ...prev, [id]: [] })); useTaskStore.getState().setShowPlanner(false); useUIStore.getState().setViewMode('chat'); }} className="w-full flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-4 py-3.5 shadow-lg transition-all active:scale-95"><Plus className="w-4 h-4" /> New Chat</button>
         </div>
       </div>
     </div>

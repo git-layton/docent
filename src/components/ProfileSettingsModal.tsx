@@ -1,130 +1,39 @@
 import { useState, useEffect } from 'react';
 import {
-  Settings, X, Loader2, Globe, Database, CalendarDays, Link, BookOpen, Inbox, Search,
-  Cpu, Server, Trash2, Plus, User, MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, CalendarClock
+  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
+  MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, Plus, Trash2, CalendarClock
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
-import { useUIStore } from '../store/useUIStore';
 import { invoke } from '@tauri-apps/api/core';
 import { db } from '../services/database';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
-import { getLocalModelRecommendation } from '../services/modelRecommendations';
 
-export function ProfileSettingsModal() {
+interface ProfileSettingsModalProps {
+  fetchImageModels: () => void;
+  testImageEngine: () => void;
+  viewImageInCanvas: (src: string) => void;
+}
+
+export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewImageInCanvas }: ProfileSettingsModalProps) {
   const userProfile = useSettingsStore(s => s.userProfile);
   const integrations = useSettingsStore(s => s.integrations);
   const appSettings = useSettingsStore(s => s.appSettings);
   const profileSettingsTab = useSettingsStore(s => s.profileSettingsTab);
+  const imageTestState = useSettingsStore(s => s.imageTestState);
+  const imageEngineModels = useSettingsStore(s => s.imageEngineModels);
+  const isFetchingImageModels = useSettingsStore(s => s.isFetchingImageModels);
   const models = useSettingsStore(s => s.models);
-  const selectedModelId = useSettingsStore(s => s.selectedModelId);
   const { setUserProfile, setIntegrations, setAppSettings, setProfileSettingsTab,
-    setShowProfileSettings, setShowModelWizard, setWizardStep,
-    setEditingModel, setFetchedModels, setPendingModelSelections, setFetchModelsError, setModelSearchQuery,
-    setSelectedModelId, setModels } = useSettingsStore.getState();
+    setImageTestState, setImageEngineModels, setShowProfileSettings } = useSettingsStore.getState();
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
-  const ramStats = useUIStore(s => s.ramStats);
-  const hwProfile = useUIStore(s => s.hwProfile);
-  const modelRecommendation = getLocalModelRecommendation(ramStats?.total_mb ?? hwProfile?.total_mb ?? null);
 
   const [guideStatus, setGuideStatus] = useState<'installed' | 'deleted' | 'checking'>('checking');
-  const [ownerDraft, setOwnerDraft] = useState('');
-  const [peopleDraft, setPeopleDraft] = useState('');
-  const [semanticStatus, setSemanticStatus] = useState<{ documents: number; entities: number; facts: number; relations: number } | null>(null);
-  const [semanticSyncing, setSemanticSyncing] = useState(false);
 
   useEffect(() => {
     db.get('userDocsInstalled', false).then(v => setGuideStatus(v ? 'installed' : 'deleted'));
-    refreshSemanticStatus();
   }, []);
-
-  useEffect(() => {
-    const owners = Array.isArray(appSettings.inboxOwners) && appSettings.inboxOwners.length
-      ? appSettings.inboxOwners
-      : [{ id: 'primary', label: 'Primary' }, { id: 'shared', label: 'Shared' }];
-    setOwnerDraft(owners.map((owner: any) => `${owner.id}: ${owner.label}`).join('\n'));
-  }, [appSettings.inboxOwners]);
-
-  useEffect(() => {
-    const people = Array.isArray(appSettings.people) ? appSettings.people : [];
-    setPeopleDraft(people.map((person: any) => `${person.id}: ${person.label}${person.role ? `: ${person.role}` : ''}`).join('\n'));
-  }, [appSettings.people]);
-
-  const openModelWizard = (provider: string) => {
-    const endpoint =
-      provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' :
-      provider === 'huggingface' ? 'https://api-inference.huggingface.co/v1' :
-      provider === 'anthropic' ? 'https://api.anthropic.com/v1' :
-      provider === 'google' ? '' :
-      'https://api.openai.com/v1';
-    const existingKey = models.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
-    setEditingModel({
-      name:
-        provider === 'lmstudio' ? 'LM Studio Engine' :
-        provider === 'openai' ? 'OpenAI' :
-        provider === 'anthropic' ? 'Claude' :
-        provider === 'google' ? 'Gemini' :
-        'Custom Model',
-      provider,
-      modelId: '',
-      endpoint,
-      apiKey: existingKey,
-      contextLimit: 32000,
-    });
-    setFetchedModels([]);
-    setPendingModelSelections([]);
-    setFetchModelsError(null);
-    setModelSearchQuery('');
-    setWizardStep(3);
-    setShowModelWizard(true);
-  };
-
-  const savePeople = () => {
-    const people = peopleDraft
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const [rawId, rawLabel, ...roleParts] = line.split(':');
-        const id = rawId.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-        const label = (rawLabel ?? '').trim() || id || 'Person';
-        const role = roleParts.join(':').trim();
-        return id ? { id, label, ...(role ? { role } : {}) } : null;
-      })
-      .filter((person): person is { id: string; label: string; role?: string } => Boolean(person));
-    setAppSettings((prev: any) => ({ ...prev, people }));
-  };
-
-  const saveInboxOwners = () => {
-    const owners = ownerDraft
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const [rawId, ...labelParts] = line.split(':');
-        const id = rawId.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-        const label = labelParts.join(':').trim() || id || 'Inbox';
-        return id ? { id, label } : null;
-      })
-      .filter((owner): owner is { id: string; label: string } => Boolean(owner));
-    setAppSettings((prev: any) => ({ ...prev, inboxOwners: owners.length ? owners : prev.inboxOwners }));
-  };
-
-  const refreshSemanticStatus = async () => {
-    const status = await invoke<{ documents: number; entities: number; facts: number; relations: number }>('get_semantic_layer_status').catch(() => null);
-    if (status) setSemanticStatus(status);
-  };
-
-  const syncSemanticLayer = async () => {
-    setSemanticSyncing(true);
-    try {
-      await invoke('sync_semantic_layer');
-      await refreshSemanticStatus();
-    } finally {
-      setSemanticSyncing(false);
-    }
-  };
 
   const handleRestoreGuide = async () => {
     if (!agentForgePath) return;
@@ -157,7 +66,15 @@ export function ProfileSettingsModal() {
     }
   };
 
-  const onClose = () => setShowProfileSettings(false);
+  const hasImplicitGoogleKey = models.some((m: any) => m.provider === 'google' && m.apiKey);
+  const hasImplicitOpenAIKey = models.some((m: any) => m.provider === 'openai' && m.apiKey);
+  const activeImageKey = appSettings.imageProvider === 'openai'
+    ? (integrations.openai?.apiKey || models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey)
+    : appSettings.imageProvider === 'google'
+    ? (integrations.google?.apiKey || models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey)
+    : integrations.customImage?.apiKey || '';
+
+  const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); };
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
       <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white flex flex-col max-h-[90vh]">
@@ -166,7 +83,7 @@ export function ProfileSettingsModal() {
           <button onClick={onClose} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
         </div>
         <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 mb-6 shrink-0">
-          {['profile', 'models', 'people', 'integrations', 'inbox'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : 'text-neutral-400'}`}>{tab === 'profile' ? 'My Profile' : tab}</button>)}
+          {['profile', 'integrations'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : 'text-neutral-400'}`}>{tab === 'profile' ? 'My Profile' : 'Integrations'}</button>)}
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
           {profileSettingsTab === 'profile' ? (
@@ -213,433 +130,142 @@ export function ProfileSettingsModal() {
                 </div>
               </div>
             </div>
-          ) : profileSettingsTab === 'models' ? (
-            <div className="space-y-6">
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm">
-                <div className="flex items-center justify-between gap-4 mb-5">
-                  <div>
-                    <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Cpu className="w-4 h-4 text-[#6A829E]" /> Models</h4>
-                    <p className="text-xs text-neutral-500 font-medium mt-1">Connect at least one chat model before Lexi or any specialist can answer.</p>
-                  </div>
-                  <button onClick={() => openModelWizard('openai')} className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#4A5D75] text-white hover:bg-[#3D4D61] transition-all flex items-center gap-2">
-                    <Plus className="w-3.5 h-3.5" /> Add Model
-                  </button>
-                </div>
-
-                <div className="mb-5 p-4 rounded-2xl border border-[#D6E0EA] dark:border-[#2C3E50]/60 bg-[#F7FAFC] dark:bg-[#1E2B38]/20">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-[#6A829E]">Recommended for this computer</p>
-                      <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 mt-1">{modelRecommendation.headline}</p>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{modelRecommendation.strategy}</p>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-[10px] font-black uppercase tracking-widest text-[#6A829E] shrink-0">
-                      {modelRecommendation.ramLabel}
-                    </span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {modelRecommendation.options.slice(0, 2).map(option => (
-                      <button
-                        key={`${option.provider}-${option.modelId}`}
-                        onClick={() => {
-                          setEditingModel({
-                            name: option.name,
-                            provider: option.provider,
-                            modelId: '',
-                            endpoint: option.endpoint,
-                            apiKey: '',
-                            contextLimit: option.contextLimit,
-                          });
-                          setFetchedModels([]);
-                          setPendingModelSelections([]);
-                          setFetchModelsError(null);
-                          setModelSearchQuery(option.modelId.replace(/^local-/, '').replace(/-instruct|-reliable|-fast/g, ''));
-                          setWizardStep(3);
-                          setShowModelWizard(true);
-                        }}
-                        className="px-3 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-left hover:border-[#899AB5] transition-all"
-                      >
-                        <span className="block text-[10px] font-black text-neutral-800 dark:text-neutral-100">{option.name}</span>
-                        <span className="block text-[9px] font-mono text-neutral-500">Fetch loaded model from LM Studio</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-2 mb-5">
-                  <button onClick={() => openModelWizard('lmstudio')} className="p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 hover:border-[#6A829E] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/30 text-left transition-all">
-                    <Server className="w-4 h-4 text-[#D4AA7D] mb-2" />
-                    <p className="text-xs font-black uppercase tracking-widest">LM Studio</p>
-                    <p className="text-[10px] text-neutral-500 mt-1 font-medium">Supported local path · 127.0.0.1:1234</p>
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  {models.length === 0 ? (
-                    <div className="p-4 rounded-2xl bg-[#F9F4EE] dark:bg-[#5C452E]/20 border border-[#EEDCC4] dark:border-[#5C452E]/30 text-xs font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">
-                      No chat model is connected yet.
-                    </div>
-                  ) : models.map((model: any) => (
-                    <div key={model.id} className="flex items-center justify-between gap-3 p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950">
-                      <button onClick={() => setSelectedModelId(model.id)} className="flex-1 min-w-0 text-left">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black truncate">{model.name}</span>
-                          {selectedModelId === model.id && <span className="text-[9px] font-black uppercase tracking-widest text-[#7A9E8D]">Active</span>}
-                        </div>
-                        <p className="text-[10px] text-neutral-500 font-mono truncate">{model.provider} · {model.modelId}</p>
-                        {['ollama', 'native'].includes(model.provider) && (
-                          <p className="text-[10px] text-[#C98A8A] font-bold mt-1">Unsupported local path. Reconnect through LM Studio.</p>
-                        )}
-                      </button>
-                      <button onClick={() => { setModels((prev: any[]) => prev.filter(x => x.id !== model.id)); if (selectedModelId === model.id) setSelectedModelId(models.find((m: any) => m.id !== model.id)?.id ?? ''); }} className="p-2 rounded-lg text-neutral-400 hover:text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30 transition-all" title="Remove model">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : profileSettingsTab === 'people' ? (
-            <div className="space-y-6">
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-5">
-                <div>
-                  <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><User className="w-4 h-4 text-[#7A9E8D]" /> People</h4>
-                  <p className="text-xs text-neutral-500 font-medium">Real humans Agent Forge can keep context about. They are not agents and they do not run models or tools.</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-200">People</p>
-                    <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">Human profiles for family, teammates, clients, or capture owners.</p>
-                  </div>
-                  <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-200">Agents</p>
-                    <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">AI specialists with prompts, tools, memory, and model settings.</p>
-                  </div>
-                  <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-200">Channels</p>
-                    <p className="text-[10px] text-neutral-500 mt-1 leading-relaxed">Shared project rooms where agents collaborate around a goal.</p>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Human Profiles</label>
-                <textarea
-                  value={peopleDraft}
-                  onChange={e => setPeopleDraft(e.target.value)}
-                  rows={6}
-                  className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono resize-none"
-                  placeholder={'me: Me: Primary user\npartner: Partner: Family context\nclient: Client: Work context'}
-                />
-                  <p className="text-[10px] text-neutral-500 mt-2">One profile per line as <code>person-id: Display Name: context</code>. Leave this empty if Agent Forge is only for one person right now.</p>
-                </div>
-                <button onClick={savePeople} className="w-full py-3 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all">
-                  Save People
-                </button>
-                <div className="rounded-2xl border border-[#D6E0EA] dark:border-[#2C3E50]/60 bg-[#F7FAFC] dark:bg-[#1E2B38]/20 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-[#6A829E]">Capture owners</p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">Shortcut and relay ownership is configured in the Inbox tab. Use the same IDs here only when a real person also needs a visible profile in the left rail.</p>
-                </div>
-              </div>
-            </div>
-          ) : profileSettingsTab === 'inbox' ? (
-            <div className="space-y-6">
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-5">
-                <div>
-                  <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><Inbox className="w-4 h-4 text-[#6A829E]" /> Forge Inbox</h4>
-                  <p className="text-xs text-neutral-500 font-medium">Pair share-sheet Shortcuts and relay tokens to the right local Agent Forge instance and capture owner.</p>
-                  <p className="text-[10px] text-neutral-400 mt-1">The desktop app reads the local <code>~/AgentForge/inbox/raw</code> folder; the relay should run on the same always-on Mac as this Agent Forge instance.</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Instance ID</label>
-                    <input
-                      type="text"
-                      value={appSettings.forgeInstanceId || ''}
-                      onChange={e => setAppSettings((prev: any) => ({ ...prev, forgeInstanceId: e.target.value }))}
-                      placeholder="agent-forge-home"
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Relay URL</label>
-                    <input
-                      type="text"
-                      value={appSettings.relayUrl || ''}
-                      onChange={e => setAppSettings((prev: any) => ({ ...prev, relayUrl: e.target.value }))}
-                      placeholder="http://macbook-air:8765"
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Admin Token</label>
-                    <input
-                      type="password"
-                      value={appSettings.relayAdminToken || ''}
-                      onChange={e => setAppSettings((prev: any) => ({ ...prev, relayAdminToken: e.target.value }))}
-                      placeholder="optional admin token from ~/.agent-forge-relay.env"
-                      className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Capture Owners</label>
-                  <textarea
-                    value={ownerDraft}
-                    onChange={e => setOwnerDraft(e.target.value)}
-                    rows={5}
-                    className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono resize-none"
-                    placeholder={'primary: Primary\nshared: Shared'}
-                  />
-                  <p className="text-[10px] text-neutral-500 mt-2">One owner per line as <code>owner-id: Label</code>. Relay tokens should use the same owner IDs so each Shortcut lands in the right inbox.</p>
-                </div>
-
-                <button onClick={saveInboxOwners} className="w-full py-3 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all">
-                  Save Inbox Owners
-                </button>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-xs text-neutral-500 leading-relaxed">
-                Relay token routes use <code>ownerId:Owner Label:token:instanceId:shareId</code>. That is what connects a specific Shortcut/share action to the right Agent Forge instance and the right capture owner.
-              </div>
-            </div>
           ) : (
             <div className="space-y-6">
 
-              {/* Semantic Layer */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Database className="w-5 h-5 text-[#6A829E]" /></div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Semantic Layer</span>
-                    <span className="text-xs text-neutral-500 font-medium mt-0.5">Local facts, entities, and relationships extracted from grounded memory.</span>
-                    <span className="text-[10px] text-neutral-400 mt-1">
-                      {semanticStatus
-                        ? `${semanticStatus.documents} docs · ${semanticStatus.entities} entities · ${semanticStatus.facts} facts · ${semanticStatus.relations} relations`
-                        : 'Status unavailable until the Knowledge Core is ready.'}
-                    </span>
-                  </div>
-                </div>
-                <button onClick={syncSemanticLayer} disabled={semanticSyncing} className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#4A5D75] text-white hover:bg-[#3D4D61] disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-                  {semanticSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-                  {semanticSyncing ? 'Syncing' : 'Sync Now'}
-                </button>
-              </div>
+              {/* Image Generation Tooling - Engineered UX */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-6">
+                 <div>
+                    <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><ImageIcon className="w-4 h-4 text-[#D4AA7D]" /> Image Engine</h4>
+                    <p className="text-xs text-neutral-500 font-medium">Configure your preferred AI image generator API. Keys are stored locally.</p>
+                 </div>
 
-              {/* Slack Integration */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><MessageSquare className="w-5 h-5 text-[#6A829E]" /></div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Slack</span>
-                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Search workspace messages and prepare posts for approval.</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setIntegrations((prev: any) => ({ ...prev, slack: { ...prev.slack, enabled: !prev.slack?.enabled } }))}
-                    className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${integrations.slack?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}
-                  >
-                    {integrations.slack?.enabled ? 'Enabled' : 'Enable'}
-                  </button>
-                </div>
-                {integrations.slack?.enabled && (
-                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Bot Token</label>
-                    <input
-                      type="password"
-                      value={integrations.slack?.botToken || ''}
-                      onChange={e => setIntegrations((prev: any) => ({ ...prev, slack: { ...prev.slack, botToken: e.target.value } }))}
-                      placeholder="xoxb-..."
-                      className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
-                    />
-                    <p className="text-[10px] text-neutral-400 leading-relaxed">
-                      Add Slack OAuth scopes <code>channels:history</code>, <code>channels:read</code>, <code>chat:write</code>, and <code>search:read</code>, then paste the Bot User OAuth Token.
-                    </p>
-                    {integrations.slack?.botToken && (
-                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#7A9E8D]">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Token saved
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                 <div>
+                    <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">Provider</label>
+                    <select value={appSettings.imageProvider} onChange={e => { setAppSettings((prev: any) => ({ ...prev, imageProvider: e.target.value, imageModelId: '', imageEndpoint: '' })); setImageTestState({loading:false, error:null, successUrl:null}); setImageEngineModels([]); }} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold">
+                       <option value="none">Disabled</option>
+                       <option value="openai">OpenAI (DALL-E & Compatible)</option>
+                       <option value="google">Google (Imagen)</option>
+                       <option value="custom">Custom Endpoint</option>
+                    </select>
+                 </div>
 
-              {/* Google Workspace Integration */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700 flex items-center gap-1">
-                      <Mail className="w-4 h-4 text-[#C98A8A]" />
-                      <FolderOpen className="w-4 h-4 text-[#D4AA7D]" />
-                      <CalendarClock className="w-4 h-4 text-[#6A829E]" />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Google Workspace</span>
-                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Gmail, Drive, and Calendar across multiple accounts.</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setIntegrations((prev: any) => ({
-                      ...prev,
-                      googleWorkspaces: [...(prev.googleWorkspaces ?? []), { id: `gw-${Date.now()}`, label: '', clientId: '', clientSecret: '', refreshToken: '', connected: true, scopes: { gmail: false, drive: false, calendar: false } }]
-                    }))}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-[#4A5D75] text-white hover:bg-[#3D4D61] transition-all shadow-sm shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add Account
-                  </button>
-                </div>
+                 {/* Dynamic API Key Reveal & Testing */}
+                 {appSettings.imageProvider !== 'none' && (
+                    <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-neutral-50 dark:bg-neutral-950 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 flex flex-col gap-4">
 
-                {(integrations.googleWorkspaces ?? []).length === 0 && (
-                  <p className="text-[10px] text-neutral-400 text-center py-2">No Google accounts added yet.</p>
-                )}
+                       {/* Key Handling */}
+                       {appSettings.imageProvider === 'google' && hasImplicitGoogleKey ? (
+                          <div className="flex items-center gap-3 text-xs font-bold text-[#9FBBAF] bg-[#9FBBAF]/10 p-3 rounded-xl border border-[#9FBBAF]/20">
+                             <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.
+                          </div>
+                       ) : appSettings.imageProvider === 'openai' && hasImplicitOpenAIKey ? (
+                          <div className="flex items-center gap-3 text-xs font-bold text-[#9FBBAF] bg-[#9FBBAF]/10 p-3 rounded-xl border border-[#9FBBAF]/20">
+                             <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.
+                          </div>
+                       ) : (
+                          <div className="flex flex-col gap-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">API Key</label>
+                             <input
+                                type="password"
+                                value={
+                                   appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
+                                   appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
+                                   integrations.customImage?.apiKey || ''
+                                }
+                                onChange={e => {
+                                   const val = e.target.value;
+                                   if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { apiKey: val } }));
+                                   else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { apiKey: val } }));
+                                   else setIntegrations((prev: any) => ({ ...prev, customImage: { apiKey: val } }));
+                                }}
+                                placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
+                                className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
+                             />
+                          </div>
+                       )}
 
-                {(integrations.googleWorkspaces ?? []).map((account: any, index: number) => (
-                  <div key={account.id} className="flex flex-col gap-3 pt-4 border-t border-neutral-100 dark:border-neutral-800 animate-in slide-in-from-top-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <input
-                        type="text"
-                        value={account.label || ''}
-                        onChange={e => setIntegrations((prev: any) => {
-                          const accounts = [...(prev.googleWorkspaces ?? [])];
-                          accounts[index] = { ...accounts[index], label: e.target.value };
-                          return { ...prev, googleWorkspaces: accounts };
-                        })}
-                        placeholder="Account label, for example Work or Personal"
-                        className="flex-1 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#6A829E] font-bold transition-all"
-                      />
-                      <button
-                        onClick={() => setIntegrations((prev: any) => ({ ...prev, googleWorkspaces: (prev.googleWorkspaces ?? []).filter((_: any, i: number) => i !== index) }))}
-                        className="p-2 text-neutral-400 hover:text-[#C98A8A] transition-colors"
-                        title="Remove account"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                       {/* Custom Endpoint Field */}
+                       {appSettings.imageProvider === 'custom' && (
+                          <div className="flex flex-col gap-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Custom Base URL</label>
+                             <input
+                                type="text"
+                                value={appSettings.imageEndpoint || ''}
+                                onChange={e => setAppSettings((prev: any) => ({ ...prev, imageEndpoint: e.target.value }))}
+                                placeholder="https://your-custom-endpoint.com/v1"
+                                className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
+                             />
+                          </div>
+                       )}
+
+                       {/* Fetch Models & Model Selection */}
+                       <div className="flex flex-col gap-2 border-t border-neutral-200 dark:border-neutral-800 pt-4">
+                           <div className="flex items-center justify-between">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Target Model ID</label>
+                              <button onClick={fetchImageModels} disabled={isFetchingImageModels || !activeImageKey} className="text-[10px] font-black uppercase tracking-widest text-[#4A5D75] hover:text-[#2C3E50] dark:text-[#9EADC8] dark:hover:text-white disabled:opacity-50 transition-all flex items-center gap-1">
+                                  {isFetchingImageModels ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />} Fetch Models
+                              </button>
+                           </div>
+
+                           {imageEngineModels.length > 0 ? (
+                               <select value={appSettings.imageModelId || ''} onChange={e => setAppSettings((prev: any) => ({ ...prev, imageModelId: e.target.value }))} className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-bold transition-all">
+                                   <option value="" disabled>Select a model...</option>
+                                   {imageEngineModels.map(m => <option key={m} value={m}>{m}</option>)}
+                               </select>
+                           ) : (
+                               <input
+                                  type="text"
+                                  value={appSettings.imageModelId || ''}
+                                  onChange={e => setAppSettings((prev: any) => ({ ...prev, imageModelId: e.target.value }))}
+                                  placeholder={appSettings.imageProvider === 'google' ? "e.g. imagen-3.0-generate-001" : "e.g. dall-e-3"}
+                                  className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] font-mono transition-all"
+                               />
+                           )}
+                       </div>
+
+                       {/* TEST INTEGRATION BLOCK */}
+                       <div className="pt-4 border-t border-neutral-200 dark:border-neutral-800 flex flex-col gap-3">
+                          <button
+                             onClick={testImageEngine}
+                             disabled={imageTestState.loading || !activeImageKey || !appSettings.imageModelId}
+                             className="flex items-center justify-center gap-2 w-full py-3 bg-[#F0F4F8] hover:bg-[#D6E0EA] text-[#4A5D75] dark:bg-[#1E2B38]/30 dark:hover:bg-[#1E2B38]/50 dark:text-[#9EADC8] rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                          >
+                             {imageTestState.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                             {imageTestState.loading ? 'Testing...' : 'Test Connection (Cat in Banana Costume)'}
+                          </button>
+
+                          {imageTestState.loading && (
+                              <div className="p-3 bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] rounded-xl border border-[#4A5D75]/20 text-xs font-bold leading-relaxed flex items-center gap-2 animate-pulse">
+                                  <Loader2 className="w-4 h-4 animate-spin" /> Generating test image, please wait...
+                              </div>
+                          )}
+
+                          {imageTestState.error && (
+                              <div className="p-3 bg-[#C98A8A]/10 text-[#C98A8A] rounded-xl border border-[#C98A8A]/20 text-xs font-bold leading-relaxed">
+                                  {imageTestState.error}
+                              </div>
+                          )}
+                          {imageTestState.successUrl && (
+                              <div className="p-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm text-center animate-in fade-in zoom-in-95">
+                                  <img src={imageTestState.successUrl} alt="Test Success" className="w-full max-w-[200px] h-auto rounded-lg mx-auto mb-2 cursor-pointer" onClick={() => viewImageInCanvas(imageTestState.successUrl as string)} title="View full size in Canvas" />
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-[#9FBBAF] flex items-center justify-center gap-1 mt-2"><ShieldCheck className="w-3 h-3" /> Connection Successful</span>
+                              </div>
+                          )}
+                       </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {[
-                        { field: 'clientId', label: 'OAuth Client ID', placeholder: 'xxxx.apps.googleusercontent.com' },
-                        { field: 'clientSecret', label: 'OAuth Client Secret', placeholder: 'GOCSPX-...' },
-                      ].map(field => (
-                        <div key={field.field} className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">{field.label}</label>
-                          <input
-                            type="password"
-                            value={account[field.field] || ''}
-                            onChange={e => setIntegrations((prev: any) => {
-                              const accounts = [...(prev.googleWorkspaces ?? [])];
-                              accounts[index] = { ...accounts[index], [field.field]: e.target.value };
-                              return { ...prev, googleWorkspaces: accounts };
-                            })}
-                            placeholder={field.placeholder}
-                            className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
-                          />
+                 )}
+
+                 {/* Output Preference */}
+                 {appSettings.imageProvider !== 'none' && (
+                     <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800">
+                        <span className="text-[10px] font-black uppercase opacity-50 mb-3 block tracking-widest">Image Delivery Method</span>
+                        <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-xl">
+                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'canvas' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'canvas' ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>Canvas Artifact</button>
+                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75] dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>In-Chat Message</button>
                         </div>
-                      ))}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Refresh Token</label>
-                      <input
-                        type="password"
-                        value={account.refreshToken || ''}
-                        onChange={e => setIntegrations((prev: any) => {
-                          const accounts = [...(prev.googleWorkspaces ?? [])];
-                          accounts[index] = { ...accounts[index], refreshToken: e.target.value };
-                          return { ...prev, googleWorkspaces: accounts };
-                        })}
-                        placeholder="1//0g..."
-                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Scopes</label>
-                      <div className="flex gap-2 flex-wrap">
-                        {[
-                          { id: 'gmail', label: 'Gmail', icon: Mail, color: 'text-[#C98A8A]' },
-                          { id: 'drive', label: 'Drive / Docs', icon: FolderOpen, color: 'text-[#D4AA7D]' },
-                          { id: 'calendar', label: 'Calendar', icon: CalendarClock, color: 'text-[#6A829E]' },
-                        ].map(scope => {
-                          const ScopeIcon = scope.icon;
-                          const active = account.scopes?.[scope.id];
-                          return (
-                            <button
-                              key={scope.id}
-                              onClick={() => setIntegrations((prev: any) => {
-                                const accounts = [...(prev.googleWorkspaces ?? [])];
-                                accounts[index] = { ...accounts[index], scopes: { ...accounts[index].scopes, [scope.id]: !active } };
-                                return { ...prev, googleWorkspaces: accounts };
-                              })}
-                              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${active ? 'bg-[#F0F4F8] dark:bg-[#1E2B38]/40 border-[#4A5D75]/30 text-[#4A5D75] dark:text-[#9EADC8]' : 'border-neutral-200 dark:border-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
-                            >
-                              <ScopeIcon className={`w-3.5 h-3.5 ${active ? scope.color : ''}`} />
-                              {scope.label}
-                              {active && <CheckCircle2 className="w-3 h-3 text-[#7A9E8D]" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    {account.clientId && account.refreshToken && (
-                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#7A9E8D]">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Credentials saved
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {(integrations.googleWorkspaces ?? []).length > 0 && (
-                  <p className="text-[10px] text-neutral-400 leading-relaxed pt-2 border-t border-neutral-100 dark:border-neutral-800">
-                    Enable the Gmail, Drive, and Calendar APIs in Google Cloud, create OAuth 2.0 desktop credentials, run the OAuth flow once, then paste the refresh token.
-                  </p>
-                )}
-              </div>
-
-              {/* GUS Integration */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Layers className="w-5 h-5 text-[#6A829E]" /></div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">GUS</span>
-                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Salesforce Agile Accelerator work items, stories, and sprints.</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, enabled: !prev.gus?.enabled } }))}
-                    className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${integrations.gus?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}
-                  >
-                    {integrations.gus?.enabled ? 'Enabled' : 'Enable'}
-                  </button>
-                </div>
-                {integrations.gus?.enabled && (
-                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Salesforce Instance URL</label>
-                      <input
-                        type="text"
-                        value={integrations.gus?.instanceUrl || ''}
-                        onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, instanceUrl: e.target.value } }))}
-                        placeholder="https://example.my.salesforce.com"
-                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Access Token / Session ID</label>
-                      <input
-                        type="password"
-                        value={integrations.gus?.accessToken || ''}
-                        onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, accessToken: e.target.value } }))}
-                        placeholder="00D..."
-                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
-                      />
-                    </div>
-                    {integrations.gus?.instanceUrl && integrations.gus?.accessToken && (
-                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#7A9E8D]">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Credentials saved
-                      </div>
-                    )}
-                  </div>
-                )}
+                     </div>
+                 )}
               </div>
 
               {/* Tavily Web Search Integration */}
@@ -661,24 +287,217 @@ export function ProfileSettingsModal() {
                  )}
               </div>
 
-              {/* Brave Web Search Integration */}
+              {/* Slack Integration */}
               <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
-                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                     <div className="flex items-center gap-3">
-                         <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Search className="w-5 h-5 text-[#6A829E]" /></div>
-                         <div className="flex flex-col">
-                            <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Brave Search</span>
-                            <span className="text-xs text-neutral-500 font-medium mt-0.5">Optional second source-discovery provider. Agent Forge still reads result URLs before citing them.</span>
-                         </div>
-                     </div>
-                     <button onClick={() => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, enabled: !prev.brave?.enabled } }))} className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${integrations.brave?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}>{integrations.brave?.enabled ? 'Enabled' : 'Enable'}</button>
-                 </div>
-                 {integrations.brave?.enabled && (
-                    <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
-                       <input type="password" value={integrations.brave?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, apiKey: e.target.value } }))} placeholder="Paste your Brave Search API key" className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all" />
-                       <p className="text-[10px] text-neutral-500 mt-2">Brave and Tavily can run together; duplicate URLs are deduped before the source tray is shown.</p>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><MessageSquare className="w-5 h-5 text-[#6A829E]" /></div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Slack</span>
+                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Let agents search messages and post to channels. Requires a Slack bot token.</span>
                     </div>
-                 )}
+                  </div>
+                  <button
+                    onClick={() => setIntegrations((prev: any) => ({ ...prev, slack: { ...prev.slack, enabled: !prev.slack?.enabled } }))}
+                    className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${integrations.slack?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}
+                  >{integrations.slack?.enabled ? 'Enabled' : 'Enable'}</button>
+                </div>
+                {integrations.slack?.enabled && (
+                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Bot Token</label>
+                    <input
+                      type="password"
+                      value={integrations.slack?.botToken || ''}
+                      onChange={e => setIntegrations((prev: any) => ({ ...prev, slack: { ...prev.slack, botToken: e.target.value } }))}
+                      placeholder="xoxb-..."
+                      className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                    />
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      Create a Slack app at <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">api.slack.com/apps</span> → OAuth &amp; Permissions → add scopes: <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">channels:history, channels:read, chat:write, search:read</span> → install to workspace → copy Bot User OAuth Token.
+                    </p>
+                    {integrations.slack?.botToken && (
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#9FBBAF]">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Token saved
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Google Workspace Integration — multi-account */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700 flex items-center gap-1">
+                      <Mail className="w-4 h-4 text-[#C98A8A]" />
+                      <FolderOpen className="w-4 h-4 text-[#D4AA7D]" />
+                      <CalendarClock className="w-4 h-4 text-[#6A829E]" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Google Workspace</span>
+                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Gmail · Drive · Calendar — add multiple accounts.</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIntegrations((prev: any) => ({
+                      ...prev,
+                      googleWorkspaces: [...(prev.googleWorkspaces ?? []), { id: `gw-${Date.now()}`, label: '', clientId: '', clientSecret: '', refreshToken: '', scopes: { gmail: false, drive: false, calendar: false } }]
+                    }))}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-[#4A5D75] text-white hover:bg-[#3D4D61] transition-all shadow-sm shrink-0"
+                  ><Plus className="w-3.5 h-3.5" /> Add Account</button>
+                </div>
+
+                {(integrations.googleWorkspaces ?? []).length === 0 && (
+                  <p className="text-[10px] text-neutral-400 text-center py-2">No Google accounts added yet. Click "Add Account" to connect one.</p>
+                )}
+
+                {(integrations.googleWorkspaces ?? []).map((acct: any, idx: number) => (
+                  <div key={acct.id} className="flex flex-col gap-3 pt-4 border-t border-neutral-100 dark:border-neutral-800 animate-in slide-in-from-top-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <input
+                        type="text"
+                        value={acct.label}
+                        onChange={e => setIntegrations((prev: any) => {
+                          const arr = [...(prev.googleWorkspaces ?? [])];
+                          arr[idx] = { ...arr[idx], label: e.target.value };
+                          return { ...prev, googleWorkspaces: arr };
+                        })}
+                        placeholder="Account label (e.g. Work, Personal)"
+                        className="flex-1 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#6A829E] font-bold transition-all"
+                      />
+                      <button
+                        onClick={() => setIntegrations((prev: any) => ({
+                          ...prev,
+                          googleWorkspaces: (prev.googleWorkspaces ?? []).filter((_: any, i: number) => i !== idx)
+                        }))}
+                        className="p-2 text-neutral-400 hover:text-[#C98A8A] transition-colors"
+                      ><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {[
+                        { field: 'clientId', label: 'OAuth Client ID', placeholder: 'xxxx.apps.googleusercontent.com' },
+                        { field: 'clientSecret', label: 'OAuth Client Secret', placeholder: 'GOCSPX-...' },
+                      ].map(f => (
+                        <div key={f.field} className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">{f.label}</label>
+                          <input
+                            type="password"
+                            value={acct[f.field] || ''}
+                            onChange={e => setIntegrations((prev: any) => {
+                              const arr = [...(prev.googleWorkspaces ?? [])];
+                              arr[idx] = { ...arr[idx], [f.field]: e.target.value };
+                              return { ...prev, googleWorkspaces: arr };
+                            })}
+                            placeholder={f.placeholder}
+                            className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Refresh Token</label>
+                      <input
+                        type="password"
+                        value={acct.refreshToken || ''}
+                        onChange={e => setIntegrations((prev: any) => {
+                          const arr = [...(prev.googleWorkspaces ?? [])];
+                          arr[idx] = { ...arr[idx], refreshToken: e.target.value };
+                          return { ...prev, googleWorkspaces: arr };
+                        })}
+                        placeholder="1//0g..."
+                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Scopes</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[
+                          { id: 'gmail', label: 'Gmail', icon: Mail, color: 'text-[#C98A8A]' },
+                          { id: 'drive', label: 'Drive / Docs', icon: FolderOpen, color: 'text-[#D4AA7D]' },
+                          { id: 'calendar', label: 'Calendar', icon: CalendarClock, color: 'text-[#6A829E]' },
+                        ].map(scope => {
+                          const ScopeIcon = scope.icon;
+                          const active = acct.scopes?.[scope.id];
+                          return (
+                            <button
+                              key={scope.id}
+                              onClick={() => setIntegrations((prev: any) => {
+                                const arr = [...(prev.googleWorkspaces ?? [])];
+                                arr[idx] = { ...arr[idx], scopes: { ...arr[idx].scopes, [scope.id]: !active } };
+                                return { ...prev, googleWorkspaces: arr };
+                              })}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${active ? 'bg-[#F0F4F8] dark:bg-[#1E2B38]/40 border-[#4A5D75]/30 text-[#4A5D75] dark:text-[#9EADC8]' : 'border-neutral-200 dark:border-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+                            >
+                              <ScopeIcon className={`w-3.5 h-3.5 ${active ? scope.color : ''}`} />
+                              {scope.label}
+                              {active && <CheckCircle2 className="w-3 h-3 text-[#9FBBAF]" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {acct.clientId && acct.refreshToken && (
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#9FBBAF]">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Credentials saved
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {(integrations.googleWorkspaces ?? []).length > 0 && (
+                  <p className="text-[10px] text-neutral-400 leading-relaxed pt-2 border-t border-neutral-100 dark:border-neutral-800">
+                    <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">console.cloud.google.com</span> → project → enable Gmail/Drive/Calendar APIs → OAuth 2.0 Desktop credentials → run OAuth flow once → paste refresh token.
+                  </p>
+                )}
+              </div>
+
+              {/* GUS — Salesforce Agile Accelerator */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Layers className="w-5 h-5 text-[#6A829E]" /></div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">GUS</span>
+                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Salesforce Agile Accelerator — query work items, stories, and sprints.</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, enabled: !prev.gus?.enabled } }))}
+                    className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${integrations.gus?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}
+                  >{integrations.gus?.enabled ? 'Enabled' : 'Enable'}</button>
+                </div>
+                {integrations.gus?.enabled && (
+                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Salesforce Instance URL</label>
+                      <input
+                        type="text"
+                        value={integrations.gus?.instanceUrl || ''}
+                        onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, instanceUrl: e.target.value } }))}
+                        placeholder="https://yourorg.my.salesforce.com"
+                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Access Token / Session ID</label>
+                      <input
+                        type="password"
+                        value={integrations.gus?.accessToken || ''}
+                        onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, accessToken: e.target.value } }))}
+                        placeholder="00Dxx0000..."
+                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all"
+                      />
+                    </div>
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      Get a session token via Salesforce CLI: <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">sf org display --target-org &lt;alias&gt;</span> and copy the Access Token. Or create a Connected App with OAuth to get a long-lived token.
+                    </p>
+                    {integrations.gus?.instanceUrl && integrations.gus?.accessToken && (
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#9FBBAF]">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Credentials saved
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Local Planner */}

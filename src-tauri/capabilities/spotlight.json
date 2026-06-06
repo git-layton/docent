@@ -19,7 +19,6 @@
         { "url": "https://api.openai.com/*" },
         { "url": "https://generativelanguage.googleapis.com/*" },
         { "url": "https://api.tavily.com/*" },
-        { "url": "https://api.search.brave.com/*" },
         { "url": "http://127.0.0.1:*/*" },
         { "url": "http://localhost:*/*" }
       ]
