@@ -1604,14 +1604,25 @@ fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
         None => return serde_json::json!({ "ok": false, "error": "Node.js not found. Please install Node.js from https://nodejs.org and try again." }),
     };
 
-    // Find bundled relay script
-    let relay_script = match app.path().resource_dir() {
-        Ok(dir) => dir.join("forge-relay.mjs"),
-        Err(e) => return serde_json::json!({ "ok": false, "error": format!("Could not locate relay script: {}", e) }),
+    // Find relay script — try resource dir (production), then walk up from exe (dev mode)
+    let relay_script = {
+        let from_resource = app.path().resource_dir()
+            .ok()
+            .map(|d| d.join("forge-relay.mjs"))
+            .filter(|p| p.exists());
+
+        let from_exe = std::env::current_exe().ok().and_then(|exe| {
+            // dev: exe is at src-tauri/target/debug/agent-forge → go up 3 to project root
+            let root = exe.parent()?.parent()?.parent()?.parent()?;
+            let candidate = root.join("scripts").join("forge-relay.mjs");
+            if candidate.exists() { Some(candidate) } else { None }
+        });
+
+        match from_resource.or(from_exe) {
+            Some(p) => p,
+            None => return serde_json::json!({ "ok": false, "error": "Could not locate forge-relay.mjs. Make sure the app was built correctly." }),
+        }
     };
-    if !relay_script.exists() {
-        return serde_json::json!({ "ok": false, "error": format!("Relay script not found at {:?}", relay_script) });
-    }
 
     let env_path = relay_env_path();
     let plist_path = relay_plist_path();

@@ -218,19 +218,26 @@ interface LocalRec {
   tag: string;      // short badge label
 }
 
+// Returns true if the machine has enough RAM to comfortably run Llama 3.3 70B Q4_K_M (~42GB)
+export function canRunLlama70B(totalMb: number) {
+  return totalMb / 1024 >= 48;
+}
+
 function getLocalRecs(totalMb: number): LocalRec[] {
   const gb = totalMb / 1024;
-  if (gb >= 56) {
+
+  // 48GB+ — comfortably runs the 70B (Q4_K_M ≈ 42GB)
+  if (gb >= 48) {
     return [
       {
-        role: 'Thinker',
-        roleEmoji: '🧠',
-        name: 'DeepSeek-R1-Distill-Llama-70B',
-        modelId: 'deepseek-r1-distill-llama-70b',
-        hfId: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B',
+        role: 'General',
+        roleEmoji: '🦙',
+        name: 'Llama-3.3-70B-Instruct',
+        modelId: 'llama-3.3-70b-instruct',
+        hfId: 'meta-llama/Llama-3.3-70B-Instruct',
         ramGb: 42,
         context: 128000,
-        description: 'Deep reasoning — shows its thinking chain, great for hard logic, research, and complex problem-solving.',
+        description: 'The best all-rounder for your Mac. Writes beautifully, reasons deeply, handles code — no thinking lag, just instant fluent responses. Q4_K_M fits perfectly in 64GB.',
         tag: 'Best for 64GB',
       },
       {
@@ -241,49 +248,25 @@ function getLocalRecs(totalMb: number): LocalRec[] {
         hfId: 'Qwen/Qwen2.5-Coder-32B-Instruct',
         ramGb: 20,
         context: 32000,
-        description: 'Elite coding model — fast, surgical, and beats much larger models on programming tasks.',
+        description: 'Optional specialist for heavy coding sessions. Beats much larger models on programming tasks and runs fast alongside Llama.',
         tag: 'Best for code',
       },
     ];
   }
+
+  // 28–47GB — 70B won't fit; use Gemma 3 27B as the capable all-rounder
   if (gb >= 28) {
     return [
       {
-        role: 'Thinker',
-        roleEmoji: '🧠',
-        name: 'DeepSeek-R1-Distill-Qwen-32B',
-        modelId: 'deepseek-r1-distill-qwen-32b',
-        hfId: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B',
-        ramGb: 20,
+        role: 'General',
+        roleEmoji: '✨',
+        name: 'Gemma-3-27B-Instruct',
+        modelId: 'gemma-3-27b-instruct',
+        hfId: 'google/gemma-3-27b-it',
+        ramGb: 17,
         context: 128000,
-        description: 'The same reasoning chain as the 70B — just smaller. Perfect for 24–32GB Macs.',
+        description: 'Google\'s sharp 27B model — fast, articulate, and well above its weight class. Great daily driver for 32GB Macs.',
         tag: 'Best for 32GB',
-      },
-      {
-        role: 'Coder',
-        roleEmoji: '💻',
-        name: 'Qwen2.5-Coder-32B',
-        modelId: 'qwen2.5-coder-32b-instruct',
-        hfId: 'Qwen/Qwen2.5-Coder-32B-Instruct',
-        ramGb: 20,
-        context: 32000,
-        description: 'Elite coding model — fast, surgical, and beats much larger models on programming tasks.',
-        tag: 'Best for code',
-      },
-    ];
-  }
-  if (gb >= 14) {
-    return [
-      {
-        role: 'Thinker',
-        roleEmoji: '🧠',
-        name: 'Qwen2.5-14B-Instruct',
-        modelId: 'qwen2.5-14b-instruct',
-        hfId: 'Qwen/Qwen2.5-14B-Instruct',
-        ramGb: 9,
-        context: 32000,
-        description: 'Smart all-rounder that fits 16GB comfortably and handles most tasks well.',
-        tag: 'Best for 16GB',
       },
       {
         role: 'Coder',
@@ -293,35 +276,42 @@ function getLocalRecs(totalMb: number): LocalRec[] {
         hfId: 'Qwen/Qwen2.5-Coder-14B-Instruct',
         ramGb: 9,
         context: 32000,
-        description: 'Punches well above its weight for code — fast and sharp on 16GB.',
+        description: 'Efficient coding specialist — sharp on code, light on RAM, leaves room for the main model.',
         tag: 'Best for code',
       },
     ];
   }
-  return [
-    {
-      role: 'General',
-      roleEmoji: '⚡',
-      name: 'Llama-3.2-8B-Instruct',
-      modelId: 'llama-3.2-8b-instruct',
-      hfId: 'meta-llama/Llama-3.2-8B-Instruct',
-      ramGb: 5,
-      context: 128000,
-      description: 'Fast and capable general model that fits comfortably in 8GB.',
-      tag: 'Fits 8GB',
-    },
-    {
-      role: 'Coder',
-      roleEmoji: '💻',
-      name: 'Qwen2.5-Coder-7B',
-      modelId: 'qwen2.5-coder-7b-instruct',
-      hfId: 'Qwen/Qwen2.5-Coder-7B-Instruct',
-      ramGb: 5,
-      context: 32000,
-      description: 'Surprisingly capable at code for its size — efficient and quick.',
-      tag: 'Best for code',
-    },
-  ];
+
+  // 14–27GB — Gemma 4 12B fits well and punches above its weight
+  if (gb >= 14) {
+    return [
+      {
+        role: 'General',
+        roleEmoji: '✨',
+        name: 'Gemma-3-12B-Instruct',
+        modelId: 'gemma-3-12b-instruct',
+        hfId: 'google/gemma-3-12b-it',
+        ramGb: 8,
+        context: 128000,
+        description: 'Remarkably capable for its size — fast responses, strong reasoning, and fits 16GB with room to spare.',
+        tag: 'Best for 16–24GB',
+      },
+      {
+        role: 'Coder',
+        roleEmoji: '💻',
+        name: 'Qwen2.5-Coder-7B',
+        modelId: 'qwen2.5-coder-7b-instruct',
+        hfId: 'Qwen/Qwen2.5-Coder-7B-Instruct',
+        ramGb: 5,
+        context: 32000,
+        description: 'Surprisingly capable at code for its size — efficient and quick on constrained hardware.',
+        tag: 'Best for code',
+      },
+    ];
+  }
+
+  // ≤13GB — local models will be slow and limited; cloud is the better path
+  return [];
 }
 
 // ─── Step 3: AI Model ─────────────────────────────────────────────────────────
@@ -527,12 +517,34 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           {selectedProvider?.local && ramMb > 0 && (() => {
             const recs = getLocalRecs(ramMb);
             const gbLabel = Math.round(ramMb / 1024);
+
+            // Low RAM — steer toward cloud instead
+            if (recs.length === 0) {
+              return (
+                <div className="p-4 rounded-2xl border-2 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 space-y-2">
+                  <p className="text-sm font-black text-amber-800 dark:text-amber-300">Local models may be slow on {gbLabel}GB</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                    Running a capable model locally needs at least 14GB RAM free. On your machine, connecting a free cloud API will give you a much better experience — Google Gemini has a generous free tier.
+                  </p>
+                  <button
+                    onClick={() => {
+                      const cloudProvider = PROVIDERS.find(p => p.id === 'openai');
+                      if (cloudProvider) selectProvider(cloudProvider);
+                    }}
+                    className="text-[11px] font-black text-amber-700 dark:text-amber-400 hover:underline"
+                  >
+                    Switch to cloud API instead →
+                  </button>
+                </div>
+              );
+            }
+
             return (
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
-                  Recommended for your {gbLabel}GB Mac
+                  What to download for your {gbLabel}GB Mac
                 </p>
-                {recs.map(rec => (
+                {recs.map((rec, i) => (
                   <div
                     key={rec.hfId}
                     className={`rounded-2xl border-2 p-3.5 transition-all duration-150 ${
@@ -548,9 +560,10 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 leading-snug font-mono">{rec.name}</p>
                             <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] shrink-0">{rec.tag}</span>
+                            {i === 0 && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 shrink-0">Start here</span>}
                           </div>
                           <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{rec.description}</p>
-                          <p className="text-[10px] text-neutral-400 mt-1">Needs ~{rec.ramGb}GB RAM</p>
+                          <p className="text-[10px] text-neutral-400 mt-1">~{rec.ramGb}GB RAM needed · Search in LM Studio: <span className="font-mono">{rec.name}</span></p>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -575,7 +588,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
                   </div>
                 ))}
                 <p className="text-[11px] text-neutral-400 leading-relaxed">
-                  Download the model in LM Studio first, then click "Connect" below. You can add more models later from Settings.
+                  Download in LM Studio first (search the model name, grab Q4_K_M), then come back and click Connect.
                 </p>
               </div>
             );
