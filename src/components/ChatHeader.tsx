@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Menu, Settings, ChevronDown, Globe, CalendarDays,
   AlertTriangle, BookOpen, Plus, Search, Trash2,
@@ -57,9 +57,30 @@ export function ChatHeader({
 
   const [agentSearch, setAgentSearch] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [modelHealth, setModelHealth] = useState<'checking' | 'ok' | 'error'>('checking');
+  const healthTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
+
+  useEffect(() => {
+    async function check() {
+      if (!selectedModel) { setModelHealth('checking'); return; }
+      try {
+        const ep = selectedModel.endpoint?.replace(/\/$/, '') ?? '';
+        if (!ep) { setModelHealth('checking'); return; }
+        const headers: Record<string, string> = {};
+        if (selectedModel.apiKey) headers['Authorization'] = `Bearer ${selectedModel.apiKey}`;
+        const res = await fetch(`${ep}/models`, { headers, signal: AbortSignal.timeout(4000) });
+        setModelHealth(res.ok ? 'ok' : 'error');
+      } catch {
+        setModelHealth('error');
+      }
+    }
+    check();
+    healthTimerRef.current = setInterval(check, 15000);
+    return () => { if (healthTimerRef.current) clearInterval(healthTimerRef.current); };
+  }, [selectedModel?.id, selectedModel?.endpoint, selectedModel?.apiKey]);
   const activeAgentPinnedMessageObjects = useMemo(() => globalPins.filter(p => p.agentId === activeAssistant?.id), [globalPins, activeAssistant?.id]);
 
   return (
@@ -70,6 +91,16 @@ export function ChatHeader({
           <button onClick={() => { useUIStore.getState().setIsAgentDropdownOpen(v => !v); setAgentSearch(''); }} className="flex items-center gap-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 p-2 rounded-xl transition-all">
             {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
             <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : activeAssistant?.name ?? 'Assistant'}</span>
+            {!showPlanner && selectedModel && (
+              <span
+                title={`${selectedModel.modelId} · ${modelHealth === 'ok' ? 'reachable' : modelHealth === 'error' ? 'unreachable — is the server running?' : 'checking…'}`}
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  modelHealth === 'ok' ? 'bg-emerald-500' :
+                  modelHealth === 'error' ? 'bg-red-500' :
+                  'bg-neutral-400 animate-pulse'
+                }`}
+              />
+            )}
             {!showPlanner && <ChevronDown className="w-4 h-4 text-neutral-400" />}
           </button>
 

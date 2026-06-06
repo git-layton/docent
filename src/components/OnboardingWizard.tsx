@@ -3,11 +3,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ArrowRight,
+  Bot,
   Check,
   CheckCircle2,
   ChevronLeft,
   Copy,
   ExternalLink,
+  Globe,
   Loader2,
   Radio,
   Server,
@@ -18,7 +20,10 @@ import {
   Zap,
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useAgentStore } from '../store/useAgentStore';
 import { db } from '../services/database';
+// @ts-ignore — nativeFetch is a plain JS file without a declaration
+import { fetchWithRetry } from '../utils/nativeFetch';
 
 interface Props {
   onClose: () => void;
@@ -40,7 +45,7 @@ interface RelayStatus {
   tailscaleHostname: string | null;
 }
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 const genId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -833,7 +838,129 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   );
 }
 
-// ─── Step 4: Relay ────────────────────────────────────────────────────────────
+// ─── Step 4: Brave Search ─────────────────────────────────────────────────────
+
+function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
+  const integrations = useSettingsStore(s => s.integrations);
+  const setIntegrations = useSettingsStore(s => s.setIntegrations);
+  const [apiKey, setApiKey] = useState(integrations.brave?.apiKey ?? '');
+  const [status, setStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  async function testAndSave() {
+    const key = apiKey.trim();
+    if (!key) return;
+    setStatus('testing');
+    setErrorMsg('');
+    try {
+      await fetchWithRetry(`https://api.search.brave.com/res/v1/web/search?q=test&count=1`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json', 'X-Subscription-Token': key },
+      }, 0);
+      setIntegrations((prev: any) => ({ ...prev, brave: { enabled: true, apiKey: key } }));
+      await useSettingsStore.getState().persist();
+      setStatus('ok');
+      setTimeout(onNext, 700);
+    } catch (e: any) {
+      setErrorMsg(e.message ?? String(e));
+      setStatus('error');
+    }
+  }
+
+  function skipAndSave() {
+    if (apiKey.trim()) {
+      setIntegrations((prev: any) => ({ ...prev, brave: { enabled: true, apiKey: apiKey.trim() } }));
+      useSettingsStore.getState().persist();
+    }
+    onSkip();
+  }
+
+  const alreadyConnected = integrations.brave?.enabled && integrations.brave?.apiKey;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-3">
+        <StepIcon color="bg-orange-50 dark:bg-orange-900/30">
+          <Globe className="w-6 h-6 text-orange-500" />
+        </StepIcon>
+        <div>
+          <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Web Search</h2>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Let Lexi and your other bots search the live internet.</p>
+        </div>
+      </div>
+
+      {/* Brave pitch */}
+      <div className="rounded-2xl border-2 border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-black text-orange-900 dark:text-orange-100">Brave Search API</p>
+          <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free tier</span>
+          <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-orange-500 text-white shrink-0">Recommended</span>
+        </div>
+        <p className="text-xs text-orange-800 dark:text-orange-300 leading-relaxed">
+          Privacy-first search engine with its own independent index. The free tier gives you 2,000 queries/month — plenty for daily use.
+        </p>
+        <div className="grid grid-cols-2 gap-2 text-[10px] text-orange-700 dark:text-orange-400">
+          <div className="space-y-0.5">
+            <p className="font-black">Free ✓</p>
+            <p>2,000 queries/month</p>
+            <p>No credit card needed</p>
+            <p>Independent index</p>
+          </div>
+          <div className="space-y-0.5">
+            <p className="font-black text-neutral-400">How to get a key</p>
+            <p>Sign up at brave.com/search/api</p>
+            <p>Create a free plan app</p>
+            <p>Copy the API key below</p>
+          </div>
+        </div>
+        <button
+          onClick={() => openUrl('https://brave.com/search/api/')}
+          className="flex items-center gap-1 text-[10px] font-black text-orange-700 dark:text-orange-400 hover:underline"
+        >
+          brave.com/search/api <ExternalLink className="w-2.5 h-2.5" />
+        </button>
+      </div>
+
+      {alreadyConnected && status === 'idle' ? (
+        <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+          <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">Brave Search already connected</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">API Key</label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            placeholder="BSA..."
+            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:border-[#4A5D75] transition-colors"
+          />
+          {status === 'error' && <p className="text-xs text-red-500">{errorMsg}</p>}
+          {status === 'ok' && (
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="w-4 h-4" />
+              <span className="text-xs font-bold">Connected!</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {(alreadyConnected && status === 'idle') ? (
+          <Btn onClick={onNext} className="w-full">Continue <ArrowRight className="w-4 h-4" /></Btn>
+        ) : (
+          <Btn onClick={testAndSave} disabled={!apiKey.trim() || status === 'testing' || status === 'ok'} className="w-full">
+            {status === 'testing' ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Testing…</> : <>Connect Brave Search <ArrowRight className="w-4 h-4" /></>}
+          </Btn>
+        )}
+        <Btn variant="ghost" onClick={skipAndSave} className="w-full">Skip for now</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 5: Relay ────────────────────────────────────────────────────────────
 
 function StepRelay({
   onNext,
@@ -886,6 +1013,34 @@ function StepRelay({
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Capture relay</h2>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Your personal inbox server.</p>
         </div>
+      </div>
+
+      {/* How capture works — full system diagram */}
+      <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700">
+        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-3">How capture works</p>
+        <div className="flex items-center gap-1 flex-wrap">
+          {[
+            { label: 'Any iOS app', sub: 'Safari, Photos, Notes…', color: 'bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300' },
+            null,
+            { label: 'Tap Share', sub: '"Send to Forge" shortcut', color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300' },
+            null,
+            { label: 'Tailscale tunnel', sub: 'anywhere, not just home Wi-Fi', color: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300' },
+            null,
+            { label: 'Relay on Mac', sub: 'this step sets this up', color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' },
+            null,
+            { label: 'Inbox', sub: 'ready to process', color: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' },
+          ].map((node, i) =>
+            node === null ? (
+              <span key={i} className="text-neutral-300 dark:text-neutral-600 font-bold text-lg">→</span>
+            ) : (
+              <div key={i} className={`px-2.5 py-1.5 rounded-xl text-center ${node.color}`}>
+                <p className="text-[10px] font-black leading-tight">{node.label}</p>
+                <p className="text-[9px] opacity-70 leading-tight mt-0.5">{node.sub}</p>
+              </div>
+            )
+          )}
+        </div>
+        <p className="text-[10px] text-neutral-400 mt-3 leading-relaxed">The next few steps set up each piece. You can skip Tailscale if you only capture on home Wi-Fi.</p>
       </div>
 
       {/* Plain-language explainer */}
@@ -1148,6 +1303,17 @@ function StepShortcut({
         </div>
       </div>
 
+      {/* What is a Shortcut? */}
+      <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800">
+        <p className="text-[10px] font-black uppercase tracking-widest text-rose-500 dark:text-rose-400 mb-2">What is a Shortcut?</p>
+        <p className="text-sm text-rose-900 dark:text-rose-200 leading-relaxed font-medium">
+          A Shortcut is an iOS automation you build once in the <strong>Shortcuts</strong> app. Once created, <strong>"Send to Agent Forge"</strong> appears in the Share Sheet of every app on your iPhone — Safari, Photos, Notes, anywhere.
+        </p>
+        <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-2 leading-relaxed">
+          The Share Sheet is what appears when you tap the box-with-arrow icon in any app. Your Shortcut becomes one of the options there.
+        </p>
+      </div>
+
       {/* Relay URL + token */}
       <div className="space-y-2.5 p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
         <div className="space-y-1">
@@ -1190,8 +1356,8 @@ function StepShortcut({
       <div className="space-y-2">
         <p className="text-[11px] font-black uppercase tracking-widest text-neutral-400">Build it on your iPhone</p>
         {[
-          'Open Shortcuts → tap + → name it "Send to Agent Forge"',
-          'Tap the ⓘ icon → enable Use as Share Sheet → All input types',
+          'Open the Shortcuts app → tap + → name it "Send to Agent Forge"',
+          'Tap the ⚙️ settings icon at the top of the editor → enable "Add to Share Sheet" — this is what makes your Shortcut appear when you tap Share in any app',
           'Add: Receive Any input from Share Sheet',
           'Add: Ask for Input → name it "Note" → make it optional',
           'Add: Text → paste the request body above (replace the placeholder values with actual Shortcut variables)',
@@ -1226,14 +1392,21 @@ function StepDone({
 }) {
   const models = useSettingsStore(s => s.models);
   const userProfile = useSettingsStore(s => s.userProfile);
+  const integrations = useSettingsStore(s => s.integrations);
 
   const items = [
     { label: 'Personal profile', done: !!userProfile },
     { label: 'AI model connected', done: models.length > 0 },
+    { label: 'Web search', done: !!(integrations.brave?.enabled && integrations.brave?.apiKey) || !!(integrations.tavily?.enabled && integrations.tavily?.apiKey) },
     { label: 'Capture relay', done: relayOk },
     { label: 'Tailscale', done: tailscaleOk },
     { label: 'iPhone Shortcut', done: shortcutDone },
   ];
+
+  function openLexi() {
+    useAgentStore.getState().setActiveFolderId('lexi');
+    onFinish();
+  }
 
   return (
     <div className="flex flex-col items-center text-center gap-7">
@@ -1260,6 +1433,29 @@ function StepDone({
           </div>
         ))}
       </div>
+
+      {/* Lexi intro */}
+      <div className="w-full max-w-xs rounded-2xl border-2 border-[#C98A8A]/30 bg-[#C98A8A]/5 dark:bg-[#C98A8A]/10 p-4 text-left space-y-2">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#C98A8A] flex items-center justify-center shrink-0 shadow-md shadow-[#C98A8A]/20">
+            <Bot className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">Meet Lexi</p>
+            <p className="text-[10px] text-neutral-500 dark:text-neutral-400">Your first ForgeBot — already waiting for you</p>
+          </div>
+        </div>
+        <p className="text-[11px] text-neutral-600 dark:text-neutral-400 leading-relaxed">
+          Confident, sharp, and a little fun. She's a showcase of what a ForgeBot can be — edit her personality, clone her, or use her as a starting point to build your own.
+        </p>
+        <button
+          onClick={openLexi}
+          className="text-[10px] font-black uppercase tracking-widest text-[#C98A8A] hover:underline"
+        >
+          Say hi to Lexi →
+        </button>
+      </div>
+
       <Btn onClick={onFinish} className="w-full max-w-xs">
         Open Agent Forge <ArrowRight className="w-4 h-4" />
       </Btn>
@@ -1318,20 +1514,21 @@ export function OnboardingWizard({ onClose }: Props) {
           {step === 1 && <StepWelcome onNext={next} />}
           {step === 2 && <StepProfile onNext={next} />}
           {step === 3 && <StepModel onNext={next} onSkip={next} />}
-          {step === 4 && (
+          {step === 4 && <StepBraveSearch onNext={next} onSkip={next} />}
+          {step === 5 && (
             <StepRelay
               onNext={next}
               onSkip={next}
               onResult={r => { setRelayResult(r); setRelayOk(true); }}
             />
           )}
-          {step === 5 && (
+          {step === 6 && (
             <StepTailscale
               onNext={h => { setTailscaleHostname(h); setTailscaleOk(!!h); next(); }}
-              onSkip={() => setStep(7)}
+              onSkip={() => setStep(8)}
             />
           )}
-          {step === 6 && (
+          {step === 7 && (
             <StepShortcut
               relayResult={relayResult}
               tailscaleHostname={tailscaleHostname}
@@ -1339,7 +1536,7 @@ export function OnboardingWizard({ onClose }: Props) {
               onSkip={next}
             />
           )}
-          {step === 7 && (
+          {step === 8 && (
             <StepDone
               relayOk={relayOk}
               tailscaleOk={tailscaleOk}

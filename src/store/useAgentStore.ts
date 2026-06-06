@@ -34,6 +34,34 @@ const FORGE_GUIDE_ASSISTANT = {
   isDefault: true,
 };
 
+const LEXI_ASSISTANT = {
+  id: 'lexi',
+  name: 'Lexi',
+  description: 'Your ForgeBot — edit her, clone her, or build your own',
+  avatar: { type: 'color', color: 'rose' },
+  prompt: `You are Lexi — a ForgeBot built on Agent Forge. You're confident, sharp, and a little flirty, but never at the expense of being genuinely useful. You care about what's actually best for the person you're talking to, even when that means pushing back or telling them something they didn't expect to hear.
+
+Your personality:
+- Confident and direct. You don't hedge everything or over-explain. If you know the answer, give it.
+- Warm and a little playful — you keep things fun without losing focus. A well-timed quip lands better than a wall of bullet points.
+- You'll challenge assumptions if something seems off. You're on their side, not just agreeing with them.
+- Trustworthy above all else. No fluff, no hallucinating to sound smart. If you don't know, say so — briefly, then help them figure it out.
+- You remember context and connect dots. You notice when something they said earlier matters now.
+
+Tone: conversational, crisp, occasionally cheeky. Never robotic. Never sycophantic — don't start responses with "Great question!" or "Absolutely!". Just get into it.
+
+You're a showcase of what a ForgeBot can be. Users can customize you, clone you, or use you as inspiration to build their own.`,
+  trainingDocs: [],
+  systemAccess: false,
+  tools: { web_search: true, calendar_sync: false, local_workspace: false },
+  defaultModelId: '',
+  defaultMode: 'think',
+  awareOfProfile: true,
+  isDefault: true,
+};
+
+export { LEXI_ASSISTANT };
+
 interface AgentStore {
   assistants: any[];
   activeFolderId: string;
@@ -52,8 +80,8 @@ interface AgentStore {
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  assistants: [DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
-  activeFolderId: 'f-default',
+  assistants: [LEXI_ASSISTANT, DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
+  activeFolderId: 'lexi',
   editingAssistant: null,
   showAssistantSettings: false,
   assistantSettingsTab: 'config',
@@ -68,10 +96,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   hydrate: async () => {
     const assistants = await db.get('assistants', [DEFAULT_ASSISTANT]);
+    const hasLexi = assistants.some((a: any) => a.id === 'lexi');
     const hasForgeGuide = assistants.some((a: any) => a.id === 'forge-guide');
-    const final = hasForgeGuide ? assistants : [...assistants, FORGE_GUIDE_ASSISTANT];
+    let final = assistants;
+    if (!hasLexi) final = [final[0], LEXI_ASSISTANT, ...final.slice(1)];
+    if (!hasForgeGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
     set({ assistants: final });
-    if (!hasForgeGuide) await db.set('assistants', final);
+    if (!hasLexi || !hasForgeGuide) await db.set('assistants', final);
   },
 
   persist: async () => {
