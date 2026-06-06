@@ -375,10 +375,15 @@ const PROVIDERS = [
   },
 ];
 
-function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  const models = useSettingsStore(s => s.models);
-  const hasModel = models.length > 0;
-
+function ModelProviderForm({
+  ramMb,
+  onAdded,
+  onSkip,
+}: {
+  ramMb: number;
+  onAdded: () => void;
+  onSkip: () => void;
+}) {
   const [selectedProvider, setSelectedProvider] = useState<typeof PROVIDERS[0] | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [endpoint, setEndpoint] = useState('');
@@ -387,13 +392,6 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const [status, setStatus] = useState<'idle' | 'fetching' | 'ready' | 'done' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [manualId, setManualId] = useState('');
-  const [ramMb, setRamMb] = useState(0);
-
-  useEffect(() => {
-    invoke<{ total_mb: number }>('get_ram_stats')
-      .then(r => setRamMb(r.total_mb))
-      .catch(() => {});
-  }, []);
 
   function selectProvider(p: typeof PROVIDERS[0]) {
     setSelectedProvider(p);
@@ -443,38 +441,225 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
       apiKey: apiKey.trim(),
       contextLimit: ctx,
       canImage: false,
+      isLocal: selectedProvider.local,
     };
     const store = useSettingsStore.getState();
     store.setModels((prev: any[]) => [...prev, newModel]);
     store.setSelectedModelId(newModel.id);
     store.persist();
     setStatus('done');
-    setTimeout(onNext, 800);
+    setTimeout(onAdded, 600);
   }
 
-  if (hasModel && status !== 'done') {
+  if (status === 'done') {
     return (
-      <div className="flex flex-col gap-6">
-        <div className="flex items-center gap-3">
-          <StepIcon color="bg-emerald-50 dark:bg-emerald-900/30">
-            <Zap className="w-6 h-6 text-emerald-500" />
-          </StepIcon>
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">AI model</h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">The brain behind your agents.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
-          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-          <div>
-            <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">Model already connected</p>
-            <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-0.5">{models[0]?.name ?? models[0]?.modelId}</p>
-          </div>
-        </div>
-        <Btn onClick={onNext} className="w-full">Continue <ArrowRight className="w-4 h-4" /></Btn>
+      <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+        <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">Model added!</p>
       </div>
     );
   }
+
+  return (
+    <div className="space-y-4">
+      {/* Provider cards */}
+      <div className="grid grid-cols-2 gap-2">
+        {PROVIDERS.map(p => (
+          <button
+            key={p.id}
+            onClick={() => selectProvider(p)}
+            className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition-all duration-150 ${selectedProvider?.id === p.id ? p.activeColor : p.color + ' hover:opacity-90'}`}
+          >
+            <span className="text-xl">{p.emoji}</span>
+            <div className="min-w-0">
+              <p className="text-sm font-black text-neutral-800 dark:text-neutral-200 leading-none">{p.name}</p>
+              <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">{p.sub}</p>
+            </div>
+            {selectedProvider?.id === p.id && <Check className="w-3.5 h-3.5 text-current ml-auto shrink-0 opacity-60" />}
+          </button>
+        ))}
+      </div>
+
+      {/* Local model recommendations */}
+      {selectedProvider?.local && ramMb > 0 && (() => {
+        const recs = getLocalRecs(ramMb);
+        const gbLabel = Math.round(ramMb / 1024);
+
+        if (recs.length === 0) {
+          return (
+            <div className="p-4 rounded-2xl border-2 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 space-y-2">
+              <p className="text-sm font-black text-amber-800 dark:text-amber-300">Local models may be slow on {gbLabel}GB</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                Running a capable model locally needs at least 14GB RAM free. On your machine, a free cloud API will give a much better experience.
+              </p>
+              <button
+                onClick={() => { const cp = PROVIDERS.find(p => p.id === 'openai'); if (cp) selectProvider(cp); }}
+                className="text-[11px] font-black text-amber-700 dark:text-amber-400 hover:underline"
+              >
+                Switch to cloud API instead →
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div className="space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+              What to download for your {gbLabel}GB Mac
+            </p>
+            {recs.map((rec, i) => (
+              <div
+                key={rec.hfId}
+                className={`rounded-2xl border-2 p-3.5 transition-all duration-150 ${
+                  manualId === rec.modelId
+                    ? 'border-[#4A5D75] bg-[#4A5D75]/5 dark:bg-[#4A5D75]/10'
+                    : 'border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/40'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span className="text-lg mt-0.5 shrink-0">{rec.roleEmoji}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 leading-snug font-mono">{rec.name}</p>
+                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] shrink-0">{rec.tag}</span>
+                        {i === 0 && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 shrink-0">Start here</span>}
+                      </div>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{rec.description}</p>
+                      <p className="text-[10px] text-neutral-400 mt-1">~{rec.ramGb}GB RAM · Search LM Studio: <span className="font-mono">{rec.name}</span></p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <button
+                      onClick={() => openUrl(`https://huggingface.co/${rec.hfId}`)}
+                      className="flex items-center gap-1 text-[10px] font-bold text-[#4A5D75] hover:underline"
+                    >
+                      HF <ExternalLink className="w-2.5 h-2.5" />
+                    </button>
+                    <button
+                      onClick={() => setManualId(manualId === rec.modelId ? '' : rec.modelId)}
+                      className={`text-[10px] font-black uppercase tracking-wide px-2.5 py-1 rounded-lg transition-colors ${
+                        manualId === rec.modelId
+                          ? 'bg-[#4A5D75] text-white'
+                          : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600'
+                      }`}
+                    >
+                      {manualId === rec.modelId ? '✓ Selected' : 'Use this'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Download in LM Studio first (search the model name, grab Q4_K_M), then click Connect below.
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* Config fields */}
+      {selectedProvider && (
+        <div className="space-y-3 pt-1">
+          {selectedProvider.local && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Endpoint</label>
+              <input
+                value={endpoint}
+                onChange={e => setEndpoint(e.target.value)}
+                className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
+              />
+            </div>
+          )}
+          {selectedProvider.keyLabel && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{selectedProvider.keyLabel}</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder={selectedProvider.keyPlaceholder ?? ''}
+                className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
+              />
+            </div>
+          )}
+
+          {manualId && status === 'idle' && (
+            <Btn onClick={addModel} className="w-full">
+              Connect {manualId} <ArrowRight className="w-4 h-4" />
+            </Btn>
+          )}
+
+          {!manualId && status !== 'ready' && status !== 'error' && (
+            <Btn
+              variant="secondary"
+              onClick={fetchModels}
+              disabled={status === 'fetching' || (!selectedProvider.local && !apiKey.trim())}
+              className="w-full"
+            >
+              {status === 'fetching' ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching models…</> : 'Fetch available models'}
+            </Btn>
+          )}
+
+          {status === 'error' && (
+            <div className="space-y-2">
+              <p className="text-xs text-red-500 dark:text-red-400">{errorMsg}</p>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Enter model ID manually</label>
+                <input
+                  value={manualId}
+                  onChange={e => setManualId(e.target.value)}
+                  placeholder={selectedProvider.defaultModel || 'model-id'}
+                  className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
+                />
+              </div>
+            </div>
+          )}
+
+          {status === 'ready' && fetchedModels.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Choose a model</label>
+              <div className="max-h-36 overflow-y-auto space-y-1 rounded-xl border border-neutral-200 dark:border-neutral-700 p-1.5 bg-neutral-50 dark:bg-neutral-900">
+                {fetchedModels.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => setSelectedModelId(m.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${selectedModelId === m.id ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}`}
+                  >
+                    <span className="font-mono truncate">{m.id}</span>
+                    {selectedModelId === m.id && <Check className="w-3 h-3 shrink-0 ml-2" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(status === 'ready' || status === 'error') && (
+            <Btn onClick={addModel} disabled={!selectedModelId && !manualId.trim()} className="w-full">
+              Connect model <ArrowRight className="w-4 h-4" />
+            </Btn>
+          )}
+        </div>
+      )}
+
+      <Btn variant="ghost" onClick={onSkip} className="w-full">
+        I'll set this up later
+      </Btn>
+    </div>
+  );
+}
+
+function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
+  const models = useSettingsStore(s => s.models);
+  const [showAddForm, setShowAddForm] = useState(models.length === 0);
+  const [ramMb, setRamMb] = useState(0);
+
+  useEffect(() => {
+    invoke<{ total_mb: number }>('get_ram_stats')
+      .then(r => setRamMb(r.total_mb))
+      .catch(() => {});
+  }, []);
+
+  const currentModels = useSettingsStore(s => s.models);
 
   return (
     <div className="flex flex-col gap-5">
@@ -483,207 +668,53 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           <Zap className="w-6 h-6 text-amber-500" />
         </StepIcon>
         <div>
-          <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Connect your AI</h2>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Pick a provider to get started.</p>
+          <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">AI model</h2>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">The brain powering your agents.</p>
         </div>
       </div>
 
-      {status === 'done' ? (
-        <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
-          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-          <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">Model connected!</p>
-        </div>
-      ) : (
-        <>
-          {/* Provider cards */}
-          <div className="grid grid-cols-2 gap-2">
-            {PROVIDERS.map(p => (
-              <button
-                key={p.id}
-                onClick={() => selectProvider(p)}
-                className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition-all duration-150 ${selectedProvider?.id === p.id ? p.activeColor : p.color + ' hover:opacity-90'}`}
-              >
-                <span className="text-xl">{p.emoji}</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-black text-neutral-800 dark:text-neutral-200 leading-none">{p.name}</p>
-                  <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">{p.sub}</p>
-                </div>
-                {selectedProvider?.id === p.id && <Check className="w-3.5 h-3.5 text-current ml-auto shrink-0 opacity-60" />}
-              </button>
-            ))}
-          </div>
-
-          {/* Local model recommendations — shown when LM Studio or Ollama is selected */}
-          {selectedProvider?.local && ramMb > 0 && (() => {
-            const recs = getLocalRecs(ramMb);
-            const gbLabel = Math.round(ramMb / 1024);
-
-            // Low RAM — steer toward cloud instead
-            if (recs.length === 0) {
-              return (
-                <div className="p-4 rounded-2xl border-2 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 space-y-2">
-                  <p className="text-sm font-black text-amber-800 dark:text-amber-300">Local models may be slow on {gbLabel}GB</p>
-                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                    Running a capable model locally needs at least 14GB RAM free. On your machine, connecting a free cloud API will give you a much better experience — Google Gemini has a generous free tier.
-                  </p>
-                  <button
-                    onClick={() => {
-                      const cloudProvider = PROVIDERS.find(p => p.id === 'openai');
-                      if (cloudProvider) selectProvider(cloudProvider);
-                    }}
-                    className="text-[11px] font-black text-amber-700 dark:text-amber-400 hover:underline"
-                  >
-                    Switch to cloud API instead →
-                  </button>
-                </div>
-              );
-            }
-
-            return (
-              <div className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
-                  What to download for your {gbLabel}GB Mac
-                </p>
-                {recs.map((rec, i) => (
-                  <div
-                    key={rec.hfId}
-                    className={`rounded-2xl border-2 p-3.5 transition-all duration-150 ${
-                      manualId === rec.modelId
-                        ? 'border-[#4A5D75] bg-[#4A5D75]/5 dark:bg-[#4A5D75]/10'
-                        : 'border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/40'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2.5 min-w-0">
-                        <span className="text-lg mt-0.5 shrink-0">{rec.roleEmoji}</span>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 leading-snug font-mono">{rec.name}</p>
-                            <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#9EADC8] shrink-0">{rec.tag}</span>
-                            {i === 0 && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 shrink-0">Start here</span>}
-                          </div>
-                          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{rec.description}</p>
-                          <p className="text-[10px] text-neutral-400 mt-1">~{rec.ramGb}GB RAM needed · Search in LM Studio: <span className="font-mono">{rec.name}</span></p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        <button
-                          onClick={() => openUrl(`https://huggingface.co/${rec.hfId}`)}
-                          className="flex items-center gap-1 text-[10px] font-bold text-[#4A5D75] hover:underline"
-                        >
-                          HF <ExternalLink className="w-2.5 h-2.5" />
-                        </button>
-                        <button
-                          onClick={() => setManualId(manualId === rec.modelId ? '' : rec.modelId)}
-                          className={`text-[10px] font-black uppercase tracking-wide px-2.5 py-1 rounded-lg transition-colors ${
-                            manualId === rec.modelId
-                              ? 'bg-[#4A5D75] text-white'
-                              : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600'
-                          }`}
-                        >
-                          {manualId === rec.modelId ? '✓ Selected' : 'Use this'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                <p className="text-[11px] text-neutral-400 leading-relaxed">
-                  Download in LM Studio first (search the model name, grab Q4_K_M), then come back and click Connect.
-                </p>
+      {/* Existing models */}
+      {currentModels.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Connected models</p>
+          {currentModels.map(m => (
+            <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate font-mono">{m.modelId}</p>
+                <p className="text-[10px] text-neutral-400">{m.provider} · {Math.round(m.contextLimit / 1000)}k ctx</p>
               </div>
-            );
-          })()}
-
-          {/* Config fields */}
-          {selectedProvider && (
-            <div className="space-y-3 pt-1">
-              {selectedProvider.local && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Endpoint</label>
-                  <input
-                    value={endpoint}
-                    onChange={e => setEndpoint(e.target.value)}
-                    className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
-                  />
-                </div>
-              )}
-              {selectedProvider.keyLabel && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{selectedProvider.keyLabel}</label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={e => setApiKey(e.target.value)}
-                    placeholder={selectedProvider.keyPlaceholder ?? ''}
-                    className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
-                  />
-                </div>
-              )}
-
-              {/* If a recommendation was selected, show connect directly */}
-              {manualId && status === 'idle' && (
-                <Btn onClick={addModel} className="w-full">
-                  Connect {manualId} <ArrowRight className="w-4 h-4" />
-                </Btn>
-              )}
-
-              {/* Otherwise show fetch flow */}
-              {!manualId && status !== 'ready' && status !== 'error' && (
-                <Btn
-                  variant="secondary"
-                  onClick={fetchModels}
-                  disabled={status === 'fetching' || (!selectedProvider.local && !apiKey.trim())}
-                  className="w-full"
-                >
-                  {status === 'fetching' ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching models…</> : 'Fetch available models'}
-                </Btn>
-              )}
-
-              {status === 'error' && (
-                <div className="space-y-2">
-                  <p className="text-xs text-red-500 dark:text-red-400">{errorMsg}</p>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Enter model ID manually</label>
-                    <input
-                      value={manualId}
-                      onChange={e => setManualId(e.target.value)}
-                      placeholder={selectedProvider.defaultModel || 'model-id'}
-                      className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {status === 'ready' && fetchedModels.length > 0 && (
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Choose a model</label>
-                  <div className="max-h-36 overflow-y-auto space-y-1 rounded-xl border border-neutral-200 dark:border-neutral-700 p-1.5 bg-neutral-50 dark:bg-neutral-900">
-                    {fetchedModels.map(m => (
-                      <button
-                        key={m.id}
-                        onClick={() => setSelectedModelId(m.id)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${selectedModelId === m.id ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}`}
-                      >
-                        <span className="font-mono truncate">{m.id}</span>
-                        {selectedModelId === m.id && <Check className="w-3 h-3 shrink-0 ml-2" />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(status === 'ready' || status === 'error') && (
-                <Btn onClick={addModel} disabled={!selectedModelId && !manualId.trim()} className="w-full">
-                  Connect model <ArrowRight className="w-4 h-4" />
-                </Btn>
-              )}
             </div>
-          )}
+          ))}
+        </div>
+      )}
 
-          <Btn variant="ghost" onClick={onSkip} className="w-full">
-            I'll set this up later
-          </Btn>
-        </>
+      {/* Add another model toggle */}
+      {currentModels.length > 0 && !showAddForm && (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="text-[11px] font-black text-[#4A5D75] hover:underline text-left"
+        >
+          + Add another model (local or cloud)
+        </button>
+      )}
+
+      {showAddForm && (
+        <ModelProviderForm
+          ramMb={ramMb}
+          onAdded={() => { setShowAddForm(false); }}
+          onSkip={() => setShowAddForm(false)}
+        />
+      )}
+
+      {!showAddForm && (
+        <Btn onClick={onNext} className="w-full">
+          Continue <ArrowRight className="w-4 h-4" />
+        </Btn>
+      )}
+
+      {currentModels.length === 0 && !showAddForm && (
+        <Btn variant="ghost" onClick={onSkip} className="w-full">I'll set this up later</Btn>
       )}
     </div>
   );
@@ -733,20 +764,39 @@ function StepRelay({
   useEffect(() => { install(); }, []);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
         <StepIcon color="bg-blue-50 dark:bg-blue-900/30">
           <Server className="w-6 h-6 text-blue-500" />
         </StepIcon>
         <div>
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Capture relay</h2>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">A background service that receives captures from your iPhone.</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Your personal inbox server.</p>
         </div>
       </div>
 
-      <p className="text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-        The relay runs silently on this Mac and starts automatically when you log in. Your iPhone sends captures directly to it — text, links, photos, files.
-      </p>
+      {/* Plain-language explainer */}
+      <div className="space-y-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
+        <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 dark:text-blue-400">What is this?</p>
+        <p className="text-sm text-blue-900 dark:text-blue-200 leading-relaxed font-medium">
+          A tiny web server that runs quietly on this Mac and wakes up whenever your iPhone sends something.
+        </p>
+        <div className="space-y-2">
+          {[
+            { icon: '📱', text: 'You share a link, photo, or note from your iPhone' },
+            { icon: '→', text: 'It travels over your network to this Mac' },
+            { icon: '📥', text: 'It lands in your Agent Forge inbox, ready to process' },
+          ].map((item, i) => (
+            <div key={i} className="flex items-start gap-2.5 text-xs text-blue-800 dark:text-blue-300">
+              <span className="shrink-0 w-5 text-center">{item.icon}</span>
+              <span className="leading-relaxed">{item.text}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-[11px] text-blue-600 dark:text-blue-400 leading-relaxed border-t border-blue-200 dark:border-blue-700 pt-3">
+          It starts automatically every time you log in and uses no CPU when idle. Captures only come from devices you've authorized — nothing from the internet.
+        </p>
+      </div>
 
       <div className={`flex items-center gap-3 p-4 rounded-2xl border transition-all duration-500 ${
         status === 'loading' ? 'bg-neutral-50 dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700' :
@@ -762,12 +812,15 @@ function StepRelay({
             status === 'success' ? 'text-emerald-800 dark:text-emerald-300' :
             'text-red-700 dark:text-red-400'
           }`}>
-            {status === 'loading' ? 'Setting up your relay…' :
+            {status === 'loading' ? 'Installing your relay…' :
              status === 'success' ? 'Relay is running' :
              'Setup failed'}
           </p>
           {result?.instanceId && (
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-500 mt-0.5">{result.instanceId}</p>
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-500 mt-0.5">ID: {result.instanceId}</p>
+          )}
+          {status === 'success' && (
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-500 mt-0.5">Running on port 8765 · starts on login</p>
           )}
           {error && <p className="text-[11px] text-red-500 dark:text-red-400 mt-1 font-mono leading-relaxed">{error}</p>}
         </div>
@@ -822,33 +875,69 @@ function StepTailscale({
           <Wifi className="w-6 h-6 text-violet-500" />
         </StepIcon>
         <div>
-          <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Connect from anywhere</h2>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Tailscale lets your iPhone reach this Mac over any network.</p>
+          <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Capture from anywhere</h2>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Works on your home Wi-Fi now. Tailscale makes it work everywhere.</p>
         </div>
       </div>
 
-      <p className="text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-        Without Tailscale, capture only works on your home Wi-Fi. With it, you can send ideas to Agent Forge from anywhere in the world.
-      </p>
+      {/* Plain-language explainer */}
+      <div className="space-y-3 p-4 rounded-2xl bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800">
+        <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 dark:text-violet-400">What is Tailscale?</p>
+        <p className="text-sm text-violet-900 dark:text-violet-200 leading-relaxed font-medium">
+          A free app that creates a private network between your devices — like a VPN, but only between your own stuff.
+        </p>
+        <div className="space-y-1.5 text-xs text-violet-800 dark:text-violet-300">
+          <div className="flex items-start gap-2">
+            <span className="shrink-0">Without it:</span>
+            <span className="leading-relaxed opacity-70">iPhone can only reach this Mac when you're on the same Wi-Fi network</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="shrink-0">With it:</span>
+            <span className="leading-relaxed font-bold">iPhone can reach this Mac from anywhere — coffee shop, work, traveling</span>
+          </div>
+        </div>
+        <p className="text-[11px] text-violet-600 dark:text-violet-400 leading-relaxed border-t border-violet-200 dark:border-violet-700 pt-3">
+          It's free for personal use. Your captures never go through Tailscale's servers — it just helps your devices find each other.
+        </p>
+      </div>
 
+      {/* Steps */}
       <div className="space-y-2">
+        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Setup — takes about 3 minutes</p>
         {[
-          { done: macDone, set: setMacDone, label: 'Install Tailscale on this Mac', url: 'https://tailscale.com/download/mac', urlLabel: 'tailscale.com/download/mac' },
-          { done: phoneDone, set: setPhoneDone, label: 'Install Tailscale on your iPhone', url: 'https://apps.apple.com/app/tailscale/id1470499037', urlLabel: 'App Store → Tailscale' },
+          {
+            done: macDone,
+            set: setMacDone,
+            step: '1',
+            label: 'Install Tailscale on this Mac',
+            detail: 'Download, open it, sign in with Google or GitHub. You\'ll see it in your menu bar.',
+            url: 'https://tailscale.com/download/mac',
+            urlLabel: 'tailscale.com/download',
+          },
+          {
+            done: phoneDone,
+            set: setPhoneDone,
+            step: '2',
+            label: 'Install Tailscale on your iPhone',
+            detail: 'Same app, same account. Once you\'re signed in on both, they\'re on the same private network.',
+            url: 'https://apps.apple.com/app/tailscale/id1470499037',
+            urlLabel: 'App Store → Tailscale',
+          },
         ].map((item, i) => (
           <button
             key={i}
             onClick={() => item.set((v: boolean) => !v)}
-            className={`w-full flex items-start gap-3 p-3.5 rounded-2xl border-2 text-left transition-all duration-150 ${item.done ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20' : 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300'}`}
+            className={`w-full flex items-start gap-3 p-3.5 rounded-2xl border-2 text-left transition-all duration-150 ${item.done ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20' : 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600'}`}
           >
             <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center border-2 shrink-0 transition-all ${item.done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-neutral-300 dark:border-neutral-600'}`}>
-              {item.done && <Check className="w-3 h-3" />}
+              {item.done ? <Check className="w-3 h-3" /> : <span className="text-[9px] font-black text-neutral-400">{item.step}</span>}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{item.label}</p>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-relaxed">{item.detail}</p>
               <button
                 onClick={e => { e.stopPropagation(); openUrl(item.url); }}
-                className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-[#4A5D75] hover:underline"
+                className="mt-1 inline-flex items-center gap-1 text-[11px] text-[#4A5D75] hover:underline"
               >
                 {item.urlLabel} <ExternalLink className="w-2.5 h-2.5" />
               </button>
@@ -858,19 +947,25 @@ function StepTailscale({
       </div>
 
       <Btn variant="secondary" onClick={checkConnection} disabled={checking} className="w-full">
-        {checking ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking…</> : <><Radio className="w-3.5 h-3.5" /> Detect my Tailscale hostname</>}
+        {checking ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Detecting…</> : <><Radio className="w-3.5 h-3.5" /> Detect my Tailscale hostname</>}
       </Btn>
 
       {checked && (
         hostname ? (
-          <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-400">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            Found: <CopyChip text={hostname} />
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 shrink-0">Connected:</span>
+              <CopyChip text={hostname} />
+            </div>
           </div>
         ) : (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            Tailscale not detected yet. You can continue and set it up later — you'll be able to capture on local Wi-Fi in the meantime.
-          </p>
+          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+            <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed font-medium">Tailscale not detected yet.</p>
+            <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-1 leading-relaxed">
+              Make sure Tailscale is running on this Mac (check the menu bar) and you're signed in. You can also skip this and do it later — the Shortcut will still work on home Wi-Fi.
+            </p>
+          </div>
         )
       )}
 
@@ -879,7 +974,7 @@ function StepTailscale({
           Continue <ArrowRight className="w-4 h-4" />
         </Btn>
         <Btn variant="ghost" onClick={onSkip} className="w-full">
-          I'll only use this at home
+          Skip — I'll only capture at home
         </Btn>
       </div>
     </div>
