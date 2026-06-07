@@ -70,8 +70,10 @@ interface SettingsStore {
   // Onboarding
   onboardingComplete: boolean;
   showOnboarding: boolean;
+  onboardingInitialStep: number;
   setOnboardingComplete: (v: boolean) => void;
   setShowOnboarding: (v: boolean) => void;
+  setOnboardingInitialStep: (step: number) => void;
 
   // Actions
   setModels: (fn: ((prev: Model[]) => Model[]) | Model[]) => void;
@@ -140,9 +142,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   modelTab: 'cloud',
   onboardingComplete: false,
   showOnboarding: false,
+  onboardingInitialStep: 1,
 
   setOnboardingComplete: (v) => set({ onboardingComplete: v }),
   setShowOnboarding: (v) => set({ showOnboarding: v }),
+  setOnboardingInitialStep: (step) => set({ onboardingInitialStep: step }),
 
   setModels: (fn) =>
     set(s => ({ models: typeof fn === 'function' ? fn(s.models) : fn })),

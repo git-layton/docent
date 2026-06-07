@@ -27,6 +27,7 @@ import { fetchWithRetry } from '../utils/nativeFetch';
 
 interface Props {
   onClose: () => void;
+  initialStep?: number;
 }
 
 interface RelaySetupResult {
@@ -1537,8 +1538,8 @@ function StepDone({
 
 // ─── Main wizard ──────────────────────────────────────────────────────────────
 
-export function OnboardingWizard({ onClose }: Props) {
-  const [step, setStep] = useState(1);
+export function OnboardingWizard({ onClose, initialStep }: Props) {
+  const [step, setStep] = useState(initialStep ?? 1);
   const [relayResult, setRelayResult] = useState<RelaySetupResult | null>(null);
   const [tailscaleHostname, setTailscaleHostname] = useState<string | null>(null);
   const [relayOk, setRelayOk] = useState(false);
