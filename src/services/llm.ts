@@ -121,6 +121,41 @@ export const validateModel = async (model: any) => {
   }
 };
 
+export const getSystemPromptBreakdown = (params: {
+  agent: any;
+  profile: any;
+  pinnedMessages: any[];
+  trainingDocs?: any[];
+  tasks?: any[];
+}): { systemChars: number; pinsChars: number; docsChars: number; total: number } => {
+  const { agent, profile, pinnedMessages, trainingDocs = [], tasks = [] } = params;
+
+  // System prompt core (agent instructions + profile)
+  const systemCore = [
+    agent?.prompt ?? '',
+    profile?.name ? `User: ${profile.name}` : '',
+    profile?.bio ?? '',
+    agent?.drive?.enabled && agent?.drive?.text ? agent.drive.text : '',
+    ...(tasks?.slice(0, 5).map((t: any) => t.title ?? '') ?? []),
+  ].join('\n');
+
+  // Pinned memory content
+  const pinsContent = pinnedMessages
+    .map((p: any) => p.content ?? p.text ?? '')
+    .join('\n');
+
+  // Training docs
+  const docsContent = trainingDocs
+    .map((d: any) => (typeof d === 'string' ? d : d.content ?? d.text ?? ''))
+    .join('\n');
+
+  const systemChars = systemCore.length;
+  const pinsChars = pinsContent.length;
+  const docsChars = docsContent.length;
+
+  return { systemChars, pinsChars, docsChars, total: systemChars + pinsChars + docsChars };
+};
+
 export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
