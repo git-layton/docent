@@ -20,8 +20,8 @@ function SpotlightMd({ text }: { text: string }) {
     parts.push(
       <div key={key++} className="relative my-2 rounded-xl overflow-hidden"
         style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.07)' }}>
-        {m[1] && <span className="absolute top-2 right-2 text-[9px] font-bold text-slate-500 uppercase">{m[1]}</span>}
-        <pre className="overflow-x-auto px-4 py-3 text-[11px] text-slate-300 leading-relaxed"><code>{code}</code></pre>
+        {m[1] && <span className="absolute top-2 right-2 text-[9px] font-bold text-neutral-500 uppercase">{m[1]}</span>}
+        <pre className="overflow-x-auto px-4 py-3 text-[11px] text-neutral-300 leading-relaxed"><code>{code}</code></pre>
       </div>
     );
     last = fence.lastIndex;
@@ -365,12 +365,10 @@ export default function SpotlightBar() {
 
   return (
     <div className="w-screen h-screen flex flex-col bg-transparent select-none overflow-hidden">
-      <div className="flex flex-col flex-1 rounded-2xl overflow-hidden min-h-0"
+      <div className="flex flex-col flex-1 rounded-2xl overflow-hidden min-h-0 bg-primary-dark/95 backdrop-blur-[40px] border border-secondary/30"
         style={{
-          background: 'rgba(12, 15, 26, 0.95)',
           backdropFilter: 'blur(40px) saturate(200%)',
           WebkitBackdropFilter: 'blur(40px) saturate(200%)',
-          border: '1.5px solid rgba(99, 102, 241, 0.3)',
           boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
         }}
       >
@@ -384,44 +382,43 @@ export default function SpotlightBar() {
                 <input ref={e => e?.focus()} value={nameInput}
                   onChange={e => setNameInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') setEditingName(false); }}
-                  className="w-36 bg-white/5 border border-indigo-500/40 rounded-lg px-2 py-0.5 text-xs text-white outline-none"
+                  className="w-36 bg-white/5 border border-secondary/40 rounded-lg px-2 py-0.5 text-xs text-white outline-none"
                 />
                 <button onClick={commitName} className="p-1 text-emerald-400"><Check className="w-3.5 h-3.5" /></button>
               </div>
             ) : (
               <button onClick={() => setShowHistory(v => !v)}
-                className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white px-1.5 py-1 rounded-lg hover:bg-white/5 transition-all max-w-[200px]">
-                <Clock className="w-3 h-3 text-slate-500 shrink-0" />
+                className="flex items-center gap-1.5 text-xs font-semibold text-neutral-300 hover:text-white px-1.5 py-1 rounded-lg hover:bg-white/5 transition-all max-w-[200px]">
+                <Clock className="w-3 h-3 text-neutral-500 shrink-0" />
                 <span className="truncate">{activeChat?.name ?? 'Chats'}</span>
-                <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" />
+                <ChevronDown className="w-3 h-3 text-neutral-500 shrink-0" />
               </button>
             )}
             {!editingName && activeChat && (
               <button onClick={() => { setNameInput(activeChat.name); setEditingName(true); }}
-                className="p-1 text-slate-600 hover:text-slate-400 transition-colors shrink-0">
+                className="p-1 text-neutral-500 hover:text-neutral-400 transition-colors shrink-0">
                 <Pencil className="w-3 h-3" />
               </button>
             )}
 
             {showHistory && (
-              <div className="absolute left-0 top-full mt-1 w-64 rounded-xl overflow-hidden z-50 shadow-2xl"
-                style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.3)' }}>
-                <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">All chats</span>
+              <div className="absolute left-0 top-full mt-1 w-64 rounded-xl overflow-hidden z-50 shadow-2xl bg-primary-dark/98 border border-secondary/30">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-primary/20">
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">All chats</span>
                   <button onClick={startNewChat}
-                    className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 px-2 py-0.5 rounded-lg hover:bg-indigo-900/20 transition-all">
+                    className="flex items-center gap-1 text-[10px] font-bold text-secondary-light hover:text-secondary-light/80 px-2 py-0.5 rounded-lg hover:bg-primary/10 transition-all">
                     <Plus className="w-3 h-3" /> New
                   </button>
                 </div>
                 <div className="max-h-72 overflow-y-auto custom-scrollbar">
                   {visibleChats.length === 0 && (
-                    <p className="text-xs text-slate-600 text-center px-3 py-4">No chats yet</p>
+                    <p className="text-xs text-neutral-500 text-center px-3 py-4">No chats yet</p>
                   )}
                   {visibleChats.map(chat => (
                     <button key={chat.id} onClick={() => switchChat(chat.id)}
-                      className={`w-full text-left px-3 py-2.5 transition-colors border-b border-white/[0.03] last:border-0 ${chat.id === activeChatId ? 'bg-indigo-900/20' : 'hover:bg-white/5'}`}>
-                      <div className="text-xs font-medium text-slate-200 truncate">{chat.name}</div>
-                      <div className="text-[10px] text-slate-600 mt-0.5 flex gap-2">
+                      className={`w-full text-left px-3 py-2.5 transition-colors border-b border-white/[0.03] last:border-0 ${chat.id === activeChatId ? 'bg-primary/10' : 'hover:bg-white/5'}`}>
+                      <div className="text-xs font-medium text-neutral-200 truncate">{chat.name}</div>
+                      <div className="text-[10px] text-neutral-500 mt-0.5 flex gap-2">
                         <span>{(messages[chat.id] ?? []).length} msgs</span>
                         <span>·</span>
                         <span>{new Date(chat.updatedAt).toLocaleDateString()}</span>
@@ -431,7 +428,7 @@ export default function SpotlightBar() {
                 </div>
                 {sortedChats.length > RECENT_COUNT && (
                   <button onClick={() => setShowAll(v => !v)}
-                    className="w-full text-center text-[10px] font-bold text-slate-500 hover:text-slate-300 py-2 border-t border-white/[0.06] hover:bg-white/5 transition-all">
+                    className="w-full text-center text-[10px] font-bold text-neutral-500 hover:text-neutral-300 py-2 border-t border-primary/20 hover:bg-white/5 transition-all">
                     {showAll ? 'Show less' : `+${sortedChats.length - RECENT_COUNT} more`}
                   </button>
                 )}
@@ -443,59 +440,57 @@ export default function SpotlightBar() {
 
           {/* New chat */}
           <button onClick={startNewChat}
-            className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/20 transition-all shrink-0">
+            className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-secondary/40 text-secondary-light hover:bg-primary/10 transition-all shrink-0">
             <Plus className="w-3 h-3" /> New chat
           </button>
 
           {/* Close */}
           <button onClick={() => getCurrentWindow().hide()}
-            className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-950/30 transition-all">
+            className="p-1.5 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-red-950/30 transition-all">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
 
         {/* ── Row 2: Controls toolbar ── */}
-        <div className="flex items-center gap-1 px-3 pb-2 shrink-0 border-b border-white/[0.06] overflow-x-auto">
+        <div className="flex items-center gap-1 px-3 pb-2 shrink-0 border-b border-primary/20 overflow-x-auto">
 
           {/* Agent picker */}
           <div className="relative shrink-0" ref={agentPickerRef}>
             <button onClick={e => { e.stopPropagation(); setShowAgentPicker(v => !v); setShowModelPicker(false); }}
-              className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-white/5 transition-all whitespace-nowrap">
+              className="flex items-center gap-1 text-[10px] font-medium text-neutral-400 hover:text-neutral-200 px-2 py-1 rounded-lg hover:bg-white/5 transition-all whitespace-nowrap">
               {truncate(selectedAgent?.name ?? 'Agent', 12)}
               <ChevronDown className="w-3 h-3 opacity-50" />
             </button>
             {showAgentPicker && (
-              <div className="absolute left-0 top-full mt-1 w-52 rounded-xl overflow-hidden z-50 shadow-2xl"
-                style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.35)' }}>
+              <div className="absolute left-0 top-full mt-1 w-52 rounded-xl overflow-hidden z-50 shadow-2xl bg-primary-dark/98 border border-secondary/35">
                 {agents.map(agent => (
                   <button key={agent.id} onClick={() => { setSelectedAgentId(agent.id); setShowAgentPicker(false); }}
-                    className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${agent.id === selectedAgentId ? 'text-indigo-300 bg-indigo-900/30' : 'text-slate-300 hover:bg-white/5'}`}>
+                    className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${agent.id === selectedAgentId ? 'text-secondary-light bg-primary/30' : 'text-neutral-300 hover:bg-white/5'}`}>
                     {agent.name}
-                    {agent.description && <span className="block text-[10px] text-slate-500 truncate">{agent.description}</span>}
+                    {agent.description && <span className="block text-[10px] text-neutral-500 truncate">{agent.description}</span>}
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          <span className="text-slate-700 select-none shrink-0">·</span>
+          <span className="text-neutral-600 select-none shrink-0">·</span>
 
           {/* Model picker */}
           <div className="relative shrink-0" ref={modelPickerRef}>
             <button onClick={e => { e.stopPropagation(); setShowModelPicker(v => !v); setShowAgentPicker(false); }}
-              className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-white/5 transition-all whitespace-nowrap">
+              className="flex items-center gap-1 text-[10px] font-medium text-neutral-400 hover:text-neutral-200 px-2 py-1 rounded-lg hover:bg-white/5 transition-all whitespace-nowrap">
               <Cpu className="w-3 h-3 opacity-50" />
               {truncate(selectedModel?.name ?? selectedModel?.id ?? 'Model', 14)}
               <ChevronDown className="w-3 h-3 opacity-50" />
             </button>
             {showModelPicker && (
-              <div className="absolute left-0 top-full mt-1 w-56 rounded-xl overflow-hidden z-50 shadow-2xl"
-                style={{ background: 'rgba(15,18,30,0.98)', border: '1px solid rgba(99,102,241,0.35)' }}>
+              <div className="absolute left-0 top-full mt-1 w-56 rounded-xl overflow-hidden z-50 shadow-2xl bg-primary-dark/98 border border-secondary/35">
                 {models.map(model => (
                   <button key={model.id} onClick={() => { setSelectedModelId(model.id); setShowModelPicker(false); }}
-                    className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${model.id === selectedModelId ? 'text-indigo-300 bg-indigo-900/30' : 'text-slate-300 hover:bg-white/5'}`}>
+                    className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${model.id === selectedModelId ? 'text-secondary-light bg-primary/30' : 'text-neutral-300 hover:bg-white/5'}`}>
                     {model.name ?? model.id}
-                    {model.provider && <span className="block text-[10px] text-slate-500">{model.provider}</span>}
+                    {model.provider && <span className="block text-[10px] text-neutral-500">{model.provider}</span>}
                   </button>
                 ))}
               </div>
@@ -511,7 +506,7 @@ export default function SpotlightBar() {
                 fetchTab(b);
               }}
                 className={`text-[10px] font-bold px-2 py-0.5 capitalize transition-all ${
-                  preferredBrowser === b ? 'bg-indigo-600/60 text-indigo-200' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                  preferredBrowser === b ? 'bg-primary/80 text-secondary-light' : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'
                 }`}
               >{b}</button>
             ))}
@@ -527,10 +522,10 @@ export default function SpotlightBar() {
               }}
               className={`text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center transition-all ${
                 showPageReadingHelp
-                  ? 'bg-indigo-600/50 text-indigo-200'
+                  ? 'bg-primary/50 text-secondary-light'
                   : tab && tab.hasText === false
                     ? 'text-amber-400 hover:bg-amber-900/20'
-                    : 'text-slate-600 hover:text-slate-400 hover:bg-white/5'
+                    : 'text-neutral-500 hover:text-neutral-400 hover:bg-white/5'
               }`}
               title="Page reading setup"
             >?</button>
@@ -540,31 +535,30 @@ export default function SpotlightBar() {
 
           {/* Think */}
           <button onClick={() => setIsDeepThinking(v => !v)}
-            className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-all shrink-0 ${isDeepThinking ? 'text-violet-300 bg-violet-900/20 border-violet-700/30' : 'text-slate-600 border-transparent hover:text-slate-400 hover:bg-white/5'}`}>
+            className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-all shrink-0 ${isDeepThinking ? 'text-violet-300 bg-violet-900/20 border-violet-700/30' : 'text-neutral-500 border-transparent hover:text-neutral-400 hover:bg-white/5'}`}>
             <Brain className="w-3 h-3" /> Think
           </button>
         </div>
 
         {/* ── First-time setup banner ── */}
         {showOnboarding && (
-          <div className="mx-3 mt-2 rounded-xl px-3 py-2.5 shrink-0 flex items-start gap-2.5"
-            style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}>
+          <div className="mx-3 mt-2 rounded-xl px-3 py-2.5 shrink-0 flex items-start gap-2.5 bg-primary/10 border border-secondary/25">
             <span className="text-lg leading-none mt-0.5">⚡</span>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-indigo-300 mb-1">Enable full page reading</p>
+              <p className="text-xs font-semibold text-secondary-light mb-1">Enable full page reading</p>
               <div className="flex flex-col gap-1">
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  <span className="text-slate-300 font-semibold">Chrome:</span> View → Developer → <span className="text-slate-200">Allow JavaScript from Apple Events</span>
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  <span className="text-neutral-300 font-semibold">Chrome:</span> View → Developer → <span className="text-neutral-200">Allow JavaScript from Apple Events</span>
                 </p>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  <span className="text-slate-300 font-semibold">Safari:</span> Develop → <span className="text-slate-200">Allow Remote Automation</span>
-                  <span className="text-slate-600"> (no Develop menu? Safari Settings → Advanced → Show features for web developers)</span>
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  <span className="text-neutral-300 font-semibold">Safari:</span> Develop → <span className="text-neutral-200">Allow Remote Automation</span>
+                  <span className="text-neutral-500"> (no Develop menu? Safari Settings → Advanced → Show features for web developers)</span>
                 </p>
               </div>
             </div>
             <button
               onClick={() => { setShowOnboarding(false); db.set('spotlightOnboarded', true); }}
-              className="shrink-0 text-[10px] font-bold text-indigo-400 hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-900/20 transition-all mt-0.5">
+              className="shrink-0 text-[10px] font-bold text-secondary-light hover:text-secondary-light/80 px-2 py-1 rounded-lg hover:bg-primary/10 transition-all mt-0.5">
               Got it
             </button>
           </div>
@@ -572,18 +566,17 @@ export default function SpotlightBar() {
 
         {/* ── Hotkey onboarding banner ── */}
         {showHotkeyOnboarding && (
-          <div className="mx-3 mt-2 rounded-xl px-3 py-2.5 shrink-0 flex items-start gap-2.5"
-            style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}>
+          <div className="mx-3 mt-2 rounded-xl px-3 py-2.5 shrink-0 flex items-start gap-2.5 bg-primary/10 border border-secondary/25">
             <span className="text-lg leading-none mt-0.5">⌘</span>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-indigo-300 mb-1">Your agent travels with you</p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Press <span className="text-slate-200 font-semibold">⌘⇧F</span> from any Chrome or Safari tab to open Agent Forge with that page's context automatically attached.
+              <p className="text-xs font-semibold text-secondary-light mb-1">Your agent travels with you</p>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                Press <span className="text-neutral-200 font-semibold">⌘⇧F</span> from any Chrome or Safari tab to open Agent Forge with that page's context automatically attached.
               </p>
             </div>
             <button
               onClick={() => { setShowHotkeyOnboarding(false); db.set('spotlightHotkeyOnboarded', true); }}
-              className="shrink-0 text-[10px] font-bold text-indigo-400 hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-900/20 transition-all mt-0.5">
+              className="shrink-0 text-[10px] font-bold text-secondary-light hover:text-secondary-light/80 px-2 py-1 rounded-lg hover:bg-primary/10 transition-all mt-0.5">
               Got it
             </button>
           </div>
@@ -593,16 +586,16 @@ export default function SpotlightBar() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0 custom-scrollbar">
           {activeMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-center pointer-events-none">
-              <p className="text-sm text-slate-500 font-medium">{selectedAgent?.name ?? 'Agent'}</p>
-              <p className="text-xs text-slate-600 max-w-xs">{selectedAgent?.description || 'Ask anything — tab context auto-attaches when available.'}</p>
+              <p className="text-sm text-neutral-500 font-medium">{selectedAgent?.name ?? 'Agent'}</p>
+              <p className="text-xs text-neutral-500 max-w-xs">{selectedAgent?.description || 'Ask anything — tab context auto-attaches when available.'}</p>
             </div>
           )}
           {activeMessages.map(msg => (
             <div key={msg.id} className={`group flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[85%] text-sm leading-relaxed break-words select-text ${
                 msg.role === 'user'
-                  ? 'rounded-2xl rounded-br-sm overflow-hidden bg-indigo-600/70 text-white'
-                  : 'rounded-2xl rounded-bl-sm px-3.5 py-2.5 bg-white/[0.07] text-slate-200 border border-white/[0.06]'
+                  ? 'rounded-2xl rounded-br-sm overflow-hidden bg-primary/80 text-white'
+                  : 'rounded-2xl rounded-bl-sm px-3.5 py-2.5 bg-surface-dark/60 text-neutral-200 border border-primary/20'
               }`}>
                 {msg.role === 'user' && pageCards[msg.id] && (() => {
                   const card = pageCards[msg.id];
@@ -639,9 +632,9 @@ export default function SpotlightBar() {
                   </div>
                 ) : !msg.content ? (
                   <span className="flex gap-1 items-center py-0.5">
-                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{animationDelay:'0ms'}} />
-                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}} />
-                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}} />
+                    <span className="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce" style={{animationDelay:'0ms'}} />
+                    <span className="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}} />
+                    <span className="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}} />
                   </span>
                 ) : (
                   <SpotlightMd text={msg.content} />
@@ -656,7 +649,7 @@ export default function SpotlightBar() {
                       setCopiedId(msg.id);
                       setTimeout(() => setCopiedId(null), 1500);
                     }}
-                    className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded-md hover:bg-white/5 transition-all"
+                    className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 px-1.5 py-0.5 rounded-md hover:bg-white/5 transition-all"
                   >
                     {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                     {copiedId === msg.id ? 'Copied' : 'Copy'}
@@ -674,7 +667,7 @@ export default function SpotlightBar() {
                         setSpeakingId(msg.id);
                       }
                     }}
-                    className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded-md hover:bg-white/5 transition-all"
+                    className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 px-1.5 py-0.5 rounded-md hover:bg-white/5 transition-all"
                   >
                     {speakingId === msg.id ? <VolumeX className="w-3 h-3 text-sky-400" /> : <Volume2 className="w-3 h-3" />}
                     {speakingId === msg.id ? 'Stop' : 'Read'}
@@ -690,13 +683,13 @@ export default function SpotlightBar() {
           {tab ? (
             <>
               <button onClick={() => setUseTab(v => !v)}
-                className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all ${useTab ? 'text-sky-400/80 bg-sky-900/15' : 'text-slate-600 hover:text-slate-400'}`}>
+                className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all ${useTab ? 'text-sky-400/80 bg-sky-900/15' : 'text-neutral-500 hover:text-neutral-400'}`}>
                 <Globe className="w-3 h-3 shrink-0" />
                 {tab.browser && tab.browser !== 'curl' && (
-                  <span className="text-slate-500 shrink-0 capitalize">{tab.browser} ·</span>
+                  <span className="text-neutral-500 shrink-0 capitalize">{tab.browser} ·</span>
                 )}
                 <span className="truncate max-w-[220px]">{truncate(tab.title, 34)}</span>
-                <span className="text-slate-600 shrink-0">· {domainOf(tab.url)}</span>
+                <span className="text-neutral-500 shrink-0">· {domainOf(tab.url)}</span>
               </button>
               {tab.hasText === false && useTab && (
                 <button
@@ -707,10 +700,10 @@ export default function SpotlightBar() {
               )}
             </>
           ) : (
-            <span className="text-[10px] text-slate-700 px-2">No tab detected</span>
+            <span className="text-[10px] text-neutral-600 px-2">No tab detected</span>
           )}
           <button onClick={() => fetchTab()} title="Refresh tab"
-            className={`p-1 rounded-lg text-slate-700 hover:text-slate-400 transition-all ${tabFetching ? 'animate-spin' : ''}`}>
+            className={`p-1 rounded-lg text-neutral-600 hover:text-neutral-400 transition-all ${tabFetching ? 'animate-spin' : ''}`}>
             <RefreshCw className="w-3 h-3" />
           </button>
         </div>
@@ -725,7 +718,7 @@ export default function SpotlightBar() {
             placeholder="Message..."
             rows={1}
             disabled={isStreaming}
-            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 outline-none resize-none focus:border-indigo-500/50 transition-colors min-h-[36px] max-h-[120px] overflow-auto"
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none resize-none focus:border-secondary/50 transition-colors min-h-[36px] max-h-[120px] overflow-auto"
             onInput={e => {
               const t = e.target as HTMLTextAreaElement;
               t.style.height = 'auto';
@@ -734,7 +727,7 @@ export default function SpotlightBar() {
           />
           <button
             onClick={isStreaming ? stop : () => input.trim() && send(input.trim())}
-            className={`shrink-0 p-2 rounded-xl transition-all ${isStreaming ? 'bg-red-600/80 hover:bg-red-600 text-white' : input.trim() ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-white/5 text-slate-600 cursor-default'}`}>
+            className={`shrink-0 p-2 rounded-xl transition-all ${isStreaming ? 'bg-red-600/80 hover:bg-red-600 text-white' : input.trim() ? 'bg-primary hover:bg-primary-hover text-white' : 'bg-white/5 text-neutral-500 cursor-default'}`}>
             {isStreaming ? <Square className="w-4 h-4 fill-current" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
@@ -742,30 +735,28 @@ export default function SpotlightBar() {
 
       {/* Page reading help popover — fixed so it escapes overflow:hidden containers */}
       {showPageReadingHelp && helpBtnRect && (
-        <div ref={pageReadingHelpRef} className="fixed w-72 rounded-xl z-[200] shadow-2xl p-3 space-y-2"
+        <div ref={pageReadingHelpRef} className="fixed w-72 rounded-xl z-[200] shadow-2xl p-3 space-y-2 bg-primary-dark/98 border border-secondary/35"
           style={{
-            background: 'rgba(15,18,30,0.98)',
-            border: '1px solid rgba(99,102,241,0.35)',
             left: helpBtnRect.left,
             top: helpBtnRect.bottom + 6,
           }}>
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Enable Page Reading</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Enable Page Reading</p>
           {tab?.browser !== 'safari' && (
             <div className="space-y-0.5">
-              <p className="text-[11px] font-bold text-slate-300">Chrome</p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">View → Developer → <span className="text-slate-200 font-semibold">Allow JavaScript from Apple Events</span></p>
+              <p className="text-[11px] font-bold text-neutral-300">Chrome</p>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">View → Developer → <span className="text-neutral-200 font-semibold">Allow JavaScript from Apple Events</span></p>
             </div>
           )}
-          {tab?.browser !== 'safari' && tab?.browser !== 'chrome' && <div className="border-t border-white/[0.06]" />}
+          {tab?.browser !== 'safari' && tab?.browser !== 'chrome' && <div className="border-t border-primary/20" />}
           {tab?.browser !== 'chrome' && (
             <div className="space-y-1">
-              <p className="text-[11px] font-bold text-slate-300">Safari</p>
-              <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 1:</span> Settings → Advanced → enable <span className="text-slate-200 font-semibold">Show features for web developers</span></p>
-              <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-semibold">Step 2:</span> Develop → <span className="text-slate-200 font-semibold">Allow Remote Automation</span></p>
+              <p className="text-[11px] font-bold text-neutral-300">Safari</p>
+              <p className="text-[11px] text-neutral-400 leading-relaxed"><span className="text-neutral-200 font-semibold">Step 1:</span> Settings → Advanced → enable <span className="text-neutral-200 font-semibold">Show features for web developers</span></p>
+              <p className="text-[11px] text-neutral-400 leading-relaxed"><span className="text-neutral-200 font-semibold">Step 2:</span> Develop → <span className="text-neutral-200 font-semibold">Allow Remote Automation</span></p>
             </div>
           )}
-          <div className="border-t border-white/[0.06]" />
-          <p className="text-[10px] text-slate-600 leading-relaxed">After enabling, press ⌘⇧F again to refresh.</p>
+          <div className="border-t border-primary/20" />
+          <p className="text-[10px] text-neutral-500 leading-relaxed">After enabling, press ⌘⇧F again to refresh.</p>
         </div>
       )}
     </div>
