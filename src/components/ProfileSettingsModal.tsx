@@ -268,6 +268,28 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  )}
               </div>
 
+              {/* Brave Search Integration */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                     <div className="flex items-center gap-3">
+                         <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl shadow-sm border border-orange-100 dark:border-orange-800"><Globe className="w-5 h-5 text-orange-500" /></div>
+                         <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Brave Search</span>
+                              <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400">2,000 free/mo</span>
+                            </div>
+                            <span className="text-xs text-neutral-500 font-medium mt-0.5">Privacy-focused web search. Free tier included. <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" className="text-[#6A829E] hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
+                         </div>
+                     </div>
+                     <button onClick={() => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, enabled: !prev.brave?.enabled } }))} className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${integrations.brave?.enabled ? 'bg-[#DCE7E1] text-[#7A9E8D] dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-[#4A5D75] text-white hover:bg-[#3D4D61]'}`}>{integrations.brave?.enabled ? 'Enabled' : 'Enable'}</button>
+                 </div>
+                 {integrations.brave?.enabled && (
+                    <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                       <input type="password" value={integrations.brave?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, apiKey: e.target.value } }))} placeholder="Paste your BSA... API key here" className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#6A829E] font-mono transition-all" />
+                    </div>
+                 )}
+              </div>
+
               {/* Tavily Web Search Integration */}
               <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

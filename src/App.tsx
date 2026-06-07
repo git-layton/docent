@@ -25,6 +25,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { NukeShieldModal } from './components/NukeShieldModal';
 import { MemmoPanel } from './components/MemmoPanel';
+import { InboxPanel } from './components/InboxPanel';
 import { MemoComposeModal } from './components/MemoComposeModal';
 import { SourcesTray } from './components/SourcesTray';
 import type { SlashCommand } from './components/SlashCommandPalette';
@@ -364,6 +365,7 @@ export default function App() {
       } else {
          useUIStore.getState().setGenerationMode(activeAssistant.defaultMode || 'text');
       }
+      useUIStore.getState().setIsDeepThinking(!!activeAssistant.defaultDeepThinking);
     }
   }, [activeFolderId, activeAssistant, appSettings?.imageProvider]);
 
@@ -1888,8 +1890,29 @@ export default function App() {
         />
       )}
 
+      {showMemmoPanel && memmoPanelTab === 'inbox' && (
+        <div className="fixed inset-0 z-40 bg-transparent" onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} />
+      )}
+      {/* Inbox panel — shown instead of MemmoPanel when inbox tab active */}
+      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-white dark:bg-neutral-950 border-l border-neutral-200 dark:border-neutral-800 shadow-2xl flex flex-col transition-transform duration-300 overflow-y-auto ${
+        showMemmoPanel && memmoPanelTab === 'inbox' ? 'translate-x-0' : 'translate-x-full'
+      }`}>
+        <div className="flex items-center justify-between px-4 py-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
+          <span className="text-xs font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-300">Inbox</span>
+          <button onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} className="p-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <InboxPanel
+          agentForgePath={agentForgePath}
+          activeAgentId={activeFolderId}
+          onToast={showToast}
+          onOpenChat={() => useMemoryStore.getState().setShowMemmoPanel(false)}
+        />
+      </div>
+
       <MemmoPanel
-        isOpen={showMemmoPanel}
+        isOpen={showMemmoPanel && memmoPanelTab !== 'inbox'}
         onClose={() => useMemoryStore.getState().setShowMemmoPanel(false)}
         pinnedMessages={activeAgentPinnedMessageObjects}
         agentId={activeAssistant?.id ?? 'default'}
@@ -1905,7 +1928,7 @@ export default function App() {
         onCompose={() => { useMemoryStore.getState().setShowMemmoPanel(false); useMemoryStore.getState().setShowMemoCompose(true); }}
         agentForgePath={agentForgePath}
         onToast={showToast}
-        initialTab={memmoPanelTab === 'inbox' ? 'library' : memmoPanelTab}
+        initialTab={memmoPanelTab === 'inbox' ? undefined : memmoPanelTab}
         pinnedTokenEstimate={Math.round(agentPinnedMessagesForPrompt.join('').length / 4)}
         onDeleteFile={async (path) => {
           const result = await invoke<{ ok: boolean; error?: string }>('delete_memory_file', { path });

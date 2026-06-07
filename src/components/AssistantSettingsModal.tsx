@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   UserCog, X, Wand2, ImageIcon, Bot, BookOpen, Paperclip, FileText,
-  Pin, Trash2, Loader2, Brain, Database, AlertTriangle
+  Pin, Trash2, Loader2, Brain, Database, AlertTriangle, Copy
 } from 'lucide-react';
 import { BOT_COLORS, AVAILABLE_TOOLS } from './ui/AgentIcon';
 import { useAgentStore } from '../store/useAgentStore';
@@ -323,7 +323,28 @@ export function AssistantSettingsModal({
            )}
         </div>
 
-        <button onClick={onSave} className="w-full py-5 bg-[#4A5D75] text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 active:scale-[0.98] hover:bg-[#3D4D61] transition-all shrink-0">Save Configuration</button>
+        <div className="flex gap-3 mt-6 shrink-0">
+          <button
+            onClick={() => {
+              const { assistants, setAssistants, setActiveFolderId, setShowAssistantSettings } = useAgentStore.getState();
+              const cloned = {
+                ...editingAssistant,
+                id: `clone-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                name: `${editingAssistant.name} (copy)`,
+                isDefault: false,
+              };
+              setAssistants([...assistants, cloned]);
+              useAgentStore.getState().persist();
+              setActiveFolderId(cloned.id);
+              setShowAssistantSettings(false);
+            }}
+            className="flex items-center gap-2 px-5 py-4 border-2 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-800 active:scale-[0.98] transition-all"
+            title="Clone this bot as a new starting point"
+          >
+            <Copy className="w-4 h-4" /> Clone
+          </button>
+          <button onClick={onSave} className="flex-1 py-4 bg-[#4A5D75] text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl active:scale-[0.98] hover:bg-[#3D4D61] transition-all">Save Configuration</button>
+        </div>
       </div>
     </div>
   );
