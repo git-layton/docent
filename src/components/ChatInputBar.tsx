@@ -89,7 +89,7 @@ export function ChatInputBar({
 
         {/* Error Display */}
         {uploadError && (
-            <div className="mb-2 flex items-center gap-2 text-[#C98A8A] text-[10px] font-black uppercase tracking-widest bg-[#C98A8A]/10 p-2 rounded-xl border border-[#C98A8A]/20 animate-in slide-in-from-bottom-2">
+            <div className="mb-2 flex items-center gap-2 text-error text-tiny font-black uppercase tracking-widest bg-error/10 p-2 rounded-xl border border-error/20 animate-in slide-in-from-bottom-2">
                 <AlertTriangle size={14} /> {uploadError}
             </div>
         )}
@@ -97,10 +97,10 @@ export function ChatInputBar({
         {attachedDocs.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2 px-2">
             {attachedDocs.map((doc, idx) => (
-              <div key={idx} className="relative group flex items-center gap-2 px-3 py-1.5 bg-white border border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 rounded-xl text-[10px] font-black shadow-sm animate-in slide-in-from-bottom-2">
-                {doc.isImage ? <img src={doc.content} alt={doc.name} className="w-6 h-6 object-cover rounded-md" /> : <FileText className="w-4 h-4 text-[#6A829E]" />}
+              <div key={idx} className="relative group flex items-center gap-2 px-3 py-1.5 bg-white border border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 rounded-xl text-tiny font-black shadow-sm animate-in slide-in-from-bottom-2">
+                {doc.isImage ? <img src={doc.content} alt={doc.name} className="w-6 h-6 object-cover rounded-md" /> : <FileText className="w-4 h-4 text-secondary" />}
                 <span className="max-w-[100px] truncate">{doc.name}</span>
-                <button onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))} className="opacity-50 hover:opacity-100 hover:text-[#C98A8A]"><X className="w-3 h-3" /></button>
+                <button onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))} className="opacity-50 hover:opacity-100 hover:text-error"><X className="w-3 h-3" /></button>
               </div>
             ))}
           </div>
@@ -140,11 +140,11 @@ export function ChatInputBar({
           )}
           {/* @mention palette for channels */}
           {showMentionPalette && (
-            <div className="absolute bottom-full left-0 mb-2 w-56 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
-              <div className="px-3 pt-2 pb-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">Mention</div>
+            <div className="absolute bottom-full left-0 mb-2 w-56 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+              <div className="px-3 pt-2 pb-1 text-micro font-black uppercase tracking-widest text-neutral-400">Mention</div>
               <div className="p-1 space-y-0.5">
                 {filteredMentions.map((p, i) => (
-                  <button key={p.id} onMouseDown={e => { e.preventDefault(); completeMention(p.name); }} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all ${i === mentionHighlight ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200'}`}>
+                  <button key={p.id} onMouseDown={e => { e.preventDefault(); completeMention(p.name); }} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all ${i === mentionHighlight ? 'bg-primary text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200'}`}>
                     <span className="text-xs font-bold">{p.name}</span>
                   </button>
                 ))}
@@ -152,7 +152,7 @@ export function ChatInputBar({
             </div>
           )}
         {/* Textarea */}
-        <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
+        <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-secondary-light'}`}>
           <textarea
             value={input}
             onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
@@ -181,22 +181,22 @@ export function ChatInputBar({
 
         {/* Mode bar + model selector + actions — single row */}
         <div className="flex items-center gap-1 px-0.5 pt-1" ref={modelDropdownRef}>
-          <button onClick={() => setIsDeepThinking(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${isDeepThinking ? 'bg-[#2C3E50] text-[#9EADC8]' : 'text-neutral-400 hover:text-[#9EADC8] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-3.5 h-3.5" /><span>Think</span></button>
-          <button onClick={() => setIsPlanMode(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${isPlanMode ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-3.5 h-3.5" /><span>Plan</span></button>
+          <button onClick={() => setIsDeepThinking(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${isDeepThinking ? 'bg-primary-dark text-secondary-light' : 'text-neutral-400 hover:text-secondary-light hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-3.5 h-3.5" /><span>Think</span></button>
+          <button onClick={() => setIsPlanMode(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${isPlanMode ? 'bg-success text-white' : 'text-neutral-400 hover:text-success hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-3.5 h-3.5" /><span>Plan</span></button>
           {activeAssistant?.tools?.local_workspace && (
-            <button onClick={() => { setForcedTool(t => t === 'workspace' ? null : 'workspace'); }} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${forcedTool === 'workspace' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Knowledge Base Search (⌘⇧K)"><Database className="w-3.5 h-3.5" /><span>Knowledge</span></button>
+            <button onClick={() => { setForcedTool(t => t === 'workspace' ? null : 'workspace'); }} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${forcedTool === 'workspace' ? 'bg-primary text-white' : 'text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Knowledge Base Search (⌘⇧K)"><Database className="w-3.5 h-3.5" /><span>Knowledge</span></button>
           )}
           {activeAssistant?.tools?.web_search && (
-            <button onClick={() => { setForcedTool(t => t === 'search' ? null : 'search'); }} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${forcedTool === 'search' ? 'bg-[#6A829E] text-white' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Web"><Globe className="w-3.5 h-3.5" /><span>Search</span></button>
+            <button onClick={() => { setForcedTool(t => t === 'search' ? null : 'search'); }} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${forcedTool === 'search' ? 'bg-secondary text-white' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Web"><Globe className="w-3.5 h-3.5" /><span>Search</span></button>
           )}
           <div className="flex items-center gap-1 ml-auto">
             {/* Model selector — moved here from its own row */}
             <div className="relative">
-              <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1 px-2 py-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:border-[#9EADC8] transition-all">
-                <Zap className="w-3 h-3 text-[#9EADC8]" />
-                {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-[#C98A8A]" /></span>}
+              <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:border-secondary-light transition-all">
+                <Zap className="w-3 h-3 text-secondary-light" />
+                {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-error" /></span>}
                 {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-[#9FBBAF]" /></span>}
-                <span className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wide max-w-[120px] truncate">{selectedModel?.name ?? 'Brain'}</span>
+                <span className="text-micro font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wide max-w-[120px] truncate">{selectedModel?.name ?? 'Brain'}</span>
                 <ChevronDown className="w-3 h-3 text-neutral-400 shrink-0" />
               </button>
               {isModelDropdownOpen && (
@@ -206,13 +206,13 @@ export function ChatInputBar({
                       const localModels = models.filter(m => m.isLocal);
                       const cloudModels = models.filter(m => !m.isLocal);
                       const renderModel = (m: any) => (
-                        <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                          <div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className={`text-[9px] uppercase font-black opacity-60 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
+                        <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-primary text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
+                          <div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className={`text-micro uppercase font-black opacity-60 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
                           <div className="flex items-center gap-1">
                             {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-[#D9A098]" />}
                             {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-[#B5CDBF]" />}
-                            {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-[#899AB5]" />}
-                            <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-neutral-400 hover:text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30 rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
+                            {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-secondary-muted" />}
+                            <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-neutral-400 hover:text-error hover:bg-error-light dark:hover:bg-[#4A2E2E]/30 rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
                           </div>
                         </button>
                       );
@@ -220,35 +220,35 @@ export function ChatInputBar({
                         <>
                           {localModels.length > 0 && (
                             <>
-                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><Brain className="w-2.5 h-2.5" /> Local</div>
+                              <div className="px-3 pt-1 pb-0.5 text-micro font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><Brain className="w-2.5 h-2.5" /> Local</div>
                               {localModels.map(renderModel)}
                             </>
                           )}
                           {cloudModels.length > 0 && (
                             <>
                               {localModels.length > 0 && <div className="border-t border-neutral-100 dark:border-neutral-800 my-1" />}
-                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><Globe className="w-2.5 h-2.5" /> Cloud</div>
+                              <div className="px-3 pt-1 pb-0.5 text-micro font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><Globe className="w-2.5 h-2.5" /> Cloud</div>
                               {cloudModels.map(renderModel)}
                             </>
                           )}
                         </>
                       );
                     })()}
-                    <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-[#4A5D75] hover:bg-[#F0F4F8] dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-[10px] font-black uppercase tracking-widest">Connect LLM</span></button>
+                    <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-primary hover:bg-surface dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-tiny font-black uppercase tracking-widest">Connect LLM</span></button>
                   </div>
                 </div>
               )}
             </div>
             <div className="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
-            {models.length > 0 && <button onClick={onToggleListening} className={`p-1.5 rounded-lg transition-all ${isListening ? 'text-[#C98A8A] bg-[#F7EBEB] dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-1.5 text-neutral-400 hover:text-[#6A829E] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
+            {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-lg transition-all ${isListening ? 'text-error bg-error-light dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
+            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
             <input type="file" ref={fileInputRef} onChange={onChatFileUpload} className="hidden" />
-            {!isGenerating && models.length > 0 && <button onClick={onEnhancePrompt} disabled={isEnhancing || !input.trim()} className={`p-1.5 rounded-lg transition-all ${input.trim() ? 'text-[#D4AA7D] hover:bg-[#F9F4EE] dark:hover:bg-[#5C452E]/20' : 'text-neutral-300 dark:text-neutral-600 cursor-default'} ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-3.5 h-3.5" /></button>}
+            {!isGenerating && models.length > 0 && <button onClick={onEnhancePrompt} disabled={isEnhancing || !input.trim()} className={`p-2 rounded-lg transition-all ${input.trim() ? 'text-accent hover:bg-accent-light dark:hover:bg-[#5C452E]/20' : 'text-neutral-300 dark:text-neutral-600 cursor-default'} ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-3.5 h-3.5" /></button>}
             <button
               onClick={isGenerating ? onStop : onSend}
               disabled={(llamaServerPid !== null && llamaPaused) || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0)) || (!isGenerating && !!selectedModel && modelValidation[selectedModel.id] === 'fail')}
-              className={`p-1.5 rounded-lg transition-all ${isGenerating ? 'bg-[#C98A8A] text-white shadow-sm animate-pulse hover:bg-[#B57070]' : 'bg-[#9EADC8] text-[#2C3E50] shadow-sm hover:bg-[#899AB5] active:scale-90 disabled:opacity-50'}`}>
-              {isGenerating ? <Square className="w-3.5 h-3.5 fill-[#2C3E50]" /> : <Send className="w-3.5 h-3.5" />}
+              className={`p-2 rounded-lg transition-all ${isGenerating ? 'bg-error text-white shadow-sm animate-pulse hover:bg-error-dark' : 'bg-secondary-light text-primary-dark shadow-sm hover:bg-secondary-muted active:scale-90 disabled:opacity-50'}`}>
+              {isGenerating ? <Square className="w-3.5 h-3.5 fill-primary-dark" /> : <Send className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>
