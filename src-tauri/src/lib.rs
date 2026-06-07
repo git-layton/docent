@@ -2,12 +2,22 @@ use std::sync::{Arc, Mutex};
 use notify::Watcher;
 use std::path::{Component, Path, PathBuf};
 use sysinfo::{System, CpuRefreshKind, RefreshKind};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use futures_util::StreamExt;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
 struct LlamaState {
     pid: Mutex<Option<u32>>,
+}
+
+struct DownloadState {
+    cancels: Mutex<std::collections::HashMap<String, bool>>,
+}
+impl Default for DownloadState {
+    fn default() -> Self {
+        Self { cancels: Mutex::new(std::collections::HashMap::new()) }
+    }
 }
 
 // ─── Network Discovery State ─────────────────────────────────────────────────
@@ -63,6 +73,22 @@ struct SysState(Mutex<System>);
 fn knowledge_core_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     std::path::PathBuf::from(home).join("AgentForge")
+}
+
+fn models_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let dir = std::path::PathBuf::from(home).join("AgentForge").join("models");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+fn is_safe_gguf_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+        && name.ends_with(".gguf")
+        && name != ".gguf"
 }
 
 fn normalize_path_lexically(path: PathBuf) -> PathBuf {
@@ -2188,6 +2214,149 @@ fn get_network_peers(state: tauri::State<Mutex<NetworkState>>) -> Vec<NetworkPee
     result
 }
 
+// ─── Local Model Store ───────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_models_dir() -> Result<String, String> {
+    models_dir()
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Invalid path".to_string())
+}
+
+#[derive(serde::Serialize)]
+struct GgufModel {
+    filename: String,
+    size_mb: u64,
+}
+
+#[tauri::command]
+fn list_gguf_models() -> Vec<GgufModel> {
+    let dir = models_dir();
+    let mut result = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".gguf") {
+                let size_mb = entry.metadata().map(|m| m.len() / (1024 * 1024)).unwrap_or(0);
+                result.push(GgufModel { filename: name, size_mb });
+            }
+        }
+    }
+    result
+}
+
+#[tauri::command]
+async fn download_model(
+    url: String,
+    filename: String,
+    app: tauri::AppHandle,
+    dl_state: tauri::State<'_, DownloadState>,
+) -> Result<String, String> {
+    if !url.starts_with("https://") {
+        return Err("Only HTTPS downloads are allowed".to_string());
+    }
+    if !is_safe_gguf_name(&filename) {
+        return Err("Invalid filename".to_string());
+    }
+
+    // Clear any stale cancel flag
+    { dl_state.cancels.lock().unwrap().insert(filename.clone(), false); }
+
+    let dir = models_dir();
+    let part_path = dir.join(format!("{}.part", filename));
+    let final_path = dir.join(&filename);
+
+    let client = reqwest::Client::new();
+    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    let total = response.content_length().unwrap_or(0);
+
+    let mut file = std::fs::File::create(&part_path).map_err(|e| e.to_string())?;
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        // Check cancel flag
+        if *dl_state.cancels.lock().unwrap().get(&filename).unwrap_or(&false) {
+            drop(file);
+            let _ = std::fs::remove_file(&part_path);
+            return Err("cancelled".to_string());
+        }
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        use std::io::Write;
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+        let pct = if total > 0 { (downloaded * 100 / total) as f64 } else { 0.0 };
+        let _ = app.emit("download-progress", serde_json::json!({
+            "filename": filename,
+            "pct": pct,
+            "downloaded_mb": downloaded as f64 / 1_048_576.0,
+            "total_mb": total as f64 / 1_048_576.0,
+        }));
+    }
+
+    drop(file);
+    std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
+    final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string())
+}
+
+#[tauri::command]
+fn cancel_download(filename: String, dl_state: tauri::State<'_, DownloadState>) {
+    dl_state.cancels.lock().unwrap().insert(filename, true);
+}
+
+#[tauri::command]
+async fn start_local_model(
+    model_path: String,
+    port: u16,
+    llama_state: tauri::State<'_, LlamaState>,
+) -> Result<String, String> {
+    // Kill any running server first (drop lock before await)
+    let existing_pid = { *llama_state.pid.lock().unwrap() };
+    if let Some(pid) = existing_pid {
+        kill_llama(pid);
+        { *llama_state.pid.lock().unwrap() = None; }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    let sidecar_path = {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        exe.parent()
+            .ok_or("No parent dir")?
+            .join("llama-server")
+    };
+
+    let child = std::process::Command::new(&sidecar_path)
+        .args([
+            "-m", &model_path,
+            "--port", &port.to_string(),
+            "-c", "32768",
+            "--threads", "4",
+            "--host", "127.0.0.1",
+        ])
+        .spawn()
+        .map_err(|e| format!("Failed to spawn llama-server: {}", e))?;
+
+    let pid = child.id();
+    *llama_state.pid.lock().unwrap() = Some(pid);
+
+    // Poll health endpoint — 60 × 500ms = 30s
+    let health_url = format!("http://127.0.0.1:{}/health", port);
+    let client = reqwest::Client::new();
+    for _ in 0..60 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if let Ok(resp) = client.get(&health_url).send().await {
+            if resp.status().is_success() {
+                return Ok(format!("http://127.0.0.1:{}/v1", port));
+            }
+        }
+    }
+    Err("llama-server did not become ready within 30s".to_string())
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2196,6 +2365,7 @@ pub fn run() {
         .manage(LlamaState {
             pid: Mutex::new(None),
         })
+        .manage(DownloadState::default())
         .manage(TabCache::default())
         .manage(Mutex::new(NetworkState::default()))
         .manage(SysState(Mutex::new(System::new_with_specifics(
@@ -2309,6 +2479,11 @@ pub fn run() {
             read_inbox_attachment,
             set_network_active,
             get_network_peers,
+            get_models_dir,
+            list_gguf_models,
+            download_model,
+            cancel_download,
+            start_local_model,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application")

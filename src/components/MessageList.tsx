@@ -92,8 +92,8 @@ export function MessageList({
     <div className="flex-1 flex flex-col relative min-h-0 overflow-hidden">
       {/* Drag and Drop Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 z-50 bg-[#6A829E]/10 border-4 border-[#6A829E]/50 border-dashed rounded-[2rem] m-4 flex items-center justify-center pointer-events-none backdrop-blur-[2px] transition-all">
-            <div className="bg-white dark:bg-neutral-800 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-[#4A5D75] dark:text-[#9EADC8] font-black tracking-widest uppercase">
+        <div className="absolute inset-0 z-50 bg-secondary/10 border-4 border-secondary/50 border-dashed rounded-[2rem] m-4 flex items-center justify-center pointer-events-none backdrop-blur-[2px] transition-all">
+            <div className="bg-white dark:bg-neutral-800 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-primary dark:text-secondary-light font-black tracking-widest uppercase">
                 <Paperclip className="animate-bounce" /> Drop file to attach
             </div>
         </div>
@@ -103,7 +103,7 @@ export function MessageList({
       {showScrollTop && (
         <button
           onClick={scrollToTop}
-          className="absolute top-4 right-4 z-20 p-2 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full shadow-md text-neutral-500 hover:text-[#4A5D75] dark:hover:text-[#9EADC8] transition-all hover:scale-110"
+          className="absolute top-4 right-4 z-20 p-2 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full shadow-md text-neutral-500 hover:text-primary dark:hover:text-[#9EADC8] transition-all hover:scale-110"
           title="Scroll to top"
         >
           <ArrowUp className="w-4 h-4" />
@@ -112,7 +112,7 @@ export function MessageList({
       {!isNearBottom && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-6 right-4 z-20 p-2 bg-[#4A5D75] hover:bg-[#2C3E50] text-white rounded-full shadow-lg transition-all hover:scale-110 animate-in fade-in zoom-in duration-200"
+          className="absolute bottom-6 right-4 z-20 p-2 bg-primary hover:bg-primary-dark text-white rounded-full shadow-lg transition-all hover:scale-110 animate-in fade-in zoom-in duration-200"
           title="Scroll to bottom"
         >
           <ArrowDown className="w-4 h-4" />
@@ -122,10 +122,10 @@ export function MessageList({
       <div ref={scrollContainerRef} onScroll={checkScroll} className="flex-1 overflow-y-auto p-3 lg:p-4 no-scrollbar scroll-smooth">
         {models.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-in fade-in zoom-in duration-500">
-            <div className="p-6 bg-[#2C3E50]/10 dark:bg-[#9EADC8]/10 rounded-full mb-6 border border-[#2C3E50]/20 dark:border-[#9EADC8]/20"><Zap className="w-12 h-12 text-[#2C3E50] dark:text-[#9EADC8]" /></div>
+            <div className="p-6 bg-primary-dark/10 dark:bg-secondary-light/10 rounded-full mb-6 border border-primary-dark/20 dark:border-secondary-light/20"><Zap className="w-12 h-12 text-primary-dark dark:text-secondary-light" /></div>
             <h2 className="text-3xl font-black tracking-tighter uppercase mb-3">Welcome to Agent Forge</h2>
             <p className="text-sm font-medium text-neutral-500 max-w-md mb-8 leading-relaxed">Connect an LLM to begin. Initialize a Native AI, scan local ports, or enter a cloud API key.</p>
-            <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="px-8 py-4 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-[#9EADC8]/30 transition-all active:scale-95 flex items-center gap-3"><Plus className="w-5 h-5" /> Connect Your First LLM</button>
+            <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="px-8 py-4 bg-[#9EADC8] hover:bg-[#899AB5] text-primary-dark rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-[#9EADC8]/30 transition-all active:scale-95 flex items-center gap-3"><Plus className="w-5 h-5" /> Connect Your First LLM</button>
           </div>
         ) : activeChatId && activeMessages.length > 0 ? (
           <div className="max-w-3xl mx-auto space-y-3 pb-36">
@@ -133,7 +133,7 @@ export function MessageList({
               const divider = idx === forgettingIndex ? (
                 <div key="forgetting-line" className="flex items-center gap-3 py-3 px-1 select-none" title={`${activeAssistant?.name ?? 'Agent'} receives messages from this point forward`}>
                   <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700/60" />
-                  <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-[#6A829E]/70 dark:text-[#6A829E]/50 whitespace-nowrap">
+                  <span className="flex items-center gap-1.5 text-micro font-black uppercase tracking-widest text-secondary/70 dark:text-secondary/50 whitespace-nowrap">
                     <Brain className="w-3 h-3" />
                     {activeAssistant?.name ?? 'Agent'} context starts here
                   </span>
@@ -145,15 +145,15 @@ export function MessageList({
                   {msg.role === 'bot' && <div className="shrink-0 mr-2 mt-0.5 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
 
                   <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
-                     {msg.role === 'bot' && msg.agentName && <div className="text-[9px] font-black uppercase tracking-widest text-[#6A829E] mb-0.5 ml-1">{msg.agentName}</div>}
-                     <div className={`p-3 rounded-xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+                     {msg.role === 'bot' && msg.agentName && <div className="text-micro font-black uppercase tracking-widest text-secondary mb-0.5 ml-1">{msg.agentName}</div>}
+                     <div className={`p-3 rounded-xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-primary text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
 
                        {editingMessageId === msg.id ? (
                           <div className="flex flex-col gap-3 w-full animate-in fade-in">
                              <textarea value={editingMessageContent} onChange={e => setEditingMessageContent(e.target.value)} className="w-full bg-white/10 dark:bg-black/20 border border-white/20 dark:border-neutral-600 rounded-xl p-3 text-sm outline-none resize-none font-medium custom-scrollbar" rows={3} autoFocus />
                              <div className="flex justify-end gap-2">
                                 <button onClick={() => setEditingMessageId(null)} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity">Cancel</button>
-                                <button onClick={() => onConfirmEdit(msg.id)} disabled={!editingMessageContent.trim()} className="px-4 py-1.5 bg-white text-[#4A5D75] dark:bg-neutral-700 dark:text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-neutral-100 dark:hover:bg-neutral-600 transition-colors shadow-sm disabled:opacity-50">Resend</button>
+                                <button onClick={() => onConfirmEdit(msg.id)} disabled={!editingMessageContent.trim()} className="px-4 py-1.5 bg-white text-primary dark:bg-neutral-700 dark:text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-neutral-100 dark:hover:bg-neutral-600 transition-colors shadow-sm disabled:opacity-50">Resend</button>
                              </div>
                           </div>
                        ) : (
@@ -164,10 +164,10 @@ export function MessageList({
                      {/* Actions Bar - Positioned Below Bubble */}
                      {!editingMessageId && (
                        <div className={`flex items-center gap-1.5 mt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} px-1`}>
-                          {msg.role === 'user' && !isGenerating && <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageContent(msg.content); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Edit & Resend"><Edit3 className="w-3.5 h-3.5" /></button>}
-                          <button onClick={() => { navigator.clipboard.writeText(msg.content); onToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
-                          {msg.role === 'bot' && !isGenerating && <button onClick={() => onToggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
-                          <button onClick={() => { onAddTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
+                          {msg.role === 'user' && !isGenerating && <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageContent(msg.content); }} className="p-1.5 text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Edit & Resend"><Edit3 className="w-3.5 h-3.5" /></button>}
+                          <button onClick={() => { navigator.clipboard.writeText(msg.content); onToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
+                          {msg.role === 'bot' && !isGenerating && <button onClick={() => onToggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
+                          <button onClick={() => { onAddTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
                           <button onClick={() => onBookmark(msg)} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#D4AA7D] hover:bg-[#D4AA7D]/10'}`} title={globalPins.some(p => p.msgId === msg.id) ? 'Saved to Library' : 'Save to Library'}><Bookmark className="w-3.5 h-3.5" /></button>
                        </div>
                      )}

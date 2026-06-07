@@ -78,7 +78,7 @@ export function ModelWizardModal({
             <Cloud className="w-3.5 h-3.5" /> Cloud API
           </button>
           <button
-            onClick={() => { setModelTab('local'); handleLocalProviderSelect('lmstudio'); }}
+            onClick={() => setModelTab('local')}
             className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${modelTab === 'local' ? 'bg-white dark:bg-neutral-700 text-[#4A5D75] shadow-sm' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
           >
             <Cpu className="w-3.5 h-3.5" /> Local AI
@@ -140,64 +140,8 @@ export function ModelWizardModal({
 
         {/* ── Local tab ── */}
         {modelTab === 'local' && (
-          <div className="flex flex-col flex-1 animate-in slide-in-from-right-2 duration-200 space-y-4">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-neutral-400 shrink-0">Local AI Server</h4>
-
-            {/* Provider buttons */}
-            <div className="grid grid-cols-3 gap-2 shrink-0">
-              {LOCAL_PROVIDERS.map(p => (
-                <button
-                  key={p.value}
-                  onClick={() => handleLocalProviderSelect(p.value)}
-                  className={`py-2.5 px-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-wide transition-all ${editingModel.provider === p.value ? 'border-[#4A5D75] bg-[#F0F4F8] dark:bg-[#1E2B38]/20 text-[#4A5D75]' : 'border-neutral-200 dark:border-neutral-700 text-neutral-400 hover:border-[#9EADC8]'}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            {localProvider && (
-              <div className="bg-[#F0F4F8] dark:bg-[#1A2433] rounded-xl px-4 py-3 text-[10px] text-[#6A829E] font-medium leading-relaxed shrink-0">
-                {localProvider.hint}
-              </div>
-            )}
-
-            <div className="shrink-0">
-              <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Endpoint URL</label>
-              <input
-                type="text"
-                value={editingModel.endpoint}
-                onChange={e => setEditingModel((prev: any) => ({ ...prev, endpoint: e.target.value }))}
-                className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono"
-              />
-            </div>
-
-            <div className="relative shrink-0">
-              <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">API Key (not required for local)</label>
-              <input
-                type="password"
-                placeholder="optional"
-                value={editingModel.apiKey}
-                onChange={e => setEditingModel((prev: any) => ({ ...prev, apiKey: e.target.value }))}
-                className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono pr-28"
-              />
-              <button onClick={onFetchModels} disabled={isFetchingModels} className="absolute right-2 bottom-1.5 px-3 py-1.5 bg-neutral-200 dark:bg-neutral-700 rounded-lg text-[9px] font-black uppercase text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#D6E0EA] transition-all disabled:opacity-50">
-                {isFetchingModels ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Fetch Models'}
-              </button>
-            </div>
-
-            <ModelListOrManual
-              fetchedModels={fetchedModels}
-              modelSearchQuery={modelSearchQuery}
-              setModelSearchQuery={setModelSearchQuery}
-              pendingModelSelections={pendingModelSelections}
-              onToggleModelSelection={onToggleModelSelection}
-              onBulkAdd={onBulkAdd}
-              onAddSingleLLM={onAddSingleLLM}
-              editingModel={editingModel}
-              setEditingModel={setEditingModel}
-              fetchModelsError={fetchModelsError}
-            />
+          <div className="flex flex-col flex-1 animate-in slide-in-from-right-2 duration-200">
+            <ModelStorePanel ramMb={ramMb} onModelReady={handleModelReady} />
           </div>
         )}
       </div>
