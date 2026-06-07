@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Paperclip, Zap, Plus, Bookmark, Edit3, Copy, Volume2, VolumeX, ListTodo,
-  ArrowDown, ArrowUp
+  ArrowDown, ArrowUp, Brain
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { TypingIndicator } from './ui/TypingIndicator';
@@ -15,6 +15,7 @@ interface MessageListProps {
   activeMessages: any[];
   isGenerating: boolean;
   activeAssistant: any;
+  forgettingIndex: number;
   onConfirmEdit: (msgId: string) => void;
   onBookmark: (msg: any) => Promise<void>;
   onToggleSpeak: (msgId: string, text: string) => void;
@@ -28,6 +29,7 @@ export function MessageList({
   activeMessages,
   isGenerating,
   activeAssistant,
+  forgettingIndex,
   onConfirmEdit,
   onBookmark,
   onToggleSpeak,
@@ -127,40 +129,53 @@ export function MessageList({
           </div>
         ) : activeChatId && activeMessages.length > 0 ? (
           <div className="max-w-3xl mx-auto space-y-3 pb-36">
-            {activeMessages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'bot' && <div className="shrink-0 mr-2 mt-0.5 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
-
-                <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
-                   {msg.role === 'bot' && msg.agentName && <div className="text-[9px] font-black uppercase tracking-widest text-[#6A829E] mb-0.5 ml-1">{msg.agentName}</div>}
-                   <div className={`p-3 rounded-xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
-
-                     {editingMessageId === msg.id ? (
-                        <div className="flex flex-col gap-3 w-full animate-in fade-in">
-                           <textarea value={editingMessageContent} onChange={e => setEditingMessageContent(e.target.value)} className="w-full bg-white/10 dark:bg-black/20 border border-white/20 dark:border-neutral-600 rounded-xl p-3 text-sm outline-none resize-none font-medium custom-scrollbar" rows={3} autoFocus />
-                           <div className="flex justify-end gap-2">
-                              <button onClick={() => setEditingMessageId(null)} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity">Cancel</button>
-                              <button onClick={() => onConfirmEdit(msg.id)} disabled={!editingMessageContent.trim()} className="px-4 py-1.5 bg-white text-[#4A5D75] dark:bg-neutral-700 dark:text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-neutral-100 dark:hover:bg-neutral-600 transition-colors shadow-sm disabled:opacity-50">Resend</button>
-                           </div>
-                        </div>
-                     ) : (
-                        <div className="leading-relaxed">{onRenderMessage(msg)}</div>
-                     )}
-                   </div>
-
-                   {/* Actions Bar - Positioned Below Bubble */}
-                   {!editingMessageId && (
-                     <div className={`flex items-center gap-1.5 mt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} px-1`}>
-                        {msg.role === 'user' && !isGenerating && <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageContent(msg.content); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Edit & Resend"><Edit3 className="w-3.5 h-3.5" /></button>}
-                        <button onClick={() => { navigator.clipboard.writeText(msg.content); onToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
-                        {msg.role === 'bot' && !isGenerating && <button onClick={() => onToggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
-                        <button onClick={() => { onAddTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => onBookmark(msg)} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#D4AA7D] hover:bg-[#D4AA7D]/10'}`} title={globalPins.some(p => p.msgId === msg.id) ? 'Saved to Library' : 'Save to Library'}><Bookmark className="w-3.5 h-3.5" /></button>
-                     </div>
-                   )}
+            {activeMessages.flatMap((msg, idx) => {
+              const divider = idx === forgettingIndex ? (
+                <div key="forgetting-line" className="flex items-center gap-3 py-3 px-1 select-none" title={`${activeAssistant?.name ?? 'Agent'} receives messages from this point forward`}>
+                  <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700/60" />
+                  <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-[#6A829E]/70 dark:text-[#6A829E]/50 whitespace-nowrap">
+                    <Brain className="w-3 h-3" />
+                    {activeAssistant?.name ?? 'Agent'} context starts here
+                  </span>
+                  <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700/60" />
                 </div>
-              </div>
-            ))}
+              ) : null;
+              const bubble = (
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'bot' && <div className="shrink-0 mr-2 mt-0.5 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
+
+                  <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+                     {msg.role === 'bot' && msg.agentName && <div className="text-[9px] font-black uppercase tracking-widest text-[#6A829E] mb-0.5 ml-1">{msg.agentName}</div>}
+                     <div className={`p-3 rounded-xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+
+                       {editingMessageId === msg.id ? (
+                          <div className="flex flex-col gap-3 w-full animate-in fade-in">
+                             <textarea value={editingMessageContent} onChange={e => setEditingMessageContent(e.target.value)} className="w-full bg-white/10 dark:bg-black/20 border border-white/20 dark:border-neutral-600 rounded-xl p-3 text-sm outline-none resize-none font-medium custom-scrollbar" rows={3} autoFocus />
+                             <div className="flex justify-end gap-2">
+                                <button onClick={() => setEditingMessageId(null)} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity">Cancel</button>
+                                <button onClick={() => onConfirmEdit(msg.id)} disabled={!editingMessageContent.trim()} className="px-4 py-1.5 bg-white text-[#4A5D75] dark:bg-neutral-700 dark:text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-neutral-100 dark:hover:bg-neutral-600 transition-colors shadow-sm disabled:opacity-50">Resend</button>
+                             </div>
+                          </div>
+                       ) : (
+                          <div className="leading-relaxed">{onRenderMessage(msg)}</div>
+                       )}
+                     </div>
+
+                     {/* Actions Bar - Positioned Below Bubble */}
+                     {!editingMessageId && (
+                       <div className={`flex items-center gap-1.5 mt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} px-1`}>
+                          {msg.role === 'user' && !isGenerating && <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageContent(msg.content); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Edit & Resend"><Edit3 className="w-3.5 h-3.5" /></button>}
+                          <button onClick={() => { navigator.clipboard.writeText(msg.content); onToast("Copied to clipboard!"); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Copy Content"><Copy className="w-3.5 h-3.5" /></button>
+                          {msg.role === 'bot' && !isGenerating && <button onClick={() => onToggleSpeak(msg.id, msg.content)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-[#C98A8A] bg-[#C98A8A]/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
+                          <button onClick={() => { onAddTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => onBookmark(msg)} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-[#D4AA7D] bg-[#D4AA7D]/10' : 'text-neutral-400 hover:text-[#D4AA7D] hover:bg-[#D4AA7D]/10'}`} title={globalPins.some(p => p.msgId === msg.id) ? 'Saved to Library' : 'Save to Library'}><Bookmark className="w-3.5 h-3.5" /></button>
+                       </div>
+                     )}
+                  </div>
+                </div>
+              );
+              return [divider, bubble].filter(Boolean);
+            })}
             {isGenerating && !activeMessages[activeMessages.length - 1]?.isStreaming && <div className="flex justify-start"><TypingIndicator /></div>}
             <div ref={messagesEndRef} className="h-4" />
           </div>

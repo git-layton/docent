@@ -22,6 +22,8 @@ import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse
 import { normalizeChatRecord, routeAgentsForChannel, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
+import { evaluateDroppedMessages } from './services/contextEvaluator';
+import { computePinProfile } from './services/pinPersonalization';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -140,6 +142,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<any>(null);
   const isDreamRunningRef = useRef(false);
+  const evaluatedContextRef = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() });
   const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeAssistantRef = useRef<any>(null);
   const selectedModelRef = useRef<any>(null);
@@ -460,6 +463,57 @@ export default function App() {
   const agentPinnedMessagesForPrompt = useMemo(() => activeAgentPinnedMessageObjects.map(p => p.content), [activeAgentPinnedMessageObjects]);
 
   const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings]);
+
+  // Recency-weighted fingerprint of what this agent's user actually saves
+  const pinProfile = useMemo(
+    () => computePinProfile(globalPins.filter((p: any) => p.agentId === activeAssistant?.id)),
+    [globalPins, activeAssistant?.id]
+  );
+
+  // Index in activeMessages where the agent's context window begins (messages before = forgotten)
+  const forgettingIndex = useMemo(() => {
+    if (!activeMessages.length || !selectedModel) return -1;
+    const contextLimit = selectedModel.contextLimit ?? 32000;
+    const pinned = activeMessages.filter((m: any) => m.isPinned);
+    const unpinned = activeMessages.filter((m: any) => !m.isPinned && !m.isToolCall);
+    const pinnedLen = pinned.reduce((acc: number, m: any) => acc + String(m.content ?? '').length, 0);
+    let budget = Math.max(1000, contextLimit - systemPromptLen) - pinnedLen;
+    const kept: any[] = [];
+    for (let i = unpinned.length - 1; i >= 0; i--) {
+      const len = String(unpinned[i].content ?? '').length;
+      if (budget - len < 0 && kept.length > 0) break;
+      budget -= len;
+      kept.unshift(unpinned[i]);
+    }
+    if (kept.length === unpinned.length) return -1;
+    const firstKeptId = kept[0]?.id;
+    if (!firstKeptId) return -1;
+    return activeMessages.findIndex((m: any) => m.id === firstKeptId);
+  }, [activeMessages, systemPromptLen, selectedModel]);
+
+  // Reset evaluated IDs when switching chats
+  useEffect(() => {
+    evaluatedContextRef.current = { chatId: activeChatId ?? '', ids: new Set() };
+  }, [activeChatId]);
+
+  // Evaluate messages that fall out of context — save knowledge, log threads, skip noise
+  useEffect(() => {
+    if (forgettingIndex <= 0 || !activeAssistant) return;
+    const fallen = activeMessages.slice(0, forgettingIndex);
+    const newlyFallen = fallen.filter((m: any) =>
+      !m.isToolCall &&
+      !evaluatedContextRef.current.ids.has(m.id) &&
+      String(m.content ?? '').trim().length > 20
+    );
+    if (!newlyFallen.length) return;
+    newlyFallen.forEach((m: any) => evaluatedContextRef.current.ids.add(m.id));
+    const { models: _m, selectedModelId: _sid, appSettings: _as, integrations: _int } = useSettingsStore.getState();
+    const _model = _m.find((m: any) => m.id === _sid) ?? _m[0] ?? null;
+    const _afp = useMemoryStore.getState().agentForgePath;
+    const _pins = useMemoryStore.getState().globalPins.filter((p: any) => p.agentId === activeAssistant.id);
+    if (!_model || !_afp) return;
+    evaluateDroppedMessages(newlyFallen, activeAssistant, _afp, _model, _as, _int, _m, pinProfile, _pins).catch(() => {});
+  }, [forgettingIndex, activeMessages, activeAssistant, pinProfile]);
 
   // Sync mode when switching agents
   useEffect(() => {
@@ -2341,6 +2395,7 @@ export default function App() {
                   activeMessages={activeMessages}
                   isGenerating={isGenerating}
                   activeAssistant={activeAssistant}
+                  forgettingIndex={forgettingIndex}
                   onConfirmEdit={confirmEditMessage}
                   onBookmark={handleBookmark}
                   onToggleSpeak={toggleSpeak}

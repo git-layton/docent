@@ -67,6 +67,15 @@ const INFERRED_RE = /\b(i think|maybe|probably|seems like|might be|my guess|infe
 const CONFLICT_RE = /\b(conflicts? with|contradicts?|actually|correction|correcting|no longer|replace the previous|supersedes)\b/i;
 const CHANNEL_RE = /\b(in this channel|for this channel|channel memory|product channel|team channel)\b/i;
 const PERSONAL_RE = /\b(my|me|i|wife|husband|partner|child|kid|daughter|son|family|home|address|phone|email)\b/i;
+
+// MEMS: Emotional Enhancement (McGaugh 2003) — affective language encodes more durably
+const EMOTIONAL_RE = /\b(i'?m (so |really )?(worried|scared|excited|frustrated|angry|upset|thrilled|devastated|anxious|nervous|stressed|overwhelmed|terrified)|can'?t believe (this|it|what)|oh no|this is (terrible|amazing|awful|incredible)|i feel (like|that|so))\b/i;
+
+// MEMS: Self-Reference Effect (Rogers 1977) — aspiration and identity statements
+const ASPIRATION_RE = /\b(i (want to|'?d love to|dream of|hope to|am trying to|'?m working toward)|my (goal|dream|ambition|aspiration) is|i'?ve always wanted to|someday i'?ll|i'?m going to (make|become|build|create|achieve))\b/i;
+
+// MEMS: Prospective Memory (Brandimonte 1996) — future intentions must be captured
+const PROSPECTIVE_RE = /\b(remind me (to|about|that)|don'?t (let me )?forget (to|about|that)|i need to remember (to|that)|note to (self|me):?|must (remember|not forget) (to|that))\b/i;
 const QUESTION_RE = /^(what|who|when|where|why|how|can you|could you|please (search|find)|search|look up|find)\b/i;
 const MEMORY_SEARCH_RE = /\b(notes?|memos?|memory|knowledge base|goals?|decisions?|research|workspace|saved|wrote|recall|pinned|what did we decide|what do you remember)\b/i;
 const WEB_SEARCH_RE = /\b(search for|look up|google|web search|current (weather|news|price|score)|today'?s (weather|news)|latest (news|update)|breaking news|weather (in|for)|stock (price|market)|news about|what'?s happening)\b/i;
@@ -203,15 +212,20 @@ export function evaluateMemoryGate(input: MemoryGatekeeperInput): MemoryGatekeep
   const hasSource = sourcePaths.length > 0 || sourceUrls.length > 0;
   const hasAttachment = (input.attachedFiles?.length ?? 0) > 0;
   const isQuestion = QUESTION_RE.test(cleanedText);
+  const isEmotional = EMOTIONAL_RE.test(cleanedText);
+  const isAspiration = ASPIRATION_RE.test(cleanedText);
+  const isProspective = PROSPECTIVE_RE.test(cleanedText);
 
   let classification: MemoryClassification = 'background';
   if (explicit) classification = 'explicit';
   else if (isDecision || isPreference || isMedical || isTask || (isProject && !isQuestion)) classification = 'notable';
+  // MEMS: emotional content and aspirations carry strong encoding signals
+  else if (isEmotional || isAspiration) classification = 'notable';
 
   let memoryType: MemoryType = 'fact';
-  if (isPreference) memoryType = 'preference';
+  if (isPreference || isAspiration) memoryType = 'preference';
   else if (isDecision) memoryType = 'decision';
-  else if (isTask) memoryType = 'todo';
+  else if (isTask || isProspective) memoryType = 'todo';
   else if (isMedical) memoryType = 'medical';
   else if (isResearch || hasSource) memoryType = 'research';
   else if (isProject) memoryType = 'project_context';
@@ -231,16 +245,16 @@ export function evaluateMemoryGate(input: MemoryGatekeeperInput): MemoryGatekeep
 
   let privacy: PrivacyLabel = 'normal';
   if (isMedical) privacy = 'sensitive';
-  else if (PERSONAL_RE.test(cleanedText) || isPreference) privacy = 'personal';
+  else if (PERSONAL_RE.test(cleanedText) || isPreference || isEmotional || isAspiration) privacy = 'personal';
 
   let shouldSave = classification === 'explicit' || classification === 'notable';
   if (classification === 'background' && (hasSource || hasAttachment)) shouldSave = true;
-  if (isQuestion && !explicit && !isDecision && !isTask) shouldSave = false;
+  if (isQuestion && !explicit && !isDecision && !isTask && !isProspective) shouldSave = false;
   if (evidenceState === 'needs_verification' && !explicit && !hasSource) shouldSave = false;
 
   let destination: MemoryDestination = 'skip';
   if (shouldSave) {
-    if (isTask) destination = 'task';
+    if (isTask || isProspective) destination = 'task';
     else if (isChannelScoped && (isDecision || explicit)) destination = 'channel_memory';
     else if (hasSource || hasAttachment || (explicit && /\blibrary\b/i.test(cleanedText))) destination = 'library';
     else if (evidenceState === 'needs_verification' || evidenceState === 'conflicting') destination = 'inbox_only';
@@ -260,6 +274,9 @@ export function evaluateMemoryGate(input: MemoryGatekeeperInput): MemoryGatekeep
   [memoryType, evidenceState, confidence, privacy, destination].forEach(tag => {
     if (tag !== 'none' && tag !== 'skip') tags.add(tag);
   });
+  if (isEmotional) tags.add('emotional-signal');
+  if (isAspiration) tags.add('aspiration');
+  if (isProspective) tags.add('prospective-memory');
   if (input.agentId) tags.add(`agent:${input.agentId}`);
   if (input.channelId) tags.add(`channel:${input.channelId}`);
   if (/star wars|ccg|force generation/i.test(cleanedText)) tags.add('star-wars-ccg');

@@ -16,6 +16,8 @@ export interface AssessConversationMemoryInput {
   chatKind?: string;
   contributions?: string[];
   attachments?: any[];
+  pinBoost?: number;   // pre-computed boost from computePinBoost() in pinPersonalization
+  pinReason?: string;  // human-readable reason for the boost (appended to assessment reason)
 }
 
 const memoryLevels = new Set<MemoryLevel>(['skip', 'background', 'notable', 'explicit']);
@@ -50,6 +52,35 @@ const trivialPatterns = [
 
 const sillyPatterns = [
   /\b(lol|haha|joke|silly|random thought|goofy|messing around)\b/i,
+];
+
+// ─── MEMS — Memory Encoding Multi-Salience ────────────────────────────────────
+// Six cognitive psychology principles that predict what humans retain long-term.
+// Sources: Rogers 1977 (self-reference), Brandimonte 1996 (prospective memory),
+// McGaugh 2003 (emotional enhancement), Zeigarnik 1927 (completion drive).
+
+// MEMS: Emotional Enhancement (McGaugh 2003) — affective language signals durability
+const emotionalPatterns = [
+  /\b(i('m| am) (so |really )?(worried|scared|excited|frustrated|angry|upset|thrilled|devastated|anxious|nervous|stressed|overwhelmed|terrified))\b/i,
+  /\b(can'?t believe (this|it|what)|oh no|this is (terrible|amazing|awful|incredible|horrible)|i feel (like|that|so))\b/i,
+];
+
+// MEMS: Self-Reference Effect (Rogers 1977) — self-concept statements encode deeply
+const selfConceptPatterns = [
+  /\b(i'?m (someone who|the kind of person|a person who)|i always (do|say|think|feel|try)|i never (do|say|want|like))\b/i,
+  /\b(i'?ve always been|that'?s (just |so )?me|part of who i am|just how i (am|work))\b/i,
+];
+
+// MEMS: Prospective Memory (Brandimonte 1996) — future intentions must be preserved
+const prospectivePatterns = [
+  /\b(remind me (to|about|that)|don'?t (let me )?forget (to|about|that)|i need to remember (to|that)|note to (self|me):?)\b/i,
+  /\b(i'?m going to (make sure|remember|try to)|must (remember|not forget) (to|that)|need to follow up on)\b/i,
+];
+
+// MEMS: Zeigarnik Effect (1927) — incomplete tasks create cognitive tension that demands resolution
+const zeigarnikPatterns = [
+  /\b(still (haven'?t|need to|working on|trying to)|not (yet |done |finished |resolved )|pending|unresolved|in progress)\b/i,
+  /\b(haven'?t (finished|completed|figured out|resolved)|need to (follow up|circle back|revisit|check on)|left (off|hanging))\b/i,
 ];
 
 export const validateConversationMemoryAssessment = (assessment: ConversationMemoryAssessment) => {
@@ -97,6 +128,8 @@ export const assessConversationMemory = ({
   chatKind = 'dm',
   contributions = [],
   attachments = [],
+  pinBoost = 0,
+  pinReason = '',
 }: AssessConversationMemoryInput): ConversationMemoryAssessment => {
   const q = String(question || '').trim();
   const a = String(answer || '').trim();
@@ -121,7 +154,7 @@ export const assessConversationMemory = ({
     reasons.push('explicit memory request');
   }
   if (durableUserSignal) {
-    score += 3;
+    score += 2;
     tags.push('durable-user-signal');
     reasons.push('durable user/project signal');
   }
@@ -151,6 +184,24 @@ export const assessConversationMemory = ({
   if (aWords >= 450) score += 1;
   if (trivial) score -= 5;
   if (silly) score -= 3;
+
+  // MEMS dimensions — applied after base scoring, before threshold decision
+  const emotionalSignal = hasAny(q, emotionalPatterns);
+  const selfConceptSignal = hasAny(q, selfConceptPatterns);
+  const prospectiveSignal = hasAny(q, prospectivePatterns);
+  const zeigarnikSignal = hasAny(q, zeigarnikPatterns) || hasAny(a, zeigarnikPatterns);
+
+  if (emotionalSignal)   { score += 2; tags.push('emotional-signal');    reasons.push('emotional enhancement (McGaugh 2003)'); }
+  if (selfConceptSignal) { score += 2; tags.push('self-concept');         reasons.push('self-reference effect (Rogers 1977)'); }
+  if (prospectiveSignal) { score += 2; tags.push('prospective-memory');   reasons.push('prospective memory (Brandimonte 1996)'); }
+  if (zeigarnikSignal)   { score += 2; tags.push('zeigarnik');            reasons.push('Zeigarnik unfinished thread'); }
+
+  // Pin personalization boost — calibrated against user's actual save behaviour
+  if (pinBoost !== 0) {
+    score += pinBoost;
+    if (pinReason) reasons.push(pinReason);
+    tags.push(pinBoost > 0 ? 'pin-boosted' : 'pin-deprioritised');
+  }
 
   if (trivial || silly || score < 3) {
     return finalizeAssessment({

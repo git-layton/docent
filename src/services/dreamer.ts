@@ -21,7 +21,21 @@ MEMORY JOBS:
 3. UPDATE: Refresh a file by cleaning up stale content (fix vague date references, remove checked-off items)
 
 NOTICE JOB:
-4. NOTICE: Surface something the user should know or act on — an unresolved thread, a pattern across notes, a follow-up that seems overdue, a connection between two things. Write as if you are the agent speaking directly to the user in a short, conversational message. Only create notices for things genuinely worth the user's attention.
+4. NOTICE: Surface something the user should know or act on. Only generate a notice when a clear MEMS psychological trigger is present:
+
+   ZEIGARNIK (unfinished business): A task, goal, or question explicitly mentioned in notes has no completion marker and appears unresolved. Example: "I was going to call the doctor" with no follow-up anywhere in the files.
+
+   RECURRENCE (spacing effect): The exact same specific topic, person, or concern appears across 3 or more separate memory files. Repetition is the brain's signal that something is important.
+
+   TEMPORAL URGENCY: A file contains a date, deadline, or anniversary that is approaching within 14 days or has recently passed without acknowledgment.
+
+   GOAL-CONNECTION: Two separate files both relate to a stated goal or aspiration but have never been explicitly linked. Surface the connection and why it matters.
+
+   EMOTIONAL THREAD: A file contains strong emotional language (worry, frustration, excitement, fear) about a topic that has no resolution note elsewhere. Unresolved emotional threads carry cognitive cost.
+
+   PROSPECTIVE GAP: A file contains a stated intention ("I'm going to", "I'll", "I want to") with no corresponding follow-up or completion note in any other file.
+
+   Write as if you are the agent speaking directly to the user in 2-4 sentences. Be specific — reference the actual content from the files. Do NOT invent or stretch notices — only generate one when a trigger above is clearly present.
 
 You must respond with ONLY a valid JSON object — no preamble, no explanation, no markdown fences.
 
@@ -62,7 +76,7 @@ Rules:
 - Descriptions must be plain English, not technical ("Combined 3 voice memos about Project Bakery" not "merged files")
 - For merge target_path, use a relative path within the agent's memory directory — do NOT use an absolute path
 - Never include a source file's path as the target_path of its own merge
-- For notices: only surface things that are genuinely actionable or surprising. Do not invent notices if nothing stands out.
+- For notices: use MEMS triggers listed above as the bar. Do not invent or generalise — only surface a notice when a specific file or pattern clearly qualifies.
 - Return { "operations": [] } if nothing needs doing
 - Do NOT output any text outside the JSON object`;
 }
