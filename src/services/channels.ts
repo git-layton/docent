@@ -1,10 +1,13 @@
 export type ChannelKind = 'dm' | 'channel' | 'local';
 
+export type ChannelNorm = 'social' | 'work' | 'creative' | 'default';
+
 export interface ChannelChat {
   id: string;
   folderId?: string;
   name: string;
   kind?: ChannelKind;
+  norm?: ChannelNorm;
   participantAgentIds?: string[];
   primaryAgentId?: string;
   goal?: string;
@@ -31,6 +34,7 @@ export const normalizeChatRecord = (chat: any, fallbackAgentId = 'f-default'): C
     folderId: chat?.folderId ?? primaryAgentId,
     primaryAgentId,
     participantAgentIds,
+    norm: chat?.norm ?? 'default',
     goal: chat?.goal ?? '',
     createdAt: chat?.createdAt ?? chat?.updatedAt ?? now,
     updatedAt: chat?.updatedAt ?? chat?.createdAt ?? now,
@@ -78,10 +82,18 @@ export const getParticipantAgents = (chat: any, agents: any[]) => {
   return ids.map(id => agents.find(a => a.id === id)).filter(Boolean);
 };
 
-const textForAgent = (agent: any) =>
-  `${agent?.name ?? ''} ${agent?.description ?? ''} ${agent?.prompt ?? ''}`.toLowerCase();
-
-const hasAny = (haystack: string, needles: string[]) => needles.some(n => haystack.includes(n));
+export const extractMentionedAgentIds = (input: string, participants: any[]): Set<string> => {
+  const mentionedIds = new Set<string>();
+  const queries = [...input.matchAll(/@(\w+)/gi)].map(m => m[1].toLowerCase());
+  for (const query of queries) {
+    const match = participants.find(p => {
+      const name = (p.name ?? '').toLowerCase();
+      return name.replace(/\s+/g, '').startsWith(query) || name.split(/\s+/)[0].startsWith(query);
+    });
+    if (match) mentionedIds.add(match.id);
+  }
+  return mentionedIds;
+};
 
 export const routeAgentsForChannel = (
   input: string,
@@ -99,37 +111,20 @@ export const routeAgentsForChannel = (
   const participants = getParticipantAgents(normalized, agents);
   if (participants.length <= 1) return primary ? [primary] : participants;
 
-  const lower = input.toLowerCase();
-  const selected = new Map<string, any>();
-  if (primary) selected.set(primary.id, primary);
-
-  for (const agent of participants) {
-    const name = String(agent.name ?? '').toLowerCase();
-    const firstWord = name.split(/\s+/)[0];
-    if ((name && lower.includes(name)) || (firstWord && lower.includes(`@${firstWord}`))) {
-      selected.set(agent.id, agent);
-    }
-  }
-
-  for (const agent of participants) {
-    const agentText = textForAgent(agent);
-    if (
-      hasAny(lower, ['logic', 'check', 'contradiction', 'validate', 'risk', 'flaw', 'holes'])
-      && hasAny(agentText, ['logic', 'critic', 'checker', 'validate', 'risk'])
-    ) selected.set(agent.id, agent);
-
-    if (
-      hasAny(lower, ['strategy', 'strategic', 'plan', 'approach', 'tradeoff', 'win condition'])
-      && hasAny(agentText, ['strategy', 'strategist', 'planner', 'tradeoff'])
-    ) selected.set(agent.id, agent);
-
-    if (
-      hasAny(lower, ['research', 'source', 'verify', 'evidence', 'current', 'latest'])
-      && agent?.tools?.web_search
-    ) selected.set(agent.id, agent);
-  }
-
-  return Array.from(selected.values());
+  // @mentioned agents first (in order of mention), then all remaining participants
+  const mentionedIds = extractMentionedAgentIds(input, participants);
+  const mentioned = [...input.matchAll(/@(\w+)/gi)]
+    .map(m => m[1].toLowerCase())
+    .reduce<any[]>((acc, query) => {
+      const match = participants.find(p => {
+        const name = (p.name ?? '').toLowerCase();
+        return name.replace(/\s+/g, '').startsWith(query) || name.split(/\s+/)[0].startsWith(query);
+      });
+      if (match && !acc.find(a => a.id === match.id)) acc.push(match);
+      return acc;
+    }, []);
+  const remaining = participants.filter(p => !mentionedIds.has(p.id));
+  return [...mentioned, ...remaining];
 };
 
 export const buildChannelPromptAddendum = (
@@ -137,15 +132,55 @@ export const buildChannelPromptAddendum = (
   allParticipants: any[],
   previousResponses: Array<{ agentName: string; content: string }>,
   currentAgent: any,
+  isMentioned: boolean,
 ): string => {
   const others = allParticipants.filter((a: any) => a.id !== currentAgent.id);
-  let addendum = `\n\n[CHANNEL] You are ${currentAgent.name} in a multi-agent channel: "${chat.name || 'this channel'}".`;
-  if (chat.goal) addendum += ` Channel goal: ${chat.goal}`;
-  if (others.length > 0) addendum += ` Other participants: ${others.map((a: any) => a.name).join(', ')}.`;
-  if (previousResponses.length > 0) {
-    addendum += `\n\nOther agents already responded this turn:\n${previousResponses.map(r => `• ${r.agentName}: ${r.content.slice(0, 300)}${r.content.length > 300 ? '...' : ''}`).join('\n')}`;
-    addendum += `\n\nOnly add something meaningfully different. Do not repeat or rephrase what was already covered above.`;
+
+  let addendum = `\n\n[CHANNEL] You are ${currentAgent.name} in the channel "${chat.name || 'this channel'}".\n`;
+
+  if (chat.goal) addendum += `Channel goal: ${chat.goal}\n`;
+
+  if (others.length > 0) {
+    const otherList = others.map((a: any) => {
+      const desc = a.description ?? '';
+      return desc ? `${a.name} (${desc})` : a.name;
+    }).join(', ');
+    addendum += `Other participants: ${otherList}.\n`;
   }
+
+  if (previousResponses.length > 0) {
+    addendum += `\nWhat others have already said this turn:\n`;
+    for (const r of previousResponses) {
+      addendum += `• ${r.agentName}: ${r.content.slice(0, 1500)}${r.content.length > 1500 ? '...' : ''}\n`;
+    }
+    addendum += `\nOnly add something meaningfully different. Do not repeat or rephrase what was already covered above.\n`;
+  }
+
+  const norm: ChannelNorm = chat.norm ?? 'default';
+
+  if (isMentioned) {
+    addendum += `\n→ You were directly mentioned — you MUST respond to this message.`;
+  } else {
+    switch (norm) {
+      case 'social':
+        addendum += `\n[PARTICIPATION] This is a social/casual channel. ALWAYS respond to every message. Be warm and engaged — ask follow-up questions, react to what's been said, share your genuine perspective. Do not make it about yourself; keep the focus on the other people and the conversation.`;
+        break;
+      case 'work':
+        addendum += `\n[PARTICIPATION] This is a focused work channel. Only respond if you have: (a) direct domain knowledge relevant to this specific topic, (b) a concrete recommendation, critique, or alternative approach, or (c) a clarifying question that unblocks progress. If you would merely summarize or rephrase what's already been said, respond with exactly: [PASS]`;
+        break;
+      case 'creative':
+        addendum += `\n[PARTICIPATION] This is a creative channel. Respond if you have a genuinely new idea, an unexpected angle, or a fresh creative direction to add. Generic agreement or summarizing what others said should be a [PASS]. Respond with exactly: [PASS] to stay silent.`;
+        break;
+      default:
+        addendum += `\n[PARTICIPATION] Respond if your message meaningfully advances the conversation — new information, a distinct perspective, a useful question, or a concrete pushback. If you would only restate or rephrase what's already been covered, respond with exactly: [PASS]`;
+        break;
+    }
+
+    if (norm !== 'social') {
+      addendum += `\nTo pass: respond with exactly [PASS] (nothing else). Your message will be silently removed.`;
+    }
+  }
+
   return addendum;
 };
 
