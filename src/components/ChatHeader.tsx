@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Menu, Settings, CalendarDays,
   BookOpen, Search,
@@ -59,8 +59,6 @@ export function ChatHeader({
 
   const [agentSearch, setAgentSearch] = useState('');
   const [showActivityBar, setShowActivityBar] = useState(true);
-  const [modelHealth, setModelHealth] = useState<'checking' | 'ok' | 'error'>('checking');
-  const healthTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
@@ -70,24 +68,6 @@ export function ChatHeader({
   const isChannel = normalizedChat?.kind === 'channel';
   const participantCount = normalizedChat?.participantAgentIds?.length ?? 0;
 
-  useEffect(() => {
-    async function check() {
-      if (!selectedModel) { setModelHealth('checking'); return; }
-      try {
-        const ep = selectedModel.endpoint?.replace(/\/$/, '') ?? '';
-        if (!ep) { setModelHealth('checking'); return; }
-        const headers: Record<string, string> = {};
-        if (selectedModel.apiKey) headers['Authorization'] = `Bearer ${selectedModel.apiKey}`;
-        const res = await fetch(`${ep}/models`, { headers, signal: AbortSignal.timeout(4000) });
-        setModelHealth(res.ok ? 'ok' : 'error');
-      } catch {
-        setModelHealth('error');
-      }
-    }
-    check();
-    healthTimerRef.current = setInterval(check, 15000);
-    return () => { if (healthTimerRef.current) clearInterval(healthTimerRef.current); };
-  }, [selectedModel?.id, selectedModel?.endpoint, selectedModel?.apiKey]);
 
   const updateActiveChat = (patch: any) => {
     if (!activeChatId) return;
@@ -115,16 +95,6 @@ export function ChatHeader({
             {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
             {isChannel && <Hash className="w-4 h-4 text-[#6A829E]" />}
             <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : isChannel ? normalizedChat?.name : activeAssistant?.name ?? 'Assistant'}</span>
-            {!showPlanner && selectedModel && (
-              <span
-                title={`${selectedModel.modelId} · ${modelHealth === 'ok' ? 'reachable' : modelHealth === 'error' ? 'unreachable — is the server running?' : 'checking…'}`}
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  modelHealth === 'ok' ? 'bg-emerald-500' :
-                  modelHealth === 'error' ? 'bg-red-500' :
-                  'bg-neutral-400 animate-pulse'
-                }`}
-              />
-            )}
             {isChannel && <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1"><Users className="w-3 h-3" />{participantCount}</span>}
           </div>
           {isChannel && !showPlanner && (
