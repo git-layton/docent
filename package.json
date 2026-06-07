@@ -15,7 +15,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "eval:memory-gatekeeper": "jiti scripts/memory-gatekeeper-eval.ts",
-    "release:check": "npm run check && npm run build"
+    "release:check": "npm run check && npm run build",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -42,6 +43,8 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^3.0.0",
+    "happy-dom": "^14.0.0"
   }
 }
