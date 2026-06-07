@@ -1,1 +1,3 @@
 @import "tailwindcss";
+/* Design tokens: primary/secondary/accent/error/success/surface + micro/tiny/mini font sizes
+   See tailwind.config.js for values. Use token names instead of raw hex going forward. */
