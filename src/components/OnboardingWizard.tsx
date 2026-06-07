@@ -55,7 +55,7 @@ function ProgressBar({ step }: { step: number }) {
   return (
     <div className="w-full h-0.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden mb-8">
       <div
-        className="h-full bg-[#4A5D75] rounded-full transition-all duration-500 ease-out"
+        className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -73,9 +73,9 @@ function Btn({
 }) {
   const base = 'flex items-center justify-center gap-2 rounded-2xl font-black text-xs uppercase tracking-widest transition-all duration-150 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none';
   const variants = {
-    primary: 'py-3.5 px-6 bg-[#4A5D75] hover:bg-[#3D4D61] text-white shadow-md',
+    primary: 'py-3.5 px-6 bg-primary hover:bg-primary-hover text-white shadow-md',
     secondary: 'py-3 px-5 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800',
-    ghost: 'py-2 text-[11px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 tracking-wide normal-case font-semibold',
+    ghost: 'py-2 text-mini text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 tracking-wide normal-case font-semibold',
   };
   return (
     <button onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${className}`}>
@@ -95,7 +95,7 @@ function CopyChip({ text, label }: { text: string; label?: string }) {
     <button
       onClick={copy}
       title="Click to copy"
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-[11px] font-mono text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors max-w-full"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-mini font-mono text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors max-w-full"
     >
       {copied ? <Check className="w-3 h-3 text-emerald-500 shrink-0" /> : <Copy className="w-3 h-3 shrink-0 opacity-50" />}
       <span className="truncate">{label ?? text}</span>
@@ -116,7 +116,7 @@ function StepIcon({ children, color }: { children: React.ReactNode; color: strin
 function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex flex-col items-center text-center gap-7">
-      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-[#4A5D75] to-[#2D3A4A] flex items-center justify-center shadow-xl shadow-[#4A5D75]/20">
+      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-primary to-[#2D3A4A] flex items-center justify-center shadow-xl shadow-primary/20">
         <Zap className="w-9 h-9 text-white" />
       </div>
       <div className="space-y-2">
@@ -134,8 +134,8 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
           'Set up one-tap iPhone capture',
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-3 text-sm text-neutral-600 dark:text-neutral-400">
-            <div className="w-5 h-5 rounded-full bg-[#4A5D75]/10 dark:bg-[#4A5D75]/20 flex items-center justify-center shrink-0">
-              <Check className="w-3 h-3 text-[#4A5D75]" />
+            <div className="w-5 h-5 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
+              <Check className="w-3 h-3 text-primary" />
             </div>
             {item}
           </div>
@@ -167,8 +167,8 @@ function StepProfile({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
-        <StepIcon color="bg-indigo-50 dark:bg-indigo-900/30">
-          <User className="w-6 h-6 text-indigo-500" />
+        <StepIcon color="bg-primary/10 dark:bg-primary/20">
+          <User className="w-6 h-6 text-primary" />
         </StepIcon>
         <div>
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">About you</h2>
@@ -178,24 +178,24 @@ function StepProfile({ onNext }: { onNext: () => void }) {
 
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Your name (optional)</label>
+          <label className="text-tiny font-black uppercase tracking-widest text-neutral-400">Your name (optional)</label>
           <input
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="e.g. Alex"
-            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#4A5D75] dark:focus:border-[#6A829E] transition-colors"
+            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary dark:focus:border-secondary transition-colors"
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Tell your agents about yourself</label>
+          <label className="text-tiny font-black uppercase tracking-widest text-neutral-400">Tell your agents about yourself</label>
           <textarea
             value={bio}
             onChange={e => setBio(e.target.value)}
             rows={5}
             placeholder={`e.g. I'm a product designer at a SaaS startup. I care about clean systems, good writing, and shipping fast. I prefer concise answers with concrete examples. I'm working on building my personal knowledge base and using AI to process ideas faster.`}
-            className="w-full resize-none bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm leading-relaxed outline-none focus:border-[#4A5D75] dark:focus:border-[#6A829E] transition-colors"
+            className="w-full resize-none bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm leading-relaxed outline-none focus:border-primary dark:focus:border-secondary transition-colors"
           />
-          <p className="text-[11px] text-neutral-400">Be as specific as you like — more context means better responses.</p>
+          <p className="text-mini text-neutral-400">Be as specific as you like — more context means better responses.</p>
         </div>
       </div>
 
@@ -346,8 +346,8 @@ const PROVIDERS = [
     name: 'Gemini',
     sub: 'Google · free tier available',
     emoji: '✨',
-    color: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800',
-    activeColor: 'bg-violet-100 dark:bg-violet-900/40 border-violet-400 dark:border-violet-600',
+    color: 'bg-secondary/5 dark:bg-secondary/10 border-secondary/30 dark:border-secondary/40',
+    activeColor: 'bg-secondary/10 dark:bg-secondary/20 border-secondary dark:border-secondary',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     defaultModel: 'gemini-2.0-flash',
     context: 1000000,
@@ -363,8 +363,8 @@ const PROVIDERS = [
     name: 'Claude',
     sub: 'Anthropic · paid',
     emoji: '🧠',
-    color: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800',
-    activeColor: 'bg-amber-100 dark:bg-amber-900/40 border-amber-400 dark:border-amber-600',
+    color: 'bg-accent/5 dark:bg-accent/10 border-accent/30 dark:border-accent/40',
+    activeColor: 'bg-accent/10 dark:bg-accent/20 border-accent dark:border-accent',
     endpoint: 'https://api.anthropic.com/v1',
     defaultModel: 'claude-sonnet-4-6',
     context: 200000,
@@ -475,31 +475,31 @@ function ModelConnectForm({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+      <div className="flex items-center gap-2 p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
         <span className="text-lg">{provider.emoji}</span>
         <div className="min-w-0">
           <p className="text-sm font-black text-neutral-800 dark:text-neutral-200">{provider.name}</p>
-          <p className="text-[10px] text-neutral-400">{provider.sub}</p>
+          <p className="text-tiny text-neutral-400">{provider.sub}</p>
         </div>
-        <button onClick={onBack} className="ml-auto text-[10px] font-bold text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300">
+        <button onClick={onBack} className="ml-auto text-tiny font-bold text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300">
           change
         </button>
       </div>
 
       {provider.free && provider.freeNote && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700">
-          <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free</span>
-          <p className="text-[11px] text-emerald-700 dark:text-emerald-400">{provider.freeNote}</p>
+          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free</span>
+          <p className="text-mini text-emerald-700 dark:text-emerald-400">{provider.freeNote}</p>
         </div>
       )}
 
       {provider.local && (
         <div className="space-y-1">
-          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Endpoint</label>
+          <label className="text-tiny font-black uppercase tracking-widest text-neutral-400">Endpoint</label>
           <input
             value={endpoint}
             onChange={e => setEndpoint(e.target.value)}
-            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
+            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-primary transition-colors"
           />
         </div>
       )}
@@ -507,11 +507,11 @@ function ModelConnectForm({
       {provider.keyLabel && (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{provider.keyLabel}</label>
+            <label className="text-tiny font-black uppercase tracking-widest text-neutral-400">{provider.keyLabel}</label>
             {provider.getKeyUrl && (
               <button
                 onClick={() => openUrl(provider.getKeyUrl!)}
-                className="flex items-center gap-1 text-[10px] font-bold text-[#4A5D75] hover:underline"
+                className="flex items-center gap-1 text-tiny font-bold text-primary hover:underline"
               >
                 Get key <ExternalLink className="w-2.5 h-2.5" />
               </button>
@@ -522,7 +522,7 @@ function ModelConnectForm({
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder={provider.keyPlaceholder ?? ''}
-            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
+            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-primary transition-colors"
           />
         </div>
       )}
@@ -553,12 +553,12 @@ function ModelConnectForm({
         <div className="space-y-2">
           <p className="text-xs text-red-500 dark:text-red-400">{errorMsg}</p>
           <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Enter model ID manually</label>
+            <label className="text-tiny font-black uppercase tracking-widest text-neutral-400">Enter model ID manually</label>
             <input
               value={manualId}
               onChange={e => setManualId(e.target.value)}
               placeholder={provider.defaultModel || 'model-id'}
-              className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
+              className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-primary transition-colors"
             />
             <Btn onClick={addModel} disabled={!manualId.trim()} className="w-full">
               Connect <ArrowRight className="w-4 h-4" />
@@ -569,13 +569,13 @@ function ModelConnectForm({
 
       {status === 'ready' && fetchedModels.length > 0 && (
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Choose a model</label>
+          <label className="text-tiny font-black uppercase tracking-widest text-neutral-400">Choose a model</label>
           <div className="max-h-40 overflow-y-auto space-y-1 rounded-xl border border-neutral-200 dark:border-neutral-700 p-1.5 bg-neutral-50 dark:bg-neutral-900 custom-scrollbar">
             {fetchedModels.map(m => (
               <button
                 key={m.id}
                 onClick={() => setSelectedModelId(m.id)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${selectedModelId === m.id ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}`}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${selectedModelId === m.id ? 'bg-primary text-white' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}`}
               >
                 <span className="font-mono truncate">{m.id}</span>
                 {selectedModelId === m.id && <Check className="w-3 h-3 shrink-0 ml-2" />}
@@ -666,8 +666,8 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
     return (
       <div className="flex flex-col gap-5">
         <div className="flex items-center gap-3">
-          <StepIcon color="bg-amber-50 dark:bg-amber-900/30">
-            <Zap className="w-6 h-6 text-amber-500" />
+          <StepIcon color="bg-accent/10 dark:bg-accent/20">
+            <Zap className="w-6 h-6 text-accent" />
           </StepIcon>
           <div>
             <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Connect model</h2>
@@ -689,8 +689,8 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
-        <StepIcon color="bg-amber-50 dark:bg-amber-900/30">
-          <Zap className="w-6 h-6 text-amber-500" />
+        <StepIcon color="bg-accent/10 dark:bg-accent/20">
+          <Zap className="w-6 h-6 text-accent" />
         </StepIcon>
         <div>
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">AI model</h2>
@@ -714,7 +714,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
       {!detecting && detected === 0 && currentModels.length === 0 && (
         <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
           <span className="text-xs text-neutral-500">No local models found</span>
-          <button onClick={detectLocalModels} className="text-[10px] font-bold text-[#4A5D75] hover:underline">Try again</button>
+          <button onClick={detectLocalModels} className="text-tiny font-bold text-primary hover:underline">Try again</button>
         </div>
       )}
 
@@ -722,8 +722,8 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
       {currentModels.length > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Connected</p>
-            <button onClick={detectLocalModels} disabled={detecting} className="text-[10px] text-[#4A5D75] hover:underline disabled:opacity-40">
+            <p className="text-tiny font-black uppercase tracking-widest text-neutral-400">Connected</p>
+            <button onClick={detectLocalModels} disabled={detecting} className="text-tiny text-primary hover:underline disabled:opacity-40">
               {detecting ? 'Detecting…' : 'Re-detect'}
             </button>
           </div>
@@ -732,7 +732,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
               <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate font-mono">{m.modelId}</p>
-                <p className="text-[10px] text-neutral-400">{m.provider} · {Math.round(m.contextLimit / 1000)}k ctx</p>
+                <p className="text-tiny text-neutral-400">{m.provider} · {Math.round(m.contextLimit / 1000)}k ctx</p>
               </div>
             </div>
           ))}
@@ -743,7 +743,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
       {ramMb > 0 && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+            <p className="text-tiny font-black uppercase tracking-widest text-neutral-400">
               {hasLocalRec ? `Best for your ${Math.round(gb)}GB Mac` : 'Our recommendation'}
             </p>
           </div>
@@ -751,28 +751,28 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           {hasLocalRec && primaryRec ? (
             <>
               {/* Primary local recommendation */}
-              <div className="rounded-2xl border-2 border-[#4A5D75]/30 bg-[#4A5D75]/5 dark:bg-[#4A5D75]/10 p-4 space-y-3">
+              <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 dark:bg-primary/10 p-4 space-y-3">
                 <div className="flex items-start gap-3">
                   <span className="text-2xl mt-0.5 shrink-0">{primaryRec.roleEmoji}</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 font-mono">{primaryRec.name}</p>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[#4A5D75] text-white shrink-0">Top pick</span>
+                      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-primary text-white shrink-0">Top pick</span>
                     </div>
                     <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">{primaryRec.description}</p>
                     <div className="flex items-center gap-3 mt-2">
-                      <span className="text-[10px] text-neutral-400">~{primaryRec.ramGb}GB RAM · via LM Studio</span>
+                      <span className="text-tiny text-neutral-400">~{primaryRec.ramGb}GB RAM · via LM Studio</span>
                       <button
                         onClick={() => openUrl(`https://huggingface.co/${primaryRec.hfId}`)}
-                        className="flex items-center gap-1 text-[10px] font-bold text-[#4A5D75] hover:underline"
+                        className="flex items-center gap-1 text-tiny font-bold text-primary hover:underline"
                       >
                         HuggingFace <ExternalLink className="w-2.5 h-2.5" />
                       </button>
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col gap-1.5 pt-1 border-t border-[#4A5D75]/10">
-                  <div className="grid grid-cols-2 gap-2 text-[10px] text-neutral-500 dark:text-neutral-400">
+                <div className="flex flex-col gap-1.5 pt-1 border-t border-primary/10">
+                  <div className="grid grid-cols-2 gap-2 text-tiny text-neutral-500 dark:text-neutral-400">
                     <div className="space-y-1">
                       <p className="font-black text-emerald-600 dark:text-emerald-400">Local ✓</p>
                       <p>Private — nothing leaves your Mac</p>
@@ -786,7 +786,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
                       <p>Works offline</p>
                     </div>
                   </div>
-                  <p className="text-[10px] text-neutral-400 leading-relaxed">
+                  <p className="text-tiny text-neutral-400 leading-relaxed">
                     Download in LM Studio: search <span className="font-mono">{primaryRec.name}</span>, grab the <span className="font-mono">Q4_K_M</span> variant.
                   </p>
                 </div>
@@ -797,20 +797,20 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
 
               {/* Coder model option */}
               {coderRec && (
-                <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/40 p-3.5 space-y-2">
+                <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/40 p-4 space-y-2">
                   <div className="flex items-start gap-2.5">
                     <span className="text-base mt-0.5 shrink-0">{coderRec.roleEmoji}</span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 font-mono">{coderRec.name}</p>
-                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-400 shrink-0">{coderRec.tag}</span>
+                        <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-400 shrink-0">{coderRec.tag}</span>
                       </div>
-                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{coderRec.description}</p>
-                      <p className="text-[10px] text-neutral-400 mt-1">~{coderRec.ramGb}GB RAM · add after the main model</p>
+                      <p className="text-mini text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{coderRec.description}</p>
+                      <p className="text-tiny text-neutral-400 mt-1">~{coderRec.ramGb}GB RAM · add after the main model</p>
                     </div>
                     <button
                       onClick={() => startConnect(lmStudio, coderRec.modelId)}
-                      className="text-[10px] font-black text-[#4A5D75] hover:underline shrink-0"
+                      className="text-tiny font-black text-primary hover:underline shrink-0"
                     >
                       Add this
                     </button>
@@ -826,7 +826,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
                 </p>
                 <button
                   onClick={() => startConnect(gemini)}
-                  className="text-[10px] font-black text-[#4A5D75] hover:underline shrink-0"
+                  className="text-tiny font-black text-primary hover:underline shrink-0"
                 >
                   Use Gemini
                 </button>
@@ -835,19 +835,19 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           ) : (
             <>
               {/* Low RAM — cloud first */}
-              <div className="rounded-2xl border-2 border-violet-200 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 p-4 space-y-3">
+              <div className="rounded-2xl border-2 border-secondary/30 dark:border-secondary/40 bg-secondary/5 dark:bg-secondary/10 p-4 space-y-3">
                 <div className="flex items-start gap-3">
                   <span className="text-2xl mt-0.5">✨</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="text-sm font-black text-violet-900 dark:text-violet-100">Gemini 2.0 Flash</p>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free</span>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-violet-500 text-white shrink-0">Recommended</span>
+                      <p className="text-sm font-black text-neutral-900 dark:text-secondary-light">Gemini 2.0 Flash</p>
+                      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free</span>
+                      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-secondary text-white shrink-0">Recommended</span>
                     </div>
-                    <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed">
+                    <p className="text-xs text-secondary-muted dark:text-secondary-light leading-relaxed">
                       Your Mac has {Math.round(gb)}GB RAM — not enough for a capable local model. Gemini's free tier is fast, smart, and has no download required.
                     </p>
-                    <div className="grid grid-cols-2 gap-2 mt-2 text-[10px] text-violet-600 dark:text-violet-400">
+                    <div className="grid grid-cols-2 gap-2 mt-2 text-tiny text-secondary dark:text-secondary-muted">
                       <div className="space-y-0.5">
                         <p className="font-black">Cloud ✓</p>
                         <p>Free with generous limits</p>
@@ -875,7 +875,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
       {/* Browse all options */}
       <button
         onClick={() => setShowAllProviders(v => !v)}
-        className="text-[11px] font-black text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-left"
+        className="text-mini font-black text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-left"
       >
         {showAllProviders ? '▲ Hide all options' : '▾ Browse all providers (Claude, OpenAI, …)'}
       </button>
@@ -894,7 +894,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
                   <p className="text-sm font-black text-neutral-800 dark:text-neutral-200 leading-none">{p.name}</p>
                   {p.free && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400">free</span>}
                 </div>
-                <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-tight">{p.sub}</p>
+                <p className="text-tiny text-neutral-500 dark:text-neutral-400 mt-0.5 leading-tight">{p.sub}</p>
               </div>
             </button>
           ))}
@@ -965,13 +965,13 @@ function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () =>
       <div className="rounded-2xl border-2 border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-black text-orange-900 dark:text-orange-100">Brave Search API</p>
-          <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free tier</span>
-          <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-orange-500 text-white shrink-0">Recommended</span>
+          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free tier</span>
+          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-orange-500 text-white shrink-0">Recommended</span>
         </div>
         <p className="text-xs text-orange-800 dark:text-orange-300 leading-relaxed">
           Privacy-first search engine with its own independent index. The free tier gives you 2,000 queries/month — plenty for daily use.
         </p>
-        <div className="grid grid-cols-2 gap-2 text-[10px] text-orange-700 dark:text-orange-400">
+        <div className="grid grid-cols-2 gap-2 text-tiny text-orange-700 dark:text-orange-400">
           <div className="space-y-0.5">
             <p className="font-black">Free ✓</p>
             <p>2,000 queries/month</p>
@@ -987,7 +987,7 @@ function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () =>
         </div>
         <button
           onClick={() => openUrl('https://brave.com/search/api/')}
-          className="flex items-center gap-1 text-[10px] font-black text-orange-700 dark:text-orange-400 hover:underline"
+          className="flex items-center gap-1 text-tiny font-black text-orange-700 dark:text-orange-400 hover:underline"
         >
           brave.com/search/api <ExternalLink className="w-2.5 h-2.5" />
         </button>
@@ -1000,13 +1000,13 @@ function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () =>
         </div>
       ) : (
         <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">API Key</label>
+          <label className="text-tiny font-black uppercase tracking-widest text-neutral-400">API Key</label>
           <input
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder="BSA..."
-            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:border-[#4A5D75] transition-colors"
+            className="w-full bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:border-primary transition-colors"
           />
           {status === 'error' && <p className="text-xs text-red-500">{errorMsg}</p>}
           {status === 'ok' && (
@@ -1089,14 +1089,14 @@ function StepRelay({
 
       {/* How capture works — full system diagram */}
       <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700">
-        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-3">How capture works</p>
+        <p className="text-tiny font-black uppercase tracking-widest text-neutral-400 mb-3">How capture works</p>
         <div className="flex items-center gap-1 flex-wrap">
           {[
-            { label: 'Any iOS app', sub: 'Safari, Photos, Notes…', color: 'bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300' },
+            { label: 'Any iOS app', sub: 'Safari, Photos, Notes…', color: 'bg-error/20 dark:bg-error/20 text-error dark:text-error' },
             null,
             { label: 'Tap Share', sub: '"Send to Forge" shortcut', color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300' },
             null,
-            { label: 'Tailscale tunnel', sub: 'anywhere, not just home Wi-Fi', color: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300' },
+            { label: 'Tailscale tunnel', sub: 'anywhere, not just home Wi-Fi', color: 'bg-secondary/10 dark:bg-secondary/20 text-secondary dark:text-secondary-light' },
             null,
             { label: 'Relay on Mac', sub: 'this step sets this up', color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' },
             null,
@@ -1106,18 +1106,18 @@ function StepRelay({
               <span key={i} className="text-neutral-300 dark:text-neutral-600 font-bold text-lg">→</span>
             ) : (
               <div key={i} className={`px-2.5 py-1.5 rounded-xl text-center ${node.color}`}>
-                <p className="text-[10px] font-black leading-tight">{node.label}</p>
-                <p className="text-[9px] opacity-70 leading-tight mt-0.5">{node.sub}</p>
+                <p className="text-tiny font-black leading-tight">{node.label}</p>
+                <p className="text-micro opacity-70 leading-tight mt-0.5">{node.sub}</p>
               </div>
             )
           )}
         </div>
-        <p className="text-[10px] text-neutral-400 mt-3 leading-relaxed">The next few steps set up each piece. You can skip Tailscale if you only capture on home Wi-Fi.</p>
+        <p className="text-tiny text-neutral-400 mt-3 leading-relaxed">The next few steps set up each piece. You can skip Tailscale if you only capture on home Wi-Fi.</p>
       </div>
 
       {/* Plain-language explainer */}
       <div className="space-y-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
-        <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 dark:text-blue-400">What is this?</p>
+        <p className="text-tiny font-black uppercase tracking-widest text-blue-500 dark:text-blue-400">What is this?</p>
         <p className="text-sm text-blue-900 dark:text-blue-200 leading-relaxed font-medium">
           A tiny web server that runs quietly on this Mac and wakes up whenever your iPhone sends something.
         </p>
@@ -1133,7 +1133,7 @@ function StepRelay({
             </div>
           ))}
         </div>
-        <p className="text-[11px] text-blue-600 dark:text-blue-400 leading-relaxed border-t border-blue-200 dark:border-blue-700 pt-3">
+        <p className="text-mini text-blue-600 dark:text-blue-400 leading-relaxed border-t border-blue-200 dark:border-blue-700 pt-3">
           It starts automatically every time you log in and uses no CPU when idle. Captures only come from devices you've authorized — nothing from the internet.
         </p>
       </div>
@@ -1157,12 +1157,12 @@ function StepRelay({
              'Setup failed'}
           </p>
           {result?.instanceId && (
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-500 mt-0.5">ID: {result.instanceId}</p>
+            <p className="text-mini text-emerald-600 dark:text-emerald-500 mt-0.5">ID: {result.instanceId}</p>
           )}
           {status === 'success' && (
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-500 mt-0.5">Running on port 8765 · starts on login · captures appear in Inbox</p>
+            <p className="text-mini text-emerald-600 dark:text-emerald-500 mt-0.5">Running on port 8765 · starts on login · captures appear in Inbox</p>
           )}
-          {error && <p className="text-[11px] text-red-500 dark:text-red-400 mt-1 font-mono leading-relaxed">{error}</p>}
+          {error && <p className="text-mini text-red-500 dark:text-red-400 mt-1 font-mono leading-relaxed">{error}</p>}
         </div>
       </div>
 
@@ -1211,8 +1211,8 @@ function StepTailscale({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
-        <StepIcon color="bg-violet-50 dark:bg-violet-900/30">
-          <Wifi className="w-6 h-6 text-violet-500" />
+        <StepIcon color="bg-secondary/10 dark:bg-secondary/20">
+          <Wifi className="w-6 h-6 text-secondary" />
         </StepIcon>
         <div>
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Capture from anywhere</h2>
@@ -1221,12 +1221,12 @@ function StepTailscale({
       </div>
 
       {/* Plain-language explainer */}
-      <div className="space-y-3 p-4 rounded-2xl bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800">
-        <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 dark:text-violet-400">What is Tailscale?</p>
-        <p className="text-sm text-violet-900 dark:text-violet-200 leading-relaxed font-medium">
+      <div className="space-y-3 p-4 rounded-2xl bg-secondary/5 dark:bg-secondary/10 border border-secondary/20 dark:border-secondary/30">
+        <p className="text-tiny font-black uppercase tracking-widest text-secondary dark:text-secondary-light">What is Tailscale?</p>
+        <p className="text-sm text-neutral-900 dark:text-secondary-light leading-relaxed font-medium">
           A free app that creates a private network between your devices — like a VPN, but only between your own stuff.
         </p>
-        <div className="space-y-1.5 text-xs text-violet-800 dark:text-violet-300">
+        <div className="space-y-1.5 text-xs text-secondary-muted dark:text-secondary-light">
           <div className="flex items-start gap-2">
             <span className="shrink-0">Without it:</span>
             <span className="leading-relaxed opacity-70">iPhone can only reach this Mac when you're on the same Wi-Fi network</span>
@@ -1236,14 +1236,14 @@ function StepTailscale({
             <span className="leading-relaxed font-bold">iPhone can reach this Mac from anywhere — coffee shop, work, traveling</span>
           </div>
         </div>
-        <p className="text-[11px] text-violet-600 dark:text-violet-400 leading-relaxed border-t border-violet-200 dark:border-violet-700 pt-3">
+        <p className="text-mini text-secondary dark:text-secondary-muted leading-relaxed border-t border-secondary/20 dark:border-secondary/30 pt-3">
           It's free for personal use. Your captures never go through Tailscale's servers — it just helps your devices find each other.
         </p>
       </div>
 
       {/* Steps */}
       <div className="space-y-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Setup — takes about 3 minutes</p>
+        <p className="text-tiny font-black uppercase tracking-widest text-neutral-400">Setup — takes about 3 minutes</p>
         {[
           {
             done: macDone,
@@ -1270,17 +1270,17 @@ function StepTailscale({
             onClick={() => item.set((v: boolean) => !v)}
           >
             <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center border-2 shrink-0 transition-all ${item.done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-neutral-300 dark:border-neutral-600'}`}>
-              {item.done ? <Check className="w-3 h-3" /> : <span className="text-[9px] font-black text-neutral-400">{item.step}</span>}
+              {item.done ? <Check className="w-3 h-3" /> : <span className="text-micro font-black text-neutral-400">{item.step}</span>}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{item.label}</p>
-              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-relaxed">{item.detail}</p>
+              <p className="text-mini text-neutral-500 dark:text-neutral-400 mt-0.5 leading-relaxed">{item.detail}</p>
               <span
                 role="button"
                 tabIndex={0}
                 onClick={e => { e.stopPropagation(); openUrl(item.url); }}
                 onKeyDown={e => e.key === 'Enter' && openUrl(item.url)}
-                className="mt-1 inline-flex items-center gap-1 text-[11px] text-[#4A5D75] hover:underline cursor-pointer"
+                className="mt-1 inline-flex items-center gap-1 text-mini text-primary hover:underline cursor-pointer"
               >
                 {item.urlLabel} <ExternalLink className="w-2.5 h-2.5" />
               </span>
@@ -1303,9 +1303,9 @@ function StepTailscale({
             </div>
           </div>
         ) : (
-          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
-            <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed font-medium">Tailscale not detected yet.</p>
-            <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-1 leading-relaxed">
+          <div className="p-3 rounded-xl bg-accent/5 dark:bg-accent/10 border border-accent/30 dark:border-accent/40">
+            <p className="text-xs text-accent leading-relaxed font-medium">Tailscale not detected yet.</p>
+            <p className="text-mini text-accent/80 mt-1 leading-relaxed">
               Make sure Tailscale is running on this Mac (check the menu bar) and you're signed in. You can also skip this and do it later — the Shortcut will still work on home Wi-Fi.
             </p>
           </div>
@@ -1366,8 +1366,8 @@ function StepShortcut({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
-        <StepIcon color="bg-rose-50 dark:bg-rose-900/30">
-          <Smartphone className="w-6 h-6 text-rose-500" />
+        <StepIcon color="bg-error/10 dark:bg-error/20">
+          <Smartphone className="w-6 h-6 text-error" />
         </StepIcon>
         <div>
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">iPhone Shortcut</h2>
@@ -1376,12 +1376,12 @@ function StepShortcut({
       </div>
 
       {/* What is a Shortcut? */}
-      <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800">
-        <p className="text-[10px] font-black uppercase tracking-widest text-rose-500 dark:text-rose-400 mb-2">What is a Shortcut?</p>
-        <p className="text-sm text-rose-900 dark:text-rose-200 leading-relaxed font-medium">
+      <div className="p-4 rounded-2xl bg-error/5 dark:bg-error/10 border border-error/20 dark:border-error/30">
+        <p className="text-tiny font-black uppercase tracking-widest text-error mb-2">What is a Shortcut?</p>
+        <p className="text-sm text-neutral-900 dark:text-neutral-200 leading-relaxed font-medium">
           A Shortcut is an iOS automation you build once in the <strong>Shortcuts</strong> app. Once created, <strong>"Send to Agent Forge"</strong> appears in the Share Sheet of every app on your iPhone — Safari, Photos, Notes, anywhere.
         </p>
-        <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-2 leading-relaxed">
+        <p className="text-mini text-error/80 mt-2 leading-relaxed">
           The Share Sheet is what appears when you tap the box-with-arrow icon in any app. Your Shortcut becomes one of the options there.
         </p>
       </div>
@@ -1389,20 +1389,20 @@ function StepShortcut({
       {/* Relay URL + token */}
       <div className="space-y-2.5 p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
         <div className="space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Relay URL</p>
+          <p className="text-tiny font-black uppercase tracking-widest text-neutral-400">Relay URL</p>
           <CopyChip text={relayUrl} label={relayUrl} />
           {!tailscaleHostname && (
             <input
               value={customHost}
               onChange={e => setCustomHost(e.target.value)}
               placeholder="Enter your Mac's Tailscale hostname or IP…"
-              className="w-full mt-1.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 text-xs font-mono outline-none focus:border-[#4A5D75] transition-colors"
+              className="w-full mt-1.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 text-xs font-mono outline-none focus:border-primary transition-colors"
             />
           )}
         </div>
         {token && (
           <div className="space-y-1">
-            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Bearer Token</p>
+            <p className="text-tiny font-black uppercase tracking-widest text-neutral-400">Bearer Token</p>
             <CopyChip text={token} label={token.slice(0, 16) + '…'} />
           </div>
         )}
@@ -1411,22 +1411,22 @@ function StepShortcut({
       {/* Request body */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Request Body (paste into Shortcut)</p>
+          <p className="text-tiny font-black uppercase tracking-widest text-neutral-400">Request Body (paste into Shortcut)</p>
           <button
             onClick={copyJson}
-            className="flex items-center gap-1 text-[10px] font-bold text-[#4A5D75] hover:text-[#3D4D61] transition-colors"
+            className="flex items-center gap-1 text-tiny font-bold text-primary hover:text-primary-hover transition-colors"
           >
             {copiedJson ? <><Check className="w-3 h-3" /> Copied!</> : <><Copy className="w-3 h-3" /> Copy</>}
           </button>
         </div>
-        <pre className="text-[10px] leading-relaxed bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl p-3 overflow-x-auto font-mono text-neutral-600 dark:text-neutral-400">
+        <pre className="text-tiny leading-relaxed bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl p-3 overflow-x-auto font-mono text-neutral-600 dark:text-neutral-400">
           {bodyJson}
         </pre>
       </div>
 
       {/* Steps */}
       <div className="space-y-2">
-        <p className="text-[11px] font-black uppercase tracking-widest text-neutral-400">Build it on your iPhone</p>
+        <p className="text-mini font-black uppercase tracking-widest text-neutral-400">Build it on your iPhone</p>
         {[
           'Open the Shortcuts app → tap + → name it "Send to Agent Forge"',
           'Tap the ⚙️ settings icon at the top of the editor → enable "Add to Share Sheet" — this is what makes your Shortcut appear when you tap Share in any app',
@@ -1437,7 +1437,7 @@ function StepShortcut({
           'Add: If → Contents of URL contains "ok" → Show Notification "Saved to Forge"',
         ].map((step, i) => (
           <div key={i} className="flex items-start gap-2.5 text-xs text-neutral-600 dark:text-neutral-400">
-            <span className="shrink-0 w-4 h-4 rounded-full bg-[#4A5D75]/10 dark:bg-[#4A5D75]/20 text-[#4A5D75] flex items-center justify-center font-black text-[9px] mt-0.5">{i + 1}</span>
+            <span className="shrink-0 w-4 h-4 rounded-full bg-primary/10 dark:bg-primary/20 text-primary flex items-center justify-center font-black text-micro mt-0.5">{i + 1}</span>
             <span className="leading-relaxed">{step}</span>
           </div>
         ))}
@@ -1507,22 +1507,22 @@ function StepDone({
       </div>
 
       {/* Lexi intro */}
-      <div className="w-full max-w-xs rounded-2xl border-2 border-[#C98A8A]/30 bg-[#C98A8A]/5 dark:bg-[#C98A8A]/10 p-4 text-left space-y-2">
+      <div className="w-full max-w-xs rounded-2xl border-2 border-error/30 bg-error/5 dark:bg-error/10 p-4 text-left space-y-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-[#C98A8A] flex items-center justify-center shrink-0 shadow-md shadow-[#C98A8A]/20">
+          <div className="w-10 h-10 rounded-2xl bg-error flex items-center justify-center shrink-0 shadow-md shadow-error/20">
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
             <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">Meet Lexi</p>
-            <p className="text-[10px] text-neutral-500 dark:text-neutral-400">Your first ForgeBot — already waiting for you</p>
+            <p className="text-tiny text-neutral-500 dark:text-neutral-400">Your first ForgeBot — already waiting for you</p>
           </div>
         </div>
-        <p className="text-[11px] text-neutral-600 dark:text-neutral-400 leading-relaxed">
+        <p className="text-mini text-neutral-600 dark:text-neutral-400 leading-relaxed">
           Confident, sharp, and a little fun. She's a showcase of what a ForgeBot can be — edit her personality, clone her, or use her as a starting point to build your own.
         </p>
         <button
           onClick={openLexi}
-          className="text-[10px] font-black uppercase tracking-widest text-[#C98A8A] hover:underline"
+          className="text-tiny font-black uppercase tracking-widest text-error hover:underline"
         >
           Say hi to Lexi →
         </button>
