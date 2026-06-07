@@ -221,6 +221,48 @@ export default function App() {
         }
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
+      // Silent local model auto-detection — check LM Studio and Ollama before onboarding check
+      try {
+        const ss = useSettingsStore.getState();
+        const existingModels = ss.models;
+        const autoAdded: any[] = [];
+        const mkSignal = (ms: number) => { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; };
+
+        // LM Studio — localhost:1234
+        try {
+          const r = await fetch('http://localhost:1234/v1/models', { signal: mkSignal(1500) });
+          if (r.ok) {
+            const { data } = await r.json();
+            (data ?? []).forEach((m: any) => {
+              if (!existingModels.some((e: any) => e.modelId === m.id && e.endpoint === 'http://localhost:1234/v1')) {
+                autoAdded.push({ id: generateId('m'), name: m.id, provider: 'lmstudio', modelId: m.id, endpoint: 'http://localhost:1234/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+              }
+            });
+          }
+        } catch (_) {}
+
+        // Ollama — localhost:11434
+        try {
+          const r = await fetch('http://localhost:11434/api/tags', { signal: mkSignal(1500) });
+          if (r.ok) {
+            const { models: om } = await r.json();
+            (om ?? []).forEach((m: any) => {
+              if (!existingModels.some((e: any) => e.modelId === m.name && e.endpoint === 'http://localhost:11434/v1')) {
+                autoAdded.push({ id: generateId('m'), name: m.name, provider: 'ollama', modelId: m.name, endpoint: 'http://localhost:11434/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+              }
+            });
+          }
+        } catch (_) {}
+
+        if (autoAdded.length > 0) {
+          ss.setModels((prev: any[]) => [...prev, ...autoAdded]);
+          if (!ss.selectedModelId) ss.setSelectedModelId(autoAdded[0].id);
+          autoAdded.forEach(mdl => ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [mdl.id]: 'ok' })));
+          const label = autoAdded.length === 1 ? autoAdded[0].name : `${autoAdded.length} local models`;
+          useUIStore.getState().showToast(`✅ ${label} auto-configured`);
+        }
+      } catch (e) { console.warn('[AgentForge] Auto-detect skipped:', e); }
+
       // Onboarding wizard — show on first launch until completed
       // Skip silently if user already has models or chat history (dismissed mid-flow previously)
       const onboardingDone = await db.get('onboardingComplete', false);

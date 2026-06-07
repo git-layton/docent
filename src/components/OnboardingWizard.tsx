@@ -152,11 +152,13 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
 
 function StepProfile({ onNext }: { onNext: () => void }) {
   const userProfile = useSettingsStore(s => s.userProfile);
-  const [name, setName] = useState('');
+  const existingName = useSettingsStore(s => s.userName);
+  const [name, setName] = useState(existingName ?? '');
   const [bio, setBio] = useState(userProfile);
 
   async function save() {
-    const profile = [name.trim() ? `My name is ${name.trim()}.` : '', bio.trim()].filter(Boolean).join('\n\n');
+    if (name.trim()) useSettingsStore.getState().setUserName(name.trim());
+    const profile = bio.trim();
     useSettingsStore.getState().setUserProfile(profile);
     await useSettingsStore.getState().persist();
     onNext();
@@ -594,12 +596,57 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const [connectingProvider, setConnectingProvider] = useState<typeof PROVIDERS[0] | null>(null);
   const [connectingModelId, setConnectingModelId] = useState<string | undefined>(undefined);
   const [showAllProviders, setShowAllProviders] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [detected, setDetected] = useState(0);
 
   useEffect(() => {
     invoke<{ total_mb: number }>('get_ram_stats')
       .then(r => setRamMb(r.total_mb))
       .catch(() => {});
+    // Auto-detect silently on mount
+    detectLocalModels();
   }, []);
+
+  async function detectLocalModels() {
+    setDetecting(true);
+    try {
+      const ss = useSettingsStore.getState();
+      const existing = ss.models;
+      const added: any[] = [];
+      const mkSignal = (ms: number) => { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; };
+      const genId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      try {
+        const r = await fetch('http://localhost:1234/v1/models', { signal: mkSignal(1500) });
+        if (r.ok) {
+          const { data } = await r.json();
+          (data ?? []).forEach((m: any) => {
+            if (!existing.some((e: any) => e.modelId === m.id && e.endpoint === 'http://localhost:1234/v1'))
+              added.push({ id: genId('m'), name: m.id, provider: 'lmstudio', modelId: m.id, endpoint: 'http://localhost:1234/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+          });
+        }
+      } catch (_) {}
+
+      try {
+        const r = await fetch('http://localhost:11434/api/tags', { signal: mkSignal(1500) });
+        if (r.ok) {
+          const { models: om } = await r.json();
+          (om ?? []).forEach((m: any) => {
+            if (!existing.some((e: any) => e.modelId === m.name && e.endpoint === 'http://localhost:11434/v1'))
+              added.push({ id: genId('m'), name: m.name, provider: 'ollama', modelId: m.name, endpoint: 'http://localhost:11434/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+          });
+        }
+      } catch (_) {}
+
+      if (added.length > 0) {
+        ss.setModels((prev: any[]) => [...prev, ...added]);
+        if (!ss.selectedModelId) ss.setSelectedModelId(added[0].id);
+        setDetected(added.length);
+      }
+    } finally {
+      setDetecting(false);
+    }
+  }
 
   const currentModels = useSettingsStore(s => s.models);
   const gb = ramMb / 1024;
@@ -651,10 +698,35 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         </div>
       </div>
 
+      {/* Auto-detect status */}
+      {detecting && (
+        <div className="flex items-center gap-2 text-xs text-neutral-500">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Looking for LM Studio and Ollama…
+        </div>
+      )}
+      {!detecting && detected > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-400">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          {detected === 1 ? '1 local model detected and connected' : `${detected} local models detected and connected`}
+        </div>
+      )}
+      {!detecting && detected === 0 && currentModels.length === 0 && (
+        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+          <span className="text-xs text-neutral-500">No local models found</span>
+          <button onClick={detectLocalModels} className="text-[10px] font-bold text-[#4A5D75] hover:underline">Try again</button>
+        </div>
+      )}
+
       {/* Existing models */}
       {currentModels.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Connected</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Connected</p>
+            <button onClick={detectLocalModels} disabled={detecting} className="text-[10px] text-[#4A5D75] hover:underline disabled:opacity-40">
+              {detecting ? 'Detecting…' : 'Re-detect'}
+            </button>
+          </div>
           {currentModels.map(m => (
             <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
               <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
