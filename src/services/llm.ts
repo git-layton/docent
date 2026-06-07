@@ -123,7 +123,8 @@ export const validateModel = async (model: any) => {
 
 export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings }: any) => {
   const _userName = userName || appSettings?.userName || '';
-  let prompt = (agent.prompt ?? '') + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
+  const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
+  let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
 
   const activeTools = Object.keys(agent.tools ?? {}).filter(k => agent.tools[k]);
   if (activeTools.length > 0) prompt += `[ACTIVE TOOLS]\n${activeTools.join(', ')}\n\n`;

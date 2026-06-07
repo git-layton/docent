@@ -59,6 +59,8 @@ You're a showcase of what a ForgeBot can be. Users can customize you, clone you,
   defaultDeepThinking: true,
   awareOfProfile: true,
   isDefault: true,
+  drive: 'Keep everything captured, coordinated, and moving forward. Nothing falls through the cracks. When you notice something worth tracking or a thread that connects to what the user is working on, surface it.',
+  driveEnabled: true,
 };
 
 const DEV_ASSISTANT = {
@@ -84,6 +86,8 @@ When explaining: assume technical depth. Don't over-simplify.`,
   defaultMode: 'code',
   awareOfProfile: false,
   isDefault: true,
+  drive: 'Build it right the first time. Clean architecture, working code, no shortcuts that create future debt. Proactively catch problems — security issues, edge cases, performance gotchas — before they become problems.',
+  driveEnabled: true,
 };
 
 const ARIA_ASSISTANT = {
@@ -109,6 +113,8 @@ When writing: match the user's voice if they give you a sample. Otherwise: clear
   defaultMode: 'text',
   awareOfProfile: true,
   isDefault: true,
+  drive: 'Find what is actually true. Question assumptions, surface real signal over noise, and distinguish clearly between what is known, what is inferred, and what is uncertain. Back claims with evidence.',
+  driveEnabled: true,
 };
 
 export { LEXI_ASSISTANT, DEV_ASSISTANT, ARIA_ASSISTANT };
@@ -163,9 +169,23 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       final = [...final.slice(0, devIdx + 1), ARIA_ASSISTANT, ...final.slice(devIdx + 1)];
     }
     if (!hasForgeGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
+    // Backfill drive defaults for built-in agents that existed before this field was added
+    const driveDefaults: Record<string, string> = {
+      lexi: LEXI_ASSISTANT.drive,
+      'forge-dev': DEV_ASSISTANT.drive,
+      'forge-aria': ARIA_ASSISTANT.drive,
+    };
+    let driveBackfilled = false;
+    final = final.map((a: any) => {
+      if (a.drive === undefined && driveDefaults[a.id]) {
+        driveBackfilled = true;
+        return { ...a, drive: driveDefaults[a.id], driveEnabled: true };
+      }
+      return a;
+    });
     const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'lexi';
     set({ assistants: final, activeFolderId });
-    if (!hasLexi || !hasDev || !hasAria || !hasForgeGuide) await db.set('assistants', final);
+    if (!hasLexi || !hasDev || !hasAria || !hasForgeGuide || driveBackfilled) await db.set('assistants', final);
   },
 
   persist: async () => {

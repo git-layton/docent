@@ -147,6 +147,28 @@ export function AssistantSettingsModal({
                     </div>
                     <textarea value={editingAssistant.prompt} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, prompt: e.target.value }))} rows={8} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-[#6A829E] dark:text-neutral-100 custom-scrollbar" placeholder="You are a helpful assistant..." />
                     </div>
+
+                    {/* Core Drive */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-[10px] font-black uppercase opacity-50 block tracking-widest">Core Drive</label>
+                        <button
+                          onClick={() => setEditingAssistant((prev: any) => ({ ...prev, driveEnabled: !prev.driveEnabled }))}
+                          className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${editingAssistant.driveEnabled !== false ? 'bg-[#4A5D75]' : 'bg-neutral-300 dark:bg-neutral-700'}`}
+                        >
+                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${editingAssistant.driveEnabled !== false ? 'right-0.5' : 'left-0.5'}`} />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-neutral-400 mb-2">A persistent motivation injected into every prompt — the agent's underlying goal beyond the task at hand.</p>
+                      <textarea
+                        value={editingAssistant.drive ?? ''}
+                        onChange={e => setEditingAssistant((prev: any) => ({ ...prev, drive: e.target.value }))}
+                        disabled={editingAssistant.driveEnabled === false}
+                        rows={2}
+                        className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-3 text-sm font-medium resize-none outline-none focus:border-[#6A829E] dark:text-neutral-100 disabled:opacity-40"
+                        placeholder="e.g. Always push toward clarity and the simplest correct solution."
+                      />
+                    </div>
                  </div>
                  <div className="space-y-6">
                     <div>

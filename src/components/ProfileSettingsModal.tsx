@@ -141,6 +141,28 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   </div>
                 </div>
               </div>
+
+              {/* Setup Wizard */}
+              <div className="border-t border-neutral-200 dark:border-neutral-800 pt-4 mt-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">Setup Wizard</p>
+                    <p className="text-xs text-neutral-500 mt-0.5">Re-run the model setup and recommendations</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await db.set('onboardingComplete', false);
+                      const { useSettingsStore: ss } = await import('../store/useSettingsStore');
+                      ss.getState().setOnboardingComplete(false);
+                      ss.getState().setShowOnboarding(true);
+                      onClose();
+                    }}
+                    className="text-xs font-bold text-[#4A5D75] hover:text-[#3D4D61] transition-colors"
+                  >
+                    Re-run →
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="space-y-6">

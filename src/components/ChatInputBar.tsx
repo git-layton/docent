@@ -110,13 +110,6 @@ export function ChatInputBar({
             </span>
           </div>
         )}
-        {forcedTool && (
-          <div className="px-4 py-1.5 mb-2 flex items-center gap-2 bg-[#F0F4F8] dark:bg-[#1E2B38]/40 border border-[#9EADC8]/40 rounded-xl text-[10px] font-bold text-[#4A5D75] dark:text-[#9EADC8]">
-            {forcedTool === 'workspace' ? <Database className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
-            Next message will force {forcedTool === 'workspace' ? 'Knowledge Search' : 'Web Search'}
-            <button onClick={() => setForcedTool(null)} className="ml-auto text-neutral-400 hover:text-neutral-600"><X className="w-3 h-3" /></button>
-          </div>
-        )}
         <div className="relative">
           {/* Slash command palette — outside overflow-hidden so it's not clipped */}
           {input.startsWith('/') && !input.includes(' ') && (
