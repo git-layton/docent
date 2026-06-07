@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff } from 'lucide-react';
+import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff, Globe } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -167,6 +167,11 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
     }
   };
 
+  const openBrowserShortcutSetup = () => {
+    useSettingsStore.getState().setOnboardingInitialStep(7);
+    useSettingsStore.getState().setShowOnboarding(true);
+  };
+
   const query = chatSearchQuery.toLowerCase();
   const visibleAgents = assistants
     .filter((agent: any) => agent.id !== 'forge-guide' && agent.id !== 'f-default')
@@ -242,7 +247,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                     .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
                   const isActive = activeChatId === direct?.id || (!activeChatId && activeFolderId === agent.id);
                   return (
-                    <div key={agent.id} onClick={() => openDirect(agent)} className={`group flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer transition-all ${isActive && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
+                    <div key={agent.id} onClick={() => openDirect(agent)} className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${isActive && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <AgentIcon agent={agent} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm shrink-0" />
                         <div className="min-w-0 flex-1">
@@ -262,9 +267,9 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
               <div className="space-y-1 pt-3">
                 <div className="px-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">Channels</div>
                 {visibleChannels.map((chat: any) => (
-                  <div key={chat.id} onClick={() => { useAgentStore.getState().setActiveFolderId(chat.primaryAgentId ?? activeFolderId); useChatStore.getState().setActiveChatId(chat.id); useUIStore.getState().setCanvasContent(null); useTaskStore.getState().setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
+                  <div key={chat.id} onClick={() => { useAgentStore.getState().setActiveFolderId(chat.primaryAgentId ?? activeFolderId); useChatStore.getState().setActiveChatId(chat.id); useUIStore.getState().setCanvasContent(null); useTaskStore.getState().setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
                     {editingChatId === chat.id ? (
-                      <input autoFocus value={editingChatName} onChange={e => useChatStore.getState().setEditingChatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { renameChat(chat.id, editingChatName); useChatStore.getState().setEditingChatId(null); } else if (e.key === 'Escape') useChatStore.getState().setEditingChatId(null); }} onBlur={() => { renameChat(chat.id, editingChatName); useChatStore.getState().setEditingChatId(null); }} className="w-full bg-white dark:bg-neutral-950 text-xs font-bold px-2 py-1 rounded outline-none border border-[#6A829E]" />
+                      <input autoFocus value={editingChatName} onChange={e => useChatStore.getState().setEditingChatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { renameChat(chat.id, editingChatName); useChatStore.getState().setEditingChatId(null); } else if (e.key === 'Escape') useChatStore.getState().setEditingChatId(null); }} onBlur={() => { renameChat(chat.id, editingChatName); useChatStore.getState().setEditingChatId(null); }} className="w-full bg-white dark:bg-neutral-900 text-sm font-bold px-3 py-2 rounded-xl outline-none border border-neutral-200 dark:border-neutral-700 focus:border-secondary-light transition-colors" />
                     ) : (
                       <>
                         <div className="flex items-center gap-2 truncate flex-1">
@@ -284,7 +289,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex gap-2 px-1 mb-4"><button onClick={() => onCreateBlankArtifact('code')} className="flex-1 flex justify-center items-center gap-1.5 py-3 rounded-xl border border-[#D6E0EA] dark:border-[#4A5D75]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 text-[9px] font-black uppercase text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#D6E0EA] dark:hover:bg-[#4A5D75]/40 transition-all"><TerminalSquare className="w-3.5 h-3.5" /> Blank App</button><button onClick={() => onCreateBlankArtifact('doc')} className="flex-1 flex justify-center items-center gap-1.5 py-3 rounded-xl border border-[#DCE7E1] dark:border-[#2C3E35]/50 bg-[#EEF3F0] dark:bg-[#2C3E35]/20 text-[9px] font-black uppercase text-[#7A9E8D] dark:text-[#B5CDBF] hover:bg-[#DCE7E1] dark:hover:bg-[#2C3E35]/40 transition-all"><FileEdit className="w-3.5 h-3.5" /> Blank Doc</button></div>
+              <div className="flex gap-2 px-1 mb-4"><button onClick={() => onCreateBlankArtifact('code')} className="flex-1 flex justify-center items-center gap-1.5 py-3.5 rounded-xl border border-[#D6E0EA] dark:border-[#4A5D75]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 text-[9px] font-black uppercase text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#D6E0EA] dark:hover:bg-[#4A5D75]/40 transition-all"><TerminalSquare className="w-3.5 h-3.5" /> Blank App</button><button onClick={() => onCreateBlankArtifact('doc')} className="flex-1 flex justify-center items-center gap-1.5 py-3.5 rounded-xl border border-[#DCE7E1] dark:border-[#2C3E35]/50 bg-[#EEF3F0] dark:bg-[#2C3E35]/20 text-[9px] font-black uppercase text-[#7A9E8D] dark:text-[#B5CDBF] hover:bg-[#DCE7E1] dark:hover:bg-[#2C3E35]/40 transition-all"><FileEdit className="w-3.5 h-3.5" /> Blank Doc</button></div>
               <div className="px-1 mb-2 relative"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search saved items..." value={archiveSearchQuery} onChange={e => useUIStore.getState().setArchiveSearchQuery(e.target.value)} /></div>
               <div className="flex gap-1 border-b border-neutral-100 dark:border-neutral-800 mb-2 px-1">{['code', 'doc', 'image'].map(v => <button key={v} onClick={() => useUIStore.getState().setArchiveSubView(v)} className={`flex-1 pb-2 text-[9px] font-black uppercase tracking-tighter transition-all ${archiveSubView === v ? (v === 'code' ? 'text-[#4A5D75] border-b-2 border-[#4A5D75]' : v === 'doc' ? 'text-[#7A9E8D] border-b-2 border-[#7A9E8D]' : 'text-[#D4AA7D] border-b-2 border-[#D4AA7D]') : 'text-neutral-400'}`}>{v === 'code' ? 'Code' : v === 'doc' ? 'Docs' : 'Images'}</button>)}</div>
 
@@ -302,6 +307,21 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
               </div>
             </div>
           )}
+        </div>
+
+        {/* Bring to Browser chip */}
+        <div className="px-3 pb-2">
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-700/50">
+            <span className="text-tiny font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5">
+              <Globe className="w-3 h-3" /> Bring to Browser
+            </span>
+            <button
+              onClick={() => openBrowserShortcutSetup()}
+              className="text-tiny font-bold text-secondary hover:text-primary transition-colors"
+            >
+              ⌘⇧F · Setup
+            </button>
+          </div>
         </div>
 
         <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">

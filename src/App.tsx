@@ -87,6 +87,7 @@ export default function App() {
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);
   const showModelWizard = useSettingsStore(s => s.showModelWizard);
   const showOnboarding = useSettingsStore(s => s.showOnboarding);
+  const onboardingInitialStep = useSettingsStore(s => s.onboardingInitialStep);
 
   const globalPins = useMemoryStore(s => s.globalPins);
   const dreamLog = useMemoryStore(s => s.dreamLog);
@@ -2500,7 +2501,7 @@ export default function App() {
 
       {/* Onboarding wizard */}
       {showOnboarding && (
-        <OnboardingWizard onClose={() => useSettingsStore.getState().setShowOnboarding(false)} />
+        <OnboardingWizard onClose={() => { useSettingsStore.getState().setShowOnboarding(false); useSettingsStore.getState().setOnboardingInitialStep(1); }} initialStep={onboardingInitialStep} />
       )}
 
       {/* Artifact start picker */}
