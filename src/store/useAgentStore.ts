@@ -39,16 +39,16 @@ const LEXI_ASSISTANT = {
   name: 'Lexi',
   description: 'Your ForgeBot — edit her, clone her, or build your own',
   avatar: { type: 'color', color: 'rose' },
-  prompt: `You are Lexi — a ForgeBot built on Agent Forge. You're confident, sharp, and a little flirty, but never at the expense of being genuinely useful. You care about what's actually best for the person you're talking to, even when that means pushing back or telling them something they didn't expect to hear.
+  prompt: `You are Lexi — a ForgeBot built on Agent Forge. You're confident, sharp, and genuinely caring — you want things to actually go well for the person you're talking to, even when that means pushing back or saying something they didn't expect to hear.
 
 Your personality:
 - Confident and direct. You don't hedge everything or over-explain. If you know the answer, give it.
-- Warm and a little playful — you keep things fun without losing focus. A well-timed quip lands better than a wall of bullet points.
-- You'll challenge assumptions if something seems off. You're on their side, not just agreeing with them.
+- Warm and present — you actually listen, notice what matters, and respond to the person, not just the question. People feel like you're in their corner.
+- You'll challenge assumptions if something seems off. You're on their side, which is exactly why you won't just agree with them.
 - Trustworthy above all else. No fluff, no hallucinating to sound smart. If you don't know, say so — briefly, then help them figure it out.
-- You remember context and connect dots. You notice when something they said earlier matters now.
+- You pick up on context and connect dots across the conversation. When something earlier becomes relevant, you bring it back.
 
-Tone: conversational, crisp, occasionally cheeky. Never robotic. Never sycophantic — don't start responses with "Great question!" or "Absolutely!". Just get into it.
+Tone: conversational, warm, direct. Never robotic. Never sycophantic — don't start responses with "Great question!" or "Absolutely!". Just get into it.
 
 You're a showcase of what a ForgeBot can be. Users can customize you, clone you, or use you as inspiration to build their own.`,
   trainingDocs: [],
@@ -168,23 +168,36 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       final = [...final.slice(0, devIdx + 1), ARIA_ASSISTANT, ...final.slice(devIdx + 1)];
     }
     if (!hasForgeGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
-    // Backfill drive defaults for built-in agents that existed before this field was added
+    // Keep built-in agent prompts in sync with the latest defaults
+    const promptDefaults: Record<string, string> = {
+      lexi: LEXI_ASSISTANT.prompt,
+      'forge-dev': DEV_ASSISTANT.prompt,
+      'forge-aria': ARIA_ASSISTANT.prompt,
+      'forge-guide': FORGE_GUIDE_ASSISTANT.prompt,
+    };
     const driveDefaults: Record<string, string> = {
       lexi: LEXI_ASSISTANT.drive,
       'forge-dev': DEV_ASSISTANT.drive,
       'forge-aria': ARIA_ASSISTANT.drive,
     };
-    let driveBackfilled = false;
+    let builtinUpdated = false;
     final = final.map((a: any) => {
-      if (a.drive === undefined && driveDefaults[a.id]) {
-        driveBackfilled = true;
-        return { ...a, drive: driveDefaults[a.id], driveEnabled: true };
+      if (!promptDefaults[a.id]) return a;
+      const needsPrompt = a.prompt !== promptDefaults[a.id];
+      const needsDrive = a.drive === undefined && driveDefaults[a.id];
+      if (needsPrompt || needsDrive) {
+        builtinUpdated = true;
+        return {
+          ...a,
+          ...(needsPrompt ? { prompt: promptDefaults[a.id] } : {}),
+          ...(needsDrive ? { drive: driveDefaults[a.id], driveEnabled: true } : {}),
+        };
       }
       return a;
     });
     const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'lexi';
     set({ assistants: final, activeFolderId });
-    if (!hasLexi || !hasDev || !hasAria || !hasForgeGuide || driveBackfilled) await db.set('assistants', final);
+    if (!hasLexi || !hasDev || !hasAria || !hasForgeGuide || builtinUpdated) await db.set('assistants', final);
   },
 
   persist: async () => {
