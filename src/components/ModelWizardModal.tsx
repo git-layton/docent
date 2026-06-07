@@ -1,5 +1,8 @@
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { X, Zap, Loader2, ImageIcon, CheckCircle2, PlusCircle, Cloud, Cpu } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { ModelStorePanel } from './ModelStorePanel';
 
 interface ModelWizardModalProps {
   onToggleModelSelection: (m: any) => void;
@@ -16,12 +19,6 @@ const CLOUD_PROVIDERS = [
   { value: 'huggingface', label: 'Hugging Face' },
 ];
 
-const LOCAL_PROVIDERS = [
-  { value: 'lmstudio', label: 'LM Studio', endpoint: 'http://127.0.0.1:1234/v1',  hint: 'Start LM Studio → Local Server tab → Load a model → Start' },
-  { value: 'ollama',   label: 'Ollama',    endpoint: 'http://127.0.0.1:11434/v1', hint: 'Run: ollama serve  (then: ollama pull llama3)' },
-  { value: 'native',   label: 'llama.cpp (built-in)', endpoint: 'http://127.0.0.1:8080/v1', hint: 'Used by the Agent Forge Engine sidecar' },
-];
-
 export function ModelWizardModal({
   onToggleModelSelection,
   onBulkAdd,
@@ -29,6 +26,7 @@ export function ModelWizardModal({
   onProviderChange,
   onAddSingleLLM,
 }: ModelWizardModalProps) {
+  const [ramMb, setRamMb] = useState(0);
   const editingModel = useSettingsStore(s => s.editingModel);
   const modelTab = useSettingsStore(s => s.modelTab);
   const fetchedModels = useSettingsStore(s => s.fetchedModels);
@@ -38,15 +36,25 @@ export function ModelWizardModal({
   const pendingModelSelections = useSettingsStore(s => s.pendingModelSelections);
   const { setEditingModel, setModelSearchQuery, setShowModelWizard, setWizardStep, setModelTab } = useSettingsStore.getState();
 
+  useEffect(() => {
+    invoke<{ total_mb: number }>('get_ram_stats')
+      .then(r => setRamMb(r.total_mb))
+      .catch(() => {});
+  }, []);
+
   const onClose = () => { setShowModelWizard(false); setWizardStep(3); };
 
-  const localProvider = LOCAL_PROVIDERS.find(p => p.value === editingModel.provider);
-
-  const handleLocalProviderSelect = (value: string) => {
-    const p = LOCAL_PROVIDERS.find(lp => lp.value === value)!;
-    onProviderChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>);
-    setEditingModel((prev: any) => ({ ...prev, endpoint: p.endpoint }));
-  };
+  function handleModelReady(newModel: any) {
+    const store = useSettingsStore.getState();
+    store.setModels((prev: any[]) => {
+      if (prev.some((m: any) => m.id === newModel.id)) return prev;
+      return [...prev, newModel];
+    });
+    store.setSelectedModelId(newModel.id);
+    store.setModelValidation((prev: any) => ({ ...prev, [newModel.id]: 'ok' }));
+    store.persist();
+    onClose();
+  }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200 text-neutral-900 dark:text-white">

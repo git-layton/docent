@@ -24,6 +24,7 @@ import { useAgentStore } from '../store/useAgentStore';
 import { db } from '../services/database';
 // @ts-ignore — nativeFetch is a plain JS file without a declaration
 import { fetchWithRetry } from '../utils/nativeFetch';
+import { ModelStorePanel } from './ModelStorePanel';
 
 interface Props {
   onClose: () => void;
@@ -209,116 +210,6 @@ function StepProfile({ onNext }: { onNext: () => void }) {
       </div>
     </div>
   );
-}
-
-// ─── Local model recommendations ─────────────────────────────────────────────
-
-interface LocalRec {
-  role: string;
-  roleEmoji: string;
-  name: string;
-  modelId: string;  // what LM Studio returns from /v1/models once loaded
-  hfId: string;     // huggingface model id for the download link
-  ramGb: number;    // minimum RAM (GB) needed comfortably
-  context: number;
-  description: string;
-  tag: string;      // short badge label
-}
-
-// Returns true if the machine has enough RAM to comfortably run Llama 3.3 70B Q4_K_M (~42GB)
-export function canRunLlama70B(totalMb: number) {
-  return totalMb / 1024 >= 48;
-}
-
-function getLocalRecs(totalMb: number): LocalRec[] {
-  const gb = totalMb / 1024;
-
-  // 48GB+ — comfortably runs the 70B (Q4_K_M ≈ 42GB)
-  if (gb >= 48) {
-    return [
-      {
-        role: 'General',
-        roleEmoji: '🦙',
-        name: 'Llama-3.3-70B-Instruct',
-        modelId: 'llama-3.3-70b-instruct',
-        hfId: 'meta-llama/Llama-3.3-70B-Instruct',
-        ramGb: 42,
-        context: 128000,
-        description: 'The best all-rounder for your Mac. Writes beautifully, reasons deeply, handles code — no thinking lag, just instant fluent responses. Q4_K_M fits perfectly in 64GB.',
-        tag: 'Best for 64GB',
-      },
-      {
-        role: 'Coder',
-        roleEmoji: '💻',
-        name: 'Qwen2.5-Coder-32B',
-        modelId: 'qwen2.5-coder-32b-instruct',
-        hfId: 'Qwen/Qwen2.5-Coder-32B-Instruct',
-        ramGb: 20,
-        context: 32000,
-        description: 'Optional specialist for heavy coding sessions. Beats much larger models on programming tasks and runs fast alongside Llama.',
-        tag: 'Best for code',
-      },
-    ];
-  }
-
-  // 28–47GB — 70B won't fit; use Gemma 3 27B as the capable all-rounder
-  if (gb >= 28) {
-    return [
-      {
-        role: 'General',
-        roleEmoji: '✨',
-        name: 'Gemma-3-27B-Instruct',
-        modelId: 'gemma-3-27b-instruct',
-        hfId: 'google/gemma-3-27b-it',
-        ramGb: 17,
-        context: 128000,
-        description: 'Google\'s sharp 27B model — fast, articulate, and well above its weight class. Great daily driver for 32GB Macs.',
-        tag: 'Best for 32GB',
-      },
-      {
-        role: 'Coder',
-        roleEmoji: '💻',
-        name: 'Qwen2.5-Coder-14B',
-        modelId: 'qwen2.5-coder-14b-instruct',
-        hfId: 'Qwen/Qwen2.5-Coder-14B-Instruct',
-        ramGb: 9,
-        context: 32000,
-        description: 'Efficient coding specialist — sharp on code, light on RAM, leaves room for the main model.',
-        tag: 'Best for code',
-      },
-    ];
-  }
-
-  // 14–27GB — Gemma 4 12B fits well and punches above its weight
-  if (gb >= 14) {
-    return [
-      {
-        role: 'General',
-        roleEmoji: '✨',
-        name: 'Gemma-3-12B-Instruct',
-        modelId: 'gemma-3-12b-instruct',
-        hfId: 'google/gemma-3-12b-it',
-        ramGb: 8,
-        context: 128000,
-        description: 'Remarkably capable for its size — fast responses, strong reasoning, and fits 16GB with room to spare.',
-        tag: 'Best for 16–24GB',
-      },
-      {
-        role: 'Coder',
-        roleEmoji: '💻',
-        name: 'Qwen2.5-Coder-7B',
-        modelId: 'qwen2.5-coder-7b-instruct',
-        hfId: 'Qwen/Qwen2.5-Coder-7B-Instruct',
-        ramGb: 5,
-        context: 32000,
-        description: 'Surprisingly capable at code for its size — efficient and quick on constrained hardware.',
-        tag: 'Best for code',
-      },
-    ];
-  }
-
-  // ≤13GB — local models will be slow and limited; cloud is the better path
-  return [];
 }
 
 // ─── Step 3: AI Model ─────────────────────────────────────────────────────────
@@ -593,76 +484,32 @@ function ModelConnectForm({
 
 function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   const [ramMb, setRamMb] = useState(0);
-  const [connectingProvider, setConnectingProvider] = useState<typeof PROVIDERS[0] | null>(null);
-  const [connectingModelId, setConnectingModelId] = useState<string | undefined>(undefined);
-  const [showAllProviders, setShowAllProviders] = useState(false);
-  const [detecting, setDetecting] = useState(false);
-  const [detected, setDetected] = useState(0);
+  const [path, setPath] = useState<'local' | 'cloud' | null>(null);
+  const currentModels = useSettingsStore(s => s.models);
+  const ramGb = Math.floor(ramMb / 1024);
+  const canRunLocal = ramMb >= 7168;
 
   useEffect(() => {
     invoke<{ total_mb: number }>('get_ram_stats')
       .then(r => setRamMb(r.total_mb))
       .catch(() => {});
-    // Auto-detect silently on mount
-    detectLocalModels();
   }, []);
 
-  async function detectLocalModels() {
-    setDetecting(true);
-    try {
-      const ss = useSettingsStore.getState();
-      const existing = ss.models;
-      const added: any[] = [];
-      const mkSignal = (ms: number) => { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; };
-      const genId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-      try {
-        const r = await fetch('http://localhost:1234/v1/models', { signal: mkSignal(1500) });
-        if (r.ok) {
-          const { data } = await r.json();
-          (data ?? []).forEach((m: any) => {
-            if (!existing.some((e: any) => e.modelId === m.id && e.endpoint === 'http://localhost:1234/v1'))
-              added.push({ id: genId('m'), name: m.id, provider: 'lmstudio', modelId: m.id, endpoint: 'http://localhost:1234/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
-          });
-        }
-      } catch (_) {}
-
-      try {
-        const r = await fetch('http://localhost:11434/api/tags', { signal: mkSignal(1500) });
-        if (r.ok) {
-          const { models: om } = await r.json();
-          (om ?? []).forEach((m: any) => {
-            if (!existing.some((e: any) => e.modelId === m.name && e.endpoint === 'http://localhost:11434/v1'))
-              added.push({ id: genId('m'), name: m.name, provider: 'ollama', modelId: m.name, endpoint: 'http://localhost:11434/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
-          });
-        }
-      } catch (_) {}
-
-      if (added.length > 0) {
-        ss.setModels((prev: any[]) => [...prev, ...added]);
-        if (!ss.selectedModelId) ss.setSelectedModelId(added[0].id);
-        setDetected(added.length);
-      }
-    } finally {
-      setDetecting(false);
-    }
+  function handleModelReady(newModel: any) {
+    const store = useSettingsStore.getState();
+    store.setModels((prev: any[]) => {
+      if (prev.some((m: any) => m.id === newModel.id)) return prev;
+      return [...prev, newModel];
+    });
+    store.setSelectedModelId(newModel.id);
+    store.setModelValidation((prev: any) => ({ ...prev, [newModel.id]: 'ok' }));
+    store.persist();
+    onNext();
   }
 
-  const currentModels = useSettingsStore(s => s.models);
-  const gb = ramMb / 1024;
-  const recs = getLocalRecs(ramMb);
-  const hasLocalRec = recs.length > 0 && gb >= 14;
-  const lmStudio = PROVIDERS.find(p => p.id === 'lmstudio')!;
   const gemini = PROVIDERS.find(p => p.id === 'gemini')!;
-  const primaryRec = recs[0] ?? null;
-  const coderRec = recs[1] ?? null;
 
-  function startConnect(provider: typeof PROVIDERS[0], modelId?: string) {
-    setConnectingProvider(provider);
-    setConnectingModelId(modelId);
-  }
-
-  if (connectingProvider) {
+  if (path === 'local') {
     return (
       <div className="flex flex-col gap-5">
         <div className="flex items-center gap-3">
@@ -670,18 +517,62 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
             <Zap className="w-6 h-6 text-amber-500" />
           </StepIcon>
           <div>
-            <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Connect model</h2>
+            <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Download a model</h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Private, free, runs entirely on your Mac.</p>
+          </div>
+        </div>
+        <ModelStorePanel ramMb={ramMb} onModelReady={handleModelReady} />
+        <div className="flex flex-col gap-1 pt-2 border-t border-neutral-100 dark:border-neutral-800">
+          <button onClick={() => setPath(null)} className="text-[11px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-left py-1">
+            ← Back
+          </button>
+          {currentModels.length > 0 && (
+            <Btn onClick={onNext} variant="ghost" className="w-full">Continue with existing model</Btn>
+          )}
+          <Btn variant="ghost" onClick={onSkip} className="w-full">Skip for now</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (path === 'cloud') {
+    return (
+      <div className="flex flex-col gap-5">
+        <div className="flex items-center gap-3">
+          <StepIcon color="bg-amber-50 dark:bg-amber-900/30">
+            <Zap className="w-6 h-6 text-amber-500" />
+          </StepIcon>
+          <div>
+            <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Connect cloud AI</h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Works instantly — just paste your API key.</p>
           </div>
         </div>
         <ModelConnectForm
-          provider={connectingProvider}
-          prefilledModelId={connectingModelId}
-          onAdded={() => { setConnectingProvider(null); setConnectingModelId(undefined); }}
-          onBack={() => { setConnectingProvider(null); setConnectingModelId(undefined); }}
+          provider={gemini}
+          onAdded={onNext}
+          onBack={() => setPath(null)}
         />
-        {currentModels.length > 0 && (
-          <Btn onClick={onNext} variant="ghost" className="w-full">Skip — continue with existing model</Btn>
-        )}
+        <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800 space-y-1.5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Other providers</p>
+          <div className="grid grid-cols-2 gap-2">
+            {PROVIDERS.filter(p => p.id !== 'gemini').map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPath(null)}
+                className={`flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all hover:opacity-90 ${p.color}`}
+              >
+                <span className="text-base">{p.emoji}</span>
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 leading-none">{p.name}</p>
+                  {p.free && <span className="text-[8px] font-black text-emerald-600 dark:text-emerald-400">free</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+          {currentModels.length > 0 && (
+            <Btn onClick={onNext} variant="ghost" className="w-full">Continue with existing model</Btn>
+          )}
+        </div>
       </div>
     );
   }
@@ -694,211 +585,60 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         </StepIcon>
         <div>
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">AI model</h2>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">The brain powering your agents.</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+            {ramMb > 0 ? `Your Mac has ${ramGb}GB RAM.` : 'Choose how you want to run AI.'}
+          </p>
         </div>
       </div>
 
-      {/* Auto-detect status */}
-      {detecting && (
-        <div className="flex items-center gap-2 text-xs text-neutral-500">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Looking for LM Studio and Ollama…
-        </div>
-      )}
-      {!detecting && detected > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-400">
-          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-          {detected === 1 ? '1 local model detected and connected' : `${detected} local models detected and connected`}
-        </div>
-      )}
-      {!detecting && detected === 0 && currentModels.length === 0 && (
-        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
-          <span className="text-xs text-neutral-500">No local models found</span>
-          <button onClick={detectLocalModels} className="text-[10px] font-bold text-[#4A5D75] hover:underline">Try again</button>
-        </div>
-      )}
-
-      {/* Existing models */}
       {currentModels.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Connected</p>
-            <button onClick={detectLocalModels} disabled={detecting} className="text-[10px] text-[#4A5D75] hover:underline disabled:opacity-40">
-              {detecting ? 'Detecting…' : 'Re-detect'}
-            </button>
-          </div>
-          {currentModels.map(m => (
-            <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate font-mono">{m.modelId}</p>
-                <p className="text-[10px] text-neutral-400">{m.provider} · {Math.round(m.contextLimit / 1000)}k ctx</p>
-              </div>
-            </div>
-          ))}
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-400">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          {currentModels.length === 1 ? '1 model already connected' : `${currentModels.length} models connected`}
         </div>
       )}
 
-      {/* Recommendation section */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={canRunLocal ? () => setPath('local') : undefined}
+          className={`flex flex-col items-center text-center gap-3 p-5 rounded-2xl border-2 transition-all ${
+            canRunLocal
+              ? 'border-[#4A5D75]/30 bg-[#4A5D75]/5 dark:bg-[#4A5D75]/10 hover:border-[#4A5D75]/60 hover:bg-[#4A5D75]/10 cursor-pointer'
+              : 'border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/40 opacity-50 cursor-not-allowed'
+          }`}
+        >
+          <span className="text-3xl">💻</span>
+          <div>
+            <p className="text-sm font-black">Run Locally</p>
+            <p className="text-[11px] text-neutral-500 mt-1">Private &amp; free</p>
+            <p className="text-[11px] text-neutral-500">Works offline</p>
+            {canRunLocal
+              ? <p className="text-[10px] text-[#4A5D75] dark:text-[#9EADC8] font-bold mt-2">Download &amp; run in ~5 min</p>
+              : <p className="text-[10px] text-neutral-400 mt-2">Needs 8GB+ RAM</p>
+            }
+          </div>
+        </button>
+
+        <button
+          onClick={() => setPath('cloud')}
+          className="flex flex-col items-center text-center gap-3 p-5 rounded-2xl border-2 border-violet-200 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:border-violet-400 dark:hover:border-violet-500 cursor-pointer transition-all"
+        >
+          <span className="text-3xl">☁️</span>
+          <div>
+            <p className="text-sm font-black">Use Cloud</p>
+            <p className="text-[11px] text-neutral-500 mt-1">Works instantly</p>
+            <p className="text-[11px] text-neutral-500">Needs API key</p>
+            <p className="text-[10px] text-violet-600 dark:text-violet-400 font-bold mt-2">Gemini free tier available</p>
+          </div>
+        </button>
+      </div>
+
       {ramMb > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
-              {hasLocalRec ? `Best for your ${Math.round(gb)}GB Mac` : 'Our recommendation'}
-            </p>
-          </div>
-
-          {hasLocalRec && primaryRec ? (
-            <>
-              {/* Primary local recommendation */}
-              <div className="rounded-2xl border-2 border-[#4A5D75]/30 bg-[#4A5D75]/5 dark:bg-[#4A5D75]/10 p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl mt-0.5 shrink-0">{primaryRec.roleEmoji}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 font-mono">{primaryRec.name}</p>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[#4A5D75] text-white shrink-0">Top pick</span>
-                    </div>
-                    <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">{primaryRec.description}</p>
-                    <div className="flex items-center gap-3 mt-2">
-                      <span className="text-[10px] text-neutral-400">~{primaryRec.ramGb}GB RAM · via LM Studio</span>
-                      <button
-                        onClick={() => openUrl(`https://huggingface.co/${primaryRec.hfId}`)}
-                        className="flex items-center gap-1 text-[10px] font-bold text-[#4A5D75] hover:underline"
-                      >
-                        HuggingFace <ExternalLink className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1.5 pt-1 border-t border-[#4A5D75]/10">
-                  <div className="grid grid-cols-2 gap-2 text-[10px] text-neutral-500 dark:text-neutral-400">
-                    <div className="space-y-1">
-                      <p className="font-black text-emerald-600 dark:text-emerald-400">Local ✓</p>
-                      <p>Private — nothing leaves your Mac</p>
-                      <p>Free — no API costs ever</p>
-                      <p>Fast — no network latency</p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-black text-neutral-400">vs Cloud</p>
-                      <p>Needs ~{primaryRec.ramGb}GB free RAM</p>
-                      <p>Download once (~25GB)</p>
-                      <p>Works offline</p>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-neutral-400 leading-relaxed">
-                    Download in LM Studio: search <span className="font-mono">{primaryRec.name}</span>, grab the <span className="font-mono">Q4_K_M</span> variant.
-                  </p>
-                </div>
-                <Btn onClick={() => startConnect(lmStudio, primaryRec.modelId)} className="w-full">
-                  Set up LM Studio with {primaryRec.name} <ArrowRight className="w-4 h-4" />
-                </Btn>
-              </div>
-
-              {/* Coder model option */}
-              {coderRec && (
-                <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/40 p-3.5 space-y-2">
-                  <div className="flex items-start gap-2.5">
-                    <span className="text-base mt-0.5 shrink-0">{coderRec.roleEmoji}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-xs font-black text-neutral-800 dark:text-neutral-200 font-mono">{coderRec.name}</p>
-                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-400 shrink-0">{coderRec.tag}</span>
-                      </div>
-                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{coderRec.description}</p>
-                      <p className="text-[10px] text-neutral-400 mt-1">~{coderRec.ramGb}GB RAM · add after the main model</p>
-                    </div>
-                    <button
-                      onClick={() => startConnect(lmStudio, coderRec.modelId)}
-                      className="text-[10px] font-black text-[#4A5D75] hover:underline shrink-0"
-                    >
-                      Add this
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Cloud alternative */}
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700">
-                <span className="text-sm">✨</span>
-                <p className="text-xs text-neutral-600 dark:text-neutral-400 flex-1 leading-relaxed">
-                  Or use <strong>Gemini</strong> — free cloud API, great if you want instant setup
-                </p>
-                <button
-                  onClick={() => startConnect(gemini)}
-                  className="text-[10px] font-black text-[#4A5D75] hover:underline shrink-0"
-                >
-                  Use Gemini
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Low RAM — cloud first */}
-              <div className="rounded-2xl border-2 border-violet-200 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl mt-0.5">✨</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="text-sm font-black text-violet-900 dark:text-violet-100">Gemini 2.0 Flash</p>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white shrink-0">Free</span>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-violet-500 text-white shrink-0">Recommended</span>
-                    </div>
-                    <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed">
-                      Your Mac has {Math.round(gb)}GB RAM — not enough for a capable local model. Gemini's free tier is fast, smart, and has no download required.
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 mt-2 text-[10px] text-violet-600 dark:text-violet-400">
-                      <div className="space-y-0.5">
-                        <p className="font-black">Cloud ✓</p>
-                        <p>Free with generous limits</p>
-                        <p>No RAM requirement</p>
-                        <p>Always the latest model</p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <p className="font-black text-neutral-400">vs Local</p>
-                        <p>Sends data to Google</p>
-                        <p>Requires internet</p>
-                        <p>API key needed (free)</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <Btn onClick={() => startConnect(gemini)} className="w-full">
-                  Set up Gemini free <ArrowRight className="w-4 h-4" />
-                </Btn>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Browse all options */}
-      <button
-        onClick={() => setShowAllProviders(v => !v)}
-        className="text-[11px] font-black text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-left"
-      >
-        {showAllProviders ? '▲ Hide all options' : '▾ Browse all providers (Claude, OpenAI, …)'}
-      </button>
-
-      {showAllProviders && (
-        <div className="grid grid-cols-2 gap-2">
-          {PROVIDERS.map(p => (
-            <button
-              key={p.id}
-              onClick={() => startConnect(p)}
-              className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition-all duration-150 hover:opacity-90 ${p.color}`}
-            >
-              <span className="text-xl">{p.emoji}</span>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <p className="text-sm font-black text-neutral-800 dark:text-neutral-200 leading-none">{p.name}</p>
-                  {p.free && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400">free</span>}
-                </div>
-                <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-tight">{p.sub}</p>
-              </div>
-            </button>
-          ))}
-        </div>
+        <p className="text-[10px] text-neutral-400 text-center leading-relaxed">
+          {canRunLocal
+            ? `With ${ramGb}GB you can run AI locally — private, free, no internet needed.`
+            : `Your Mac has ${ramGb}GB — local models need at least 8GB. Cloud works great.`}
+        </p>
       )}
 
       {currentModels.length > 0 ? (
