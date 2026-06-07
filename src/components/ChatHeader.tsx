@@ -126,6 +126,21 @@ export function ChatHeader({
                     placeholder="Channel goal..."
                     className="w-full mb-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-[10px] font-bold outline-none focus:border-[#6A829E]"
                   />
+                  <div className="flex gap-1 mb-2">
+                    {(['social', 'work', 'creative', 'default'] as const).map(n => (
+                      <button
+                        key={n}
+                        onClick={() => updateActiveChat({ norm: n })}
+                        className={`flex-1 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                          (normalizedChat?.norm ?? 'default') === n
+                            ? 'bg-[#4A5D75] text-white'
+                            : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                        }`}
+                      >
+                        {n === 'default' ? 'general' : n}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {assistants.filter(a => a.id !== 'forge-guide' && a.id !== 'f-default' && a.name.toLowerCase().includes(agentSearch.toLowerCase())).map(agent => (
                   <div key={agent.id} onClick={() => toggleChannelAgent(agent.id)} className="group flex items-center justify-between px-2 py-2 rounded-xl cursor-pointer transition-all hover:bg-neutral-50 dark:hover:bg-neutral-800">

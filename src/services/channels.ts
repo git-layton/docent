@@ -1,5 +1,4 @@
 export type ChannelKind = 'dm' | 'channel' | 'local';
-
 export type ChannelNorm = 'social' | 'work' | 'creative' | 'default';
 
 export interface ChannelChat {
