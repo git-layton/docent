@@ -89,7 +89,7 @@ Open Settings (⚙️ in the header) to:
 
 - **Context Pins are powerful** — pin a project brief or key facts to Context and your agent will always remember them
 - **Use /memo freely** — quick captures during work get organized into your Knowledge Core
-- **The Library is permanent** — bookmarked content in Library never expires (unlike chats)
+- **Chats and Library are persistent** — direct agent conversations, channels, and bookmarked Library content stay available across app restarts
 - **Multiple agents for different roles** — create a "Researcher", a "Coder", and a "Writer" agent, each trained differently
 - **Spotlight works mid-task** — press ⌘⇧F while reading an article, a GitHub issue, or a doc to get instant AI help without copy-pasting
 

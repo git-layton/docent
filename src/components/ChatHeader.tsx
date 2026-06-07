@@ -1,18 +1,19 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Menu, Settings, CalendarDays,
-  AlertTriangle, Activity, BookOpen, Search,
+  BookOpen, Search,
   Hash, Users, Inbox
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { ContextMeter } from './ui/ContextMeter';
+import { ActivityMonitor } from './ActivityMonitor';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
-import { normalizeChatRecord, promoteChatToChannel } from '../services/channels';
+import { normalizeChatRecord } from '../services/channels';
 
 interface ChatHeaderProps {
   dropdownRef: React.RefObject<HTMLDivElement | null>;
@@ -32,8 +33,8 @@ export function ChatHeader({
   llamaCoolingDown: _llamaCoolingDown,
   activeMessages,
   systemPromptLen,
-  hasErrorLogs,
-  errorLogsCount,
+  hasErrorLogs: _hasErrorLogs,
+  errorLogsCount: _errorLogsCount,
   onRunDreamCycle: _onRunDreamCycle,
   onToast: _onToast,
 }: ChatHeaderProps) {
@@ -55,7 +56,6 @@ export function ChatHeader({
 
   const ramStats = useUIStore(s => s.ramStats);
   const hwProfile = useUIStore(s => s.hwProfile);
-  const showConsole = useUIStore(s => s.showConsole);
   const isAgentDropdownOpen = useUIStore(s => s.isAgentDropdownOpen);
 
   const [agentSearch, setAgentSearch] = useState('');
@@ -106,20 +106,9 @@ export function ChatHeader({
     updateActiveChat({ participantAgentIds: safeNext });
   };
 
-  const promoteActiveChatToChannel = () => {
-    if (!activeChatId || !activeChat || !normalizedChat || normalizedChat.kind === 'channel') return;
-    const nextName = normalizedChat.name === 'New Chat' || normalizedChat.name.endsWith(' Direct')
-      ? `${activeAssistant?.name ?? 'Agent'} Channel`
-      : normalizedChat.name;
-    const promoted = promoteChatToChannel(activeChat, activeFolderId, { name: nextName });
-    useChatStore.getState().setChats((prev: any[]) => prev.map((chat: any) => chat.id === activeChatId ? promoted : chat));
-    useUIStore.getState().setIsAgentDropdownOpen(true);
-    _onToast('Direct promoted to a channel. Use Invite to add specialists.');
-  };
-
   return (
     <>
-      <header className="h-16 shrink-0 flex items-center justify-between px-4 lg:px-6 border-b border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md z-10">
+      <header className="h-12 shrink-0 flex items-center justify-between px-3 lg:px-4 border-b border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md z-10">
         <div className="flex items-center gap-3 relative" ref={dropdownRef}>
           <button onClick={() => useUIStore.getState().setIsSidebarOpen(v => !v)} className="p-2 -ml-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"><Menu className="w-5 h-5" /></button>
           <div className="flex items-center gap-2 p-2 rounded-xl">
@@ -168,7 +157,7 @@ export function ChatHeader({
                     className="w-full mb-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-[10px] font-bold outline-none focus:border-[#6A829E]"
                   />
                 </div>
-                {assistants.filter(a => a.id !== 'forge-guide' && a.name.toLowerCase().includes(agentSearch.toLowerCase())).map(agent => (
+                {assistants.filter(a => a.id !== 'forge-guide' && a.id !== 'f-default' && a.name.toLowerCase().includes(agentSearch.toLowerCase())).map(agent => (
                   <div key={agent.id} onClick={() => toggleChannelAgent(agent.id)} className="group flex items-center justify-between px-2 py-2 rounded-xl cursor-pointer transition-all hover:bg-neutral-50 dark:hover:bg-neutral-800">
                     <div className="flex items-center gap-3 truncate flex-1">
                       <AgentIcon agent={agent} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" />
@@ -195,15 +184,6 @@ export function ChatHeader({
               <Search className="w-5 h-5" />
             </button>
           )}
-          {!showPlanner && normalizedChat && !isChannel && (
-            <button
-              onClick={promoteActiveChatToChannel}
-              className="p-2 rounded-lg transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-[#4A5D75]"
-              title="Promote this direct to a channel"
-            >
-              <Hash className="w-5 h-5" />
-            </button>
-          )}
           {ramStats && ramStats.available_mb < (hwProfile?.hud_show_mb ?? 2000) && (
             <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
               ramStats.available_mb < (hwProfile?.hud_warn_mb ?? 1200) ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
@@ -212,14 +192,7 @@ export function ChatHeader({
               {(ramStats.available_mb / 1024).toFixed(1)}GB
             </div>
           )}
-          <button onClick={() => useUIStore.getState().setShowConsole(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showConsole ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : hasErrorLogs ? 'text-[#C98A8A] hover:bg-[#F7EBEB] dark:hover:bg-[#4A2E2E]/30' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`} title="Open App Console">
-            {hasErrorLogs ? (
-              <div className="relative">
-                <AlertTriangle className="w-5 h-5 animate-pulse text-[#C98A8A]" />
-                <span className="absolute -top-1.5 -right-1.5 bg-[#C98A8A] text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full shadow-sm">{errorLogsCount}</span>
-              </div>
-            ) : <Activity className="w-5 h-5" />}
-          </button>
+          <ActivityMonitor />
           <button onClick={() => useTaskStore.getState().setShowPlanner(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showPlanner ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}>
             <CalendarDays className="w-5 h-5" />
             {tasks.filter(t => !t.completed).length > 0 && <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#6A829E] text-white text-[9px] font-black">{tasks.filter(t => !t.completed).length}</span>}

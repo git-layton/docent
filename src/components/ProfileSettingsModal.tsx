@@ -16,6 +16,7 @@ interface ProfileSettingsModalProps {
 }
 
 export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewImageInCanvas }: ProfileSettingsModalProps) {
+  const userName = useSettingsStore(s => s.userName);
   const userProfile = useSettingsStore(s => s.userProfile);
   const integrations = useSettingsStore(s => s.integrations);
   const appSettings = useSettingsStore(s => s.appSettings);
@@ -24,7 +25,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const imageEngineModels = useSettingsStore(s => s.imageEngineModels);
   const isFetchingImageModels = useSettingsStore(s => s.isFetchingImageModels);
   const models = useSettingsStore(s => s.models);
-  const { setUserProfile, setIntegrations, setAppSettings, setProfileSettingsTab,
+  const { setUserName, setUserProfile, setIntegrations, setAppSettings, setProfileSettingsTab,
     setImageTestState, setImageEngineModels, setShowProfileSettings } = useSettingsStore.getState();
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
@@ -88,6 +89,17 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
           {profileSettingsTab === 'profile' ? (
             <div>
+              <div className="mb-5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#9EADC8] mb-2 block">Your Name <span className="text-[#C98A8A]">*</span></label>
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={e => setUserName(e.target.value)}
+                  placeholder="What should we call you?"
+                  className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-3 text-sm font-medium outline-none focus:border-[#6A829E] dark:text-neutral-100"
+                />
+                <p className="text-[10px] text-neutral-400 mt-1.5 font-medium">All agents will address you by this name.</p>
+              </div>
               <label className="text-[10px] font-black uppercase opacity-50 mb-2 block tracking-widest">About Me (Global Context)</label>
               <textarea value={userProfile} onChange={e => setUserProfile(e.target.value)} rows={8} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-[#6A829E] dark:text-neutral-100" placeholder="" />
 

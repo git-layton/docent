@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use notify::Watcher;
 use std::path::{Component, Path, PathBuf};
 use sysinfo::{System, CpuRefreshKind, RefreshKind};
@@ -8,6 +8,47 @@ use tauri::Manager;
 
 struct LlamaState {
     pid: Mutex<Option<u32>>,
+}
+
+// ─── Network Discovery State ─────────────────────────────────────────────────
+
+#[derive(Clone, serde::Serialize)]
+struct NetworkPeer {
+    id: String,
+    name: String,
+    ip: String,
+}
+
+struct PeerEntry {
+    peer: NetworkPeer,
+    last_seen_secs: u64,
+}
+
+struct NetworkState {
+    active: bool,
+    instance_id: String,
+    display_name: String,
+    stop_flag: Option<Arc<std::sync::atomic::AtomicBool>>,
+    peers: Arc<Mutex<Vec<PeerEntry>>>,
+}
+
+impl Default for NetworkState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            instance_id: String::new(),
+            display_name: String::new(),
+            stop_flag: None,
+            peers: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+fn net_now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 // Caches the active tab captured BEFORE the spotlight window steals OS focus
@@ -2019,6 +2060,134 @@ fn read_inbox_attachment(owner_id: String, capture_id: String, filename: String)
     }
 }
 
+// ─── Network Discovery Commands ──────────────────────────────────────────────
+
+#[tauri::command]
+fn set_network_active(
+    state: tauri::State<Mutex<NetworkState>>,
+    active: bool,
+    name: String,
+    instance_id: String,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+
+    let mut ns = state.lock().unwrap();
+
+    // Stop existing threads if any
+    if let Some(flag) = ns.stop_flag.take() {
+        flag.store(true, Ordering::SeqCst);
+    }
+
+    if !active {
+        // Send one "bye" packet
+        if !ns.instance_id.is_empty() {
+            let bye = format!(r#"{{"type":"bye","id":"{}"}}"#, ns.instance_id);
+            let _ = std::net::UdpSocket::bind("0.0.0.0:0").and_then(|s| {
+                s.set_broadcast(true)?;
+                s.send_to(bye.as_bytes(), "255.255.255.255:47321")
+            });
+        }
+        ns.active = false;
+        ns.peers.lock().unwrap().clear();
+        return Ok(());
+    }
+
+    // Same instance already active — nothing to do
+    if ns.active && ns.instance_id == instance_id {
+        return Ok(());
+    }
+
+    ns.active = true;
+    ns.display_name = name.clone();
+    ns.instance_id = instance_id.clone();
+
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    ns.stop_flag = Some(stop.clone());
+    let peer_store = Arc::clone(&ns.peers);
+
+    // Broadcast thread: sends heartbeat every 15s
+    let stop_b = stop.clone();
+    let iid_b = instance_id.clone();
+    let name_b = name.clone();
+    std::thread::spawn(move || {
+        let hb = format!(
+            r#"{{"type":"heartbeat","id":"{}","name":"{}","port":8765,"v":1}}"#,
+            iid_b, name_b
+        );
+        loop {
+            if stop_b.load(Ordering::SeqCst) { return; }
+            let _ = std::net::UdpSocket::bind("0.0.0.0:0").and_then(|s| {
+                s.set_broadcast(true)?;
+                s.send_to(hb.as_bytes(), "255.255.255.255:47321")
+            });
+            // Sleep 15s in 100ms increments to stay responsive to stop signal
+            for _ in 0..150 {
+                if stop_b.load(Ordering::SeqCst) { return; }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    });
+
+    // Listen thread: receives heartbeats from peers
+    let stop_l = stop.clone();
+    let iid_l = instance_id.clone();
+    let peers_l = Arc::clone(&peer_store);
+    std::thread::spawn(move || {
+        let sock = match std::net::UdpSocket::bind("0.0.0.0:47321") {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let _ = sock.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+        let mut buf = [0u8; 1024];
+        while !stop_l.load(Ordering::SeqCst) {
+            let (n, addr) = match sock.recv_from(&mut buf) {
+                Ok(r) => r,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut => continue,
+                Err(_) => continue,
+            };
+            let msg = String::from_utf8_lossy(&buf[..n]);
+            let v: serde_json::Value = match serde_json::from_str(&msg) {
+                Ok(v) => v, Err(_) => continue,
+            };
+            let id = v["id"].as_str().unwrap_or("").to_string();
+            if id.is_empty() || id == iid_l { continue; }
+            let typ = v["type"].as_str().unwrap_or("");
+            let ip = addr.ip().to_string();
+            let now = net_now_secs();
+            let mut peers = peers_l.lock().unwrap();
+            if typ == "bye" {
+                peers.retain(|p| p.peer.id != id);
+            } else if typ == "heartbeat" {
+                let name = v["name"].as_str().unwrap_or("Unknown").to_string();
+                if let Some(e) = peers.iter_mut().find(|p| p.peer.id == id) {
+                    e.peer.name = name; e.peer.ip = ip; e.last_seen_secs = now;
+                } else {
+                    peers.push(PeerEntry { peer: NetworkPeer { id, name, ip }, last_seen_secs: now });
+                }
+            }
+            // Expire peers older than 45s
+            let cutoff = now.saturating_sub(45);
+            peers.retain(|p| p.last_seen_secs >= cutoff);
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_network_peers(state: tauri::State<Mutex<NetworkState>>) -> Vec<NetworkPeer> {
+    let ns = state.lock().unwrap();
+    if !ns.active { return vec![]; }
+    let cutoff = net_now_secs().saturating_sub(45);
+    let result: Vec<NetworkPeer> = ns.peers.lock().unwrap()
+        .iter()
+        .filter(|p| p.last_seen_secs >= cutoff)
+        .map(|p| p.peer.clone())
+        .collect();
+    result
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2028,6 +2197,7 @@ pub fn run() {
             pid: Mutex::new(None),
         })
         .manage(TabCache::default())
+        .manage(Mutex::new(NetworkState::default()))
         .manage(SysState(Mutex::new(System::new_with_specifics(
             RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
         ))))
@@ -2137,6 +2307,8 @@ pub fn run() {
             create_inbox_capture,
             update_inbox_capture,
             read_inbox_attachment,
+            set_network_active,
+            get_network_peers,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application")

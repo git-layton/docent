@@ -79,12 +79,11 @@ export const fetchWithRetry = async (url: string, options: any, retries = 3, sig
       }
       return returnRaw ? res : await res.json();
     } catch (err: any) {
-      const msg: string = err?.message ?? String(err);
-      if (msg.includes('Failed to fetch') || msg.includes('Load failed')) {
-        throw new Error(`CORS/Network Error: Detail: ${msg}`);
-      }
+      const msg: string = err?.message ?? (typeof err === 'string' ? err : JSON.stringify(err));
       if (err?.name === 'AbortError' || msg === 'CONTEXT_LIMIT_EXCEEDED') throw err;
-      if (attempt === retries) throw err;
+      const isNetworkDown = /Failed to fetch|Load failed|Connection refused|ECONNREFUSED|error sending request|Network request failed|fetch failed/i.test(msg);
+      if (isNetworkDown) throw new Error(`Model server unreachable — is LM Studio (or your API provider) running? (${msg})`);
+      if (attempt === retries) throw (err instanceof Error ? err : new Error(msg));
       await new Promise(r => setTimeout(r, delay));
       delay = Math.min(delay * 2, 8000);
     }
@@ -122,8 +121,9 @@ export const validateModel = async (model: any) => {
   }
 };
 
-export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings }: any) => {
-  let prompt = (agent.prompt ?? '') + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}\n`;
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings }: any) => {
+  const _userName = userName || appSettings?.userName || '';
+  let prompt = (agent.prompt ?? '') + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
 
   const activeTools = Object.keys(agent.tools ?? {}).filter(k => agent.tools[k]);
   if (activeTools.length > 0) prompt += `[ACTIVE TOOLS]\n${activeTools.join(', ')}\n\n`;
@@ -180,7 +180,7 @@ export const buildSystemPrompt = ({ agent, profile, tasks, canvasContent, mode, 
   return prompt;
 };
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -235,7 +235,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, att
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);

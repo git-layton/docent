@@ -19,10 +19,12 @@ import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
+import { normalizeChatRecord } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { NukeShieldModal } from './components/NukeShieldModal';
 import { MemmoPanel } from './components/MemmoPanel';
 import { InboxPanel } from './components/InboxPanel';
@@ -39,6 +41,7 @@ import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { AppSidebar } from './components/AppSidebar';
+import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { ChatHeader } from './components/ChatHeader';
 import { PlannerPanel } from './components/PlannerPanel';
@@ -77,6 +80,7 @@ export default function App() {
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
   const appSettings = useSettingsStore(s => s.appSettings);
   const userProfile = useSettingsStore(s => s.userProfile);
+  const userName = useSettingsStore(s => s.userName);
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);
   const showModelWizard = useSettingsStore(s => s.showModelWizard);
   const showOnboarding = useSettingsStore(s => s.showOnboarding);
@@ -114,6 +118,7 @@ export default function App() {
   const [nukeShieldPending, setNukeShieldPending] = useState<{ path: string; content: string; deletions: number; existingLines: number; diffStat: string } | null>(null);
 
   const [showAgentIntro, setShowAgentIntro] = useState(false);
+  const [pendingArtifactType, setPendingArtifactType] = useState<'code' | 'doc' | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
@@ -177,6 +182,15 @@ export default function App() {
         await db.init();
         await useChatStore.getState().hydrate();
         await useAgentStore.getState().hydrate();
+        const restoredActiveChatId = useChatStore.getState().activeChatId;
+        const restoredActiveChat = useChatStore.getState().chats.find((chat: any) => chat.id === restoredActiveChatId);
+        if (restoredActiveChat) {
+          const normalized = normalizeChatRecord(restoredActiveChat, useAgentStore.getState().activeFolderId);
+          const agentId = normalized.primaryAgentId ?? normalized.folderId;
+          if (agentId && useAgentStore.getState().assistants.some((agent: any) => agent.id === agentId)) {
+            useAgentStore.getState().setActiveFolderId(agentId);
+          }
+        }
         await useSettingsStore.getState().hydrate();
         await useMemoryStore.getState().hydrate();
         await useTaskStore.getState().hydrate();
@@ -208,8 +222,18 @@ export default function App() {
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
       // Onboarding wizard — show on first launch until completed
+      // Skip silently if user already has models or chat history (dismissed mid-flow previously)
       const onboardingDone = await db.get('onboardingComplete', false);
-      if (!onboardingDone) useSettingsStore.getState().setShowOnboarding(true);
+      if (!onboardingDone) {
+        const hasModels = useSettingsStore.getState().models.length > 0;
+        const hasChats = useChatStore.getState().chats.length > 0;
+        if (hasModels || hasChats) {
+          await db.set('onboardingComplete', true);
+          useSettingsStore.getState().setOnboardingComplete(true);
+        } else {
+          useSettingsStore.getState().setShowOnboarding(true);
+        }
+      }
 
       // First-time agent intro card
       const introSeen = await db.get('agentIntroSeen', false);
@@ -314,19 +338,24 @@ export default function App() {
     }
   }, [llamaServerPid, llamaCoolingDown, isGenerating, llamaPaused]);
 
+  const flushState = useCallback(async () => {
+    if (!useUIStore.getState().isDbLoaded) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    try {
+      await useChatStore.getState().persist();
+      await useAgentStore.getState().persist();
+      await useSettingsStore.getState().persist();
+      await useTaskStore.getState().persist();
+      await useUIStore.getState().persistSavedApps();
+    } catch (err) { console.error('[AgentForge] Save error:', err); }
+  }, []); // no deps needed — reads from store at call time
+
   const persistState = useCallback(() => {
     if (!useUIStore.getState().isDbLoaded) return;
     clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      try {
-        await useChatStore.getState().persist();
-        await useAgentStore.getState().persist();
-        await useSettingsStore.getState().persist();
-        await useTaskStore.getState().persist();
-        await useUIStore.getState().persistSavedApps();
-      } catch (err) { console.error('[AgentForge] Save error:', err); }
-    }, 1500);
-  }, []); // no deps needed — reads from store at call time
+    saveTimerRef.current = setTimeout(() => { void flushState(); }, 1500);
+  }, [flushState]);
 
   useEffect(() => {
     const unsub1 = useChatStore.subscribe(() => persistState());
@@ -338,7 +367,30 @@ export default function App() {
     });
     return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, [persistState]);
-  useEffect(() => () => clearTimeout(saveTimerRef.current), []);
+  useEffect(() => {
+    const flushSoon = () => { void flushState(); };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') flushSoon();
+    };
+    window.addEventListener('pagehide', flushSoon);
+    window.addEventListener('beforeunload', flushSoon);
+    document.addEventListener('visibilitychange', flushWhenHidden);
+
+    let unlistenClose: (() => void) | null = null;
+    if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
+      getCurrentWindow().onCloseRequested(async () => {
+        await flushState();
+      }).then(unlisten => { unlistenClose = unlisten; }).catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener('pagehide', flushSoon);
+      window.removeEventListener('beforeunload', flushSoon);
+      document.removeEventListener('visibilitychange', flushWhenHidden);
+      if (unlistenClose) unlistenClose();
+      flushSoon();
+    };
+  }, [flushState]);
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const activeMessages = useMemo(() => activeChatId ? (messages[activeChatId] ?? []) : [], [messages, activeChatId]);
@@ -355,7 +407,7 @@ export default function App() {
   );
   const agentPinnedMessagesForPrompt = useMemo(() => activeAgentPinnedMessageObjects.map(p => p.content), [activeAgentPinnedMessageObjects]);
 
-  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings }).length, [activeAssistant, userProfile, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings]);
+  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings]);
 
   // Sync mode when switching agents
   useEffect(() => {
@@ -395,6 +447,7 @@ export default function App() {
         return;
       }
       if (e.key === 'Escape') {
+        if (pendingArtifactType) { setPendingArtifactType(null); return; }
         const mem = useMemoryStore.getState();
         const ag = useAgentStore.getState();
         const ss = useSettingsStore.getState();
@@ -715,10 +768,32 @@ export default function App() {
   };
 
   const createBlankArtifact = (type: string) => {
+    if (type === 'code' || type === 'doc') setPendingArtifactType(type);
+  };
+
+  const confirmArtifactCreate = (agentId: string, type: 'code' | 'doc') => {
+    useAgentStore.getState().setActiveFolderId(agentId);
+    const { chats } = useChatStore.getState();
+    const existing = chats.find((c: any) => {
+      const norm = normalizeChatRecord(c, agentId);
+      return norm.kind === 'dm' && (norm.primaryAgentId === agentId || c.folderId === agentId);
+    });
+    if (existing) {
+      useChatStore.getState().setActiveChatId(existing.id);
+    } else {
+      const chatId = generateId('c');
+      const agent = useAgentStore.getState().assistants.find((a: any) => a.id === agentId);
+      const chat = normalizeChatRecord({ id: chatId, folderId: agentId, primaryAgentId: agentId, participantAgentIds: [agentId], kind: 'dm', name: `${agent?.name ?? 'Agent'} Direct`, goal: '', createdAt: Date.now(), updatedAt: Date.now() }, agentId);
+      useChatStore.getState().setChats((prev: any[]) => [chat, ...prev]);
+      useChatStore.getState().setActiveChatId(chatId);
+      useChatStore.getState().setMessages((prev: any) => ({ ...prev, [chatId]: [] }));
+    }
     const initialContent = type === 'code' ? '\n' : '<h1>New Document</h1><p>Start writing here...</p>';
     const ui = useUIStore.getState();
     ui.setCanvasContent({ id: generateId('art'), title: `Untitled ${type === 'code' ? 'App' : 'Document'}`, content: initialContent, language: 'html', type, isStandalone: false, history: [{ timestamp: Date.now(), content: initialContent }], historyIndex: 0 });
-    ui.setGenerationMode(type); ui.setCanvasTab(type === 'code' ? 'code' : 'preview'); useTaskStore.getState().setShowPlanner(false);
+    ui.setGenerationMode(type); ui.setCanvasTab(type === 'code' ? 'code' : 'preview');
+    useTaskStore.getState().setShowPlanner(false);
+    setPendingArtifactType(null);
   };
 
   const saveToLibrary = (asNew = false) => {
@@ -884,7 +959,11 @@ export default function App() {
     const ss = useSettingsStore.getState();
     const _editingModel = ss.editingModel;
     const _pendingModelSelections = ss.pendingModelSelections;
-    const newModels = _pendingModelSelections.map((m: any) => ({ id: generateId('m'), name: m.id, provider: _editingModel.provider, modelId: m.id, endpoint: _editingModel.endpoint, apiKey: _editingModel.apiKey, contextLimit: m.context, canImage: false, isLocal: isLocalProvider(_editingModel.provider, _editingModel.endpoint) }));
+    const existingModels = ss.models;
+    const newModels = _pendingModelSelections
+      .filter((m: any) => !existingModels.some((e: any) => e.modelId === m.id && e.endpoint === _editingModel.endpoint))
+      .map((m: any) => ({ id: generateId('m'), name: m.id, provider: _editingModel.provider, modelId: m.id, endpoint: _editingModel.endpoint, apiKey: _editingModel.apiKey, contextLimit: m.context, canImage: false, isLocal: isLocalProvider(_editingModel.provider, _editingModel.endpoint) }));
+    if (newModels.length === 0) { useUIStore.getState().showToast('All selected models are already added.'); ss.setPendingModelSelections([]); ss.setShowModelWizard(false); ss.setWizardStep(3); return; }
     ss.setModels((prev: any[]) => [...prev, ...newModels]);
     if (!ss.selectedModelId && newModels.length > 0) ss.setSelectedModelId(newModels[0].id);
     ss.setPendingModelSelections([]); ss.setFetchedModels([]); ss.setShowModelWizard(false); ss.setWizardStep(3);
@@ -899,6 +978,8 @@ export default function App() {
     const ss = useSettingsStore.getState();
     const id = generateId('m');
     const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: false, isLocal: isLocalProvider(cfg.provider, cfg.endpoint) };
+    const duplicate = ss.models.find((e: any) => e.modelId === mdl.modelId && e.endpoint === mdl.endpoint);
+    if (duplicate) { ss.setSelectedModelId(duplicate.id); ss.setShowModelWizard(false); ss.setWizardStep(3); useUIStore.getState().showToast('Model already added — switched to it.'); return; }
     ss.setModels((prev: any[]) => [...prev, mdl]); ss.setSelectedModelId(id); ss.setShowModelWizard(false); ss.setWizardStep(3); ss.setEditingModel({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
     ss.setModelValidation((prev: Record<string, string>) => ({ ...prev, [id]: 'pending' }));
     const ok = await validateModel(mdl);
@@ -1163,6 +1244,7 @@ export default function App() {
     const _canvasContent = useUIStore.getState().canvasContent;
     const _tasks = useTaskStore.getState().tasks;
     const _userProfile = useSettingsStore.getState().userProfile;
+    const _userName = useSettingsStore.getState().userName;
 
     setIsGenerating(true);
     try {
@@ -1197,6 +1279,8 @@ export default function App() {
 
       if (toolUsed) {
         const toolMsgId = generateId('tool');
+        const searchProviders: string[] = [];
+        let searchResultCount = 0;
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false, timestamp: Date.now() }] }));
 
         if (toolUsed === 'Knowledge Search') {
@@ -1244,6 +1328,7 @@ export default function App() {
                             );
                             if (tvData.results) {
                                 tvData.results.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.content }));
+                                if (tvData.results.length > 0) { searchProviders.push('Tavily'); searchResultCount += tvData.results.length; }
                             }
                             if (tvData.answer) {
                                 toolData += `\n[TAVILY AI SUMMARY]\n${tvData.answer}\n`;
@@ -1277,11 +1362,9 @@ export default function App() {
                             1
                         );
                         if (braveData?.web?.results) {
-                            braveData.web.results.slice(0, 5).forEach((r: any) => {
-                                if (!foundSources.some((x: any) => x.url === r.url)) {
-                                    foundSources.push({ title: r.title, url: r.url, snippet: r.description ?? '' });
-                                }
-                            });
+                            const braveNew = braveData.web.results.slice(0, 5).filter((r: any) => !foundSources.some((x: any) => x.url === r.url));
+                            braveNew.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.description ?? '' }));
+                            if (braveNew.length > 0) { searchProviders.push('Brave'); searchResultCount += braveNew.length; }
                         }
                     } catch (braveErr: any) {
                         const msg = braveErr?.message ?? String(braveErr);
@@ -1305,12 +1388,12 @@ export default function App() {
                             1
                         );
                         if (wikiData?.query?.search) {
-                            wikiData.query.search.slice(0, 2).forEach((s: any) => {
+                            const wikiNew = wikiData.query.search.slice(0, 2).filter((s: any) => !foundSources.some((x: any) => x.url === `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`));
+                            wikiNew.forEach((s: any) => {
                                 const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`;
-                                if (!foundSources.some((x: any) => x.url === url)) {
-                                    foundSources.push({ title: `Wikipedia: ${s.title}`, url, snippet: s.snippet.replace(/<[^>]*>?/gm, '') });
-                                }
+                                foundSources.push({ title: `Wikipedia: ${s.title}`, url, snippet: s.snippet.replace(/<[^>]*>?/gm, '') });
                             });
+                            if (wikiNew.length > 0) { searchProviders.push('Wikipedia'); searchResultCount += wikiNew.length; }
                         }
                     } catch (wikiErr: any) {
                         console.warn("Wikipedia search failed:", wikiErr);
@@ -1339,8 +1422,15 @@ export default function App() {
             }
         }
 
-        await new Promise(r => setTimeout(r, 800));
-        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
+        if (toolUsed === 'Web Search') {
+          const summary = searchResultCount > 0
+            ? `🔍 ${searchProviders.length > 0 ? searchProviders.join(' + ') : 'Web'} · ${searchResultCount} result${searchResultCount !== 1 ? 's' : ''}`
+            : `🔍 Web Search · no results found`;
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${summary} ]` } : m) }));
+        } else {
+          await new Promise(r => setTimeout(r, 800));
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
+        }
         
         if (toolData) {
             // Only inject toolData into the LLM payload — never into stored messages (avoids SYSTEM NOTE bleed in chat bubbles)
@@ -1382,6 +1472,7 @@ export default function App() {
           messages: messagesForLLM,
           modelConfig: _selectedModel,
           profile: _userProfile,
+          userName: _userName,
           attachedDocs: userMsg.attachedFiles,
           agent: _activeAssistant,
           tasks: _tasks,
@@ -1423,7 +1514,18 @@ export default function App() {
 
     } catch (err: any) {
       if (err.name === 'AbortError') { setIsGenerating(false); return; }
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${err.message ?? 'An unexpected error occurred.'}`, isPinned: false, timestamp: Date.now() }] }));
+      const errMsg = err?.message || (typeof err === 'string' ? err : null) || 'An unexpected error occurred.';
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
+        const msgs = prev[chatId] ?? [];
+        let streamingIdx = -1;
+        for (let i = msgs.length - 1; i >= 0; i--) { if ((msgs[i] as any).isStreaming) { streamingIdx = i; break; } }
+        if (streamingIdx !== -1) {
+          const updated = [...msgs];
+          updated[streamingIdx] = { ...updated[streamingIdx], isStreaming: false, content: `### ⚠️ Generation Failed\n${errMsg}` };
+          return { ...prev, [chatId]: updated };
+        }
+        return { ...prev, [chatId]: [...msgs, { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${errMsg}`, isPinned: false, timestamp: Date.now() }] };
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -1462,11 +1564,23 @@ export default function App() {
     }
 
     abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
-    let chatId = _activeChatId; const isNewChat = !chatId;
-    if (isNewChat) {
-      chatId = generateId('c');
-      useChatStore.getState().setChats((prev: any[]) => [{ id: chatId, folderId: _activeFolderId, name: _input.slice(0, 30) || 'New Session', updatedAt: Date.now() }, ...prev]);
-      useChatStore.getState().setActiveChatId(chatId);
+    let chatId = _activeChatId; let isNewChat = !chatId;
+    if (!chatId) {
+      // Recover existing DM before creating a blank duplicate
+      const existingDm = useChatStore.getState().chats
+        .map((c: any) => normalizeChatRecord(c, _activeFolderId))
+        .filter((c: any) => c.kind === 'dm' && (c.primaryAgentId === _activeFolderId || c.folderId === _activeFolderId))
+        .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
+      if (existingDm) {
+        chatId = existingDm.id;
+        isNewChat = false;
+        useChatStore.getState().setActiveChatId(chatId);
+      } else {
+        chatId = generateId('c');
+        isNewChat = true;
+        useChatStore.getState().setChats((prev: any[]) => [{ id: chatId, folderId: _activeFolderId, primaryAgentId: _activeFolderId, participantAgentIds: [_activeFolderId], kind: 'dm', name: _input.slice(0, 30) || 'New Session', createdAt: Date.now(), updatedAt: Date.now() }, ...prev]);
+        useChatStore.getState().setActiveChatId(chatId);
+      }
     }
     const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
     if(chatId) {
@@ -1546,6 +1660,12 @@ export default function App() {
       );
     }
 
+    // Pre-scan for all profile facts so we can offer "Approve All"
+    const allProfileFacts: string[] = [];
+    { const pr = /```profile\n([\s\S]*?)```/g; let pm; while ((pm = pr.exec(displayContent)) !== null) { try { const d = JSON.parse(pm[1].trim()); if (d.fact) allProfileFacts.push(d.fact); } catch {} } }
+    const pendingProfileFacts = allProfileFacts.filter(f => !useSettingsStore.getState().userProfile.includes(f));
+    let profileBlockIdx = 0;
+
     const regex = /```(\w+)?\n([\s\S]*?)```/g;
     let lastIndex = 0, match;
     while ((match = regex.exec(displayContent)) !== null) {
@@ -1570,13 +1690,23 @@ export default function App() {
           const pData = JSON.parse(code);
           const _currentProfile = useSettingsStore.getState().userProfile;
           const isApproved = _currentProfile.includes(pData.fact);
+          const thisBlockIdx = profileBlockIdx++;
+          const isLastPendingBlock = pendingProfileFacts.length > 1 && thisBlockIdx === allProfileFacts.length - 1;
+          const approveAll = () => {
+            const base = useSettingsStore.getState().userProfile;
+            const toAdd = pendingProfileFacts.filter(f => !useSettingsStore.getState().userProfile.includes(f));
+            if (toAdd.length) useSettingsStore.getState().setUserProfile(base + (base ? '\n' : '') + toAdd.join('\n'));
+          };
           elements.push(
              <div key={`prof-${match.index}`} className="my-3 p-4 rounded-xl border border-[#9EADC8] dark:border-[#6A829E]/50 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-2">
                <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><UserPlus className="w-4 h-4"/> Profile Knowledge Update</div>
                <p className="text-sm text-neutral-700 dark:text-neutral-300">"{pData.fact}"</p>
-               <button disabled={isApproved} onClick={() => useSettingsStore.getState().setUserProfile(useSettingsStore.getState().userProfile + (useSettingsStore.getState().userProfile ? '\n' : '') + pData.fact)} className={`mt-2 py-2 rounded-lg text-xs font-bold transition-all ${isApproved ? 'bg-[#9FBBAF] text-white opacity-50 cursor-default' : 'bg-[#6A829E] hover:bg-[#4A5D75] text-white active:scale-95'}`}>
-                 {isApproved ? 'Saved to Profile' : 'Approve & Save'}
-               </button>
+               <div className="flex gap-2 mt-2">
+                 <button disabled={isApproved} onClick={() => useSettingsStore.getState().setUserProfile(useSettingsStore.getState().userProfile + (useSettingsStore.getState().userProfile ? '\n' : '') + pData.fact)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${isApproved ? 'bg-[#9FBBAF] text-white opacity-50 cursor-default' : 'bg-[#6A829E] hover:bg-[#4A5D75] text-white active:scale-95'}`}>
+                   {isApproved ? 'Saved to Profile' : 'Approve'}
+                 </button>
+                 {isLastPendingBlock && <button onClick={approveAll} className="flex-1 py-2 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#2C3E50] text-white active:scale-95 transition-all">Approve All ({pendingProfileFacts.length})</button>}
+               </div>
              </div>
           );
         } catch { elements.push(<div key={`err-p-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse profile update.</div>); }
@@ -1827,7 +1957,6 @@ export default function App() {
   function handleSlashCommand(cmd: SlashCommand) {
     const ui = useUIStore.getState();
     const mem = useMemoryStore.getState();
-    const { activeChatId: _activeChatId } = useChatStore.getState();
     switch (cmd.cmd) {
       case 'think':
         ui.setIsDeepThinking(true);
@@ -1847,10 +1976,6 @@ export default function App() {
         break;
       case 'memo':
         mem.setShowMemoCompose(true);
-        ui.setInput('');
-        break;
-      case 'clear':
-        if (_activeChatId) useChatStore.getState().setMessages((prev: any) => ({ ...prev, [_activeChatId]: [] }));
         ui.setInput('');
         break;
     }
@@ -2161,6 +2286,15 @@ export default function App() {
       {/* Onboarding wizard */}
       {showOnboarding && (
         <OnboardingWizard onClose={() => useSettingsStore.getState().setShowOnboarding(false)} />
+      )}
+
+      {/* Artifact start picker */}
+      {pendingArtifactType && (
+        <ArtifactStartModal
+          type={pendingArtifactType}
+          onConfirm={(agentId) => confirmArtifactCreate(agentId, pendingArtifactType)}
+          onCancel={() => setPendingArtifactType(null)}
+        />
       )}
 
       {/* Model Onboarding / Engine Wizard */}

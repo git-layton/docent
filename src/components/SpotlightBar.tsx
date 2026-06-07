@@ -105,8 +105,16 @@ export default function SpotlightBar() {
   }, [preferredBrowser]);
 
   const persistChats = useCallback(async (updatedChats: Chat[], updatedMessages: Record<string, Msg[]>) => {
-    await db.set('chats', updatedChats);
-    await db.set('messages', updatedMessages);
+    const [storedChats, storedMessages] = await Promise.all([
+      db.get('chats', []),
+      db.get('messages', {}),
+    ]);
+    const byId = new Map<string, Chat>();
+    for (const chat of storedChats) byId.set(chat.id, chat);
+    for (const chat of updatedChats) byId.set(chat.id, chat);
+    const mergedChats = Array.from(byId.values()).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    await db.set('chats', mergedChats);
+    await db.set('messages', { ...storedMessages, ...updatedMessages });
     emit('spotlight-chat-updated', null).catch(() => {});
   }, []);
 

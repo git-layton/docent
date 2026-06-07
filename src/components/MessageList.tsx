@@ -117,7 +117,7 @@ export function MessageList({
         </button>
       )}
 
-      <div ref={scrollContainerRef} onScroll={checkScroll} className="flex-1 overflow-y-auto p-4 lg:p-6 no-scrollbar scroll-smooth">
+      <div ref={scrollContainerRef} onScroll={checkScroll} className="flex-1 overflow-y-auto p-3 lg:p-4 no-scrollbar scroll-smooth">
         {models.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-in fade-in zoom-in duration-500">
             <div className="p-6 bg-[#2C3E50]/10 dark:bg-[#9EADC8]/10 rounded-full mb-6 border border-[#2C3E50]/20 dark:border-[#9EADC8]/20"><Zap className="w-12 h-12 text-[#2C3E50] dark:text-[#9EADC8]" /></div>
@@ -126,13 +126,13 @@ export function MessageList({
             <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="px-8 py-4 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-[#9EADC8]/30 transition-all active:scale-95 flex items-center gap-3"><Plus className="w-5 h-5" /> Connect Your First LLM</button>
           </div>
         ) : activeChatId && activeMessages.length > 0 ? (
-          <div className="max-w-3xl mx-auto space-y-6 pb-64">
+          <div className="max-w-3xl mx-auto space-y-3 pb-36">
             {activeMessages.map(msg => (
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'bot' && <div className="shrink-0 mr-3 mt-1 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
+                {msg.role === 'bot' && <div className="shrink-0 mr-2 mt-0.5 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
 
                 <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
-                   <div className={`p-4 rounded-2xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+                   <div className={`p-3 rounded-xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
 
                      {editingMessageId === msg.id ? (
                         <div className="flex flex-col gap-3 w-full animate-in fade-in">

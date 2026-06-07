@@ -28,6 +28,7 @@ interface SettingsStore {
   modelValidation: Record<string, string>;
 
   // User profile & integrations
+  userName: string;
   userProfile: string;
   integrations: any;
   appSettings: {
@@ -76,6 +77,7 @@ interface SettingsStore {
   setModels: (fn: ((prev: Model[]) => Model[]) | Model[]) => void;
   setSelectedModelId: (id: string) => void;
   setModelValidation: (fn: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void;
+  setUserName: (v: string) => void;
   setUserProfile: (v: string) => void;
   setIntegrations: (fn: ((prev: any) => any) | any) => void;
   setAppSettings: (fn: ((prev: any) => any) | any) => void;
@@ -102,6 +104,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   models: [],
   selectedModelId: '',
   modelValidation: {},
+  userName: '',
   userProfile: '',
   integrations: {
     brave: { enabled: false, apiKey: '' },
@@ -146,6 +149,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setSelectedModelId: (id) => set({ selectedModelId: id }),
   setModelValidation: (fn) =>
     set(s => ({ modelValidation: typeof fn === 'function' ? fn(s.modelValidation) : fn })),
+  setUserName: (v) => set({ userName: v }),
   setUserProfile: (v) => set({ userProfile: v }),
   setIntegrations: (fn) =>
     set(s => ({ integrations: typeof fn === 'function' ? fn(s.integrations) : fn })),
@@ -176,6 +180,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       isLocal: m.isLocal ?? isLocalProvider(m.provider ?? '', m.endpoint ?? ''),
       canImage: m.canImage ?? false,
     }));
+    const userName = await db.get('userName', '');
     const userProfile = await db.get('userProfile', '');
     const savedIntegrations = await db.get('integrations', {});
     const settings = await db.get('settings', {});
@@ -198,6 +203,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const onboardingComplete = await db.get('onboardingComplete', false);
     set(s => ({
       models,
+      userName,
       userProfile,
       integrations: { ...s.integrations, ...savedIntegrations },
       appSettings: { ...s.appSettings, ...appSettings },
@@ -207,8 +213,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   persist: async () => {
-    const { models, userProfile, integrations, appSettings, selectedModelId, onboardingComplete } = get();
+    const { models, userName, userProfile, integrations, appSettings, selectedModelId, onboardingComplete } = get();
     await db.set('models', models);
+    await db.set('userName', userName);
     await db.set('userProfile', userProfile);
     await db.set('integrations', integrations);
     await db.set('appSettings', appSettings);

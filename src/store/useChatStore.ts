@@ -50,25 +50,44 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setChatSearchQuery: (q) => set({ chatSearchQuery: q }),
 
   hydrate: async () => {
-    const chats = await db.get('chats', []);
-    const messages = await db.get('messages', {});
-    set({ chats, messages });
+    const storedChats = await db.get('chats', []);
+    const storedMessages = await db.get('messages', {});
+    const storedActiveChatId = await db.get('activeChatId', null);
+
+    const chatIds = new Set(storedChats.map((chat: any) => chat.id));
+    const recoveredChats = Object.keys(storedMessages)
+      .filter(chatId => !chatIds.has(chatId) && Array.isArray(storedMessages[chatId]))
+      .map(chatId => {
+        const msgs = storedMessages[chatId] ?? [];
+        const first = msgs[0];
+        const last = msgs[msgs.length - 1];
+        const createdAt = first?.timestamp ?? first?.createdAt ?? Date.now();
+        const updatedAt = last?.timestamp ?? last?.createdAt ?? createdAt;
+        return {
+          id: chatId,
+          folderId: 'lexi',
+          primaryAgentId: 'lexi',
+          participantAgentIds: ['lexi'],
+          kind: 'dm',
+          name: 'Recovered Chat',
+          goal: '',
+          createdAt,
+          updatedAt,
+        };
+      });
+
+    const chats = [...storedChats, ...recoveredChats];
+    const validActiveId = storedActiveChatId && chats.some((chat: any) => chat.id === storedActiveChatId)
+      ? storedActiveChatId
+      : [...chats].sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.id ?? null;
+
+    set({ chats, messages: storedMessages, activeChatId: validActiveId });
   },
 
   persist: async () => {
-    const { chats, messages } = get();
-    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const activeChats = chats.filter(chat => {
-      const msgs = messages[chat.id] ?? [];
-      const last = msgs[msgs.length - 1];
-      const ts = chat.updatedAt ?? last?.timestamp ?? last?.createdAt ?? Infinity;
-      return typeof ts === 'number' ? ts > cutoff : true;
-    });
-    const prunedMessages: Record<string, any[]> = {};
-    for (const chat of activeChats) {
-      prunedMessages[chat.id] = (messages[chat.id] ?? []).slice(-200);
-    }
-    await db.set('chats', activeChats);
-    await db.set('messages', prunedMessages);
+    const { chats, messages, activeChatId } = get();
+    await db.set('chats', chats);
+    await db.set('messages', messages);
+    await db.set('activeChatId', activeChatId);
   },
 }));
