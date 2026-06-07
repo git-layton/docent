@@ -13,7 +13,9 @@ name = "agent-forge"
 version = "2.0.0"
 dependencies = [
  "fastembed",
+ "futures-util",
  "notify",
+ "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
@@ -27,6 +29,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-shell",
  "tauri-plugin-store",
+ "tokio",
 ]
 
 [[package]]

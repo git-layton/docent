@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/alayton/Desktop/Projects/agent-forge/.claude/hooks/check-build-errors.sh",
+            "statusMessage": "Scanning build output for errors..."
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Edit(/Users/alayton/Desktop/Projects/agent-forge/.claude/worktrees/**)",
+      "Write(/Users/alayton/Desktop/Projects/agent-forge/.claude/worktrees/**)",
+      "Read(/Users/alayton/Desktop/Projects/agent-forge/.claude/worktrees/**)",
+      "Bash(bun *)",
+      "Bash(npm *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git branch *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)",
+      "Bash(npx tsc *)",
+      "Bash(find * -name *)",
+      "Bash(grep *)"
+    ]
+  }
+}
