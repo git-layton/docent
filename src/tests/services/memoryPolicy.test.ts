@@ -89,10 +89,10 @@ describe('assessConversationMemory', () => {
   // ── background path ──────────────────────────────────────────────────────
 
   it('should return background for a moderate durable user signal without being notable', () => {
-    // "i prefer" triggers durableUserPatterns (+3).  No other signals.  score = 3.
+    // "i prefer" (+2) + "implemented" durableAnswerPattern (+2) = 4 → background (< 7, not notable)
     const result = assessConversationMemory({
       question: 'i prefer dark mode',
-      answer: 'Noted.',
+      answer: 'I implemented dark mode support.',
     })
     expect(result.shouldSave).toBe(true)
     expect(result.level).toBe('background')
@@ -129,11 +129,12 @@ describe('assessConversationMemory', () => {
   })
 
   it('should return notable with score ≥ 7 via attachment + durable signals', () => {
-    // "i prefer" (+3) + image attachment (+4) = 7 → notable
+    // "i prefer" (+2) + image attachment (+4) + channel kind (+1) = 7 → notable
     const result = assessConversationMemory({
       question: 'i prefer this layout',
       answer: 'Here is the screenshot.',
       attachments: [{ isImage: true }],
+      chatKind: 'channel',
     })
     expect(result.shouldSave).toBe(true)
     expect(result.level).toBe('notable')
