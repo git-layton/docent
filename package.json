@@ -14,6 +14,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "test": "vitest run",
     "eval:memory-gatekeeper": "jiti scripts/memory-gatekeeper-eval.ts",
     "release:check": "npm run check && npm run build",
     "test": "vitest run --passWithNoTests",
@@ -39,6 +40,8 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
+    "vitest": "^3.0.0",
+    "happy-dom": "^14.0.0",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^16.0.0",
