@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
   AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic
@@ -30,6 +30,8 @@ interface ChatInputBarProps {
   onToggleListening: () => void;
   // slash command handler
   onSlashCommand: (cmd: SlashCommand) => void;
+  // channel @mentions
+  channelParticipants?: Array<{ id: string; name: string }>;
 }
 
 export function ChatInputBar({
@@ -50,6 +52,7 @@ export function ChatInputBar({
   isListening,
   onToggleListening,
   onSlashCommand,
+  channelParticipants = [],
 }: ChatInputBarProps) {
   const input = useUIStore(s => s.input);
   const isDeepThinking = useUIStore(s => s.isDeepThinking);
@@ -61,6 +64,20 @@ export function ChatInputBar({
   const slashHighlight = useUIStore(s => s.slashHighlight);
   const { setInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
     setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight } = useUIStore.getState();
+
+  const [mentionHighlight, setMentionHighlight] = useState(0);
+  const mentionMatch = channelParticipants.length > 0 ? input.match(/@(\w*)$/) : null;
+  const mentionQuery = mentionMatch ? mentionMatch[1].toLowerCase() : null;
+  const filteredMentions = mentionQuery !== null
+    ? channelParticipants.filter(p => p.name.toLowerCase().replace(/\s+/g, '').startsWith(mentionQuery) || p.name.toLowerCase().split(/\s+/)[0].startsWith(mentionQuery))
+    : [];
+  const showMentionPalette = filteredMentions.length > 0;
+
+  const completeMention = (name: string) => {
+    const newInput = input.replace(/@(\w*)$/, `@${name} `);
+    setInput(newInput);
+    setMentionHighlight(0);
+  };
 
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
@@ -121,12 +138,31 @@ export function ChatInputBar({
               enabledTools={activeAssistant?.tools ?? {}}
             />
           )}
+          {/* @mention palette for channels */}
+          {showMentionPalette && (
+            <div className="absolute bottom-full left-0 mb-2 w-56 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+              <div className="px-3 pt-2 pb-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">Mention</div>
+              <div className="p-1 space-y-0.5">
+                {filteredMentions.map((p, i) => (
+                  <button key={p.id} onMouseDown={e => { e.preventDefault(); completeMention(p.name); }} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all ${i === mentionHighlight ? 'bg-[#4A5D75] text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200'}`}>
+                    <span className="text-xs font-bold">{p.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         {/* Textarea */}
         <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-[#9EADC8]'}`}>
           <textarea
             value={input}
             onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
             onKeyDown={e => {
+              if (showMentionPalette) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setMentionHighlight(h => (h + 1) % filteredMentions.length); return; }
+                if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionHighlight(h => (h - 1 + filteredMentions.length) % filteredMentions.length); return; }
+                if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); completeMention(filteredMentions[mentionHighlight % filteredMentions.length].name); return; }
+                if (e.key === 'Escape')    { setInput(input.replace(/@(\w*)$/, '')); return; }
+              }
               const showPalette = input.startsWith('/') && !input.includes(' ');
               const toolGate: Record<string, string> = { search: 'web_search', workspace: 'local_workspace' };
               const available = SLASH_COMMANDS.filter(c => { const g = toolGate[c.cmd]; return !g || activeAssistant?.tools?.[g]; });

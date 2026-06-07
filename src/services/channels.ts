@@ -88,7 +88,6 @@ export const routeAgentsForChannel = (
   chat: any,
   agents: any[],
   activeAgentId: string,
-  maxAgents = 3,
 ) => {
   const normalized = normalizeChatRecord(chat, activeAgentId);
   const primary = agents.find(a => a.id === (normalized.primaryAgentId ?? activeAgentId))
@@ -130,12 +129,24 @@ export const routeAgentsForChannel = (
     ) selected.set(agent.id, agent);
   }
 
-  for (const agent of participants) {
-    if (selected.size >= maxAgents) break;
-    selected.set(agent.id, agent);
-  }
+  return Array.from(selected.values());
+};
 
-  return Array.from(selected.values()).slice(0, maxAgents);
+export const buildChannelPromptAddendum = (
+  chat: any,
+  allParticipants: any[],
+  previousResponses: Array<{ agentName: string; content: string }>,
+  currentAgent: any,
+): string => {
+  const others = allParticipants.filter((a: any) => a.id !== currentAgent.id);
+  let addendum = `\n\n[CHANNEL] You are ${currentAgent.name} in a multi-agent channel: "${chat.name || 'this channel'}".`;
+  if (chat.goal) addendum += ` Channel goal: ${chat.goal}`;
+  if (others.length > 0) addendum += ` Other participants: ${others.map((a: any) => a.name).join(', ')}.`;
+  if (previousResponses.length > 0) {
+    addendum += `\n\nOther agents already responded this turn:\n${previousResponses.map(r => `• ${r.agentName}: ${r.content.slice(0, 300)}${r.content.length > 300 ? '...' : ''}`).join('\n')}`;
+    addendum += `\n\nOnly add something meaningfully different. Do not repeat or rephrase what was already covered above.`;
+  }
+  return addendum;
 };
 
 export const buildChannelContext = (chat: any, agents: any[]) => {

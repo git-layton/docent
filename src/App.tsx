@@ -437,6 +437,15 @@ export default function App() {
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const activeMessages = useMemo(() => activeChatId ? (messages[activeChatId] ?? []) : [], [messages, activeChatId]);
+  const activeChat = useMemo(() => {
+    if (!activeChatId) return null;
+    const c = chats.find(c => c.id === activeChatId);
+    return c ? normalizeChatRecord(c, activeFolderId) : null;
+  }, [chats, activeChatId, activeFolderId]);
+  const channelParticipants = useMemo(() => {
+    if (!activeChat || activeChat.kind !== 'channel') return [];
+    return getParticipantAgents(activeChat, assistants).map((a: any) => ({ id: a.id, name: a.name }));
+  }, [activeChat, assistants]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
 
   // Keep dream cycle refs in sync (avoids stale closures in 24h timer)
@@ -1481,78 +1490,128 @@ export default function App() {
         }
       }
       
-      const botId = generateId('msg');
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
-
-      let currentText = '';
-      let lastCanvasSync = Date.now();
-
-      const handleChunk = (chunk: string) => {
-          currentText += chunk;
-          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: currentText } : m) }));
-
-          const now = Date.now();
-          if ((_generationMode === 'code' || _generationMode === 'doc') && now - lastCanvasSync > 300) {
-              const contentWithoutThink = currentText.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
-              const match = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)($|```)/);
-              if (match) {
-                  const lang = (match[1] || '').toLowerCase();
-                  const code = match[2];
-                  if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
-                      useUIStore.getState().setCanvasContent((prev: any) => {
-                          if (!prev) return { id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
-                          return { ...prev, content: code };
-                      });
-                      useUIStore.getState().setCanvasTab('preview'); lastCanvasSync = now;
-                  }
-              }
-          }
-      };
-
       const isImageRequest = _generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
 
-      const response = await generateTextResponse({
-          messages: messagesForLLM,
-          modelConfig: _selectedModel,
-          profile: _userProfile,
-          userName: _userName,
-          attachedDocs: userMsg.attachedFiles,
-          agent: _activeAssistant,
-          tasks: _tasks,
-          mode: isImageRequest ? 'image' : _generationMode,
-          canvasContent: _canvasContent,
-          isDeepThinking: _isDeepThinking,
-          agentPinnedMessages: _agentPinnedMessagesForPrompt,
-          onChunk: handleChunk,
-          signal: abortControllerRef.current?.signal,
-          appSettings: _appSettings,
-          integrations: _integrations,
-          models: _models,
-          runIntegrationTools,
-      });
+      const currentChatRecord = useChatStore.getState().chats.find((c: any) => c.id === chatId);
+      const normalizedCurrentChat = normalizeChatRecord(currentChatRecord || {}, _activeFolderId);
+      const isChannelChat = normalizedCurrentChat.kind === 'channel';
 
-      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
+      if (isChannelChat) {
+        const routedAgents = routeAgentsForChannel(userMsg.content, normalizedCurrentChat, _assistants, _activeFolderId);
+        const allParticipants = getParticipantAgents(normalizedCurrentChat, _assistants);
+        const previousResponses: Array<{ agentName: string; content: string }> = [];
 
-      if (_generationMode === 'code' || _generationMode === 'doc') {
-         const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
-         const finalMatch = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)```/);
-         if (finalMatch) {
-             const lang = (finalMatch[1] || '').toLowerCase();
-             const code = finalMatch[2];
-             if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
-                 useUIStore.getState().setCanvasContent((prev: any) => {
-                     if (!prev) return prev;
-                     const curHist = prev.history || [{ timestamp: Date.now(), content: prev.content }];
-                     const curIdx = prev.historyIndex ?? 0;
-                     if (curHist[curIdx]?.content !== code) {
-                         const newHist = curHist.slice(0, curIdx + 1); newHist.push({ timestamp: Date.now(), content: code });
-                         const capped = newHist.slice(-50);
-                         return { ...prev, content: code, history: capped, historyIndex: capped.length - 1 };
-                     }
-                     return prev;
-                 });
-             }
-         }
+        for (const agent of routedAgents) {
+          const agentBotId = generateId('msg');
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: agentBotId, role: 'bot', content: '', sources: foundSources, agentId: agent.id, agentName: agent.name, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
+
+          let agentText = '';
+          const agentChunk = (chunk: string) => {
+            agentText += chunk;
+            useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === agentBotId ? { ...m, content: agentText } : m) }));
+          };
+
+          const agentWithChannelContext = {
+            ...agent,
+            prompt: (agent.prompt || '') + buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent),
+          };
+          const agentPins = _globalPins.filter((p: any) => p.agentId === agent.id).map((p: any) => p.content);
+
+          const agentResponse = await generateTextResponse({
+            messages: messagesForLLM,
+            modelConfig: _selectedModel,
+            profile: _userProfile,
+            userName: _userName,
+            attachedDocs: userMsg.attachedFiles,
+            agent: agentWithChannelContext,
+            tasks: _tasks,
+            mode: isImageRequest ? 'image' : _generationMode,
+            canvasContent: _canvasContent,
+            isDeepThinking: _isDeepThinking,
+            agentPinnedMessages: agentPins,
+            onChunk: agentChunk,
+            signal: abortControllerRef.current?.signal,
+            appSettings: _appSettings,
+            integrations: _integrations,
+            models: _models,
+            runIntegrationTools,
+          });
+
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === agentBotId ? { ...m, content: agentResponse, isStreaming: false } : m) }));
+          previousResponses.push({ agentName: agent.name, content: agentResponse });
+        }
+      } else {
+        const botId = generateId('msg');
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: botId, role: 'bot', content: '', sources: foundSources, isPinned: false, isStreaming: true, timestamp: Date.now() }] }));
+
+        let currentText = '';
+        let lastCanvasSync = Date.now();
+
+        const handleChunk = (chunk: string) => {
+            currentText += chunk;
+            useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: currentText } : m) }));
+
+            const now = Date.now();
+            if ((_generationMode === 'code' || _generationMode === 'doc') && now - lastCanvasSync > 300) {
+                const contentWithoutThink = currentText.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
+                const match = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)($|```)/);
+                if (match) {
+                    const lang = (match[1] || '').toLowerCase();
+                    const code = match[2];
+                    if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
+                        useUIStore.getState().setCanvasContent((prev: any) => {
+                            if (!prev) return { id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
+                            return { ...prev, content: code };
+                        });
+                        useUIStore.getState().setCanvasTab('preview'); lastCanvasSync = now;
+                    }
+                }
+            }
+        };
+
+        const response = await generateTextResponse({
+            messages: messagesForLLM,
+            modelConfig: _selectedModel,
+            profile: _userProfile,
+            userName: _userName,
+            attachedDocs: userMsg.attachedFiles,
+            agent: _activeAssistant,
+            tasks: _tasks,
+            mode: isImageRequest ? 'image' : _generationMode,
+            canvasContent: _canvasContent,
+            isDeepThinking: _isDeepThinking,
+            agentPinnedMessages: _agentPinnedMessagesForPrompt,
+            onChunk: handleChunk,
+            signal: abortControllerRef.current?.signal,
+            appSettings: _appSettings,
+            integrations: _integrations,
+            models: _models,
+            runIntegrationTools,
+        });
+
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
+
+        if (_generationMode === 'code' || _generationMode === 'doc') {
+           const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
+           const finalMatch = contentWithoutThink.match(/```([a-zA-Z]*)\n([\s\S]*?)```/);
+           if (finalMatch) {
+               const lang = (finalMatch[1] || '').toLowerCase();
+               const code = finalMatch[2];
+               if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
+                   useUIStore.getState().setCanvasContent((prev: any) => {
+                       if (!prev) return prev;
+                       const curHist = prev.history || [{ timestamp: Date.now(), content: prev.content }];
+                       const curIdx = prev.historyIndex ?? 0;
+                       if (curHist[curIdx]?.content !== code) {
+                           const newHist = curHist.slice(0, curIdx + 1); newHist.push({ timestamp: Date.now(), content: code });
+                           const capped = newHist.slice(-50);
+                           return { ...prev, content: code, history: capped, historyIndex: capped.length - 1 };
+                       }
+                       return prev;
+                   });
+               }
+           }
+        }
       }
 
     } catch (err: any) {
@@ -2246,6 +2305,7 @@ export default function App() {
                   onEnhancePrompt={handleEnhancePrompt}
                   fileInputRef={fileInputRef}
                   activeAssistant={activeAssistant}
+                  channelParticipants={channelParticipants}
                   llamaServerPid={llamaServerPid}
                   llamaPaused={llamaPaused}
                   setLlamaPaused={setLlamaPaused}

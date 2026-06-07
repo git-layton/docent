@@ -132,6 +132,7 @@ export function MessageList({
                 {msg.role === 'bot' && <div className="shrink-0 mr-2 mt-0.5 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
 
                 <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+                   {msg.role === 'bot' && msg.agentName && <div className="text-[9px] font-black uppercase tracking-widest text-[#6A829E] mb-0.5 ml-1">{msg.agentName}</div>}
                    <div className={`p-3 rounded-xl max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-[#4A5D75] text-white' : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
 
                      {editingMessageId === msg.id ? (
