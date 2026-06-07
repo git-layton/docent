@@ -5,8 +5,7 @@ import {
   Hash, Users, Inbox
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
-import { ContextMeter } from './ui/ContextMeter';
-import { ActivityMonitor } from './ActivityMonitor';
+import { ActivityMonitorBar, ActivityMonitorButton } from './ActivityMonitor';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -59,6 +58,7 @@ export function ChatHeader({
   const isAgentDropdownOpen = useUIStore(s => s.isAgentDropdownOpen);
 
   const [agentSearch, setAgentSearch] = useState('');
+  const [showActivityBar, setShowActivityBar] = useState(true);
   const [modelHealth, setModelHealth] = useState<'checking' | 'ok' | 'error'>('checking');
   const healthTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -192,7 +192,7 @@ export function ChatHeader({
               {(ramStats.available_mb / 1024).toFixed(1)}GB
             </div>
           )}
-          <ActivityMonitor />
+          <ActivityMonitorButton visible={showActivityBar} onToggle={() => setShowActivityBar(v => !v)} />
           <button onClick={() => useTaskStore.getState().setShowPlanner(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showPlanner ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}>
             <CalendarDays className="w-5 h-5" />
             {tasks.filter(t => !t.completed).length > 0 && <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#6A829E] text-white text-[9px] font-black">{tasks.filter(t => !t.completed).length}</span>}
@@ -227,9 +227,14 @@ export function ChatHeader({
         </div>
       </header>
 
-      {/* Context Progress Bar */}
-      {!showPlanner && selectedModel && activeMessages.length > 0 && (
-        <ContextMeter messages={activeMessages} systemPromptLen={systemPromptLen} limit={selectedModel?.contextLimit ?? 32000} />
+      {showActivityBar && (
+        <ActivityMonitorBar
+          messages={!showPlanner ? activeMessages : []}
+          systemPromptLen={!showPlanner ? systemPromptLen : 0}
+          limit={selectedModel?.contextLimit ?? 32000}
+          showContext={!showPlanner}
+          onHide={() => setShowActivityBar(false)}
+        />
       )}
     </>
   );

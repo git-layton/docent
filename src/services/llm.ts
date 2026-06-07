@@ -143,7 +143,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
   }
 
   if (isDeepThinking) {
-    prompt += `\n[DEEP THINKING MODE]\nBefore answering, work through the problem carefully. If useful, begin with a concise reasoning summary inside <think> and </think> tags, then provide the final answer. Do not expose private chain-of-thought or hidden deliberation.`;
+    prompt += `\n[DEEP THINKING MODE]\nThink carefully before answering. If you reason through the problem, you MUST wrap ALL reasoning inside <think>...</think> tags. NEVER output your reasoning, analysis, or thought process as plain text — it will appear directly in the user's chat. Only your final response (after any </think> block) is shown to the user. If you do not use <think> tags, output your final answer directly with no preamble.`;
   }
 
   prompt += `\n[TASK GENERATION]\nONLY if the user explicitly asks to set a reminder or create a task, output a \`\`\`task codeblock with JSON: {"title": "...", "dueDate": "YYYY-MM-DD", "location": "...", "details": "..."}.\n`;

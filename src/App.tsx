@@ -19,7 +19,7 @@ import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
-import { normalizeChatRecord } from './services/channels';
+import { normalizeChatRecord, routeAgentsForChannel, buildChannelPromptAddendum, getParticipantAgents } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { invoke } from '@tauri-apps/api/core';
@@ -69,6 +69,7 @@ const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().
 export default function App() {
   // ── Store subscriptions (reactive reads) ────────────────────────────────────
   const messages = useChatStore(s => s.messages);
+  const chats = useChatStore(s => s.chats);
   const activeChatId = useChatStore(s => s.activeChatId);
 
   const assistants = useAgentStore(s => s.assistants);
@@ -1258,7 +1259,7 @@ export default function App() {
     const _selectedModel = _models.find((m: any) => m.id === _selId) ?? _models[0] ?? null;
     if (!_input.trim() || isEnhancing || !_selectedModel) return;
     setIsEnhancing(true);
-    try { await enhance(_input, 'Enhance this user prompt to be more detailed, precise, and effective for an AI. Return ONLY the improved prompt.', (v) => useUIStore.getState().setInput(v)); }
+    try { await enhance(_input, 'Fix spelling and grammar in the following message. If it is unclear, also improve clarity. Keep the same meaning, length, and casual tone. Return ONLY the corrected text, nothing else.', (v) => useUIStore.getState().setInput(v)); }
     catch { } finally { setIsEnhancing(false); }
   };
   const handleEnhanceSystemPrompt = async () => {
