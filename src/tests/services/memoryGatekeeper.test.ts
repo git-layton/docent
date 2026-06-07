@@ -6,7 +6,6 @@ import {
   shouldPersistGatekeeperDecision,
   extractMemoryCandidateText,
   validateMemoryGatekeeperDecision,
-  type MemoryGatekeeperInput,
   type MemoryGatekeeperDecision,
 } from '../../services/memoryGatekeeper'
 
