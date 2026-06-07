@@ -1538,8 +1538,64 @@ export default function App() {
             runIntegrationTools,
           });
 
+          const isPass = agentResponse.trim().toUpperCase() === '[PASS]';
+          if (isPass) {
+            useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+              ...prev,
+              [chatId]: (prev[chatId] ?? []).filter((m: any) => m.id !== agentBotId),
+            }));
+            continue;
+          }
+
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === agentBotId ? { ...m, content: agentResponse, isStreaming: false } : m) }));
           previousResponses.push({ agentName: agent.name, content: agentResponse });
+        }
+
+        if (previousResponses.length === 0) {
+          const primaryAgent = allParticipants.find((a: any) => a.id === normalizedCurrentChat.primaryAgentId) ?? allParticipants[0];
+          if (primaryAgent) {
+            const fallbackBotId = generateId('msg');
+            useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+              ...prev,
+              [chatId]: [...(prev[chatId] ?? []), { id: fallbackBotId, role: 'bot', content: '', sources: foundSources, agentId: primaryAgent.id, agentName: primaryAgent.name, isPinned: false, isStreaming: true, timestamp: Date.now() }],
+            }));
+            let fallbackText = '';
+            const fallbackChunk = (chunk: string) => {
+              fallbackText += chunk;
+              useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+                ...prev,
+                [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === fallbackBotId ? { ...m, content: fallbackText } : m),
+              }));
+            };
+            const agentPins = _globalPins.filter((p: any) => p.agentId === primaryAgent.id).map((p: any) => p.content);
+            const fallbackWithContext = {
+              ...primaryAgent,
+              prompt: (primaryAgent.prompt || '') + buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, [], primaryAgent, true),
+            };
+            const fallbackResponse = await generateTextResponse({
+              messages: messagesForLLM,
+              modelConfig: _selectedModel,
+              profile: _userProfile,
+              userName: _userName,
+              attachedDocs: userMsg.attachedFiles,
+              agent: fallbackWithContext,
+              tasks: _tasks,
+              mode: isImageRequest ? 'image' : _generationMode,
+              canvasContent: _canvasContent,
+              isDeepThinking: _isDeepThinking,
+              agentPinnedMessages: agentPins,
+              onChunk: fallbackChunk,
+              signal: abortControllerRef.current?.signal,
+              appSettings: _appSettings,
+              integrations: _integrations,
+              models: _models,
+              runIntegrationTools,
+            });
+            useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+              ...prev,
+              [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === fallbackBotId ? { ...m, content: fallbackResponse, isStreaming: false } : m),
+            }));
+          }
         }
       } else {
         const botId = generateId('msg');
