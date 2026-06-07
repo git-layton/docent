@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Menu, Settings, CalendarDays,
   BookOpen, Search,
-  Hash, Users, Inbox
+  Hash, Users, Inbox, FileText, Zap, Bookmark, Info
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { ActivityMonitorBar, ActivityMonitorButton } from './ActivityMonitor';
@@ -59,6 +59,8 @@ export function ChatHeader({
 
   const [agentSearch, setAgentSearch] = useState('');
   const [showActivityBar, setShowActivityBar] = useState(true);
+  const [showContextPeek, setShowContextPeek] = useState(false);
+  const contextPeekRef = useRef<HTMLDivElement>(null);
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
@@ -67,7 +69,18 @@ export function ChatHeader({
   const normalizedChat = useMemo(() => activeChat ? normalizeChatRecord(activeChat, activeFolderId) : null, [activeChat, activeFolderId]);
   const isChannel = normalizedChat?.kind === 'channel';
   const participantCount = normalizedChat?.participantAgentIds?.length ?? 0;
+  const pinnedCount = activeAgentPinnedMessageObjects.length;
 
+  useEffect(() => {
+    if (!showContextPeek) return;
+    const handler = (e: MouseEvent) => {
+      if (contextPeekRef.current && !contextPeekRef.current.contains(e.target as Node)) {
+        setShowContextPeek(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showContextPeek]);
 
   const updateActiveChat = (patch: any) => {
     if (!activeChatId) return;
@@ -91,11 +104,68 @@ export function ChatHeader({
       <header className="h-12 shrink-0 flex items-center justify-between px-3 lg:px-4 border-b border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md z-10">
         <div className="flex items-center gap-3 relative" ref={dropdownRef}>
           <button onClick={() => useUIStore.getState().setIsSidebarOpen(v => !v)} className="p-2 -ml-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"><Menu className="w-5 h-5" /></button>
-          <div className="flex items-center gap-2 p-2 rounded-xl">
-            {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
-            {isChannel && <Hash className="w-4 h-4 text-[#6A829E]" />}
-            <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : isChannel ? normalizedChat?.name : activeAssistant?.name ?? 'Assistant'}</span>
-            {isChannel && <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1"><Users className="w-3 h-3" />{participantCount}</span>}
+          <div className="relative" ref={contextPeekRef}>
+            <button
+              onClick={() => { if (!showPlanner && !isChannel) setShowContextPeek(v => !v); }}
+              className={`flex items-center gap-2 p-2 rounded-xl transition-opacity ${!showPlanner && !isChannel ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
+            >
+              {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
+              {isChannel && <Hash className="w-4 h-4 text-[#6A829E]" />}
+              <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : isChannel ? normalizedChat?.name : activeAssistant?.name ?? 'Assistant'}</span>
+              {isChannel && <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1"><Users className="w-3 h-3" />{participantCount}</span>}
+              {!showPlanner && !isChannel && <Info className="w-3 h-3 text-neutral-400" />}
+            </button>
+
+            {showContextPeek && !showPlanner && !isChannel && (
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-50 p-4 animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* Agent identity */}
+                <div className="flex items-start gap-3 mb-3 pb-3 border-b border-neutral-100 dark:border-neutral-800">
+                  <div>
+                    <div className="text-sm font-bold text-neutral-800 dark:text-neutral-100 mb-0.5">{activeAssistant?.name}</div>
+                    {activeAssistant?.description && (
+                      <div className="text-[10px] text-neutral-500 line-clamp-2">{activeAssistant.description}</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* System prompt snippet */}
+                {activeAssistant?.prompt && (
+                  <div className="mb-3">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1.5">Instructions</div>
+                    <div className="text-[10px] text-neutral-600 dark:text-neutral-400 leading-relaxed line-clamp-3 bg-neutral-50 dark:bg-neutral-800 rounded-lg p-2.5">
+                      {activeAssistant.prompt.slice(0, 160)}{activeAssistant.prompt.length > 160 ? '…' : ''}
+                    </div>
+                  </div>
+                )}
+
+                {/* Stats */}
+                <div className="flex items-center gap-4 mb-3">
+                  {pinnedCount > 0 && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-neutral-500">
+                      <Bookmark className="w-3 h-3 text-[#D4AA7D]" />{pinnedCount} pinned
+                    </div>
+                  )}
+                  {(activeAssistant?.trainingDocs?.length ?? 0) > 0 && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-neutral-500">
+                      <FileText className="w-3 h-3 text-[#6A829E]" />{activeAssistant!.trainingDocs.length} docs
+                    </div>
+                  )}
+                  {activeAssistant?.driveEnabled && activeAssistant?.drive && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-neutral-500">
+                      <Zap className="w-3 h-3 text-[#4A5D75]" />Core drive
+                    </div>
+                  )}
+                </div>
+
+                {/* Edit link */}
+                <button
+                  onClick={() => { setShowContextPeek(false); useAgentStore.getState().setShowAssistantSettings(true); }}
+                  className="w-full text-[10px] font-bold text-[#6A829E] hover:text-[#4A5D75] transition-colors text-center pt-2 border-t border-neutral-100 dark:border-neutral-800"
+                >
+                  Edit in Settings →
+                </button>
+              </div>
+            )}
           </div>
           {isChannel && !showPlanner && (
             <button
@@ -118,7 +188,7 @@ export function ChatHeader({
               <div className="max-h-64 overflow-y-auto p-1.5 custom-scrollbar space-y-1">
                 <div className="px-2 py-2 mb-1 rounded-xl bg-[#F0F4F8] dark:bg-[#1E2B38]/30 border border-[#D6E0EA] dark:border-[#4A5D75]/30">
                   <div className="flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#9EADC8]">
-                    <Hash className="w-3.5 h-3.5" /> Channel Members
+                    <Hash className="w-3.5 h-3.5" />Channel Members
                   </div>
                   <input
                     value={normalizedChat?.goal ?? ''}
