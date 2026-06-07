@@ -532,7 +532,9 @@ fn strip_frontmatter(content: &str) -> String {
 fn extract_title(content: &str, path: &std::path::Path) -> String {
     // Try `title:` in frontmatter
     if content.starts_with("---") {
-        for line in content.lines() {
+        let mut lines = content.lines();
+        lines.next(); // skip opening ---
+        for line in lines {
             if line == "---" { break; }
             if let Some(v) = line.strip_prefix("title:") {
                 return v.trim().trim_matches('"').to_string();
@@ -2323,4 +2325,317 @@ pub fn run() {
                 }
             }
         });
+}
+
+// ─── Unit Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // ── normalize_path_lexically ──────────────────────────────────────────────
+
+    #[test]
+    fn test_normalize_path_removes_cur_dir() {
+        let input = PathBuf::from("/foo/./bar");
+        let result = normalize_path_lexically(input);
+        assert_eq!(result, PathBuf::from("/foo/bar"));
+    }
+
+    #[test]
+    fn test_normalize_path_removes_parent_dir() {
+        let input = PathBuf::from("/foo/../bar");
+        let result = normalize_path_lexically(input);
+        assert_eq!(result, PathBuf::from("/bar"));
+    }
+
+    #[test]
+    fn test_normalize_path_multiple_parent_dirs() {
+        let input = PathBuf::from("/a/b/c/../..");
+        let result = normalize_path_lexically(input);
+        assert_eq!(result, PathBuf::from("/a"));
+    }
+
+    #[test]
+    fn test_normalize_path_already_clean() {
+        let input = PathBuf::from("/foo/bar/baz");
+        let result = normalize_path_lexically(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_normalize_path_mixed_dots() {
+        let input = PathBuf::from("/a/./b/../c");
+        let result = normalize_path_lexically(input);
+        assert_eq!(result, PathBuf::from("/a/c"));
+    }
+
+    #[test]
+    fn test_normalize_path_relative() {
+        let input = PathBuf::from("foo/./bar/../baz");
+        let result = normalize_path_lexically(input);
+        assert_eq!(result, PathBuf::from("foo/baz"));
+    }
+
+    // ── knowledge_path_from_input ─────────────────────────────────────────────
+
+    #[test]
+    fn test_knowledge_path_valid_subpath() {
+        // Set a known HOME so knowledge_root() is deterministic in tests
+        std::env::set_var("HOME", "/tmp/test_home");
+        let result = knowledge_path_from_input("memory/goals.md");
+        assert!(result.is_ok(), "Expected Ok for valid sub-path, got: {:?}", result);
+        let path = result.unwrap();
+        assert!(path.starts_with("/tmp/test_home/AgentForge"));
+    }
+
+    #[test]
+    fn test_knowledge_path_traversal_attack() {
+        std::env::set_var("HOME", "/tmp/test_home");
+        let result = knowledge_path_from_input("../../../etc/passwd");
+        assert!(result.is_err(), "Expected Err for traversal attack");
+        assert!(result.unwrap_err().contains("outside"));
+    }
+
+    #[test]
+    fn test_knowledge_path_absolute_outside_root() {
+        std::env::set_var("HOME", "/tmp/test_home");
+        let result = knowledge_path_from_input("/etc/passwd");
+        assert!(result.is_err(), "Expected Err for absolute path outside root");
+    }
+
+    #[test]
+    fn test_knowledge_path_nested_traversal() {
+        std::env::set_var("HOME", "/tmp/test_home");
+        let result = knowledge_path_from_input("memory/../../etc/hosts");
+        assert!(result.is_err(), "Expected Err for nested traversal");
+    }
+
+    #[test]
+    fn test_knowledge_path_root_itself() {
+        std::env::set_var("HOME", "/tmp/test_home");
+        // Empty string → PathBuf::from("") → relative empty → joined to root → equals root
+        let result = knowledge_path_from_input("");
+        assert!(result.is_ok(), "Expected Ok for empty string (root itself), got: {:?}", result);
+    }
+
+    // ── is_safe_agent_id ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_safe_agent_id_valid_with_hyphen_and_underscore() {
+        assert!(is_safe_agent_id("my-agent_1"));
+    }
+
+    #[test]
+    fn test_is_safe_agent_id_alphanumeric() {
+        assert!(is_safe_agent_id("valid123"));
+    }
+
+    #[test]
+    fn test_is_safe_agent_id_slash_rejected() {
+        assert!(!is_safe_agent_id("bad/agent"));
+    }
+
+    #[test]
+    fn test_is_safe_agent_id_backslash_rejected() {
+        assert!(!is_safe_agent_id("bad\\agent"));
+    }
+
+    #[test]
+    fn test_is_safe_agent_id_single_dot_rejected() {
+        assert!(!is_safe_agent_id("."));
+    }
+
+    #[test]
+    fn test_is_safe_agent_id_double_dot_rejected() {
+        assert!(!is_safe_agent_id(".."));
+    }
+
+    #[test]
+    fn test_is_safe_agent_id_empty_rejected() {
+        assert!(!is_safe_agent_id(""));
+    }
+
+    #[test]
+    fn test_is_safe_agent_id_space_allowed() {
+        // The current implementation does NOT block spaces — only /, \, ".", ".."
+        // This test documents the actual behavior of the function.
+        assert!(is_safe_agent_id("has space"));
+    }
+
+    // ── parse_deletions ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_deletions_with_deletions() {
+        let stat = "3 files changed, 12 insertions(+), 7 deletions(-)";
+        assert_eq!(parse_deletions(stat), 7);
+    }
+
+    #[test]
+    fn test_parse_deletions_no_deletions() {
+        let stat = "1 file changed, 1 insertion(+)";
+        assert_eq!(parse_deletions(stat), 0);
+    }
+
+    #[test]
+    fn test_parse_deletions_empty_string() {
+        assert_eq!(parse_deletions(""), 0);
+    }
+
+    #[test]
+    fn test_parse_deletions_only_deletions() {
+        let stat = "1 file changed, 5 deletions(-)";
+        assert_eq!(parse_deletions(stat), 5);
+    }
+
+    #[test]
+    fn test_parse_deletions_single_deletion() {
+        let stat = "1 file changed, 1 deletion(-)";
+        assert_eq!(parse_deletions(stat), 1);
+    }
+
+    // ── cosine_similarity ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_cosine_similarity_identical_vectors() {
+        let v = vec![1.0_f32, 2.0, 3.0];
+        let sim = cosine_similarity(&v, &v);
+        assert!(
+            (sim - 1.0).abs() < 1e-6,
+            "Identical vectors should have similarity ~1.0, got {}",
+            sim
+        );
+    }
+
+    #[test]
+    fn test_cosine_similarity_orthogonal_vectors() {
+        let a = vec![1.0_f32, 0.0];
+        let b = vec![0.0_f32, 1.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!(
+            (sim - 0.0).abs() < 1e-6,
+            "Orthogonal vectors should have similarity ~0.0, got {}",
+            sim
+        );
+    }
+
+    #[test]
+    fn test_cosine_similarity_known_pair() {
+        // [1, 1] and [1, 0]: dot=1, |a|=sqrt(2), |b|=1 → sim = 1/sqrt(2) ≈ 0.7071
+        let a = vec![1.0_f32, 1.0];
+        let b = vec![1.0_f32, 0.0];
+        let sim = cosine_similarity(&a, &b);
+        let expected = 1.0_f32 / 2.0_f32.sqrt();
+        assert!(
+            (sim - expected).abs() < 1e-5,
+            "Expected ~{}, got {}",
+            expected,
+            sim
+        );
+    }
+
+    #[test]
+    fn test_cosine_similarity_length_mismatch_returns_zero() {
+        let a = vec![1.0_f32, 2.0, 3.0];
+        let b = vec![1.0_f32, 2.0];
+        let sim = cosine_similarity(&a, &b);
+        assert_eq!(sim, 0.0, "Mismatched lengths should return 0.0");
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vector_returns_zero() {
+        let a = vec![0.0_f32, 0.0, 0.0];
+        let b = vec![1.0_f32, 2.0, 3.0];
+        let sim = cosine_similarity(&a, &b);
+        assert_eq!(sim, 0.0, "Zero vector should return 0.0");
+    }
+
+    // ── strip_frontmatter ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_strip_frontmatter_removes_yaml_block() {
+        let content = "---\nfoo: bar\n---\nHello world";
+        let result = strip_frontmatter(content);
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn test_strip_frontmatter_no_frontmatter() {
+        let content = "# Title\n\nSome content here.";
+        let result = strip_frontmatter(content);
+        assert_eq!(result, content);
+    }
+
+    #[test]
+    fn test_strip_frontmatter_empty_frontmatter() {
+        let content = "---\n---\nBody text";
+        let result = strip_frontmatter(content);
+        assert_eq!(result, "Body text");
+    }
+
+    #[test]
+    fn test_strip_frontmatter_empty_string() {
+        let result = strip_frontmatter("");
+        assert_eq!(result, "");
+    }
+
+    // ── extract_title ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_title_from_frontmatter_title_field() {
+        let content = "---\ntitle: My Document\ntags: [foo]\n---\n# Ignored heading";
+        let path = std::path::Path::new("/some/path/file.md");
+        let title = extract_title(content, path);
+        assert_eq!(title, "My Document");
+    }
+
+    #[test]
+    fn test_extract_title_from_h1_heading() {
+        let content = "# Main Heading\n\nSome body text.";
+        let path = std::path::Path::new("/some/path/file.md");
+        let title = extract_title(content, path);
+        assert_eq!(title, "Main Heading");
+    }
+
+    #[test]
+    fn test_extract_title_fallback_to_filename() {
+        let content = "Just plain text, no heading.";
+        let path = std::path::Path::new("/some/path/my-document.md");
+        let title = extract_title(content, path);
+        assert_eq!(title, "my-document");
+    }
+
+    // ── chunk_text ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_chunk_text_skips_short_content() {
+        // Content shorter than 60 chars per chunk should produce no chunks
+        let content = "---\ntags: [test]\n---\nShort.";
+        let chunks = chunk_text(content);
+        assert!(chunks.is_empty(), "Short content should produce no chunks");
+    }
+
+    #[test]
+    fn test_chunk_text_produces_chunks_for_long_content() {
+        let section = "A".repeat(100);
+        let content = format!("# Title\n\n{}", section);
+        let chunks = chunk_text(&content);
+        assert!(!chunks.is_empty(), "Long content should produce at least one chunk");
+    }
+
+    #[test]
+    fn test_chunk_text_splits_on_h2_headings() {
+        let body = format!(
+            "## Section One\n{}\n\n## Section Two\n{}",
+            "x".repeat(80),
+            "y".repeat(80)
+        );
+        let chunks = chunk_text(&body);
+        assert!(
+            chunks.len() >= 2,
+            "Should produce at least 2 chunks for 2 sections, got {}",
+            chunks.len()
+        );
+    }
 }
