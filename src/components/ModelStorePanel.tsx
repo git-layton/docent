@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap } from 'lucide-react';
+import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search } from 'lucide-react';
 import { MODEL_CATALOG, type CatalogModel } from '../data/modelCatalog';
 
 type ModelStatus = 'idle' | 'downloaded' | 'downloading' | 'installing' | 'ready' | 'error';
@@ -28,6 +28,7 @@ function genId(prefix: string) {
 
 export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
   const [states, setStates] = useState<Record<string, ModelState>>({});
+  const [search, setSearch] = useState('');
   const unlistenRef = useRef<(() => void) | null>(null);
   const ramGb = Math.floor(ramMb / 1024);
 
@@ -137,10 +138,6 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
     }
   }
 
-  const recommended = MODEL_CATALOG.filter(m => m.ramGb <= ramGb && m.tag);
-  const others = MODEL_CATALOG.filter(m => m.ramGb <= ramGb && !m.tag);
-  const tooLarge = MODEL_CATALOG.filter(m => m.ramGb > ramGb);
-
   if (ramMb < 6144) {
     return (
       <div className="text-center py-8 text-sm text-neutral-500">
@@ -150,27 +147,69 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
     );
   }
 
+  // ── Tier logic: only show top-tier models as "Recommended" ──────────────────
+  const searchLower = search.toLowerCase();
+  const matchesSearch = (m: CatalogModel) =>
+    !search ||
+    m.name.toLowerCase().includes(searchLower) ||
+    m.role.toLowerCase().includes(searchLower) ||
+    m.bestFor.toLowerCase().includes(searchLower);
+
+  const compatible = MODEL_CATALOG.filter(m => m.ramGb <= ramGb);
+  const maxTier = compatible.reduce((mx, m) => Math.max(mx, m.ramGb), 0);
+
+  const recommended = compatible
+    .filter(m => m.ramGb === maxTier && m.tag)
+    .filter(matchesSearch);
+
+  const others = compatible
+    .filter(m => m.ramGb < maxTier || (m.ramGb === maxTier && !m.tag))
+    .sort((a, b) => b.ramGb - a.ramGb)   // biggest/best first
+    .filter(matchesSearch);
+
+  const tooLarge = MODEL_CATALOG
+    .filter(m => m.ramGb > ramGb)
+    .filter(matchesSearch);
+
+  const hasResults = recommended.length + others.length + tooLarge.length > 0;
+
   return (
     <div className="space-y-2">
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Search models by name, role…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full pl-8 pr-3 py-2 text-xs bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl outline-none focus:border-[#4A5D75] dark:focus:border-[#6A829E] transition-colors"
+        />
+      </div>
+
+      {!hasResults && (
+        <p className="text-xs text-neutral-400 text-center py-4">No models match "{search}"</p>
+      )}
+
       {recommended.length > 0 && (
-        <>
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-3">
+        <div className="space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pt-1">
             Recommended for your {ramGb}GB Mac
           </p>
           {recommended.map(m => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
-        </>
+        </div>
       )}
       {others.length > 0 && (
-        <>
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mt-5 mb-3">
+        <div className="space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pt-3">
             Also available
           </p>
           {others.map(m => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
-        </>
+        </div>
       )}
       {tooLarge.length > 0 && (
-        <>
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-300 dark:text-neutral-600 mt-5 mb-3">
+        <div className="space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-300 dark:text-neutral-600 pt-3">
             Needs more RAM
           </p>
           {tooLarge.map(m => (
@@ -181,7 +220,7 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
               </div>
             </div>
           ))}
-        </>
+        </div>
       )}
     </div>
   );
@@ -215,7 +254,9 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
             <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
               model.role === 'Coder'
                 ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400'
-                : 'bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
+                : model.role === 'Reasoning'
+                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                  : 'bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
             }`}>{model.role}</span>
           </div>
           <div className="mt-1.5 space-y-0.5">
