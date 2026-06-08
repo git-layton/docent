@@ -19,7 +19,7 @@ interface MemoryStore {
   isDreamRunning: boolean;
   agentForgePath: string;
   showMemmoPanel: boolean;
-  memmoPanelTab: 'inbox' | 'pins' | 'notes' | 'library' | 'archive';
+  memmoPanelTab: 'inbox' | 'pins' | 'notes' | 'library' | 'archive' | 'weblog';
   showMemoCompose: boolean;
 
   setGlobalPins: (pins: GlobalPin[]) => void;
@@ -30,7 +30,7 @@ interface MemoryStore {
   setIsDreamRunning: (v: boolean) => void;
   setAgentForgePath: (path: string) => void;
   setShowMemmoPanel: (v: boolean | ((prev: boolean) => boolean)) => void;
-  setMemmoPanelTab: (tab: 'inbox' | 'pins' | 'notes' | 'library' | 'archive') => void;
+  setMemmoPanelTab: (tab: 'inbox' | 'pins' | 'notes' | 'library' | 'archive' | 'weblog') => void;
   setShowMemoCompose: (v: boolean) => void;
 
   hydrate: () => Promise<void>;

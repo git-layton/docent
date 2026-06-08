@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Pin, PinOff, FileText, Pencil, ChevronDown, ChevronRight, Trash2, RotateCcw, Archive, Bookmark } from 'lucide-react';
+import { X, Pin, PinOff, FileText, Pencil, ChevronDown, ChevronRight, Trash2, RotateCcw, Archive, Bookmark, Globe } from 'lucide-react';
 import { KnowledgeDropZone } from './KnowledgeDropZone';
+import { useBrowserStore } from '../store/useBrowserStore';
 
 interface PinnedMessage {
   chatId: string;
@@ -30,7 +31,7 @@ interface Props {
   onRestoreArchive?: (archivePath: string) => Promise<void>;
 }
 
-type Tab = 'pins' | 'notes' | 'library' | 'archive';
+type Tab = 'pins' | 'notes' | 'library' | 'archive' | 'weblog';
 
 interface FileEntry {
   name: string;
@@ -45,6 +46,16 @@ function formatAge(modifiedSecs: number): string {
   return `${days}d ago`;
 }
 
+function timeAgo(ts: number): string {
+  const diffSecs = Math.floor((Date.now() - ts) / 1000);
+  if (diffSecs < 60) return 'Just now';
+  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)} minutes ago`;
+  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)} hours ago`;
+  if (diffSecs < 604800) return `${Math.floor(diffSecs / 86400)} days ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+
 export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose, agentForgePath, agentId, onToast, initialTab, onDeleteFile, pinnedTokenEstimate, onRestoreArchive }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'library');
   const [memos, setMemos] = useState<FileEntry[]>([]);
@@ -55,6 +66,8 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [restoringPath, setRestoringPath] = useState<string | null>(null);
+  const visitLog = useBrowserStore(s => s.visitLog);
+  const clearVisitLog = useBrowserStore(s => s.clearVisitLog);
 
   useEffect(() => {
     if (isOpen && initialTab) setTab(initialTab);
@@ -153,6 +166,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
     { id: 'pins',    label: 'Context', count: pinnedMessages.length },
     { id: 'notes',   label: 'Notes'   },
     { id: 'archive', label: 'Archive', count: archiveFiles.length || undefined },
+    { id: 'weblog',  label: 'Web',     count: visitLog.length || undefined },
   ];
 
   return (
@@ -421,6 +435,93 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                   </div>
                 ))
               )}
+            </div>
+          )}
+
+          {/* ── Web Log tab ── */}
+          {tab === 'weblog' && (
+            <div className="p-4 space-y-2">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-[#4A5D75] dark:text-[#899AB5]" />
+                  <span className="text-xs font-black text-neutral-700 dark:text-neutral-300">Web Log</span>
+                  {visitLog.length > 0 && (
+                    <span className="flex items-center justify-center min-w-[1rem] h-4 px-1 rounded-full bg-[#D4AA7D] text-white text-[9px] font-black">
+                      {visitLog.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {visitLog.length === 0 ? (
+                /* Browser store active but no entries */
+                <div className="text-center py-12 text-neutral-400 space-y-3">
+                  <Globe className="w-10 h-10 mx-auto opacity-20" />
+                  <p className="text-xs font-bold">No pages visited yet.</p>
+                  <p className="text-[10px] opacity-60">Open the browser to start logging visits.</p>
+                </div>
+              ) : (
+                /* Entry list — newest first */
+                [...visitLog].reverse().map(entry => {
+                  let domain = '';
+                  try { domain = new URL(entry.url).hostname; } catch { domain = ''; }
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex items-start gap-2.5 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800"
+                    >
+                      {/* Favicon */}
+                      <div className="shrink-0 w-4 h-4 mt-0.5">
+                        {domain ? (
+                          <img
+                            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+                            alt=""
+                            className="w-4 h-4 rounded-sm"
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <Globe className="w-4 h-4 text-neutral-300" />
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <p className="text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate leading-tight">
+                          {entry.title || domain || entry.url}
+                        </p>
+                        <p className="text-[10px] text-neutral-400 truncate leading-tight">
+                          {entry.url}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                          <span className="text-[9px] text-neutral-400">{timeAgo(entry.visitedAt)}</span>
+                          {entry.wasDigested && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 text-[9px] font-black">
+                              Digest saved
+                            </span>
+                          )}
+                          {entry.isPrivate && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 text-[9px] font-black">
+                              Private
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              {/* Clear history button */}
+              <div className="pt-2">
+                <button
+                  onClick={clearVisitLog}
+                  disabled={visitLog.length === 0}
+                  className="w-full py-1.5 text-[10px] font-bold text-neutral-400 hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-neutral-200 dark:border-neutral-800 rounded-xl hover:border-red-300 dark:hover:border-red-900 disabled:hover:border-neutral-200 disabled:hover:text-neutral-400"
+                >
+                  Clear history
+                </button>
+              </div>
             </div>
           )}
 
