@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
@@ -61,7 +61,22 @@ function ProactiveChip({ comment, onDismiss }: ProactiveChipProps) {
   );
 }
 
+interface BrowserTabState {
+  id: string;
+  url: string;
+  title: string;
+}
+
+function makeTab(url = HOME_URL, title = ''): BrowserTabState {
+  return { id: `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, url, title: title || new URL(url).hostname };
+}
+
 export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: BrowserPanelProps) {
+  const initialTabRef = useRef(makeTab());
+  const [tabs, setTabs] = useState<BrowserTabState[]>([initialTabRef.current]);
+  const [activeTabId, setActiveTabId] = useState<string>(initialTabRef.current.id);
+
+  // Keep activeTabId in sync with tabs on first render
   const [url, setUrl] = useState(HOME_URL);
   const [inputUrl, setInputUrl] = useState(HOME_URL);
   const [isLoading, setIsLoading] = useState(false);
@@ -75,13 +90,24 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
   const mountedRef = useRef(true);
   const urlRef = useRef(url);
   const visitIdRef = useRef<string | null>(null);
+  const activeTabIdRef = useRef(activeTabId);
 
   urlRef.current = url;
+  activeTabIdRef.current = activeTabId;
 
   const proactiveEnabled = useBrowserStore(s => s.proactiveEnabled);
   const favorites = useBrowserStore(s => s.favorites);
   const isFavorited = favorites.some(f => f.url === url);
   const { comment, dismiss } = useProactiveCommentary(url, pageTitle, pageContent, proactiveEnabled);
+
+  // Sync active tab's URL/title when URL or pageTitle changes
+  useEffect(() => {
+    setTabs(prev => prev.map(t =>
+      t.id === activeTabIdRef.current
+        ? { ...t, url, title: pageTitle || (url ? new URL(url).hostname : '') }
+        : t
+    ));
+  }, [url, pageTitle]);
 
   // Create/destroy the native child webview on mount/unmount
   useEffect(() => {
@@ -90,10 +116,24 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
     let pollInterval: ReturnType<typeof setInterval> | null = null;
 
     async function init() {
-      if (!contentRef.current) return;
-      const rect = contentRef.current.getBoundingClientRect();
-      const win = await getCurrentWindow();
+      // Wait for a paint so the layout is settled and contentRef has real dimensions
+      await new Promise(r => requestAnimationFrame(r));
+      if (!mountedRef.current || !contentRef.current) return;
 
+      // Close any stale webview with this label (HMR / mode-switch cleanup)
+      try {
+        const stale = await Webview.getByLabel(BROWSER_LABEL);
+        if (stale) {
+          await stale.close();
+          await new Promise(r => setTimeout(r, 80));
+        }
+      } catch (_) {}
+
+      if (!mountedRef.current || !contentRef.current) return;
+      const rect = contentRef.current.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) return; // layout not ready
+
+      const win = await getCurrentWindow();
       wv = new Webview(win, BROWSER_LABEL, {
         url: HOME_URL,
         x: Math.round(rect.left),
@@ -124,8 +164,9 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
     return () => {
       mountedRef.current = false;
       if (pollInterval !== null) clearInterval(pollInterval);
-      wv?.close().catch(() => {});
       webviewRef.current = null;
+      // Close async after cleanup — don't await
+      Webview.getByLabel(BROWSER_LABEL).then(wv => wv?.close()).catch(() => {});
     };
   }, []);
 
@@ -202,6 +243,46 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
     invoke('browser_navigate', { label: BROWSER_LABEL, url: dest }).catch(() => setIsLoading(false));
   }, [inputUrl]);
 
+  const openNewTab = useCallback(() => {
+    const t = makeTab();
+    setTabs(prev => [...prev, t]);
+    setActiveTabId(t.id);
+    setUrl(HOME_URL);
+    setInputUrl(HOME_URL);
+    setPageTitle('');
+    setIsLoading(true);
+    invoke('browser_navigate', { label: BROWSER_LABEL, url: HOME_URL }).catch(() => setIsLoading(false));
+  }, []);
+
+  const closeTab = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTabs(prev => {
+      if (prev.length === 1) return prev; // keep at least one tab
+      const idx = prev.findIndex(t => t.id === id);
+      const next = prev.filter(t => t.id !== id);
+      if (id === activeTabIdRef.current) {
+        const newActive = next[Math.max(0, idx - 1)];
+        setActiveTabId(newActive.id);
+        setUrl(newActive.url);
+        setInputUrl(newActive.url);
+        invoke('browser_navigate', { label: BROWSER_LABEL, url: newActive.url }).catch(() => {});
+      }
+      return next;
+    });
+  }, []);
+
+  const switchTab = useCallback((id: string) => {
+    if (id === activeTabIdRef.current) return;
+    const tab = tabs.find(t => t.id === id);
+    if (!tab) return;
+    setActiveTabId(id);
+    setUrl(tab.url);
+    setInputUrl(tab.url);
+    setPageTitle(tab.title);
+    setIsLoading(true);
+    invoke('browser_navigate', { label: BROWSER_LABEL, url: tab.url }).catch(() => setIsLoading(false));
+  }, [tabs]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') navigate();
   };
@@ -260,8 +341,42 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
 
   return (
     <div className="relative flex flex-col h-full w-full bg-white dark:bg-neutral-900">
+      {/* Tab bar */}
+      <div className="h-9 flex items-end gap-0 px-2 bg-neutral-100 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700 shrink-0 overflow-x-auto no-scrollbar">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => switchTab(tab.id)}
+            className={clsx(
+              'flex items-center gap-1.5 px-3 h-7 rounded-t-lg text-[10px] font-medium shrink-0 max-w-[160px] transition-colors group',
+              tab.id === activeTabId
+                ? 'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 border border-b-0 border-neutral-200 dark:border-neutral-700'
+                : 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
+            )}
+          >
+            <Globe className="w-2.5 h-2.5 shrink-0 opacity-60" />
+            <span className="truncate flex-1">{tab.title || new URL(tab.url).hostname}</span>
+            {tabs.length > 1 && (
+              <span
+                onClick={e => closeTab(tab.id, e)}
+                className="ml-1 p-0.5 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="w-2.5 h-2.5" />
+              </span>
+            )}
+          </button>
+        ))}
+        <button
+          onClick={openNewTab}
+          className="ml-1 p-1 rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors shrink-0 self-center"
+          title="New tab"
+        >
+          <span className="text-sm leading-none">+</span>
+        </button>
+      </div>
+
       {/* Nav bar — rendered ABOVE the native webview overlay */}
-      <div className="h-12 flex items-center gap-1.5 px-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0 z-10 bg-white dark:bg-neutral-900">
+      <div className="h-11 flex items-center gap-1.5 px-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0 z-10 bg-white dark:bg-neutral-900">
         <button
           onClick={handleBack}
           className="p-1.5 rounded-lg transition-colors text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"

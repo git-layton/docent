@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff, GitBranch } from 'lucide-react';
+import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff, GitBranch, Globe } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -23,6 +23,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
   // Store reads
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
   const viewMode = useUIStore(s => s.viewMode);
+  const browserOpen = useUIStore(s => s.browserOpen);
   const canvasContent = useUIStore(s => s.canvasContent);
   const savedApps = useUIStore(s => s.savedApps);
   const archiveSearchQuery = useUIStore(s => s.archiveSearchQuery);
@@ -186,7 +187,14 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         </div>
 
         <div className="flex p-1 gap-1 mx-4 mt-3 bg-neutral-100 dark:bg-neutral-800 rounded-xl shrink-0">
-          {['chat', 'canvas', 'browser'].map(v => <button key={v} onClick={() => useUIStore.getState().setViewMode(v)} className={`flex-1 text-[10px] font-medium py-1.5 rounded-lg transition-all capitalize ${viewMode === v ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}>{v}</button>)}
+          {['chat', 'canvas'].map(v => <button key={v} onClick={() => useUIStore.getState().setViewMode(v)} className={`flex-1 text-[10px] font-medium py-1.5 rounded-lg transition-all capitalize ${viewMode === v ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}>{v}</button>)}
+          <button
+            onClick={() => useUIStore.getState().setBrowserOpen(!browserOpen)}
+            title="Browser"
+            className={`flex items-center justify-center px-2 py-1.5 rounded-lg transition-all ${browserOpen ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={() => useUIStore.getState().setViewMode('knowledge-graph')}
             title="Knowledge Graph"

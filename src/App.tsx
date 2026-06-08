@@ -106,6 +106,7 @@ export default function App() {
 
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
   const viewMode = useUIStore(s => s.viewMode);
+  const browserOpen = useUIStore(s => s.browserOpen);
   const generationMode = useUIStore(s => s.generationMode);
   const isDeepThinking = useUIStore(s => s.isDeepThinking);
   const speakingId = useChatStore(s => s.speakingId);
@@ -2371,18 +2372,14 @@ export default function App() {
 
       {/* ── Main Panel ── */}
       <div className="flex-1 flex flex-row overflow-hidden relative">
-        {viewMode === 'browser' && (
-          <BrowserPanel />
-        )}
-
         {viewMode === 'knowledge-graph' && (
           <div className="flex-1 flex flex-col h-full overflow-hidden">
             <KnowledgeGraphPanel />
           </div>
         )}
 
-        {viewMode !== 'browser' && viewMode !== 'knowledge-graph' && !canvasContent?.isStandalone && (
-          <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
+        {viewMode !== 'knowledge-graph' && !canvasContent?.isStandalone && (
+          <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${browserOpen ? 'w-[55%] border-r border-neutral-200 dark:border-neutral-800' : canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
             
             {/* Header */}
             <ChatHeader
@@ -2480,7 +2477,7 @@ export default function App() {
         )}
 
         {/* ── Canvas Panel ── */}
-        {viewMode !== 'browser' && canvasContent && (
+        {!browserOpen && canvasContent && (
           <CanvasPanel
             isGenerating={isGenerating}
             onHistoryNavigate={handleHistoryNavigate}
@@ -2490,6 +2487,13 @@ export default function App() {
             onCodeScroll={handleCodeScroll}
             onSendMessage={handleSendMessage}
           />
+        )}
+
+        {/* ── Browser Panel (co-pilot alongside chat) ── */}
+        {browserOpen && (
+          <div className="flex-1 flex flex-col h-full overflow-hidden border-l border-neutral-200 dark:border-neutral-800">
+            <BrowserPanel />
+          </div>
         )}
       </div>
 
