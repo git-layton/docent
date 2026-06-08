@@ -26,7 +26,7 @@
     "opener:default",
     "dialog:default",
     "shell:default",
-    "webview:allow-create-webview",
+    "core:webview:allow-create-webview",
     {
       "identifier": "shell:allow-execute",
       "allow": [
