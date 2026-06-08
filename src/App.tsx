@@ -474,9 +474,12 @@ export default function App() {
   );
   const agentPinnedMessagesForPrompt = useMemo(() => activeAgentPinnedMessageObjects.map(p => p.content), [activeAgentPinnedMessageObjects]);
 
-  // TODO: wire browserContext here when useBrowserStore is available:
-  // const browserContext = viewMode === 'browser' ? useBrowserStore(s => s.activeTabContext) : undefined;
-  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext: undefined }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings]);
+  const browserActiveTab = useBrowserStore(s => s.activeTab);
+  const browserContext = browserActiveTab?.content
+    ? { pageContent: browserActiveTab.content, url: browserActiveTab.url, title: browserActiveTab.title }
+    : undefined;
+
+  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings, browserContext]);
 
   // Recency-weighted fingerprint of what this agent's user actually saves
   const pinProfile = useMemo(
@@ -1709,6 +1712,11 @@ export default function App() {
             }
         };
 
+        const _browserActiveTab = useBrowserStore.getState().activeTab;
+        const _browserContext = _browserActiveTab?.content
+          ? { pageContent: _browserActiveTab.content, url: _browserActiveTab.url, title: _browserActiveTab.title }
+          : undefined;
+
         const response = await generateTextResponse({
             messages: messagesForLLM,
             modelConfig: _selectedModel,
@@ -1727,6 +1735,7 @@ export default function App() {
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
+            browserContext: _browserContext,
         });
 
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));

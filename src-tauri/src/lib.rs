@@ -2459,6 +2459,44 @@ fn check_page_is_private(html: String, url: String) -> bool {
     false
 }
 
+// ─── Browser Panel Navigation Commands ───────────────────────────────────────
+
+#[tauri::command]
+fn browser_navigate(app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
+    let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    webview.navigate(parsed).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_reload(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    webview.reload().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_go_back(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    webview.eval("history.back()").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_go_forward(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    webview.eval("history.forward()").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_get_url(app: tauri::AppHandle, label: String) -> Result<String, String> {
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    webview.url().map(|u| u.to_string()).map_err(|e| e.to_string())
+}
+
 // ─── Knowledge Graph ──────────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -2854,6 +2892,11 @@ pub fn run() {
             start_local_model,
             extract_page_text,
             check_page_is_private,
+            browser_navigate,
+            browser_reload,
+            browser_go_back,
+            browser_go_forward,
+            browser_get_url,
             upsert_graph_node,
             upsert_graph_edge,
             get_graph_neighbors,

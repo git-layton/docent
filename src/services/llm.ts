@@ -228,7 +228,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
   return prompt;
 };
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -283,7 +283,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
