@@ -1,0 +1,356 @@
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import ForceGraph2D from 'react-force-graph-2d';
+import type { NodeObject, LinkObject } from 'react-force-graph-2d';
+import { X, Search } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+
+type NodeType = 'page' | 'file' | 'note' | 'entity' | 'person' | 'concept' | 'technology' | string;
+
+interface GraphNode {
+  id: string;
+  label: string;
+  node_type: NodeType;
+  source_url?: string;
+  source_path?: string;
+}
+
+interface GraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+}
+
+interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+const MOCK_GRAPH: GraphData = {
+  nodes: [
+    { id: 'n1', label: 'Agent Forge Docs', node_type: 'page', source_url: 'https://docs.agentforge.dev' },
+    { id: 'n2', label: 'Anthropic', node_type: 'entity' },
+    { id: 'n3', label: 'React', node_type: 'technology' },
+    { id: 'n4', label: 'Knowledge Core Notes', node_type: 'note', source_path: '~/AgentForge/notes' },
+  ],
+  edges: [
+    { source: 'n1', target: 'n2', relation: 'mentions' },
+    { source: 'n1', target: 'n3', relation: 'uses' },
+    { source: 'n4', target: 'n1', relation: 'references' },
+  ],
+};
+
+const NODE_COLORS: Record<string, string> = {
+  page: '#38bdf8',
+  file: '#a78bfa',
+  note: '#34d399',
+  entity: '#f97316',
+  person: '#f97316',
+  concept: '#facc15',
+  technology: '#facc15',
+};
+
+function nodeColor(type: string): string {
+  return NODE_COLORS[type] ?? '#94a3b8';
+}
+
+const NODE_TYPES = ['All', 'Page', 'File', 'Note', 'Entity', 'Concept'] as const;
+
+export function KnowledgeGraphPanel() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+
+  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>('All');
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const stats = await invoke<{ nodes: GraphNode[]; edges: GraphEdge[] }>('get_graph_stats');
+        setGraphData(stats);
+      } catch {
+        try {
+          const subgraph = await invoke<{ nodes: GraphNode[]; edges: GraphEdge[] }>('get_graph_neighbors', { nodeId: 'root' });
+          setGraphData(subgraph);
+        } catch {
+          setGraphData(MOCK_GRAPH);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (entry) {
+        setDimensions({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const filteredNodes = useMemo(() =>
+    graphData.nodes.filter(n => {
+      const matchesSearch = !search || n.label.toLowerCase().includes(search.toLowerCase());
+      const matchesType = typeFilter === 'All' || n.node_type.toLowerCase() === typeFilter.toLowerCase();
+      return matchesSearch && matchesType;
+    }),
+    [graphData.nodes, search, typeFilter]
+  );
+
+  const filteredEdges = useMemo(() => {
+    const ids = new Set(filteredNodes.map(n => n.id));
+    return graphData.edges.filter(
+      e => ids.has(String(e.source)) && ids.has(String(e.target))
+    );
+  }, [filteredNodes, graphData.edges]);
+
+  const degreeMap = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredEdges.forEach(e => {
+      const src = String(e.source);
+      const tgt = String(e.target);
+      map.set(src, (map.get(src) ?? 0) + 1);
+      map.set(tgt, (map.get(tgt) ?? 0) + 1);
+    });
+    return map;
+  }, [filteredEdges]);
+
+  const handleNodeClick = useCallback((node: NodeObject<GraphNode>) => {
+    const gn = node as NodeObject<GraphNode> & GraphNode;
+    setSelectedNode(gn);
+    setSidebarOpen(true);
+
+    const neighborIds = new Set<string>([String(gn.id)]);
+    filteredEdges.forEach(e => {
+      const src = String((e as any).source?.id ?? e.source);
+      const tgt = String((e as any).target?.id ?? e.target);
+      if (src === String(gn.id)) neighborIds.add(tgt);
+      if (tgt === String(gn.id)) neighborIds.add(src);
+    });
+    setHighlightIds(neighborIds);
+  }, [filteredEdges]);
+
+  const handleNodeDoubleClick = useCallback((node: NodeObject<GraphNode>) => {
+    const gn = node as NodeObject<GraphNode> & GraphNode;
+    if (gn.node_type === 'page' && gn.source_url) {
+      invoke('open_url', { url: gn.source_url }).catch(() => {
+        window.open(gn.source_url, '_blank');
+      });
+    } else if (gn.node_type === 'file' && gn.source_path) {
+      invoke('open_in_canvas', { path: gn.source_path }).catch(() => {});
+    }
+  }, []);
+
+  const handleBackgroundClick = useCallback(() => {
+    setSelectedNode(null);
+    setHighlightIds(new Set());
+  }, []);
+
+  const selectedNodeEdges = selectedNode
+    ? graphData.edges.filter(e => {
+        const src = String((e as any).source?.id ?? e.source);
+        const tgt = String((e as any).target?.id ?? e.target);
+        return src === selectedNode.id || tgt === selectedNode.id;
+      })
+    : [];
+
+  const edgeColorFn = useCallback(
+    (link: LinkObject<GraphNode, GraphEdge>) => {
+      const src = String((link as any).source?.id ?? link.source);
+      const tgt = String((link as any).target?.id ?? link.target);
+      if (highlightIds.size > 0 && highlightIds.has(src) && highlightIds.has(tgt)) {
+        return 'rgba(148,163,184,0.9)';
+      }
+      return 'rgba(71,85,105,0.6)';
+    },
+    [highlightIds]
+  );
+
+  const nodeValFn = useCallback(
+    (node: NodeObject<GraphNode>) => {
+      const base = 6;
+      const degree = degreeMap.get(String(node.id)) ?? 0;
+      return base + degree * 1.5;
+    },
+    [degreeMap]
+  );
+
+  const nodeColorFn = useCallback(
+    (node: NodeObject<GraphNode>) => {
+      const gn = node as NodeObject<GraphNode> & GraphNode;
+      if (highlightIds.size > 0 && !highlightIds.has(String(gn.id))) {
+        return 'rgba(148,163,184,0.25)';
+      }
+      return nodeColor(gn.node_type);
+    },
+    [highlightIds]
+  );
+
+  return (
+    <div className="flex flex-col h-full bg-white dark:bg-neutral-900 overflow-hidden">
+      {/* Toolbar */}
+      <div className="shrink-0 px-4 py-2.5 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-black uppercase tracking-widest text-neutral-800 dark:text-neutral-200 shrink-0">
+          Knowledge Graph
+        </span>
+
+        <div className="relative flex-1 min-w-32 max-w-56">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" />
+          <input
+            className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-7 pr-3 py-1.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30"
+            placeholder="Search nodes..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+
+        <div className="flex gap-1 flex-wrap">
+          {NODE_TYPES.map(t => (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                typeFilter === t
+                  ? 'bg-[#4A5D75] text-white'
+                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <span className="ml-auto shrink-0 text-[9px] font-black uppercase tracking-widest text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded-lg">
+          {filteredNodes.length} nodes · {filteredEdges.length} edges
+        </span>
+      </div>
+
+      {/* Graph + Sidebar */}
+      <div className="flex flex-1 overflow-hidden relative">
+        <div ref={containerRef} className="flex-1 overflow-hidden">
+          {loading ? (
+            <div className="flex items-center justify-center h-full text-xs text-neutral-400 font-bold uppercase tracking-widest">
+              Loading...
+            </div>
+          ) : filteredNodes.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-xs text-neutral-400 font-bold uppercase tracking-widest">
+              No nodes match filter
+            </div>
+          ) : (
+            <ForceGraph2D
+              width={dimensions.width}
+              height={dimensions.height}
+              graphData={{ nodes: filteredNodes as any[], links: filteredEdges as any[] }}
+              nodeId="id"
+              linkSource="source"
+              linkTarget="target"
+              nodeVal={nodeValFn as any}
+              nodeColor={nodeColorFn as any}
+              nodeLabel={(node: any) => `${node.label} (${node.node_type})`}
+              linkColor={edgeColorFn as any}
+              linkWidth={1}
+              backgroundColor="transparent"
+              onNodeClick={handleNodeClick as any}
+              onNodeRightClick={handleNodeDoubleClick as any}
+              onBackgroundClick={handleBackgroundClick}
+              enableNodeDrag
+              enableZoomInteraction
+              enablePanInteraction
+              cooldownTicks={80}
+            />
+          )}
+        </div>
+
+        {/* Detail sidebar */}
+        {sidebarOpen && selectedNode && (
+          <div className="w-[280px] shrink-0 border-l border-neutral-200 dark:border-neutral-800 flex flex-col overflow-hidden bg-white dark:bg-neutral-900">
+            <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between shrink-0">
+              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Node Detail</span>
+              <button
+                onClick={() => { setSidebarOpen(false); setSelectedNode(null); setHighlightIds(new Set()); }}
+                className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 no-scrollbar">
+              <div className="space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Label</p>
+                <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{selectedNode.label}</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ background: nodeColor(selectedNode.node_type) }}
+                />
+                <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: nodeColor(selectedNode.node_type) }}>
+                  {selectedNode.node_type}
+                </span>
+              </div>
+
+              {selectedNode.source_url && (
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">URL</p>
+                  <p className="text-[10px] text-[#38bdf8] break-all">{selectedNode.source_url}</p>
+                </div>
+              )}
+              {selectedNode.source_path && (
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Path</p>
+                  <p className="text-[10px] text-neutral-500 dark:text-neutral-400 break-all">{selectedNode.source_path}</p>
+                </div>
+              )}
+
+              {selectedNodeEdges.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">
+                    Edges ({selectedNodeEdges.length})
+                  </p>
+                  <div className="space-y-1.5">
+                    {selectedNodeEdges.map((e, i) => {
+                      const src = String((e as any).source?.id ?? e.source);
+                      const tgt = String((e as any).target?.id ?? e.target);
+                      const isOut = src === selectedNode.id;
+                      const otherId = isOut ? tgt : src;
+                      const otherNode = graphData.nodes.find(n => n.id === otherId);
+                      return (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-neutral-50 dark:bg-neutral-800 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
+                          onClick={() => {
+                            if (otherNode) handleNodeClick(otherNode as any);
+                          }}
+                        >
+                          <span className="text-[9px] text-neutral-400 font-bold shrink-0">{isOut ? '→' : '←'}</span>
+                          <span className="text-[9px] text-neutral-500 dark:text-neutral-400 font-bold italic shrink-0">{e.relation}</span>
+                          <span className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 truncate">
+                            {otherNode?.label ?? otherId}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

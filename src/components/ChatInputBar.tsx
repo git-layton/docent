@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
-  AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic,
-  Telescope, Code2, ScrollText
+  AlertTriangle, Loader2, Brain, ListTodo, ShieldCheck, Trash2, Plus, Mic,
+  Telescope, Code2, ScrollText, Database
 } from 'lucide-react';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
 import type { SlashCommand } from './SlashCommandPalette';
@@ -66,6 +66,17 @@ export function ChatInputBar({
   const generationMode = useUIStore(s => s.generationMode);
   const { setInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
     setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode } = useUIStore.getState();
+
+  const [showToolPopover, setShowToolPopover] = useState(false);
+  const toolPopoverRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showToolPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (toolPopoverRef.current && !toolPopoverRef.current.contains(e.target as Node)) setShowToolPopover(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showToolPopover]);
 
   const [mentionHighlight, setMentionHighlight] = useState(0);
   const mentionMatch = channelParticipants.length > 0 ? input.match(/@(\w*)$/) : null;

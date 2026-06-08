@@ -47,6 +47,7 @@ import { AppSidebar } from './components/AppSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { BrowserPanel } from './components/BrowserPanel';
+import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
 import { ChatHeader } from './components/ChatHeader';
 import { PlannerPanel } from './components/PlannerPanel';
 import { MessageList } from './components/MessageList';
@@ -2361,7 +2362,13 @@ export default function App() {
           <BrowserPanel />
         )}
 
-        {viewMode !== 'browser' && !canvasContent?.isStandalone && (
+        {viewMode === 'knowledge-graph' && (
+          <div className="flex-1 flex flex-col h-full overflow-hidden">
+            <KnowledgeGraphPanel />
+          </div>
+        )}
+
+        {viewMode !== 'browser' && viewMode !== 'knowledge-graph' && !canvasContent?.isStandalone && (
           <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
             
             {/* Header */}
