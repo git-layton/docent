@@ -3,11 +3,14 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import SpotlightBar from "./components/SpotlightBar";
+import BrowserWindowApp from "./BrowserWindowApp";
 
-const isSpotlight = new URLSearchParams(window.location.search).get('window') === 'spotlight';
+const windowParam = new URLSearchParams(window.location.search).get('window');
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {isSpotlight ? <SpotlightBar /> : <App />}
+    {windowParam === 'spotlight' ? <SpotlightBar /> :
+     windowParam === 'browser'   ? <BrowserWindowApp /> :
+     <App />}
   </React.StrictMode>,
 );
