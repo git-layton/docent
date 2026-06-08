@@ -212,6 +212,9 @@ export function ActivityMonitorBar({
               { label: 'System', chars: breakdown.systemChars, color: 'bg-blue-400' },
               { label: 'Pins', chars: breakdown.pinsChars, color: 'bg-amber-400' },
               { label: 'Docs', chars: breakdown.docsChars, color: 'bg-emerald-400' },
+              ...(breakdown.browserChars > 0
+                ? [{ label: 'Browser', chars: breakdown.browserChars, color: 'bg-teal-500' }]
+                : []),
             ].map(({ label, chars, color }) => {
               const pct = breakdown.total > 0 ? Math.round((chars / breakdown.total) * 100) : 0;
               const kb = (chars / 1000).toFixed(1);
