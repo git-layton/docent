@@ -17,6 +17,7 @@ import { useSettingsStore, isLocalProvider } from './store/useSettingsStore';
 import { useMemoryStore } from './store/useMemoryStore';
 import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
+import { useBrowserStore } from './store/useBrowserStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
 import { normalizeChatRecord, routeAgentsForChannel, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
@@ -200,6 +201,7 @@ export default function App() {
         await useMemoryStore.getState().hydrate();
         await useTaskStore.getState().hydrate();
         await useUIStore.getState().hydrateSavedApps();
+        await useBrowserStore.getState().hydrate();
 
       // Init Knowledge Core (creates ~/AgentForge/ on first run)
       try {
