@@ -196,7 +196,7 @@ export function ChatInputBar({
                 <Zap className="w-3 h-3 text-secondary-light" />
                 {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-error" /></span>}
                 {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-[#9FBBAF]" /></span>}
-                <span className="text-micro font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wide max-w-[120px] truncate">{selectedModel?.name ?? 'Brain'}</span>
+                <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 max-w-[120px] truncate">{selectedModel?.name ?? 'Model'}</span>
                 <ChevronDown className="w-3 h-3 text-neutral-400 shrink-0" />
               </button>
               {isModelDropdownOpen && (
@@ -207,7 +207,7 @@ export function ChatInputBar({
                       const cloudModels = models.filter(m => !m.isLocal);
                       const renderModel = (m: any) => (
                         <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-primary text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                          <div className="flex flex-col"><span className="text-xs font-bold">{m.name}</span><span className={`text-micro uppercase font-black opacity-60 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
+                          <div className="flex flex-col"><span className="text-xs font-medium">{m.name}</span><span className={`text-[9px] font-medium opacity-50 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
                           <div className="flex items-center gap-1">
                             {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-[#D9A098]" />}
                             {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-[#B5CDBF]" />}
@@ -220,21 +220,21 @@ export function ChatInputBar({
                         <>
                           {localModels.length > 0 && (
                             <>
-                              <div className="px-3 pt-1 pb-0.5 text-micro font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><Brain className="w-2.5 h-2.5" /> Local</div>
+                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-medium text-neutral-400 flex items-center gap-1.5"><Brain className="w-2.5 h-2.5" /> Local</div>
                               {localModels.map(renderModel)}
                             </>
                           )}
                           {cloudModels.length > 0 && (
                             <>
                               {localModels.length > 0 && <div className="border-t border-neutral-100 dark:border-neutral-800 my-1" />}
-                              <div className="px-3 pt-1 pb-0.5 text-micro font-black uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><Globe className="w-2.5 h-2.5" /> Cloud</div>
+                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-medium text-neutral-400 flex items-center gap-1.5"><Globe className="w-2.5 h-2.5" /> Cloud</div>
                               {cloudModels.map(renderModel)}
                             </>
                           )}
                         </>
                       );
                     })()}
-                    <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-primary hover:bg-surface dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-tiny font-black uppercase tracking-widest">Connect LLM</span></button>
+                    <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-primary hover:bg-surface dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-xs font-medium">Connect model</span></button>
                   </div>
                 </div>
               )}
