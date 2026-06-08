@@ -22,6 +22,7 @@ interface UIStore {
   isDeepThinking: boolean;
   forcedTool: string | null;
   isPlanMode: boolean;
+  pinnedTools: string[];
   isDragging: boolean;
   uploadError: string;
   slashHighlight: number;
@@ -66,6 +67,7 @@ interface UIStore {
   setIsDeepThinking: (v: boolean | ((prev: boolean) => boolean)) => void;
   setForcedTool: (v: string | null | ((prev: string | null) => string | null)) => void;
   setIsPlanMode: (v: boolean | ((prev: boolean) => boolean)) => void;
+  setPinnedTools: (v: string[] | ((prev: string[]) => string[])) => void;
   setIsDragging: (v: boolean) => void;
   setUploadError: (v: string) => void;
   setSlashHighlight: (v: number | ((prev: number) => number)) => void;
@@ -100,6 +102,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isDeepThinking: false,
   forcedTool: null,
   isPlanMode: false,
+  pinnedTools: ['web_search', 'local_workspace'],
   isDragging: false,
   uploadError: '',
   slashHighlight: 0,
@@ -141,6 +144,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set(s => ({ forcedTool: typeof v === 'function' ? v(s.forcedTool) : v })),
   setIsPlanMode: (v) =>
     set(s => ({ isPlanMode: typeof v === 'function' ? v(s.isPlanMode) : v })),
+  setPinnedTools: (v) =>
+    set(s => ({ pinnedTools: typeof v === 'function' ? v(s.pinnedTools) : v })),
   setIsDragging: (v) => set({ isDragging: v }),
   setUploadError: (v) => set({ uploadError: v }),
   setSlashHighlight: (v) =>

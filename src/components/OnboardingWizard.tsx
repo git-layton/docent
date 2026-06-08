@@ -1098,7 +1098,7 @@ function StepModelTier({ onNext, onSkip }: { onNext: () => void; onSkip: () => v
           </div>
           {selected?.id === recommended.id && (
             <Btn
-              onClick={e => { e.stopPropagation(); applyTier(recommended); }}
+              onClick={() => applyTier(recommended)}
               disabled={saved}
               className="w-full"
             >
@@ -1134,7 +1134,7 @@ function StepModelTier({ onNext, onSkip }: { onNext: () => void; onSkip: () => v
               </div>
               {selected?.id === tier.id && (
                 <Btn
-                  onClick={e => { e.stopPropagation(); applyTier(tier); }}
+                  onClick={() => applyTier(tier)}
                   disabled={saved}
                   className="w-full"
                 >
