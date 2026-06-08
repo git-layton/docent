@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
-  AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic
+  AlertTriangle, Loader2, Brain, ListTodo, Database, ShieldCheck, Trash2, Plus, Mic,
+  Telescope, Code2, ScrollText
 } from 'lucide-react';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
 import type { SlashCommand } from './SlashCommandPalette';
@@ -62,8 +63,9 @@ export function ChatInputBar({
   const uploadError = useUIStore(s => s.uploadError);
   const isModelDropdownOpen = useUIStore(s => s.isModelDropdownOpen);
   const slashHighlight = useUIStore(s => s.slashHighlight);
+  const generationMode = useUIStore(s => s.generationMode);
   const { setInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
-    setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight } = useUIStore.getState();
+    setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode } = useUIStore.getState();
 
   const [mentionHighlight, setMentionHighlight] = useState(0);
   const mentionMatch = channelParticipants.length > 0 ? input.match(/@(\w*)$/) : null;
@@ -180,15 +182,23 @@ export function ChatInputBar({
         </div>
 
         {/* Mode bar + model selector + actions — single row */}
-        <div className="flex items-center gap-1 px-0.5 pt-1" ref={modelDropdownRef}>
-          <button onClick={() => setIsDeepThinking(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${isDeepThinking ? 'bg-primary-dark text-secondary-light' : 'text-neutral-400 hover:text-secondary-light hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Deep Thinking Mode"><Brain className="w-3.5 h-3.5" /><span>Think</span></button>
-          <button onClick={() => setIsPlanMode(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${isPlanMode ? 'bg-success text-white' : 'text-neutral-400 hover:text-success hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan Mode"><ListTodo className="w-3.5 h-3.5" /><span>Plan</span></button>
+        <div className="flex items-center gap-0.5 px-0.5 pt-1" ref={modelDropdownRef}>
+          {/* Thinking & reasoning modes */}
+          <button onClick={() => setIsDeepThinking(v => !v)} className={`p-1.5 rounded-lg transition-all ${isDeepThinking ? 'bg-primary-dark text-secondary-light' : 'text-neutral-400 hover:text-secondary-light hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Think — extended chain-of-thought reasoning"><Brain className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setIsPlanMode(v => !v)} className={`p-1.5 rounded-lg transition-all ${isPlanMode ? 'bg-success text-white' : 'text-neutral-400 hover:text-success hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan — structured step-by-step response"><ListTodo className="w-3.5 h-3.5" /></button>
+          {/* Tool overrides */}
           {activeAssistant?.tools?.local_workspace && (
-            <button onClick={() => { setForcedTool(t => t === 'workspace' ? null : 'workspace'); }} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${forcedTool === 'workspace' ? 'bg-primary text-white' : 'text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Knowledge Base Search (⌘⇧K)"><Database className="w-3.5 h-3.5" /><span>Knowledge</span></button>
+            <button onClick={() => setForcedTool(t => t === 'workspace' ? null : 'workspace')} className={`p-1.5 rounded-lg transition-all ${forcedTool === 'workspace' ? 'bg-primary text-white' : 'text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Knowledge base search (⌘⇧K)"><Database className="w-3.5 h-3.5" /></button>
           )}
           {activeAssistant?.tools?.web_search && (
-            <button onClick={() => { setForcedTool(t => t === 'search' ? null : 'search'); }} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-tiny font-bold transition-all ${forcedTool === 'search' ? 'bg-secondary text-white' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Search Web"><Globe className="w-3.5 h-3.5" /><span>Search</span></button>
+            <button onClick={() => setForcedTool(t => t === 'search' ? null : 'search')} className={`p-1.5 rounded-lg transition-all ${forcedTool === 'search' ? 'bg-secondary text-white' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Web search"><Globe className="w-3.5 h-3.5" /></button>
           )}
+          {/* Deep Research stub */}
+          <button disabled className="p-1.5 rounded-lg text-neutral-300 dark:text-neutral-600 cursor-default" title="Deep Research — coming soon"><Telescope className="w-3.5 h-3.5" /></button>
+          <div className="w-px h-3.5 bg-neutral-200 dark:bg-neutral-700 mx-1 shrink-0" />
+          {/* Output mode */}
+          <button onClick={() => setGenerationMode(generationMode === 'code' ? 'text' : 'code')} className={`p-1.5 rounded-lg transition-all ${generationMode === 'code' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Canvas — generate a code app"><Code2 className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setGenerationMode(generationMode === 'doc' ? 'text' : 'doc')} className={`p-1.5 rounded-lg transition-all ${generationMode === 'doc' ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Doc — generate a rich document"><ScrollText className="w-3.5 h-3.5" /></button>
           <div className="flex items-center gap-1 ml-auto">
             {/* Model selector — moved here from its own row */}
             <div className="relative">
