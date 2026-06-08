@@ -2359,6 +2359,106 @@ async fn start_local_model(
     Err("llama-server did not become ready within 30s".to_string())
 }
 
+// ─── Browser Co-pilot Commands ───────────────────────────────────────────────
+
+/// Extracts clean readable text from raw HTML passed in from the frontend.
+/// Strips script/style/nav/footer/header/aside elements first, then returns
+/// plain text joined by spaces, trimmed to 50,000 chars.
+#[tauri::command]
+fn extract_page_text(html: String, url: String, title: String) -> Result<String, String> {
+    use scraper::{Html, Selector};
+
+    let document = Html::parse_document(&html);
+
+    // Selector for elements whose entire subtree should be excluded
+    let noise_sel = Selector::parse("script,style,noscript,nav,footer,header,aside,svg")
+        .map_err(|e| format!("selector parse error: {e:?}"))?;
+
+    // Collect all noise element IDs (ego_tree NodeId) so we can quickly test ancestry
+    let noise_ids: std::collections::HashSet<_> = document
+        .select(&noise_sel)
+        .map(|el| el.id())
+        .collect();
+
+    // Walk every node; emit text only when none of its ancestors is a noise element
+    let mut text_parts: Vec<String> = Vec::new();
+    for node in document.root_element().descendants() {
+        let text_val = match node.value().as_text() {
+            Some(t) => t,
+            None => continue,
+        };
+
+        // Check ancestors: if any ancestor node-id is in the noise set, skip
+        let in_noise = node.ancestors().any(|a| noise_ids.contains(&a.id()));
+        if in_noise {
+            continue;
+        }
+
+        let piece = text_val.trim();
+        if !piece.is_empty() {
+            text_parts.push(piece.to_string());
+        }
+    }
+
+    // Decode common HTML entities and collapse whitespace
+    let joined = text_parts.join(" ");
+    let decoded = joined
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
+
+    // Collapse runs of whitespace
+    let clean: String = decoded.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    // Prepend title/URL context so the LLM always knows what page this is
+    let with_meta = if title.is_empty() && url.is_empty() {
+        clean
+    } else {
+        format!("[Page: {} | {}]\n\n{}", title, url, clean)
+    };
+
+    // Hard cap at 50,000 chars
+    let result: String = with_meta.chars().take(50_000).collect();
+    Ok(result)
+}
+
+/// Heuristic check: returns true if the page looks private / auth-gated.
+/// Quick and intentionally conservative — false positives are acceptable.
+#[tauri::command]
+fn check_page_is_private(html: String, url: String) -> bool {
+    // URL-based signals
+    let url_lower = url.to_lowercase();
+    let private_url_patterns = [
+        "login", "signin", "sign-in", "auth", "/account", "/dashboard",
+        "/admin", "checkout", "/cart",
+    ];
+    if private_url_patterns.iter().any(|p| url_lower.contains(p)) {
+        return true;
+    }
+
+    // HTML-based signals: robots noindex meta tag
+    let html_lower = html.to_lowercase();
+    // <meta name="robots" content="noindex..."> (various spacings / attribute orders)
+    if html_lower.contains("noindex") {
+        return true;
+    }
+
+    // Common auth-wall indicators in the markup
+    let auth_markers = [
+        "login-form", "signin-form", "id=\"login\"", "id=\"signin\"",
+        "class=\"login\"", "class=\"signin\"", "action=\"/login\"",
+        "action=\"/signin\"", "action=\"/auth\"",
+    ];
+    if auth_markers.iter().any(|m| html_lower.contains(m)) {
+        return true;
+    }
+
+    false
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2486,6 +2586,8 @@ pub fn run() {
             download_model,
             cancel_download,
             start_local_model,
+            extract_page_text,
+            check_page_is_private,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application")
