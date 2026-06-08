@@ -2359,6 +2359,272 @@ async fn start_local_model(
     Err("llama-server did not become ready within 30s".to_string())
 }
 
+// ─── Knowledge Graph ──────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct GraphNode {
+    id: String,
+    node_type: String,
+    label: String,
+    source_url: Option<String>,
+    source_path: Option<String>,
+    metadata_json: String,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct GraphEdge {
+    id: String,
+    source_id: String,
+    target_id: String,
+    relation: String,
+    weight: f64,
+    metadata_json: String,
+    created_at: i64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct GraphSubgraph {
+    nodes: Vec<GraphNode>,
+    edges: Vec<GraphEdge>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct GraphStats {
+    node_count: i64,
+    edge_count: i64,
+    most_connected: Vec<(String, String, i64)>, // (id, label, degree)
+}
+
+fn open_graph_db() -> Result<rusqlite::Connection, String> {
+    let db_path = knowledge_root().join(".index.db");
+    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS graph_nodes (
+            id            TEXT PRIMARY KEY,
+            node_type     TEXT NOT NULL,
+            label         TEXT NOT NULL,
+            source_url    TEXT,
+            source_path   TEXT,
+            metadata_json TEXT DEFAULT '{}',
+            created_at    INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS graph_edges (
+            id            TEXT PRIMARY KEY,
+            source_id     TEXT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
+            target_id     TEXT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
+            relation      TEXT NOT NULL,
+            weight        REAL DEFAULT 1.0,
+            metadata_json TEXT DEFAULT '{}',
+            created_at    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_nodes_type   ON graph_nodes(node_type);",
+    ).map_err(|e| e.to_string())?;
+    // Enable cascade deletes via foreign keys
+    conn.execute_batch("PRAGMA foreign_keys = ON;").map_err(|e| e.to_string())?;
+    Ok(conn)
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+#[tauri::command]
+fn upsert_graph_node(
+    id: String,
+    node_type: String,
+    label: String,
+    source_url: Option<String>,
+    source_path: Option<String>,
+    metadata_json: String,
+) -> Result<(), String> {
+    let conn = open_graph_db()?;
+    let now = now_secs();
+    conn.execute(
+        "INSERT INTO graph_nodes (id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+         ON CONFLICT(id) DO UPDATE SET
+             node_type     = excluded.node_type,
+             label         = excluded.label,
+             source_url    = excluded.source_url,
+             source_path   = excluded.source_path,
+             metadata_json = excluded.metadata_json,
+             updated_at    = excluded.updated_at",
+        rusqlite::params![id, node_type, label, source_url, source_path, metadata_json, now],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn upsert_graph_edge(
+    id: String,
+    source_id: String,
+    target_id: String,
+    relation: String,
+    weight: f64,
+    metadata_json: String,
+) -> Result<(), String> {
+    let conn = open_graph_db()?;
+    let now = now_secs();
+    conn.execute(
+        "INSERT INTO graph_edges (id, source_id, target_id, relation, weight, metadata_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(id) DO UPDATE SET
+             source_id     = excluded.source_id,
+             target_id     = excluded.target_id,
+             relation      = excluded.relation,
+             weight        = excluded.weight,
+             metadata_json = excluded.metadata_json",
+        rusqlite::params![id, source_id, target_id, relation, weight, metadata_json, now],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_graph_neighbors(node_id: String, max_depth: u32) -> Result<GraphSubgraph, String> {
+    let depth = max_depth.min(3);
+    let conn = open_graph_db()?;
+
+    let mut visited_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+    visited_nodes.insert(node_id.clone());
+    let mut frontier: Vec<String> = vec![node_id];
+
+    for _ in 0..depth {
+        if frontier.is_empty() {
+            break;
+        }
+        let mut next_frontier: Vec<String> = Vec::new();
+        for nid in &frontier {
+            let mut stmt = conn.prepare(
+                "SELECT source_id, target_id FROM graph_edges WHERE source_id = ?1 OR target_id = ?1",
+            ).map_err(|e| e.to_string())?;
+            let neighbors: Vec<String> = stmt
+                .query_map(rusqlite::params![nid], |row| {
+                    let src: String = row.get(0)?;
+                    let tgt: String = row.get(1)?;
+                    Ok((src, tgt))
+                })
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .flat_map(|(src, tgt)| {
+                    let n = nid.clone();
+                    let mut v = Vec::new();
+                    if src != n { v.push(src); }
+                    if tgt != n { v.push(tgt); }
+                    v
+                })
+                .collect();
+            for neighbor in neighbors {
+                if visited_nodes.insert(neighbor.clone()) {
+                    next_frontier.push(neighbor);
+                }
+            }
+        }
+        frontier = next_frontier;
+    }
+
+    // Fetch all nodes in the visited set
+    let node_ids: Vec<String> = visited_nodes.into_iter().collect();
+    let ph: String = (1..=node_ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
+
+    let node_sql = format!(
+        "SELECT id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at
+         FROM graph_nodes WHERE id IN ({ph})"
+    );
+    let mut stmt = conn.prepare(&node_sql).map_err(|e| e.to_string())?;
+    let nodes: Vec<GraphNode> = stmt
+        .query_map(rusqlite::params_from_iter(node_ids.iter()), |row| {
+            Ok(GraphNode {
+                id:            row.get(0)?,
+                node_type:     row.get(1)?,
+                label:         row.get(2)?,
+                source_url:    row.get(3)?,
+                source_path:   row.get(4)?,
+                metadata_json: row.get(5)?,
+                created_at:    row.get(6)?,
+                updated_at:    row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Fetch edges where both endpoints are in the visited set
+    // Build two copies of the placeholder list (source_id IN (...) AND target_id IN (...))
+    let ph2: String = (node_ids.len() + 1..=node_ids.len() * 2)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let edge_sql = format!(
+        "SELECT id, source_id, target_id, relation, weight, metadata_json, created_at
+         FROM graph_edges WHERE source_id IN ({ph}) AND target_id IN ({ph2})"
+    );
+    let combined_ids: Vec<String> = node_ids.iter().cloned().chain(node_ids.iter().cloned()).collect();
+    let mut stmt2 = conn.prepare(&edge_sql).map_err(|e| e.to_string())?;
+    let edges: Vec<GraphEdge> = stmt2
+        .query_map(rusqlite::params_from_iter(combined_ids.iter()), |row| {
+            Ok(GraphEdge {
+                id:            row.get(0)?,
+                source_id:     row.get(1)?,
+                target_id:     row.get(2)?,
+                relation:      row.get(3)?,
+                weight:        row.get(4)?,
+                metadata_json: row.get(5)?,
+                created_at:    row.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(GraphSubgraph { nodes, edges })
+}
+
+#[tauri::command]
+fn get_graph_stats() -> Result<GraphStats, String> {
+    let conn = open_graph_db()?;
+
+    let node_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM graph_nodes", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+
+    let edge_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM graph_edges", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+
+    let mut stmt = conn.prepare(
+        "SELECT n.id, n.label,
+                (SELECT COUNT(*) FROM graph_edges
+                 WHERE source_id = n.id OR target_id = n.id) AS degree
+         FROM graph_nodes n
+         ORDER BY degree DESC
+         LIMIT 10",
+    ).map_err(|e| e.to_string())?;
+
+    let most_connected: Vec<(String, String, i64)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(GraphStats { node_count, edge_count, most_connected })
+}
+
+#[tauri::command]
+fn delete_graph_node(id: String) -> Result<(), String> {
+    let conn = open_graph_db()?;
+    conn.execute("DELETE FROM graph_nodes WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2486,6 +2752,11 @@ pub fn run() {
             download_model,
             cancel_download,
             start_local_model,
+            upsert_graph_node,
+            upsert_graph_edge,
+            get_graph_neighbors,
+            get_graph_stats,
+            delete_graph_node,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application")
