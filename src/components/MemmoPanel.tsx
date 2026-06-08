@@ -494,7 +494,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                           {entry.url}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
-                          <span className="text-[9px] text-neutral-400">{timeAgo(entry.visitedAt)}</span>
+                          <span className="text-[9px] text-neutral-400">{timeAgo(entry.timestamp)}</span>
                           {entry.wasDigested && (
                             <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 text-[9px] font-black">
                               Digest saved

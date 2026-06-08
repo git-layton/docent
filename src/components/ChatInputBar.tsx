@@ -2,13 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
   AlertTriangle, Loader2, Brain, ListTodo, ShieldCheck, Trash2, Plus, Mic,
-  Telescope, Code2, ScrollText, Database
+  Telescope, Code2, ScrollText
 } from 'lucide-react';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
 import type { SlashCommand } from './SlashCommandPalette';
 import { invoke } from '@tauri-apps/api/core';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { AVAILABLE_TOOLS } from './ui/AgentIcon';
 
 interface ChatInputBarProps {
   isGenerating: boolean;
@@ -64,8 +65,9 @@ export function ChatInputBar({
   const isModelDropdownOpen = useUIStore(s => s.isModelDropdownOpen);
   const slashHighlight = useUIStore(s => s.slashHighlight);
   const generationMode = useUIStore(s => s.generationMode);
+  const pinnedTools = useUIStore(s => s.pinnedTools);
   const { setInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
-    setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode } = useUIStore.getState();
+    setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode, setPinnedTools } = useUIStore.getState();
 
   const [showToolPopover, setShowToolPopover] = useState(false);
   const toolPopoverRef = useRef<HTMLDivElement>(null);
@@ -194,22 +196,52 @@ export function ChatInputBar({
 
         {/* Mode bar + model selector + actions — single row */}
         <div className="flex items-center gap-0.5 px-0.5 pt-1" ref={modelDropdownRef}>
-          {/* Thinking & reasoning modes */}
+          {/* Reasoning modes */}
           <button onClick={() => setIsDeepThinking(v => !v)} className={`p-1.5 rounded-lg transition-all ${isDeepThinking ? 'bg-primary-dark text-secondary-light' : 'text-neutral-400 hover:text-secondary-light hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Think — extended chain-of-thought reasoning"><Brain className="w-3.5 h-3.5" /></button>
           <button onClick={() => setIsPlanMode(v => !v)} className={`p-1.5 rounded-lg transition-all ${isPlanMode ? 'bg-success text-white' : 'text-neutral-400 hover:text-success hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan — structured step-by-step response"><ListTodo className="w-3.5 h-3.5" /></button>
-          {/* Tool overrides */}
-          {activeAssistant?.tools?.local_workspace && (
-            <button onClick={() => setForcedTool(t => t === 'workspace' ? null : 'workspace')} className={`p-1.5 rounded-lg transition-all ${forcedTool === 'workspace' ? 'bg-primary text-white' : 'text-neutral-400 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Knowledge base search (⌘⇧K)"><Database className="w-3.5 h-3.5" /></button>
-          )}
-          {activeAssistant?.tools?.web_search && (
-            <button onClick={() => setForcedTool(t => t === 'search' ? null : 'search')} className={`p-1.5 rounded-lg transition-all ${forcedTool === 'search' ? 'bg-secondary text-white' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Web search"><Globe className="w-3.5 h-3.5" /></button>
-          )}
-          {/* Deep Research stub */}
-          <button disabled className="p-1.5 rounded-lg text-neutral-300 dark:text-neutral-600 cursor-default" title="Deep Research — coming soon"><Telescope className="w-3.5 h-3.5" /></button>
-          <div className="w-px h-3.5 bg-neutral-200 dark:bg-neutral-700 mx-1 shrink-0" />
-          {/* Output mode */}
+          {/* Output modes */}
           <button onClick={() => setGenerationMode(generationMode === 'code' ? 'text' : 'code')} className={`p-1.5 rounded-lg transition-all ${generationMode === 'code' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Canvas — generate a code app"><Code2 className="w-3.5 h-3.5" /></button>
           <button onClick={() => setGenerationMode(generationMode === 'doc' ? 'text' : 'doc')} className={`p-1.5 rounded-lg transition-all ${generationMode === 'doc' ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Doc — generate a rich document"><ScrollText className="w-3.5 h-3.5" /></button>
+          {/* Pinned tools — dynamic, only shows if enabled on current agent */}
+          {AVAILABLE_TOOLS.filter(t => pinnedTools.includes(t.id) && activeAssistant?.tools?.[t.id]).map(tool => {
+            const Icon = tool.icon;
+            const isActive = forcedTool === tool.id;
+            return (
+              <button key={tool.id} onClick={() => setForcedTool(f => f === tool.id ? null : tool.id)} className={`p-1.5 rounded-lg transition-all ${isActive ? 'bg-secondary text-white' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={tool.name}>
+                <Icon className="w-3.5 h-3.5" />
+              </button>
+            );
+          })}
+          {/* + Tools popover */}
+          <div className="relative" ref={toolPopoverRef}>
+            <button onClick={() => setShowToolPopover(v => !v)} className={`p-1.5 rounded-lg transition-all ${showToolPopover ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-neutral-500 dark:hover:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Add tools"><Plus className="w-3 h-3" /></button>
+            {showToolPopover && (
+              <div className="absolute bottom-full left-0 mb-2 w-52 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] p-1.5 animate-in slide-in-from-bottom-2 duration-150">
+                <div className="px-2 py-1 text-[9px] font-medium text-neutral-400 uppercase tracking-wider">Pin tools to toolbar</div>
+                <div className="space-y-0.5">
+                  {AVAILABLE_TOOLS.map(tool => {
+                    const Icon = tool.icon;
+                    const enabled = !!activeAssistant?.tools?.[tool.id];
+                    const pinned = pinnedTools.includes(tool.id);
+                    return (
+                      <button key={tool.id} onClick={() => { if (!enabled) return; setPinnedTools(p => pinned ? p.filter(id => id !== tool.id) : [...p, tool.id]); }} className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-all ${enabled ? 'hover:bg-neutral-50 dark:hover:bg-neutral-800' : 'opacity-40 cursor-default'}`}>
+                        <Icon className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
+                        <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex-1">{tool.name}</span>
+                        {pinned && enabled && <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                        {!enabled && <span className="text-[9px] text-neutral-400">off</span>}
+                      </button>
+                    );
+                  })}
+                  <div className="border-t border-neutral-100 dark:border-neutral-800 my-1" />
+                  <button disabled className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl opacity-40 cursor-default">
+                    <Telescope className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
+                    <span className="text-xs font-medium text-neutral-500 flex-1">Deep Research</span>
+                    <span className="text-[9px] text-neutral-400">soon</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-1 ml-auto">
             {/* Model selector — moved here from its own row */}
             <div className="relative">
