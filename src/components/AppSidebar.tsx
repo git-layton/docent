@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff, Globe } from 'lucide-react';
+import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff, Globe, GitBranch } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -191,6 +191,13 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
 
         <div className="flex p-1 gap-1 mx-4 mt-4 bg-neutral-100 dark:bg-neutral-800 rounded-xl shrink-0">
           {['chat', 'canvas'].map(v => <button key={v} onClick={() => useUIStore.getState().setViewMode(v)} className={`flex-1 text-[10px] uppercase font-black py-2 rounded-lg transition-all ${viewMode === v ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'}`}>{v}</button>)}
+          <button
+            onClick={() => useUIStore.getState().setViewMode('knowledge-graph')}
+            title="Knowledge Graph"
+            className={`flex items-center justify-center px-2 py-2 rounded-lg transition-all ${viewMode === 'knowledge-graph' ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'}`}
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2 no-scrollbar">
