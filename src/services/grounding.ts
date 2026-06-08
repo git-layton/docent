@@ -156,3 +156,12 @@ This memory may guide future answers, but factual claims must stay tied to the g
 
 export const buildGroundedMarkdown = (metadata: GroundingMetadata, body: string) =>
   `${buildGroundingFrontmatter(metadata)}# ${metadata.title}\n\n${buildGroundingSection(metadata)}\n\n${body.trim()}\n`;
+
+export function buildBrowserChunkContext(opts: {
+  sourceTitle: string;
+  url: string;
+  capturedAt: string;
+  oneSentenceSummary: string;
+}): string {
+  return `This chunk is from "${opts.sourceTitle}" (${opts.url}), captured ${opts.capturedAt}. The document is about: ${opts.oneSentenceSummary}`;
+}
