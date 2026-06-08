@@ -81,6 +81,7 @@ export function BrowserWindowApp() {
   const [pageContent, setPageContent] = useState('');
   const [isSavingToKB, setIsSavingToKB] = useState(false);
   const [kbSaved, setKbSaved] = useState(false);
+  const [downloadToast, setDownloadToast] = useState<{ filename: string; success: boolean } | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<Webview | null>(null);
@@ -242,6 +243,39 @@ export function BrowserWindowApp() {
     if (!url) return;
     emit('browser:page-changed', { url, title: pageTitle, content: pageContent }).catch(() => {});
   }, [url, pageTitle, pageContent]);
+
+  const handleDownload = useCallback(async (url: string, filename: string) => {
+    try {
+      const path = await invoke<string>('browser_download_url', { url, filename });
+      const name = path.split('/').pop() ?? filename;
+      setDownloadToast({ filename: name, success: true });
+      setTimeout(() => setDownloadToast(null), 4000);
+    } catch (e) {
+      setDownloadToast({ filename, success: false });
+      setTimeout(() => setDownloadToast(null), 4000);
+    }
+  }, []);
+
+  // Inject download link interceptor into WKWebView (best-effort, one-time on mount)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      invoke('browser_eval', {
+        label: BROWSER_LABEL,
+        script: `(function(){
+        if(window.__dlHandled)return;
+        window.__dlHandled=true;
+        document.addEventListener('click',function(e){
+          var a=e.target.closest('a[download]');
+          if(!a||!a.href)return;
+          e.preventDefault();
+          var fn=a.getAttribute('download')||a.href.split('/').pop()||'download';
+          window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke('browser_download_url',{url:a.href,filename:fn});
+        },true);
+      })();`
+      }).catch(() => {});
+    }, 1200);
+    return () => clearTimeout(t);
+  }, []);
 
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
@@ -511,6 +545,39 @@ export function BrowserWindowApp() {
       </div>
 
       {comment && <ProactiveChip comment={comment} onDismiss={dismiss} />}
+      {downloadToast && (
+        <div className={clsx(
+          'absolute bottom-4 left-4 z-30',
+          'flex items-center gap-2.5',
+          'bg-white dark:bg-neutral-900',
+          'border border-neutral-200 dark:border-neutral-700',
+          'rounded-xl shadow-lg px-3.5 py-2.5',
+          'animate-in slide-in-from-bottom-3 fade-in duration-300',
+          'text-xs',
+        )}>
+          {downloadToast.success ? (
+            <>
+              <span className="text-emerald-500 font-bold">↓</span>
+              <span className="text-neutral-700 dark:text-neutral-300">
+                Downloaded: <strong>{downloadToast.filename}</strong>
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-red-500 font-bold">✕</span>
+              <span className="text-neutral-700 dark:text-neutral-300">
+                Download failed: {downloadToast.filename}
+              </span>
+            </>
+          )}
+          <button
+            onClick={() => setDownloadToast(null)}
+            className="ml-1 p-0.5 rounded text-neutral-400 hover:text-neutral-600"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
