@@ -37,6 +37,7 @@ interface SettingsStore {
     imageModelId: string;
     imageEndpoint: string;
     dreamAutoEnabled?: boolean;
+    showContextWindowLine?: boolean;
     forgeInstanceId?: string;
     inboxOwners?: Array<{ id: string; label: string }>;
     people?: Array<{ id: string; label: string; role?: string }>;
@@ -125,6 +126,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     imageModelId: '',
     imageEndpoint: '',
     dreamAutoEnabled: true,
+    showContextWindowLine: false,
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,

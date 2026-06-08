@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Paperclip, Zap, Plus, Bookmark, Edit3, Copy, Volume2, VolumeX, ListTodo,
-  ArrowDown, ArrowUp, Brain
+  ArrowDown, ArrowUp
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { TypingIndicator } from './ui/TypingIndicator';
@@ -131,13 +131,10 @@ export function MessageList({
           <div className="max-w-3xl mx-auto space-y-3 pb-36">
             {activeMessages.flatMap((msg, idx) => {
               const divider = idx === forgettingIndex ? (
-                <div key="forgetting-line" className="flex items-center gap-3 py-3 px-1 select-none" title={`${activeAssistant?.name ?? 'Agent'} receives messages from this point forward`}>
-                  <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700/60" />
-                  <span className="flex items-center gap-1.5 text-micro font-black uppercase tracking-widest text-secondary/70 dark:text-secondary/50 whitespace-nowrap">
-                    <Brain className="w-3 h-3" />
-                    {activeAssistant?.name ?? 'Agent'} context starts here
-                  </span>
-                  <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700/60" />
+                <div key="forgetting-line" className="flex items-center gap-2 py-0.5 px-1 select-none" title={`${activeAssistant?.name ?? 'Agent'} only sees messages from here forward`}>
+                  <div className="flex-1 h-px bg-neutral-200/80 dark:bg-neutral-700/40" />
+                  <span className="text-[8px] font-black uppercase tracking-[0.15em] text-neutral-300 dark:text-neutral-600 whitespace-nowrap">context</span>
+                  <div className="flex-1 h-px bg-neutral-200/80 dark:bg-neutral-700/40" />
                 </div>
               ) : null;
               const bubble = (

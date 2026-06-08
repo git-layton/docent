@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
-  MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, Plus, Trash2, CalendarClock
+  MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, Plus, Trash2, CalendarClock, Eye
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -554,6 +554,21 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Context Window Line */}
+              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-neutral-100 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700"><Eye className="w-5 h-5 text-neutral-400" /></div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Context Window Line</span>
+                    <span className="text-xs text-neutral-500 font-medium mt-0.5">Show a subtle divider in chat where the agent's memory begins — older messages are no longer in context.</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAppSettings((prev: any) => ({ ...prev, showContextWindowLine: !prev.showContextWindowLine }))}
+                  className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${appSettings?.showContextWindowLine ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                >{appSettings?.showContextWindowLine ? 'On' : 'Off'}</button>
               </div>
 
               {/* Local Planner */}

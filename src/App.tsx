@@ -2396,7 +2396,7 @@ export default function App() {
                   activeMessages={activeMessages}
                   isGenerating={isGenerating}
                   activeAssistant={activeAssistant}
-                  forgettingIndex={forgettingIndex}
+                  forgettingIndex={appSettings?.showContextWindowLine ? forgettingIndex : -1}
                   onConfirmEdit={confirmEditMessage}
                   onBookmark={handleBookmark}
                   onToggleSpeak={toggleSpeak}
