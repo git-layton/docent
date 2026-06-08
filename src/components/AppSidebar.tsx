@@ -186,7 +186,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         </div>
 
         <div className="flex p-1 gap-1 mx-4 mt-3 bg-neutral-100 dark:bg-neutral-800 rounded-xl shrink-0">
-          {['chat', 'canvas'].map(v => <button key={v} onClick={() => useUIStore.getState().setViewMode(v)} className={`flex-1 text-[10px] font-medium py-1.5 rounded-lg transition-all capitalize ${viewMode === v ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}>{v}</button>)}
+          {['chat', 'canvas', 'browser'].map(v => <button key={v} onClick={() => useUIStore.getState().setViewMode(v)} className={`flex-1 text-[10px] font-medium py-1.5 rounded-lg transition-all capitalize ${viewMode === v ? 'bg-white dark:bg-neutral-700 shadow-sm text-[#4A5D75]' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}>{v}</button>)}
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2 no-scrollbar">
