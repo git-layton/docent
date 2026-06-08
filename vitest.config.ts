@@ -7,6 +7,7 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     setupFiles: ['src/tests/setup.ts'],
+    exclude: ['**/node_modules/**', '**/.claude/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

@@ -19,6 +19,43 @@ const CLOUD_PROVIDERS = [
   { value: 'huggingface', label: 'Hugging Face' },
 ];
 
+interface RecModel { id: string; name: string; context: number; badge?: string }
+
+const RECOMMENDED_MODELS: Record<string, RecModel[]> = {
+  openai: [
+    { id: 'gpt-4o',         name: 'GPT-4o',         context: 128000,   badge: 'Best all-rounder' },
+    { id: 'gpt-4o-mini',    name: 'GPT-4o Mini',    context: 128000,   badge: 'Fast · cheap' },
+    { id: 'o4-mini',        name: 'o4-mini',         context: 100000,   badge: 'Reasoning' },
+    { id: 'gpt-4.1',        name: 'GPT-4.1',         context: 1047576,  badge: '' },
+  ],
+  anthropic: [
+    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', context: 200000, badge: 'Recommended' },
+    { id: 'claude-opus-4-5',   name: 'Claude Opus 4.5',   context: 200000, badge: 'Most capable' },
+    { id: 'claude-haiku-3-5',  name: 'Claude 3.5 Haiku',  context: 200000, badge: 'Fast' },
+  ],
+  google: [
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', context: 1000000, badge: 'Free · recommended' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', context: 1000000, badge: 'Thinking' },
+    { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',   context: 2000000, badge: 'Most capable' },
+  ],
+  huggingface: [
+    { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B',   context: 128000, badge: '' },
+    { id: 'mistralai/Mistral-7B-Instruct-v0.3',    name: 'Mistral 7B',     context: 32000,  badge: '' },
+    { id: 'microsoft/phi-4',                        name: 'Phi-4',          context: 16384,  badge: 'Compact' },
+  ],
+};
+
+const PROVIDER_KEY_URLS: Record<string, string> = {
+  openai:      'https://platform.openai.com/api-keys',
+  anthropic:   'https://console.anthropic.com/settings/keys',
+  google:      'https://aistudio.google.com/apikey',
+  huggingface: 'https://huggingface.co/settings/tokens',
+};
+
+const FREE_NOTE: Record<string, string> = {
+  google: 'gemini-2.0-flash is free with generous rate limits',
+};
+
 export function ModelWizardModal({
   onToggleModelSelection,
   onBulkAdd,
@@ -35,6 +72,27 @@ export function ModelWizardModal({
   const fetchModelsError = useSettingsStore(s => s.fetchModelsError);
   const pendingModelSelections = useSettingsStore(s => s.pendingModelSelections);
   const { setEditingModel, setModelSearchQuery, setShowModelWizard, setWizardStep, setModelTab } = useSettingsStore.getState();
+
+  const currentProvider = CLOUD_PROVIDERS.some(p => p.value === editingModel.provider)
+    ? editingModel.provider
+    : 'openai';
+
+  // Auto-select first recommended model when tab opens or provider changes
+  useEffect(() => {
+    if (modelTab !== 'cloud' || fetchedModels.length > 0) return;
+    const recs = RECOMMENDED_MODELS[currentProvider] ?? [];
+    if (recs.length === 0) return;
+    const alreadySelected = recs.some((r: RecModel) => r.id === editingModel.modelId);
+    if (!alreadySelected) {
+      const first = recs[0];
+      setEditingModel((prev: any) => ({
+        ...prev,
+        modelId: first.id,
+        contextLimit: first.context,
+        name: first.name,
+      }));
+    }
+  }, [currentProvider, modelTab]);
 
   useEffect(() => {
     invoke<{ total_mb: number }>('get_ram_stats')
@@ -91,7 +149,7 @@ export function ModelWizardModal({
             <h4 className="text-[10px] font-black uppercase tracking-widest text-neutral-400 shrink-0">Cloud / API Provider</h4>
 
             <select
-              value={CLOUD_PROVIDERS.some(p => p.value === editingModel.provider) ? editingModel.provider : 'openai'}
+              value={currentProvider}
               onChange={onProviderChange}
               className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-bold shrink-0"
             >
@@ -110,7 +168,22 @@ export function ModelWizardModal({
             </div>
 
             <div className="relative shrink-0">
-              <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">API Key</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-black uppercase opacity-50">API Key</label>
+                {PROVIDER_KEY_URLS[currentProvider] && (
+                  <button
+                    onClick={() => window.open(PROVIDER_KEY_URLS[currentProvider], '_blank')}
+                    className="text-[9px] font-black text-[#4A5D75] dark:text-[#899AB5] hover:underline"
+                  >
+                    {FREE_NOTE[currentProvider] ? 'Get free key →' : 'Get key →'}
+                  </button>
+                )}
+              </div>
+              {FREE_NOTE[currentProvider] && (
+                <p className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 mb-1.5">
+                  ✓ {FREE_NOTE[currentProvider]}
+                </p>
+              )}
               <input
                 type="password"
                 placeholder="sk-…"
@@ -119,7 +192,7 @@ export function ModelWizardModal({
                 className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono pr-28"
               />
               <button onClick={onFetchModels} disabled={isFetchingModels} className="absolute right-2 bottom-1.5 px-3 py-1.5 bg-neutral-200 dark:bg-neutral-700 rounded-lg text-[9px] font-black uppercase text-[#4A5D75] dark:text-[#899AB5] hover:bg-[#D6E0EA] dark:hover:bg-[#1E2B38]/20 transition-all disabled:opacity-50">
-                {isFetchingModels ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Fetch Models'}
+                {isFetchingModels ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : fetchedModels.length > 0 ? 'Refresh' : 'Fetch all'}
               </button>
             </div>
 
@@ -134,6 +207,7 @@ export function ModelWizardModal({
               editingModel={editingModel}
               setEditingModel={setEditingModel}
               fetchModelsError={fetchModelsError}
+              provider={currentProvider}
             />
           </div>
         )}
@@ -149,8 +223,10 @@ export function ModelWizardModal({
   );
 }
 
-// Shared model list / manual entry — used by both tabs
-function ModelListOrManual({ fetchedModels, modelSearchQuery, setModelSearchQuery, pendingModelSelections, onToggleModelSelection, onBulkAdd, onAddSingleLLM, editingModel, setEditingModel, fetchModelsError }: any) {
+// Shared model list / manual entry — used by the cloud tab
+function ModelListOrManual({ fetchedModels, modelSearchQuery, setModelSearchQuery, pendingModelSelections, onToggleModelSelection, onBulkAdd, onAddSingleLLM, editingModel, setEditingModel, fetchModelsError, provider }: any) {
+  const [showManual, setShowManual] = useState(false);
+
   if (fetchModelsError) {
     return <p className="text-[10px] text-[#C98A8A] shrink-0">{fetchModelsError}</p>;
   }
@@ -194,25 +270,89 @@ function ModelListOrManual({ fetchedModels, modelSearchQuery, setModelSearchQuer
     );
   }
 
+  // ── Recommended models (empty state — shown before "Fetch all") ──
+  const recs: RecModel[] = RECOMMENDED_MODELS[provider] ?? [];
+
   return (
-    <div className="pt-2 space-y-4 shrink-0">
-      <div className="flex gap-3">
-        <div className="flex-1">
-          <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Model ID</label>
-          <input type="text" placeholder="e.g. llama-3, dall-e-3" value={editingModel.modelId} onChange={e => setEditingModel((prev: any) => ({ ...prev, modelId: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono" />
+    <div className="space-y-4 shrink-0">
+      {recs.length > 0 && (
+        <div>
+          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 block">Available models</label>
+          <div className="space-y-1.5 rounded-2xl border-2 border-neutral-100 dark:border-neutral-800 p-1.5 bg-neutral-50 dark:bg-neutral-950">
+            {recs.map((m: RecModel) => {
+              const isSelected = editingModel.modelId === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setEditingModel((prev: any) => ({
+                    ...prev,
+                    modelId: m.id,
+                    contextLimit: m.context,
+                    name: m.name,
+                  }))}
+                  className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all text-left ${
+                    isSelected
+                      ? 'border-[#4A5D75] bg-white dark:bg-[#1E2B38]/30 shadow-sm'
+                      : 'border-transparent hover:bg-white dark:hover:bg-neutral-800'
+                  }`}
+                >
+                  <div className="flex flex-col overflow-hidden">
+                    <span className="text-xs font-bold text-neutral-800 dark:text-neutral-100 truncate">{m.name}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 truncate">{m.id}</span>
+                      {m.badge && (
+                        <span className="text-[9px] font-black text-[#4A5D75] dark:text-[#899AB5] shrink-0">{m.badge}</span>
+                      )}
+                    </div>
+                  </div>
+                  {isSelected
+                    ? <CheckCircle2 className="w-4 h-4 text-[#4A5D75] shrink-0 ml-2" />
+                    : <PlusCircle className="w-4 h-4 text-neutral-300 dark:text-neutral-600 shrink-0 ml-2" />
+                  }
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="w-1/3">
-          <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Context Limit</label>
-          <input type="number" placeholder="32000" value={editingModel.contextLimit} onChange={e => setEditingModel((prev: any) => ({ ...prev, contextLimit: parseInt(e.target.value) || 0 }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono" />
-        </div>
-      </div>
-      <div>
-        <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Display Name</label>
-        <input type="text" placeholder="Custom Model" value={editingModel.name} onChange={e => setEditingModel((prev: any) => ({ ...prev, name: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none font-bold focus:border-[#6A829E]" />
-      </div>
-      <button onClick={() => onAddSingleLLM({ ...editingModel, name: editingModel.name || editingModel.modelId })} disabled={!editingModel.modelId} className="w-full py-4 bg-[#4A5D75] text-white rounded-xl font-black text-xs uppercase hover:bg-[#3D4D61] disabled:opacity-50 transition-all active:scale-95 shadow-md">
-        Connect Single LLM
+      )}
+
+      {/* Connect CTA */}
+      <button
+        onClick={() => onAddSingleLLM({ ...editingModel, name: editingModel.name || editingModel.modelId })}
+        disabled={!editingModel.modelId}
+        className="w-full py-5 bg-[#4A5D75] text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-[#3D4D61] active:scale-95 transition-all disabled:opacity-50"
+      >
+        {editingModel.modelId
+          ? `Connect ${editingModel.name || editingModel.modelId}`
+          : 'Select a model above'}
       </button>
+
+      {/* Manual entry toggle */}
+      <button
+        onClick={() => setShowManual((v: boolean) => !v)}
+        className="text-[9px] font-black uppercase tracking-widest text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 w-full text-center transition-colors"
+      >
+        {showManual ? '▲ hide manual entry' : '▾ enter model ID manually'}
+      </button>
+
+      {showManual && (
+        <div className="space-y-3 pt-1 animate-in slide-in-from-top-1 duration-150">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Model ID</label>
+              <input type="text" placeholder="e.g. llama-3, dall-e-3" value={editingModel.modelId} onChange={e => setEditingModel((prev: any) => ({ ...prev, modelId: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono" />
+            </div>
+            <div className="w-1/3">
+              <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Context Limit</label>
+              <input type="number" placeholder="32000" value={editingModel.contextLimit} onChange={e => setEditingModel((prev: any) => ({ ...prev, contextLimit: parseInt(e.target.value) || 0 }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#6A829E] font-mono" />
+            </div>
+          </div>
+          <div>
+            <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Display Name</label>
+            <input type="text" placeholder="Custom Model" value={editingModel.name} onChange={e => setEditingModel((prev: any) => ({ ...prev, name: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none font-bold focus:border-[#6A829E]" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

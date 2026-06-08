@@ -253,7 +253,7 @@ describe('buildChannelPromptAddendum', () => {
     expect(addendum).toContain('Bob')
     expect(addendum).toContain('Charlie')
     // Alice should appear only in the "You are Alice" header, not in the "Other participants" list
-    const othersLine = addendum.split('\n').find(l => l.startsWith('Other participants:'))
+    const othersLine = addendum.split('\n').find(l => l.startsWith('Other agents in this channel:'))
     expect(othersLine).toBeDefined()
     expect(othersLine).not.toContain('Alice')
   })

@@ -165,7 +165,12 @@ export const buildChannelPromptAddendum = (
   } else {
     switch (norm) {
       case 'social':
-        addendum += `\n[PARTICIPATION] This is a social/casual channel. ALWAYS respond to every message. Be warm and engaged — ask follow-up questions, react to what's been said, share your genuine perspective. Do not make it about yourself; keep the focus on the other people and the conversation.`;
+        addendum += `\n[PARTICIPATION] This is a social/casual channel. ALWAYS respond — be warm, genuine, and present.`;
+        if (previousResponses.length > 0) {
+          addendum += ` Others already responded this turn (shown above). Do NOT ask the same question or repeat the same point — that's conversational dead weight. React to what they said, riff off their angle, or bring something genuinely new. If they asked "what brought you here?", don't ask the same thing rephrased — maybe react to their question, build on it with a more specific follow-up, or take the conversation in a different direction. Make it feel like a real group chat, not parallel monologues.`;
+        } else {
+          addendum += ` React, engage, ask a curious question or share your take. Keep the focus on the user and the conversation, not on describing yourself.`;
+        }
         break;
       case 'work':
         addendum += `\n[PARTICIPATION] This is a focused work channel. Only respond if you have: (a) direct domain knowledge relevant to this specific topic, (b) a concrete recommendation, critique, or alternative approach, or (c) a clarifying question that unblocks progress. If you would merely summarize or rephrase what's already been said, respond with exactly: [PASS]`;
