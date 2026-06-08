@@ -70,6 +70,32 @@ export const hasSemanticHits = (result?: SemanticLayerResult | null) =>
       || (result.documents?.length ?? 0) > 0)
   );
 
+export function buildEntityExtractionPrompt(text: string, sourceTitle: string, sourceUrl: string): string {
+  return `Extract named entities and relations from the following text. Return ONLY valid JSON — no prose, no markdown, no code fences.
+
+Source: "${sourceTitle}" (${sourceUrl})
+
+Text:
+${text}
+
+JSON schema to follow exactly:
+{
+  "entities": [
+    { "id": "<slug using only lowercase letters, digits, hyphens>", "type": "<person|org|place|product|concept|technology>", "label": "<display name>" }
+  ],
+  "relations": [
+    { "source": "<entity id>", "target": "<entity id>", "relation": "<verb phrase, e.g. created|is-a|located-in|founded|uses|part-of>" }
+  ]
+}
+
+Rules:
+- Extract people, organizations, places, products, concepts, and technologies.
+- Only include relations where both source and target appear in the entities array.
+- Keep ids as short slugs, e.g. "openai", "sam-altman", "san-francisco".
+- Return at most 30 entities and 40 relations.
+- Output nothing except the JSON object.`;
+}
+
 export const buildSemanticMemoryNotes = (result: SemanticLayerResult, maxPerSection = 8) => {
   if (!hasSemanticHits(result)) return 'No semantic memory facts, entities, or relations matched.';
 
