@@ -127,8 +127,9 @@ export const getSystemPromptBreakdown = (params: {
   pinnedMessages: any[];
   trainingDocs?: any[];
   tasks?: any[];
-}): { systemChars: number; pinsChars: number; docsChars: number; total: number } => {
-  const { agent, profile, pinnedMessages, trainingDocs = [], tasks = [] } = params;
+  browserContext?: { pageContent: string; url: string; title: string; ragHits?: string };
+}): { systemChars: number; pinsChars: number; docsChars: number; browserChars: number; total: number } => {
+  const { agent, profile, pinnedMessages, trainingDocs = [], tasks = [], browserContext } = params;
 
   // System prompt core (agent instructions + profile)
   const systemCore = [
@@ -152,11 +153,14 @@ export const getSystemPromptBreakdown = (params: {
   const systemChars = systemCore.length;
   const pinsChars = pinsContent.length;
   const docsChars = docsContent.length;
+  const browserChars = browserContext
+    ? browserContext.pageContent.length + (browserContext.ragHits?.length ?? 0)
+    : 0;
 
-  return { systemChars, pinsChars, docsChars, total: systemChars + pinsChars + docsChars };
+  return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
@@ -175,6 +179,14 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
 
   if (agentPinnedMessages && agentPinnedMessages.length > 0) {
     prompt += `[AGENT MEMORIES (KNOWLEDGE BASE)]\nRemember these core facts the user explicitly pinned for you:\n${agentPinnedMessages.map((m: any) => `- ${m}`).join('\n')}\n\n`;
+  }
+
+  if (browserContext) {
+    const trimmedContent = browserContext.pageContent.slice(0, 8000);
+    prompt += `[CURRENT BROWSER PAGE]\nTitle: ${browserContext.title}\nURL: ${browserContext.url}\n\n${trimmedContent}\n[END BROWSER PAGE]\n\n`;
+    if (browserContext.ragHits) {
+      prompt += `[RELEVANT BROWSING HISTORY]\n${browserContext.ragHits}\n[END BROWSING HISTORY]\n\n`;
+    }
   }
 
   if (isDeepThinking) {
