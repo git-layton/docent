@@ -268,18 +268,24 @@ export default function App() {
         }
       } catch (e) { console.warn('[AgentForge] Auto-detect skipped:', e); }
 
-      // Onboarding wizard — show on first launch until completed
-      // Skip silently if user already has models or chat history (dismissed mid-flow previously)
+      // Onboarding wizard
+      // • First launch (onboardingComplete = false) with nothing set up → full wizard from step 1
+      // • First launch but already has models/chats (migrated user) → silently mark done
+      // • Any launch with no models configured → jump to model step (step 3)
       const onboardingDone = await db.get('onboardingComplete', false);
+      const hasModels = useSettingsStore.getState().models.length > 0;
+      const hasChats = useChatStore.getState().chats.length > 0;
       if (!onboardingDone) {
-        const hasModels = useSettingsStore.getState().models.length > 0;
-        const hasChats = useChatStore.getState().chats.length > 0;
         if (hasModels || hasChats) {
           await db.set('onboardingComplete', true);
           useSettingsStore.getState().setOnboardingComplete(true);
         } else {
           useSettingsStore.getState().setShowOnboarding(true);
         }
+      } else if (!hasModels) {
+        // Completed onboarding before but has no models — go straight to model step
+        useSettingsStore.getState().setOnboardingInitialStep(3);
+        useSettingsStore.getState().setShowOnboarding(true);
       }
 
       // First-time agent intro card
