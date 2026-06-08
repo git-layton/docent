@@ -1581,18 +1581,13 @@ export default function App() {
           };
           const agentPins = _globalPins.filter((p: any) => p.agentId === agent.id).map((p: any) => p.content);
 
-          // Inject prior agent responses as actual message turns so each agent sees the conversation thread
-          const agentMessages = previousResponses.length > 0
-            ? [
-                ...messagesForLLM,
-                ...previousResponses.map((r: any, i: number) => ({
-                  id: `channel-prior-${i}`,
-                  role: 'bot' as const,
-                  content: `[${r.agentName}]: ${r.content}`,
-                  isPinned: false,
-                  timestamp: Date.now(),
-                }))
-              ]
+          // Append prior responses to the user message rather than as bot turns.
+          // Bot turns at the end break APIs that require strict user/assistant alternation (e.g. Gemini).
+          const channelCtxForMsg = previousResponses.length > 0
+            ? `\n\n[Group channel — other agents have already responded this turn]\n${previousResponses.map((r: any) => `${r.agentName}: ${r.content}`).join('\n\n')}`
+            : '';
+          const agentMessages = channelCtxForMsg
+            ? messagesForLLM.map((m: any) => m.id === userMsg.id ? { ...m, content: m.content + channelCtxForMsg } : m)
             : messagesForLLM;
 
           const agentResponse = await generateTextResponse({

@@ -135,8 +135,10 @@ export const buildChannelPromptAddendum = (
 ): string => {
   const others = allParticipants.filter((a: any) => a.id !== currentAgent.id);
 
-  let addendum = `=== GROUP CHANNEL: "${chat.name || 'this channel'}" ===\n`;
-  addendum += `You are ${currentAgent.name}. This is a multi-agent group chat — you are NOT in a one-on-one conversation.\n`;
+  let addendum = `=== ACTIVE MODE: GROUP CHANNEL — "${chat.name || 'this channel'}" ===\n`;
+  addendum += `You are ${currentAgent.name}. You are in a SHARED GROUP CHAT with multiple AI agents and the user.\n`;
+  addendum += `OVERRIDE: Do NOT treat this as a private or one-on-one conversation. That framing does not apply here.\n`;
+  addendum += `You can see what other agents say. Other agents can see what you say. Respond accordingly.\n`;
 
   if (chat.goal) addendum += `Channel goal: ${chat.goal}\n`;
 
