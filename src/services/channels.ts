@@ -135,7 +135,8 @@ export const buildChannelPromptAddendum = (
 ): string => {
   const others = allParticipants.filter((a: any) => a.id !== currentAgent.id);
 
-  let addendum = `\n\n[CHANNEL] You are ${currentAgent.name} in the channel "${chat.name || 'this channel'}".\n`;
+  let addendum = `=== GROUP CHANNEL: "${chat.name || 'this channel'}" ===\n`;
+  addendum += `You are ${currentAgent.name}. This is a multi-agent group chat — you are NOT in a one-on-one conversation.\n`;
 
   if (chat.goal) addendum += `Channel goal: ${chat.goal}\n`;
 
@@ -144,7 +145,7 @@ export const buildChannelPromptAddendum = (
       const desc = a.description ?? '';
       return desc ? `${a.name} (${desc})` : a.name;
     }).join(', ');
-    addendum += `Other participants: ${otherList}.\n`;
+    addendum += `Other agents in this channel: ${otherList}.\n`;
   }
 
   if (previousResponses.length > 0) {

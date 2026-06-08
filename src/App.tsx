@@ -1567,14 +1567,30 @@ export default function App() {
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === agentBotId ? { ...m, content: agentText } : m) }));
           };
 
+          // Channel context PREPENDED so it frames the persona, not buried after it
+          const channelAddendum = buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, mentionedIds.has(agent.id));
           const agentWithChannelContext = {
             ...agent,
-            prompt: (agent.prompt || '') + buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, mentionedIds.has(agent.id)),
+            prompt: channelAddendum + '\n\n---\n\n' + (agent.prompt || ''),
           };
           const agentPins = _globalPins.filter((p: any) => p.agentId === agent.id).map((p: any) => p.content);
 
+          // Inject prior agent responses as actual message turns so each agent sees the conversation thread
+          const agentMessages = previousResponses.length > 0
+            ? [
+                ...messagesForLLM,
+                ...previousResponses.map((r: any, i: number) => ({
+                  id: `channel-prior-${i}`,
+                  role: 'bot' as const,
+                  content: `[${r.agentName}]: ${r.content}`,
+                  isPinned: false,
+                  timestamp: Date.now(),
+                }))
+              ]
+            : messagesForLLM;
+
           const agentResponse = await generateTextResponse({
-            messages: messagesForLLM,
+            messages: agentMessages,
             modelConfig: _selectedModel,
             profile: _userProfile,
             userName: _userName,
@@ -1625,7 +1641,7 @@ export default function App() {
             const agentPins = _globalPins.filter((p: any) => p.agentId === primaryAgent.id).map((p: any) => p.content);
             const fallbackWithContext = {
               ...primaryAgent,
-              prompt: (primaryAgent.prompt || '') + buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, [], primaryAgent, true),
+              prompt: buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, [], primaryAgent, true) + '\n\n---\n\n' + (primaryAgent.prompt || ''),
             };
             const fallbackResponse = await generateTextResponse({
               messages: messagesForLLM,
