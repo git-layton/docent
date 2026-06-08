@@ -25,6 +25,43 @@ function normalizeUrl(input: string): string {
 
 const BROWSER_LABEL = 'browser-panel';
 
+const AD_BLOCKED_DOMAINS = [
+  'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
+  'adnxs.com', 'advertising.com', 'criteo.net', 'criteo.com',
+  'taboola.com', 'outbrain.com', 'scorecardresearch.com',
+  'quantserve.com', 'hotjar.com', 'ads.twitter.com',
+  'pixel.facebook.com', 'connect.facebook.net/en_US/fbevents.js',
+  'googletagmanager.com', 'google-analytics.com',
+];
+
+const AD_BLOCK_SCRIPT = `(function(){
+  if(window.__agfAdBlock)return;
+  window.__agfAdBlock=true;
+  var blk=${JSON.stringify(AD_BLOCKED_DOMAINS)};
+  var oFetch=window.fetch;
+  window.fetch=function(u){
+    if(typeof u==='string'&&blk.some(function(d){return u.indexOf(d)>=0;}))
+      return Promise.resolve(new Response('',{status:200}));
+    return oFetch.apply(this,arguments);
+  };
+  var oOpen=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(m,u){
+    if(typeof u==='string'&&blk.some(function(d){return u.indexOf(d)>=0;})){
+      this._agfBlocked=true;return;
+    }
+    return oOpen.apply(this,arguments);
+  };
+  var oSend=XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send=function(){
+    if(this._agfBlocked)return;
+    return oSend.apply(this,arguments);
+  };
+  var sel=['[id*="google_ads"]','[class*="adsbygoogle"]','[id*="taboola-"]','[class*="outbrain"]','iframe[src*="doubleclick"]','ins.adsbygoogle'];
+  function rm(){sel.forEach(function(s){document.querySelectorAll(s).forEach(function(el){el.remove();})});}
+  rm();
+  new MutationObserver(rm).observe(document.body||document.documentElement,{childList:true,subtree:true});
+})();`;
+
 interface ProactiveChipProps {
   comment: string;
   onDismiss: () => void;
@@ -242,6 +279,15 @@ export function BrowserWindowApp() {
     if (!url) return;
     emit('browser:page-changed', { url, title: pageTitle, content: pageContent }).catch(() => {});
   }, [url, pageTitle, pageContent]);
+
+  // Inject ad/tracker blocker into each page after load
+  useEffect(() => {
+    if (!url || url === HOME_URL) return;
+    const t = setTimeout(() => {
+      invoke('browser_eval', { label: BROWSER_LABEL, script: AD_BLOCK_SCRIPT }).catch(() => {});
+    }, 900);
+    return () => clearTimeout(t);
+  }, [url]);
 
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
