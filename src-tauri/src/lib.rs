@@ -2497,6 +2497,136 @@ fn browser_get_url(app: tauri::AppHandle, label: String) -> Result<String, Strin
     webview.url().map(|u| u.to_string()).map_err(|e| e.to_string())
 }
 
+// ─── macOS Keychain ──────────────────────────────────────────────────────────
+#[cfg(target_os = "macos")]
+mod keychain_impl {
+    const SERVICE: &str = "AgentForgeBrowser";
+
+    pub fn save(host: &str, username: &str, password: &str) -> Result<(), String> {
+        use std::process::Command;
+        // Use 'security' CLI to avoid requiring an objc crate
+        let account = format!("{}@{}", username, host);
+        Command::new("security")
+            .args(["add-generic-password", "-s", SERVICE, "-a", &account, "-w", password, "-U"])
+            .output()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn get(host: &str) -> Result<Option<String>, String> {
+        use std::process::Command;
+        let output = Command::new("security")
+            .args(["find-generic-password", "-s", SERVICE, "-l", host, "-w"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn delete(host: &str, username: &str) -> Result<(), String> {
+        use std::process::Command;
+        let account = format!("{}@{}", username, host);
+        let _ = Command::new("security")
+            .args(["delete-generic-password", "-s", SERVICE, "-a", &account])
+            .output();
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn keychain_save(host: String, username: String, password: String) -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        match keychain_impl::save(&host, &username, &password) {
+            Ok(_) => serde_json::json!({ "ok": true }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e }),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    { serde_json::json!({ "ok": false, "error": "not supported on this platform" }) }
+}
+
+#[tauri::command]
+fn keychain_get(host: String) -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        match keychain_impl::get(&host) {
+            Ok(Some(pw)) => serde_json::json!({ "ok": true, "password": pw }),
+            Ok(None) => serde_json::json!({ "ok": false }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e }),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    { serde_json::json!({ "ok": false }) }
+}
+
+#[tauri::command]
+fn keychain_delete(host: String, username: String) -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        match keychain_impl::delete(&host, &username) {
+            Ok(_) => serde_json::json!({ "ok": true }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e }),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    { serde_json::json!({ "ok": true }) }
+}
+
+// ─── Additional Browser Commands ─────────────────────────────────────────────
+
+#[tauri::command]
+fn browser_eval(app: tauri::AppHandle, label: String, script: String) -> Result<(), String> {
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    webview.eval(&script).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_find(app: tauri::AppHandle, label: String, query: String, forward: bool) -> Result<(), String> {
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    let escaped = query.replace('\\', "\\\\").replace('\'', "\\'");
+    let direction = if forward { "false" } else { "true" };
+    webview.eval(&format!("window.find('{}', false, {}, false)", escaped, direction))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_set_zoom(app: tauri::AppHandle, label: String, factor: f64) -> Result<(), String> {
+    let webview = app.get_webview(&label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+    let clamped = factor.clamp(0.25, 5.0);
+    webview.set_zoom(clamped).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn browser_download_url(_app: tauri::AppHandle, url: String, filename: String) -> Result<String, String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("Only HTTP/HTTPS downloads allowed".to_string());
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let bytes = client.get(&url)
+        .send().await.map_err(|e| e.to_string())?
+        .bytes().await.map_err(|e| e.to_string())?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let downloads = std::path::PathBuf::from(home).join("Downloads");
+    let _ = std::fs::create_dir_all(&downloads);
+    let safe_name: String = filename.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_' || *c == ' ')
+        .collect();
+    let name = if safe_name.trim().is_empty() { "download".to_string() } else { safe_name.trim().to_string() };
+    let dest = downloads.join(&name);
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
 // ─── Knowledge Graph ──────────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -2897,6 +3027,13 @@ pub fn run() {
             browser_go_back,
             browser_go_forward,
             browser_get_url,
+            browser_eval,
+            browser_find,
+            browser_set_zoom,
+            browser_download_url,
+            keychain_save,
+            keychain_get,
+            keychain_delete,
             upsert_graph_node,
             upsert_graph_edge,
             get_graph_neighbors,
