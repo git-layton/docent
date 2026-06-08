@@ -1198,7 +1198,7 @@ function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () =>
         </StepIcon>
         <div>
           <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Web Search</h2>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Let Lexi and your other bots search the live internet.</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Let Alexis and your other bots search the live internet.</p>
         </div>
       </div>
 
@@ -1716,8 +1716,8 @@ function StepDone({
     { label: 'iPhone Shortcut', done: shortcutDone },
   ];
 
-  function openLexi() {
-    useAgentStore.getState().setActiveFolderId('lexi');
+  function openAlexis() {
+    useAgentStore.getState().setActiveFolderId('alexis');
     onFinish();
   }
 
@@ -1747,14 +1747,14 @@ function StepDone({
         ))}
       </div>
 
-      {/* Lexi intro */}
+      {/* Alexis intro */}
       <div className="w-full max-w-xs rounded-2xl border-2 border-error/30 bg-error/5 dark:bg-error/10 p-4 text-left space-y-2">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-error flex items-center justify-center shrink-0 shadow-md shadow-error/20">
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">Meet Lexi</p>
+            <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">Meet Alexis</p>
             <p className="text-tiny text-neutral-500 dark:text-neutral-400">Your first ForgeBot — already waiting for you</p>
           </div>
         </div>
@@ -1762,10 +1762,10 @@ function StepDone({
           Confident, sharp, and a little fun. She's a showcase of what a ForgeBot can be — edit her personality, clone her, or use her as a starting point to build your own.
         </p>
         <button
-          onClick={openLexi}
+          onClick={openAlexis}
           className="text-tiny font-black uppercase tracking-widest text-error hover:underline"
         >
-          Say hi to Lexi →
+          Say hi to Alexis →
         </button>
       </div>
 

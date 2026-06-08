@@ -34,12 +34,12 @@ const FORGE_GUIDE_ASSISTANT = {
   isDefault: true,
 };
 
-const LEXI_ASSISTANT = {
-  id: 'lexi',
-  name: 'Lexi',
+const ALEXIS_ASSISTANT = {
+  id: 'alexis',
+  name: 'Alexis',
   description: 'Your ForgeBot — edit her, clone her, or build your own',
   avatar: { type: 'color', color: 'rose' },
-  prompt: `You are Lexi — a ForgeBot built on Agent Forge. You're confident, sharp, and genuinely caring — you want things to actually go well for the person you're talking to, even when that means pushing back or saying something they didn't expect to hear.
+  prompt: `You are Alexis — a ForgeBot built on Agent Forge. You're confident, sharp, and genuinely caring — you want things to actually go well for the person you're talking to, even when that means pushing back or saying something they didn't expect to hear.
 
 Your personality:
 - Confident and direct. You don't hedge everything or over-explain. If you know the answer, give it.
@@ -116,7 +116,7 @@ When writing: match the user's voice if they give you a sample. Otherwise: clear
   driveEnabled: true,
 };
 
-export { LEXI_ASSISTANT, DEV_ASSISTANT, ARIA_ASSISTANT };
+export { ALEXIS_ASSISTANT, DEV_ASSISTANT, ARIA_ASSISTANT };
 
 interface AgentStore {
   assistants: any[];
@@ -136,8 +136,8 @@ interface AgentStore {
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  assistants: [LEXI_ASSISTANT, DEV_ASSISTANT, ARIA_ASSISTANT, DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
-  activeFolderId: 'lexi',
+  assistants: [ALEXIS_ASSISTANT, DEV_ASSISTANT, ARIA_ASSISTANT, DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
+  activeFolderId: 'alexis',
   editingAssistant: null,
   showAssistantSettings: false,
   assistantSettingsTab: 'config',
@@ -152,16 +152,16 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   hydrate: async () => {
     const assistants = await db.get('assistants', [DEFAULT_ASSISTANT]);
-    const savedActiveFolderId = await db.get('activeFolderId', 'lexi');
-    const hasLexi = assistants.some((a: any) => a.id === 'lexi');
+    const savedActiveFolderId = await db.get('activeFolderId', 'alexis');
+    const hasAlexis = assistants.some((a: any) => a.id === 'alexis');
     const hasDev = assistants.some((a: any) => a.id === 'forge-dev');
     const hasAria = assistants.some((a: any) => a.id === 'forge-aria');
     const hasForgeGuide = assistants.some((a: any) => a.id === 'forge-guide');
     let final = assistants;
-    if (!hasLexi) final = [LEXI_ASSISTANT, ...final];
+    if (!hasAlexis) final = [ALEXIS_ASSISTANT, ...final];
     if (!hasDev) {
-      const lexiIdx = final.findIndex((a: any) => a.id === 'lexi');
-      final = [...final.slice(0, lexiIdx + 1), DEV_ASSISTANT, ...final.slice(lexiIdx + 1)];
+      const alexisIdx = final.findIndex((a: any) => a.id === 'alexis');
+      final = [...final.slice(0, alexisIdx + 1), DEV_ASSISTANT, ...final.slice(alexisIdx + 1)];
     }
     if (!hasAria) {
       const devIdx = final.findIndex((a: any) => a.id === 'forge-dev');
@@ -170,13 +170,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     if (!hasForgeGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
     // Keep built-in agent prompts in sync with the latest defaults
     const promptDefaults: Record<string, string> = {
-      lexi: LEXI_ASSISTANT.prompt,
+      alexis: ALEXIS_ASSISTANT.prompt,
       'forge-dev': DEV_ASSISTANT.prompt,
       'forge-aria': ARIA_ASSISTANT.prompt,
       'forge-guide': FORGE_GUIDE_ASSISTANT.prompt,
     };
     const driveDefaults: Record<string, string> = {
-      lexi: LEXI_ASSISTANT.drive,
+      alexis: ALEXIS_ASSISTANT.drive,
       'forge-dev': DEV_ASSISTANT.drive,
       'forge-aria': ARIA_ASSISTANT.drive,
     };
@@ -195,9 +195,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
       return a;
     });
-    const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'lexi';
+    const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'alexis';
     set({ assistants: final, activeFolderId });
-    if (!hasLexi || !hasDev || !hasAria || !hasForgeGuide || builtinUpdated) await db.set('assistants', final);
+    if (!hasAlexis || !hasDev || !hasAria || !hasForgeGuide || builtinUpdated) await db.set('assistants', final);
   },
 
   persist: async () => {
