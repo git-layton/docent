@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   ChevronLeft,
+  Cloud,
   Copy,
   ExternalLink,
   Globe,
@@ -46,7 +47,7 @@ interface RelayStatus {
   tailscaleHostname: string | null;
 }
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 const genId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -911,7 +912,246 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   );
 }
 
-// ─── Step 4: Brave Search ─────────────────────────────────────────────────────
+// ─── Step 4: Hardware-Aware Model Tier ───────────────────────────────────────
+
+interface TierDef {
+  id: string;
+  label: string;
+  tagline: string;
+  modelName: string;
+  ollamaId: string;
+  endpoint: string;
+  provider: string;
+  contextLimit: number;
+  isLocal: boolean;
+  description: string;
+  minGb: number;
+}
+
+const TIERS: TierDef[] = [
+  {
+    id: 'heavy',
+    label: 'Heavy Hitter',
+    tagline: 'Best open-source local model',
+    modelName: 'Llama 3.3 70B',
+    ollamaId: 'llama3.3:70b',
+    endpoint: 'http://localhost:11434/v1',
+    provider: 'ollama',
+    contextLimit: 131072,
+    isLocal: true,
+    description: 'The most capable open-source local model. Your 48GB+ machine can handle it comfortably via Ollama.',
+    minGb: 48,
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    tagline: 'Great all-rounder for 24GB+',
+    modelName: 'Gemma 4 27B',
+    ollamaId: 'gemma4:27b',
+    endpoint: 'http://localhost:11434/v1',
+    provider: 'ollama',
+    contextLimit: 131072,
+    isLocal: true,
+    description: 'Strong reasoning and writing in a package that fits 24GB RAM. Fast and capable via Ollama.',
+    minGb: 24,
+  },
+  {
+    id: 'lightweight',
+    label: 'Lightweight',
+    tagline: 'Efficient model for 12GB+',
+    modelName: 'Gemma 4 12B',
+    ollamaId: 'gemma4:12b',
+    endpoint: 'http://localhost:11434/v1',
+    provider: 'ollama',
+    contextLimit: 131072,
+    isLocal: true,
+    description: 'Remarkably capable for its size. Runs well on 12GB+ Macs and leaves room for other apps.',
+    minGb: 12,
+  },
+  {
+    id: 'cloud',
+    label: 'Cloud-powered',
+    tagline: 'Free Gemini API — no download needed',
+    modelName: 'Gemini 2.5 Flash',
+    ollamaId: 'gemini-2.5-flash',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    provider: 'gemini',
+    contextLimit: 1000000,
+    isLocal: false,
+    description: 'Your Mac has less than 12GB RAM. Gemini\'s free tier is fast, smart, and requires no download.',
+    minGb: 0,
+  },
+];
+
+function getRecommendedTier(totalMb: number): TierDef {
+  const gb = totalMb / 1024;
+  if (gb >= 48) return TIERS[0];
+  if (gb >= 24) return TIERS[1];
+  if (gb >= 12) return TIERS[2];
+  return TIERS[3];
+}
+
+function StepModelTier({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
+  const [totalMb, setTotalMb] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [selected, setSelected] = useState<TierDef | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    invoke<{ total_mb: number }>('get_ram_stats')
+      .then(r => {
+        setTotalMb(r.total_mb);
+        setSelected(getRecommendedTier(r.total_mb));
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function applyTier(tier: TierDef) {
+    const store = useSettingsStore.getState();
+    const newModel = {
+      id: genId('m'),
+      name: tier.modelName,
+      provider: tier.provider,
+      modelId: tier.ollamaId,
+      endpoint: tier.endpoint,
+      apiKey: '',
+      contextLimit: tier.contextLimit,
+      canImage: false,
+      isLocal: tier.isLocal,
+    };
+    store.setModels((prev: any[]) => [...prev, newModel]);
+    store.setSelectedModelId(newModel.id);
+    store.persist();
+    setSaved(true);
+    setTimeout(onNext, 500);
+  }
+
+  const totalGb = totalMb != null ? Math.round(totalMb / 1024) : 0;
+  const recommended = totalMb != null ? getRecommendedTier(totalMb) : null;
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Detecting your hardware…</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col gap-5">
+        <div className="flex items-center gap-3">
+          <StepIcon color="bg-accent/10 dark:bg-accent/20">
+            <Zap className="w-6 h-6 text-accent" />
+          </StepIcon>
+          <div>
+            <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Recommended setup</h2>
+          </div>
+        </div>
+        <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">Couldn't detect hardware — you can configure your model in Settings.</p>
+        </div>
+        <Btn variant="ghost" onClick={onSkip} className="w-full">I'll configure this later</Btn>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-3">
+        <StepIcon color="bg-accent/10 dark:bg-accent/20">
+          <Zap className="w-6 h-6 text-accent" />
+        </StepIcon>
+        <div>
+          <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-neutral-100">Recommended setup for your Mac</h2>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">Detected:</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs font-mono font-bold text-neutral-700 dark:text-neutral-300">
+              {totalGb}GB RAM
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Recommended tier — highlighted */}
+      {recommended && (
+        <div
+          onClick={() => setSelected(recommended)}
+          className={`rounded-2xl border-2 p-4 space-y-3 cursor-pointer transition-all duration-150 ${selected?.id === recommended.id ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600'}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
+              {recommended.isLocal ? <Server className="w-5 h-5 text-primary" /> : <Cloud className="w-5 h-5 text-primary" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">{recommended.label}</p>
+                <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-primary text-white shrink-0">Recommended</span>
+              </div>
+              <p className="text-xs font-bold text-neutral-700 dark:text-neutral-300 font-mono">{recommended.modelName}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{recommended.description}</p>
+            </div>
+            {selected?.id === recommended.id && <Check className="w-4 h-4 text-primary shrink-0 mt-1" />}
+          </div>
+          {selected?.id === recommended.id && (
+            <Btn
+              onClick={e => { e.stopPropagation(); applyTier(recommended); }}
+              disabled={saved}
+              className="w-full"
+            >
+              {saved ? <><CheckCircle2 className="w-4 h-4" /> Set!</> : <>Set as default <ArrowRight className="w-4 h-4" /></>}
+            </Btn>
+          )}
+        </div>
+      )}
+
+      {/* Alternative tiers */}
+      {TIERS.filter(t => t.id !== recommended?.id).length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-tiny font-black uppercase tracking-widest text-neutral-400">Alternatives</p>
+          {TIERS.filter(t => t.id !== recommended?.id).map(tier => (
+            <div
+              key={tier.id}
+              onClick={() => setSelected(tier)}
+              className={`rounded-xl border p-3 cursor-pointer transition-all duration-150 space-y-2 ${selected?.id === tier.id ? 'border-primary/50 bg-primary/5 dark:bg-primary/10' : 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/40'}`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0">
+                  {tier.isLocal ? <Server className="w-3.5 h-3.5 text-neutral-500" /> : <Cloud className="w-3.5 h-3.5 text-neutral-500" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-xs font-black text-neutral-800 dark:text-neutral-200">{tier.label}</p>
+                    <span className="text-micro text-neutral-400 dark:text-neutral-500 font-mono">·</span>
+                    <p className="text-xs font-mono text-neutral-500 dark:text-neutral-400">{tier.modelName}</p>
+                  </div>
+                  <p className="text-mini text-neutral-400 dark:text-neutral-500 mt-0.5">{tier.tagline}</p>
+                </div>
+                {selected?.id === tier.id && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+              </div>
+              {selected?.id === tier.id && (
+                <Btn
+                  onClick={e => { e.stopPropagation(); applyTier(tier); }}
+                  disabled={saved}
+                  className="w-full"
+                >
+                  {saved ? <><CheckCircle2 className="w-4 h-4" /> Set!</> : <>Set as default <ArrowRight className="w-4 h-4" /></>}
+                </Btn>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Btn variant="ghost" onClick={onSkip} className="w-full">I'll configure this later</Btn>
+    </div>
+  );
+}
+
+// ─── Step 5: Brave Search ─────────────────────────────────────────────────────
 
 function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   const integrations = useSettingsStore(s => s.integrations);
@@ -1033,7 +1273,7 @@ function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () =>
   );
 }
 
-// ─── Step 5: Relay ────────────────────────────────────────────────────────────
+// ─── Step 6: Relay ────────────────────────────────────────────────────────────
 
 function StepRelay({
   onNext,
@@ -1183,7 +1423,7 @@ function StepRelay({
   );
 }
 
-// ─── Step 5: Tailscale ────────────────────────────────────────────────────────
+// ─── Step 7: Tailscale ────────────────────────────────────────────────────────
 
 function StepTailscale({
   onNext,
@@ -1325,7 +1565,7 @@ function StepTailscale({
   );
 }
 
-// ─── Step 6: iOS Shortcut ─────────────────────────────────────────────────────
+// ─── Step 8: iOS Shortcut ─────────────────────────────────────────────────────
 
 function StepShortcut({
   relayResult,
@@ -1456,7 +1696,7 @@ function StepShortcut({
   );
 }
 
-// ─── Step 7: Done ─────────────────────────────────────────────────────────────
+// ─── Step 9: Done ─────────────────────────────────────────────────────────────
 
 function StepDone({
   relayOk, tailscaleOk, shortcutDone, onFinish,
@@ -1587,21 +1827,22 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
           {step === 1 && <StepWelcome onNext={next} />}
           {step === 2 && <StepProfile onNext={next} />}
           {step === 3 && <StepModel onNext={next} onSkip={next} />}
-          {step === 4 && <StepBraveSearch onNext={next} onSkip={next} />}
-          {step === 5 && (
+          {step === 4 && <StepModelTier onNext={next} onSkip={next} />}
+          {step === 5 && <StepBraveSearch onNext={next} onSkip={next} />}
+          {step === 6 && (
             <StepRelay
               onNext={next}
               onSkip={next}
               onResult={r => { setRelayResult(r); setRelayOk(true); }}
             />
           )}
-          {step === 6 && (
+          {step === 7 && (
             <StepTailscale
               onNext={h => { setTailscaleHostname(h); setTailscaleOk(!!h); next(); }}
-              onSkip={() => setStep(8)}
+              onSkip={() => setStep(9)}
             />
           )}
-          {step === 7 && (
+          {step === 8 && (
             <StepShortcut
               relayResult={relayResult}
               tailscaleHostname={tailscaleHostname}
@@ -1609,7 +1850,7 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
               onSkip={next}
             />
           )}
-          {step === 8 && (
+          {step === 9 && (
             <StepDone
               relayOk={relayOk}
               tailscaleOk={tailscaleOk}
