@@ -45,6 +45,7 @@ import { OnboardingWizard } from './components/OnboardingWizard';
 import { AppSidebar } from './components/AppSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
+import { BrowserPanel } from './components/BrowserPanel';
 import { ChatHeader } from './components/ChatHeader';
 import { PlannerPanel } from './components/PlannerPanel';
 import { MessageList } from './components/MessageList';
@@ -102,6 +103,7 @@ export default function App() {
   const showPlanner = useTaskStore(s => s.showPlanner);
 
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
+  const viewMode = useUIStore(s => s.viewMode);
   const generationMode = useUIStore(s => s.generationMode);
   const isDeepThinking = useUIStore(s => s.isDeepThinking);
   const speakingId = useChatStore(s => s.speakingId);
@@ -2350,7 +2352,11 @@ export default function App() {
 
       {/* ── Main Panel ── */}
       <div className="flex-1 flex flex-row overflow-hidden relative">
-        {!canvasContent?.isStandalone && (
+        {viewMode === 'browser' && (
+          <BrowserPanel />
+        )}
+
+        {viewMode !== 'browser' && !canvasContent?.isStandalone && (
           <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
             
             {/* Header */}
@@ -2449,7 +2455,7 @@ export default function App() {
         )}
 
         {/* ── Canvas Panel ── */}
-        {canvasContent && (
+        {viewMode !== 'browser' && canvasContent && (
           <CanvasPanel
             isGenerating={isGenerating}
             onHistoryNavigate={handleHistoryNavigate}
