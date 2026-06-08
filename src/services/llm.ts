@@ -228,6 +228,11 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
   return prompt;
 };
 
+// Strip <think>…</think> blocks that local reasoning models (DeepSeek-R1, QwQ, etc.)
+// embed directly in their response text via OpenAI-compatible endpoints.
+const stripThinkingTags = (text: string): string =>
+  text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
 export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
@@ -376,7 +381,9 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   if (!res.body) {
       const data = await res.json();
-      const text = provider === 'anthropic' ? (data.content?.[0]?.text || '') : (data.choices?.[0]?.message?.content || '');
+      let text = provider === 'anthropic'
+        ? (data.content?.find((b: any) => b.type === 'text')?.text || '')
+        : stripThinkingTags(data.choices?.[0]?.message?.content || '');
       if (onChunk) {
             for (let i = 0; i < text.length; i += 40) {
                 if (signal?.aborted) break;
@@ -429,5 +436,6 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
       reader.releaseLock();
   }
 
-  return fullText;
+  // Strip <think>…</think> blocks emitted by local reasoning models (DeepSeek-R1, QwQ, etc.)
+  return provider === 'anthropic' ? fullText : stripThinkingTags(fullText);
 };
