@@ -81,6 +81,13 @@ export function BrowserWindowApp() {
   const [pageContent, setPageContent] = useState('');
   const [isSavingToKB, setIsSavingToKB] = useState(false);
   const [kbSaved, setKbSaved] = useState(false);
+  const [zoom, setZoom] = useState(1.0);
+
+  const updateZoom = useCallback((factor: number) => {
+    const clamped = Math.max(0.25, Math.min(5.0, Math.round(factor * 100) / 100));
+    setZoom(clamped);
+    invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+  }, []);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<Webview | null>(null);
@@ -242,6 +249,36 @@ export function BrowserWindowApp() {
     if (!url) return;
     emit('browser:page-changed', { url, title: pageTitle, content: pageContent }).catch(() => {});
   }, [url, pageTitle, pageContent]);
+
+  // Zoom keyboard shortcuts: Cmd+= / Cmd++ to zoom in, Cmd+- to zoom out, Cmd+0 to reset
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === '+' || e.key === '=' || e.key === 'Equal') {
+        e.preventDefault();
+        setZoom(prev => {
+          const next = Math.round((prev + 0.1) * 100) / 100;
+          const clamped = Math.min(5.0, next);
+          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+          return clamped;
+        });
+      } else if (e.key === '-' || e.key === 'Minus') {
+        e.preventDefault();
+        setZoom(prev => {
+          const next = Math.round((prev - 0.1) * 100) / 100;
+          const clamped = Math.max(0.25, next);
+          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+          return clamped;
+        });
+      } else if (e.key === '0') {
+        e.preventDefault();
+        updateZoom(1.0);
+      }
+    };
+    window.addEventListener('keydown', onKey as EventListener);
+    return () => window.removeEventListener('keydown', onKey as EventListener);
+  }, [updateZoom]);
 
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
@@ -410,6 +447,15 @@ export function BrowserWindowApp() {
           <RotateCw className="w-4 h-4" />
         </button>
 
+        {zoom !== 1.0 && (
+          <button
+            onClick={() => { setZoom(1.0); invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: 1.0 }).catch(() => {}); }}
+            className="text-[10px] text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 shrink-0 transition-colors font-medium"
+            title="Reset zoom to 100%"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        )}
         <div className="relative flex-1 min-w-0">
           {url.startsWith('https://') && (
             <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-emerald-500 pointer-events-none" />
