@@ -199,7 +199,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
               <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search people, agents, channels..." value={chatSearchQuery} onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)} /></div>
               <div className="space-y-1">
                 <div className="px-1 flex items-center justify-between">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Network</span>
+                  <span className="text-[9px] font-medium uppercase tracking-wider text-neutral-400">Network</span>
                   <button
                     onClick={toggleNetwork}
                     className={`p-1 rounded-lg transition-colors ${networkActive ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-50 dark:hover:bg-neutral-900/50'}`}
@@ -233,13 +233,11 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                       <p className="text-[10px] text-neutral-400 text-center px-3 py-1.5">No one else found yet.</p>
                     )}
                   </>
-                ) : (
-                  <p className="text-[10px] text-neutral-400 px-2 py-1.5">Turn on to appear to others on your network.</p>
-                )}
+                ) : null}
               </div>
 
               <div className="space-y-1 pt-3">
-                <div className="px-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">Agents</div>
+                <div className="px-1 text-[9px] font-medium uppercase tracking-wider text-neutral-400">Agents</div>
                 {visibleAgents.map((agent: any) => {
                   const direct = chats
                     .map((chat: any) => normalizeChatRecord(chat, agent.id))
@@ -265,7 +263,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
               </div>
 
               <div className="space-y-1 pt-3">
-                <div className="px-1 text-[9px] font-black uppercase tracking-widest text-neutral-400">Channels</div>
+                <div className="px-1 text-[9px] font-medium uppercase tracking-wider text-neutral-400">Channels</div>
                 {visibleChannels.map((chat: any) => (
                   <div key={chat.id} onClick={() => { useAgentStore.getState().setActiveFolderId(chat.primaryAgentId ?? activeFolderId); useChatStore.getState().setActiveChatId(chat.id); useUIStore.getState().setCanvasContent(null); useTaskStore.getState().setShowPlanner(false); }} className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-neutral-100 dark:bg-neutral-800 font-bold border-l-2 border-[#4A5D75]' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50 text-neutral-500'}`}>
                     {editingChatId === chat.id ? (
@@ -326,8 +324,8 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
 
         <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={createAgent} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Plus className="w-4 h-4" /> Agent</button>
-            <button onClick={createChannel} className="flex items-center justify-center gap-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-black text-[10px] uppercase tracking-widest rounded-xl px-3 py-3.5 shadow-lg transition-all active:scale-95"><Hash className="w-4 h-4" /> Channel</button>
+            <button onClick={createAgent} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-semibold text-[11px] rounded-xl px-3 py-3 shadow-sm transition-all active:scale-95"><Plus className="w-3.5 h-3.5" /> Agent</button>
+            <button onClick={createChannel} className="flex items-center justify-center gap-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-semibold text-[11px] rounded-xl px-3 py-3 shadow-sm transition-all active:scale-95"><Hash className="w-3.5 h-3.5" /> Channel</button>
           </div>
         </div>
       </div>

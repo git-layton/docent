@@ -112,7 +112,15 @@ export function ChatHeader({
               {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
               {isChannel && <Hash className="w-4 h-4 text-[#6A829E]" />}
               <span className="text-sm font-black tracking-tight">{showPlanner ? 'My Planner' : isChannel ? normalizedChat?.name : activeAssistant?.name ?? 'Assistant'}</span>
-              {isChannel && <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1"><Users className="w-3 h-3" />{participantCount}</span>}
+              {isChannel && !showPlanner && (
+                <button
+                  onClick={e => { e.stopPropagation(); useUIStore.getState().setIsAgentDropdownOpen(v => !v); setAgentSearch(''); }}
+                  className="flex items-center gap-1 text-[9px] font-medium text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 px-1.5 py-0.5 rounded-md transition-colors"
+                  title="Members"
+                >
+                  <Users className="w-3 h-3" />{participantCount}
+                </button>
+              )}
               {!showPlanner && !isChannel && <Info className="w-3 h-3 text-neutral-400" />}
             </button>
 
@@ -167,15 +175,6 @@ export function ChatHeader({
               </div>
             )}
           </div>
-          {isChannel && !showPlanner && (
-            <button
-              onClick={() => { useUIStore.getState().setIsAgentDropdownOpen(v => !v); setAgentSearch(''); }}
-              className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            >
-              <Users className="w-3.5 h-3.5" />
-              Invite
-            </button>
-          )}
 
           {isChannel && isAgentDropdownOpen && !showPlanner && (
             <div className="absolute top-full left-10 mt-1 w-72 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in duration-150">

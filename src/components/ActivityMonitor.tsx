@@ -54,10 +54,9 @@ function StatusPill({
   title?: string;
 }) {
   return (
-    <div title={title} className="hidden sm:flex items-center gap-1.5 min-w-0 text-[10px] font-black uppercase tracking-widest text-neutral-500 dark:text-neutral-400">
-      <span className="shrink-0" style={{ color }}>{icon}</span>
-      <span className="hidden lg:inline">{label}</span>
-      <span className="tabular-nums text-neutral-700 dark:text-neutral-200">{value}</span>
+    <div title={title ?? label} className="hidden sm:flex items-center gap-1 min-w-0">
+      <span className="shrink-0 opacity-50" style={{ color }}>{icon}</span>
+      <span className="text-[10px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">{value}</span>
     </div>
   );
 }
@@ -145,9 +144,8 @@ export function ActivityMonitorBar({
     <div className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50/95 dark:bg-neutral-950/95 backdrop-blur-md">
       {/* Main bar */}
       <div className="h-7 px-3 lg:px-4 flex items-center gap-3 overflow-hidden">
-        <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-black uppercase tracking-widest text-neutral-400">
+        <div className="flex items-center gap-1.5 shrink-0">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: ramColor, boxShadow: `0 0 5px ${ramColor}88` }} />
-          <span>Activity</span>
         </div>
 
         <div className="h-3 w-px bg-neutral-200 dark:bg-neutral-800 shrink-0" />
@@ -174,9 +172,8 @@ export function ActivityMonitorBar({
 
         {showContext && (
           <div title={contextTitle} className="ml-auto flex min-w-[9rem] max-w-[44rem] flex-1 items-center gap-2">
-            <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-black uppercase tracking-widest text-neutral-400">
-              <span>Context</span>
-              <span className="tabular-nums text-neutral-600 dark:text-neutral-300">{contextPct.toFixed(0)}%</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">{contextPct.toFixed(0)}%</span>
             </div>
             <div className="h-1.5 flex-1 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
               <div
