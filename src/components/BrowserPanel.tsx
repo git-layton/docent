@@ -1,22 +1,24 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { Webview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
+import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
 import { useProactiveCommentary } from '../services/proactiveCommentary';
 import { useBrowserStore } from '../store/useBrowserStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { generatePageDigest } from '../services/pageDigest';
 
+const HOME_URL = 'https://duckduckgo.com';
+
 function normalizeUrl(input: string): string {
   const trimmed = input.trim();
-  if (!trimmed) return 'https://google.com';
+  if (!trimmed) return HOME_URL;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^[^\s]+\.[^\s]+/.test(trimmed) && !trimmed.includes(' ')) return `https://${trimmed}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
+  return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
 const BROWSER_LABEL = 'browser-panel';
@@ -60,8 +62,8 @@ function ProactiveChip({ comment, onDismiss }: ProactiveChipProps) {
 }
 
 export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: BrowserPanelProps) {
-  const [url, setUrl] = useState('https://google.com');
-  const [inputUrl, setInputUrl] = useState('https://google.com');
+  const [url, setUrl] = useState(HOME_URL);
+  const [inputUrl, setInputUrl] = useState(HOME_URL);
   const [isLoading, setIsLoading] = useState(false);
   const [pageTitle, setPageTitle] = useState('');
   const [pageContent, setPageContent] = useState('');
@@ -77,6 +79,8 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
   urlRef.current = url;
 
   const proactiveEnabled = useBrowserStore(s => s.proactiveEnabled);
+  const favorites = useBrowserStore(s => s.favorites);
+  const isFavorited = favorites.some(f => f.url === url);
   const { comment, dismiss } = useProactiveCommentary(url, pageTitle, pageContent, proactiveEnabled);
 
   // Create/destroy the native child webview on mount/unmount
@@ -91,11 +95,12 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
       const win = await getCurrentWindow();
 
       wv = new Webview(win, BROWSER_LABEL, {
-        url: 'https://google.com',
+        url: HOME_URL,
         x: Math.round(rect.left),
         y: Math.round(rect.top),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       });
       webviewRef.current = wv;
 
@@ -132,8 +137,8 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
       const wv = webviewRef.current;
       if (!wv || !contentRef.current) return;
       const rect = contentRef.current.getBoundingClientRect();
-      wv.setPosition(new PhysicalPosition(Math.round(rect.left), Math.round(rect.top))).catch(() => {});
-      wv.setSize(new PhysicalSize(Math.round(rect.width), Math.round(rect.height))).catch(() => {});
+      wv.setPosition(new LogicalPosition(Math.round(rect.left), Math.round(rect.top))).catch(() => {});
+      wv.setSize(new LogicalSize(Math.round(rect.width), Math.round(rect.height))).catch(() => {});
     };
 
     const observer = new ResizeObserver(syncBounds);
@@ -305,6 +310,25 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
         </div>
 
         <button
+          onClick={() => {
+            if (isFavorited) {
+              useBrowserStore.getState().removeFavorite(url);
+            } else {
+              useBrowserStore.getState().addFavorite(url, pageTitle || new URL(url).hostname);
+            }
+          }}
+          className={clsx(
+            'p-1.5 rounded-lg transition-colors shrink-0',
+            isFavorited
+              ? 'text-amber-400 hover:text-amber-500'
+              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-amber-400',
+          )}
+          title={isFavorited ? 'Remove bookmark' : 'Bookmark this page'}
+        >
+          <Star className={clsx('w-4 h-4', isFavorited && 'fill-current')} />
+        </button>
+
+        <button
           onClick={() => useBrowserStore.getState().setProactiveEnabled(!proactiveEnabled)}
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
@@ -333,6 +357,24 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
           {kbSaved ? 'Saved!' : 'Save to KB'}
         </button>
       </div>
+
+      {/* Favorites bar */}
+      {favorites.length > 0 && (
+        <div className="h-8 flex items-center gap-0.5 px-2 border-b border-neutral-200 dark:border-neutral-800 shrink-0 overflow-x-auto no-scrollbar">
+          {favorites.map(fav => (
+            <button
+              key={fav.id}
+              onClick={() => navigate(fav.url)}
+              onContextMenu={e => { e.preventDefault(); useBrowserStore.getState().removeFavorite(fav.url); }}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors whitespace-nowrap shrink-0"
+              title={`${fav.url}\nRight-click to remove`}
+            >
+              <Globe className="w-2.5 h-2.5 shrink-0 opacity-60" />
+              {fav.title}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Native webview renders over this div — keep it empty */}
       <div ref={contentRef} className="flex-1 w-full" />

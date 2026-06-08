@@ -20,9 +20,22 @@ interface VisitLogEntry {
   isPrivate: boolean;
 }
 
+export interface Favorite {
+  id: string;
+  url: string;
+  title: string;
+}
+
+const DEFAULT_FAVORITES: Favorite[] = [
+  { id: 'fav-ddg', url: 'https://duckduckgo.com', title: 'DuckDuckGo' },
+  { id: 'fav-gh', url: 'https://github.com', title: 'GitHub' },
+  { id: 'fav-hn', url: 'https://news.ycombinator.com', title: 'Hacker News' },
+];
+
 interface BrowserStore {
   activeTab: BrowserTab | null;
   visitLog: VisitLogEntry[];
+  favorites: Favorite[];
   browserChatId: string | null;
   proactiveEnabled: boolean;
 
@@ -33,6 +46,8 @@ interface BrowserStore {
   setBrowserChatId: (id: string | null) => void;
   setProactiveEnabled: (v: boolean) => void;
   clearVisitLog: () => Promise<void>;
+  addFavorite: (url: string, title: string) => Promise<void>;
+  removeFavorite: (url: string) => Promise<void>;
 
   hydrate: () => Promise<void>;
   persist: () => Promise<void>;
@@ -41,6 +56,7 @@ interface BrowserStore {
 export const useBrowserStore = create<BrowserStore>((set, get) => ({
   activeTab: null,
   visitLog: [],
+  favorites: DEFAULT_FAVORITES,
   browserChatId: null,
   proactiveEnabled: false,
 
@@ -66,16 +82,31 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     await get().persist();
   },
 
+  addFavorite: async (url, title) => {
+    const already = get().favorites.some(f => f.url === url);
+    if (already) return;
+    const fav: Favorite = { id: generateId('fav'), url, title: title || new URL(url).hostname };
+    set(s => ({ favorites: [...s.favorites, fav] }));
+    await get().persist();
+  },
+
+  removeFavorite: async (url) => {
+    set(s => ({ favorites: s.favorites.filter(f => f.url !== url) }));
+    await get().persist();
+  },
+
   hydrate: async () => {
     const visitLog = await db.get('browserVisitLog', []);
     const proactiveEnabled = await db.get('browserProactiveEnabled', false);
-    set({ visitLog, proactiveEnabled });
+    const favorites = await db.get('browserFavorites', DEFAULT_FAVORITES);
+    set({ visitLog, proactiveEnabled, favorites });
   },
 
   persist: async () => {
-    const { visitLog, proactiveEnabled } = get();
+    const { visitLog, proactiveEnabled, favorites } = get();
     await db.set('browserVisitLog', visitLog);
     await db.set('browserProactiveEnabled', proactiveEnabled);
+    await db.set('browserFavorites', favorites);
   },
 }));
 
