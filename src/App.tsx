@@ -1588,14 +1588,18 @@ export default function App() {
           };
           const agentPins = _globalPins.filter((p: any) => p.agentId === agent.id).map((p: any) => p.content);
 
-          // Append prior responses to the user message rather than as bot turns.
-          // Bot turns at the end break APIs that require strict user/assistant alternation (e.g. Gemini).
-          const channelCtxForMsg = previousResponses.length > 0
-            ? `\n\n[Group channel — other agents have already responded this turn]\n${previousResponses.map((r: any) => `${r.agentName}: ${r.content}`).join('\n\n')}`
+          // Inject channel context directly into the user message — message-level context wins over
+          // system-prompt context when strong character personas are in play.
+          // Always inject the group header (even for the first agent), plus prior responses if any.
+          const channelMsgHeader = `[GROUP CHANNEL: "${normalizedCurrentChat.name}" | ${allParticipants.map((a: any) => a.name).join(', ')}]`;
+          const priorResponsesNote = previousResponses.length > 0
+            ? `\n\n[Other agents have already responded this turn]\n${previousResponses.map((r: any) => `${r.agentName}: ${r.content}`).join('\n\n')}`
             : '';
-          const agentMessages = channelCtxForMsg
-            ? messagesForLLM.map((m: any) => m.id === userMsg.id ? { ...m, content: m.content + channelCtxForMsg } : m)
-            : messagesForLLM;
+          const agentMessages = messagesForLLM.map((m: any) =>
+            m.id === userMsg.id
+              ? { ...m, content: channelMsgHeader + '\n' + m.content + priorResponsesNote }
+              : m
+          );
 
           const agentResponse = await generateTextResponse({
             messages: agentMessages,
