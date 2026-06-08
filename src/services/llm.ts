@@ -343,7 +343,9 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
     // Google Preview block does not support stream. We fallback to simulating it after fetch completes.
     const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal);
-    const fullText = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response received.');
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    const responsePart = parts.find((p: any) => !p.thought) ?? parts[0];
+    const fullText = String(responsePart?.text ?? 'No response received.');
 
     if (onChunk) {
         for (let i = 0; i < fullText.length; i += 40) {
