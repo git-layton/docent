@@ -49,10 +49,6 @@ interface UIStore {
     rag_snippet_chars: number;
   } | null;
 
-  // Browser panel (co-pilot, opens alongside chat)
-  browserOpen: boolean;
-  setBrowserOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
-
   // Boot
   isDbLoaded: boolean;
 
@@ -118,7 +114,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   savedApps: [],
   showSaveModal: false,
   saveAppData: { title: '' },
-  browserOpen: false,
   ramStats: null,
   hwProfile: null,
   isDbLoaded: false,
@@ -158,8 +153,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setCanvasContent: (v) =>
     set(s => ({ canvasContent: typeof v === 'function' ? v(s.canvasContent) : v })),
   setCanvasTab: (v) => set({ canvasTab: v }),
-  setBrowserOpen: (v) =>
-    set(s => ({ browserOpen: typeof v === 'function' ? v(s.browserOpen) : v })),
   setViewMode: (v) => set({ viewMode: v }),
   setArchiveSubView: (v) => set({ archiveSubView: v }),
   setArchiveSearchQuery: (v) => set({ archiveSearchQuery: v }),

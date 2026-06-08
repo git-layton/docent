@@ -46,7 +46,6 @@ import { OnboardingWizard } from './components/OnboardingWizard';
 import { AppSidebar } from './components/AppSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
-import { BrowserPanel } from './components/BrowserPanel';
 import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
 import { ChatHeader } from './components/ChatHeader';
 import { PlannerPanel } from './components/PlannerPanel';
@@ -106,7 +105,6 @@ export default function App() {
 
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
   const viewMode = useUIStore(s => s.viewMode);
-  const browserOpen = useUIStore(s => s.browserOpen);
   const generationMode = useUIStore(s => s.generationMode);
   const isDeepThinking = useUIStore(s => s.isDeepThinking);
   const speakingId = useChatStore(s => s.speakingId);
@@ -182,6 +180,17 @@ export default function App() {
     listen<{ agentId: string; chatId?: string; tab: { title: string; url: string } | null }>('spotlight-open-chat', ({ payload }) => {
       if (payload.agentId) useAgentStore.getState().setActiveFolderId(payload.agentId);
       useChatStore.getState().setActiveChatId(payload.chatId ?? null);
+    }).then(u => unlistens.push(u));
+    listen<{ url: string; title: string; content: string }>('browser:page-changed', ({ payload }) => {
+      useBrowserStore.getState().setActiveTab({
+        url: payload.url,
+        title: payload.title,
+        content: payload.content,
+        lastCapturedAt: Date.now(),
+      });
+    }).then(u => unlistens.push(u));
+    listen<{ content: string; url: string }>('browser:send-to-chat', ({ payload }) => {
+      useUIStore.getState().setInput(`[From browser: ${payload.url}]\n\n${payload.content}`);
     }).then(u => unlistens.push(u));
     return () => unlistens.forEach(u => u());
   }, []);
@@ -2379,7 +2388,7 @@ export default function App() {
         )}
 
         {viewMode !== 'knowledge-graph' && !canvasContent?.isStandalone && (
-          <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${browserOpen ? 'w-[55%] border-r border-neutral-200 dark:border-neutral-800' : canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
+          <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
             
             {/* Header */}
             <ChatHeader
@@ -2477,7 +2486,7 @@ export default function App() {
         )}
 
         {/* ── Canvas Panel ── */}
-        {!browserOpen && canvasContent && (
+        {canvasContent && (
           <CanvasPanel
             isGenerating={isGenerating}
             onHistoryNavigate={handleHistoryNavigate}
@@ -2489,12 +2498,7 @@ export default function App() {
           />
         )}
 
-        {/* ── Browser Panel (co-pilot alongside chat) ── */}
-        {browserOpen && (
-          <div className="flex-1 flex flex-col h-full overflow-hidden border-l border-neutral-200 dark:border-neutral-800">
-            <BrowserPanel />
-          </div>
-        )}
+
       </div>
 
       {/* ── Modals ── */}
