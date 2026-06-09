@@ -12,6 +12,7 @@ import { useSettingsStore } from './store/useSettingsStore';
 import { useMemoryStore } from './store/useMemoryStore';
 import { generatePageDigest } from './services/pageDigest';
 import { BrowserSidebar } from './BrowserSidebar';
+import { BrowserContextMenu } from './components/BrowserContextMenu';
 
 const HOME_URL = 'https://duckduckgo.com';
 
@@ -85,6 +86,7 @@ export function BrowserWindowApp() {
   const [findQuery, setFindQuery] = useState('');
   const [zoom, setZoom] = useState(1.0);
   const [downloadToast, setDownloadToast] = useState<{ filename: string; success: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: Array<{ label: string; action: () => void; danger?: boolean }> } | null>(null);
 
   const updateZoom = useCallback((factor: number) => {
     const clamped = Math.max(0.25, Math.min(5.0, Math.round(factor * 100) / 100));
@@ -468,6 +470,52 @@ export function BrowserWindowApp() {
     invoke('browser_navigate', { label: BROWSER_LABEL, url: tab.url }).catch(() => setIsLoading(false));
   }, [tabs]);
 
+  const showTabContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: 'New Tab', action: openNewTab },
+        ...(tabs.length > 1 ? [{ label: 'Close Tab', action: () => closeTab(tabId, e), danger: true }] : []),
+        ...(tabs.length > 1 ? [{ label: 'Close Other Tabs', action: () => {
+          const keep = tabs.find(t => t.id === tabId);
+          if (!keep) return;
+          setTabs([keep]);
+          setActiveTabId(keep.id);
+          setUrl(keep.url);
+          setInputUrl(keep.url);
+          invoke('browser_navigate', { label: BROWSER_LABEL, url: keep.url }).catch(() => {});
+        }, danger: true }] : []),
+      ],
+    });
+  }, [tabs, openNewTab, closeTab]);
+
+  const showUrlContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: 'Copy URL', action: () => navigator.clipboard.writeText(url).catch(() => {}) },
+        { label: 'Paste and Go', action: async () => {
+          try {
+            const text = await navigator.clipboard.readText();
+            if (text.trim()) {
+              setInputUrl(text.trim());
+              const dest = text.trim().startsWith('http') ? text.trim() : `https://duckduckgo.com/?q=${encodeURIComponent(text.trim())}`;
+              setIsLoading(true);
+              setUrl(dest);
+              setInputUrl(dest);
+              invoke('browser_navigate', { label: BROWSER_LABEL, url: dest }).catch(() => {});
+            }
+          } catch (_) {}
+        }},
+      ],
+    });
+  }, [url]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') navigate();
   };
@@ -532,6 +580,7 @@ export function BrowserWindowApp() {
           <button
             key={tab.id}
             onClick={() => switchTab(tab.id)}
+            onContextMenu={e => showTabContextMenu(e, tab.id)}
             className={clsx(
               'flex items-center gap-1.5 px-3 h-7 rounded-t-lg text-[10px] font-medium shrink-0 max-w-[160px] transition-colors group',
               tab.id === activeTabId
@@ -606,6 +655,7 @@ export function BrowserWindowApp() {
             onChange={e => setInputUrl(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={e => e.target.select()}
+            onContextMenu={showUrlContextMenu}
             placeholder="Search or enter URL..."
             className={clsx(
               'w-full h-8 pr-3 rounded-lg text-xs font-medium outline-none',
@@ -768,6 +818,14 @@ export function BrowserWindowApp() {
             <X className="w-3 h-3" />
           </button>
         </div>
+      )}
+      {contextMenu && (
+        <BrowserContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   );
