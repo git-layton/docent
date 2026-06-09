@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff, GitBranch, Globe } from 'lucide-react';
+import { Bot, Search, Edit2, Trash2, TerminalSquare, FileEdit, Code, FileText, ImageIcon, Hash, User, Plus, Wifi, WifiOff, GitBranch, Globe, Settings } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useChatStore } from '../store/useChatStore';
@@ -40,6 +40,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
   const appSettings = useSettingsStore(s => s.appSettings);
   const userProfile = useSettingsStore(s => s.userProfile);
   const userName = useSettingsStore(s => s.userName);
+  const userAvatar = useSettingsStore(s => s.userAvatar);
   const showPlanner = useTaskStore(s => s.showPlanner);
 
   const displayName = (() => {
@@ -241,8 +242,17 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                 {networkActive ? (
                   <>
                     <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl">
-                      <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
-                        <User className="w-3.5 h-3.5 text-emerald-500" />
+                      <div className="shrink-0">
+                        {userAvatar ? (
+                          <img src={userAvatar} alt="You" className="w-6 h-6 rounded-lg object-cover" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                            {(appSettings as any).penguinMode
+                              ? <span className="text-[10px]">🐧</span>
+                              : <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">{displayName.charAt(0)}</span>
+                            }
+                          </div>
+                        )}
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs truncate text-neutral-500 dark:text-neutral-400">{displayName} (you)</p>
@@ -338,7 +348,26 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         </div>
 
 
-        <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
+        <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0 space-y-2">
+          {/* User card */}
+          <button
+            onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all group"
+          >
+            {userAvatar ? (
+              <img src={userAvatar} alt="You" className="w-7 h-7 rounded-lg object-cover shrink-0 shadow-sm" />
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-[#9EADC8] flex items-center justify-center shrink-0 shadow-sm">
+                {(appSettings as any).penguinMode
+                  ? <span className="text-sm leading-none">🐧</span>
+                  : <span className="text-[11px] font-black text-white uppercase">{displayName.charAt(0) || '?'}</span>
+                }
+              </div>
+            )}
+            <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex-1 truncate text-left">{displayName}</span>
+            <Settings className="w-3.5 h-3.5 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          </button>
+
           <div className="grid grid-cols-2 gap-2">
             <button onClick={createAgent} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-semibold text-[11px] rounded-xl px-3 py-3 shadow-sm transition-all active:scale-95"><Plus className="w-3.5 h-3.5" /> Agent</button>
             <button onClick={createChannel} className="flex items-center justify-center gap-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-semibold text-[11px] rounded-xl px-3 py-3 shadow-sm transition-all active:scale-95"><Hash className="w-3.5 h-3.5" /> Channel</button>

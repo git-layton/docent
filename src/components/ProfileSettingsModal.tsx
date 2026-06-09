@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
-  MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, Plus, Trash2, CalendarClock, Eye
+  MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, Plus, Trash2, CalendarClock, Eye, Upload
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -18,6 +18,7 @@ interface ProfileSettingsModalProps {
 export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewImageInCanvas }: ProfileSettingsModalProps) {
   const userName = useSettingsStore(s => s.userName);
   const userProfile = useSettingsStore(s => s.userProfile);
+  const userAvatar = useSettingsStore(s => s.userAvatar);
   const integrations = useSettingsStore(s => s.integrations);
   const appSettings = useSettingsStore(s => s.appSettings);
   const profileSettingsTab = useSettingsStore(s => s.profileSettingsTab);
@@ -25,8 +26,24 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const imageEngineModels = useSettingsStore(s => s.imageEngineModels);
   const isFetchingImageModels = useSettingsStore(s => s.isFetchingImageModels);
   const models = useSettingsStore(s => s.models);
-  const { setUserName, setUserProfile, setIntegrations, setAppSettings, setProfileSettingsTab,
+  const { setUserName, setUserProfile, setUserAvatar, setIntegrations, setAppSettings, setProfileSettingsTab,
     setImageTestState, setImageEngineModels, setShowProfileSettings } = useSettingsStore.getState();
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const displayName = userName?.trim() || userProfile?.split('\n')[0]?.trim().replace(/^[#\s]+/, '').trim() || 'You';
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const result = ev.target?.result as string;
+      if (result) setUserAvatar(result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
 
@@ -89,6 +106,43 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
           {profileSettingsTab === 'profile' ? (
             <div>
+              {/* Avatar */}
+              <div className="mb-6 flex items-center gap-5">
+                <div className="relative shrink-0">
+                  {userAvatar ? (
+                    <img src={userAvatar} alt="Avatar" className="w-20 h-20 rounded-2xl object-cover border-2 border-neutral-200 dark:border-neutral-700 shadow-md" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-2xl bg-[#9EADC8] flex items-center justify-center shadow-md">
+                      <span className="text-3xl font-black text-white uppercase select-none">
+                        {(appSettings as any).penguinMode ? '🐧' : (displayName.charAt(0) || '?')}
+                      </span>
+                    </div>
+                  )}
+                  {userAvatar && (
+                    <button
+                      onClick={() => setUserAvatar('')}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-500 hover:bg-rose-600 rounded-full flex items-center justify-center shadow transition-colors"
+                      title="Remove photo"
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-bold text-neutral-700 dark:text-neutral-300">Profile Photo</p>
+                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 px-4 py-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Upload Photo
+                  </button>
+                  {userAvatar && (
+                    <button onClick={() => setUserAvatar('')} className="text-xs text-rose-400 hover:text-rose-500 transition-colors text-left">Remove</button>
+                  )}
+                </div>
+              </div>
+
               <div className="mb-5">
                 <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Your Name <span className="text-error">*</span></label>
                 <input
@@ -112,6 +166,20 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-primary' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.allowProfileUpdates ? 'right-0.5' : 'left-0.5'}`} />
                  </button>
+              </div>
+
+              {/* Penguin Mode */}
+              <div className="mt-3 flex items-center justify-between p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold dark:text-neutral-200 block">🐧 Penguin Mode</span>
+                  <span className="text-tiny text-neutral-500 font-medium tracking-wide">Replace all emoji with penguins. Because why not.</span>
+                </div>
+                <button
+                  onClick={() => setAppSettings((prev: any) => ({ ...prev, penguinMode: !prev.penguinMode }))}
+                  className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${(appSettings as any).penguinMode ? 'bg-primary' : 'bg-neutral-300 dark:bg-neutral-700'}`}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${(appSettings as any).penguinMode ? 'right-0.5' : 'left-0.5'}`} />
+                </button>
               </div>
 
               {/* User Guide section */}

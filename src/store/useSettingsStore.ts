@@ -30,6 +30,7 @@ interface SettingsStore {
   // User profile & integrations
   userName: string;
   userProfile: string;
+  userAvatar: string;
   integrations: any;
   appSettings: {
     allowProfileUpdates: boolean;
@@ -41,6 +42,7 @@ interface SettingsStore {
     forgeInstanceId?: string;
     inboxOwners?: Array<{ id: string; label: string }>;
     people?: Array<{ id: string; label: string; role?: string }>;
+    penguinMode?: boolean;
   };
 
   // Profile settings modal
@@ -82,6 +84,7 @@ interface SettingsStore {
   setModelValidation: (fn: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void;
   setUserName: (v: string) => void;
   setUserProfile: (v: string) => void;
+  setUserAvatar: (v: string) => void;
   setIntegrations: (fn: ((prev: any) => any) | any) => void;
   setAppSettings: (fn: ((prev: any) => any) | any) => void;
   setProfileSettingsTab: (tab: string) => void;
@@ -109,6 +112,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   modelValidation: {},
   userName: '',
   userProfile: '',
+  userAvatar: '',
   integrations: {
     brave: { enabled: false, apiKey: '' },
     tavily: { enabled: false, apiKey: '' },
@@ -141,7 +145,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   isFetchingModels: false,
   fetchModelsError: null,
   pendingModelSelections: [],
-  modelTab: 'cloud',
+  modelTab: 'local',
   onboardingComplete: false,
   showOnboarding: false,
   onboardingInitialStep: 1,
@@ -157,6 +161,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set(s => ({ modelValidation: typeof fn === 'function' ? fn(s.modelValidation) : fn })),
   setUserName: (v) => set({ userName: v }),
   setUserProfile: (v) => set({ userProfile: v }),
+  setUserAvatar: (v) => set({ userAvatar: v }),
   setIntegrations: (fn) =>
     set(s => ({ integrations: typeof fn === 'function' ? fn(s.integrations) : fn })),
   setAppSettings: (fn) =>
@@ -188,6 +193,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }));
     const userName = await db.get('userName', '');
     const userProfile = await db.get('userProfile', '');
+    const userAvatar = await db.get('userAvatar', '');
     const savedIntegrations = await db.get('integrations', {});
     const settings = await db.get('settings', {});
     const appSettings = await db.get('appSettings', {
@@ -211,6 +217,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       models,
       userName,
       userProfile,
+      userAvatar,
       integrations: { ...s.integrations, ...savedIntegrations },
       appSettings: { ...s.appSettings, ...appSettings },
       selectedModelId: settings.selectedModelId ?? '',
@@ -219,10 +226,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   persist: async () => {
-    const { models, userName, userProfile, integrations, appSettings, selectedModelId, onboardingComplete } = get();
+    const { models, userName, userProfile, userAvatar, integrations, appSettings, selectedModelId, onboardingComplete } = get();
     await db.set('models', models);
     await db.set('userName', userName);
     await db.set('userProfile', userProfile);
+    await db.set('userAvatar', userAvatar);
     await db.set('integrations', integrations);
     await db.set('appSettings', appSettings);
     await db.set('settings', { selectedModelId });
