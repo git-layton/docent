@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star, Key } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { Webview } from '@tauri-apps/api/webview';
@@ -13,6 +13,7 @@ import { useMemoryStore } from './store/useMemoryStore';
 import { generatePageDigest } from './services/pageDigest';
 import { BrowserSidebar } from './BrowserSidebar';
 import { BrowserContextMenu } from './components/BrowserContextMenu';
+import { BrowserPasswordBar } from './components/BrowserPasswordBar';
 
 const HOME_URL = 'https://duckduckgo.com';
 
@@ -61,6 +62,25 @@ const AD_BLOCK_SCRIPT = `(function(){
   function rm(){sel.forEach(function(s){document.querySelectorAll(s).forEach(function(el){el.remove();})});}
   rm();
   new MutationObserver(rm).observe(document.body||document.documentElement,{childList:true,subtree:true});
+})();`;
+
+const PIP_SCRIPT = `(function(){
+  if(window.__agfPip)return;
+  window.__agfPip=true;
+  document.addEventListener('mouseover',function(e){
+    var v=e.target.closest('video');
+    if(!v||v.__agfBtn)return;
+    v.__agfBtn=true;
+    var w=v.parentElement;
+    if(!w)return;
+    if(w.style.position!=='relative'&&w.style.position!=='absolute')w.style.position='relative';
+    var b=document.createElement('button');
+    b.textContent='⧉';
+    b.title='Picture in Picture';
+    b.style.cssText='position:absolute;top:8px;right:8px;z-index:9999;background:rgba(0,0,0,0.65);color:#fff;border:none;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:15px;line-height:1;';
+    b.onclick=function(ev){ev.stopPropagation();if(v.requestPictureInPicture)v.requestPictureInPicture().catch(function(){});};
+    w.appendChild(b);
+  },true);
 })();`;
 
 interface ProactiveChipProps {
@@ -124,6 +144,7 @@ export function BrowserWindowApp() {
   const [zoom, setZoom] = useState(1.0);
   const [downloadToast, setDownloadToast] = useState<{ filename: string; success: boolean } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: Array<{ label: string; action: () => void; danger?: boolean }> } | null>(null);
+  const [passwordBarOpen, setPasswordBarOpen] = useState(false);
 
   const updateZoom = useCallback((factor: number) => {
     const clamped = Math.max(0.25, Math.min(5.0, Math.round(factor * 100) / 100));
@@ -468,6 +489,15 @@ export function BrowserWindowApp() {
     return () => clearTimeout(t);
   }, [url]);
 
+  // Inject PiP button on video elements
+  useEffect(() => {
+    if (!url || url === HOME_URL) return;
+    const t = setTimeout(() => {
+      invoke('browser_eval', { label: BROWSER_LABEL, script: PIP_SCRIPT }).catch(() => {});
+    }, 1100);
+    return () => clearTimeout(t);
+  }, [url]);
+
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
     setIsLoading(true);
@@ -747,6 +777,19 @@ export function BrowserWindowApp() {
         </button>
 
         <button
+          onClick={() => setPasswordBarOpen(v => !v)}
+          className={clsx(
+            'p-1.5 rounded-lg transition-colors shrink-0',
+            passwordBarOpen
+              ? 'bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#6A829E]'
+              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600',
+          )}
+          title="Password manager"
+        >
+          <Key className="w-4 h-4" />
+        </button>
+
+        <button
           onClick={handleSaveToKB}
           disabled={isSavingToKB}
           className={clsx(
@@ -762,6 +805,14 @@ export function BrowserWindowApp() {
           {kbSaved ? 'Saved!' : 'Save to KB'}
         </button>
       </div>
+
+      {/* Password bar */}
+      {passwordBarOpen && (
+        <BrowserPasswordBar
+          host={(() => { try { return new URL(url).hostname; } catch { return url; } })()}
+          onClose={() => setPasswordBarOpen(false)}
+        />
+      )}
 
       {/* Favorites bar */}
       {favorites.length > 0 && (
