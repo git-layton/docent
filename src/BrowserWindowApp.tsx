@@ -14,6 +14,12 @@ import { generatePageDigest } from './services/pageDigest';
 import { BrowserContextMenu } from './components/BrowserContextMenu';
 import { BrowserPasswordBar } from './components/BrowserPasswordBar';
 
+/**
+ * @deprecated BrowserWindowApp is no longer used as a standalone window.
+ * The browser is now embedded as an OmniTab via BrowserTabContent.
+ * This file is kept for reference during the migration period.
+ */
+
 const HOME_URL = 'https://duckduckgo.com';
 
 function normalizeUrl(input: string): string {
@@ -151,6 +157,7 @@ function makeTab(url = HOME_URL, title = ''): BrowserTabState {
 }
 
 export function BrowserWindowApp() {
+  console.warn('[BrowserWindowApp] Deprecated: browser is now a tab via BrowserTabContent (OmniTab)');
   const initialTabRef = useRef(makeTab());
   const [tabs, setTabs] = useState<BrowserTabState[]>([initialTabRef.current]);
   const [activeTabId, setActiveTabId] = useState<string>(initialTabRef.current.id);
