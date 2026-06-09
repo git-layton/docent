@@ -243,6 +243,75 @@ export function BrowserWindowApp() {
     emit('browser:page-changed', { url, title: pageTitle, content: pageContent }).catch(() => {});
   }, [url, pageTitle, pageContent]);
 
+  // Browser keyboard shortcuts (active when React chrome has focus)
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      switch (e.key) {
+        case 'l':
+          e.preventDefault();
+          (document.querySelector('input[type="text"]') as HTMLInputElement | null)?.focus();
+          break;
+        case 't':
+          e.preventDefault();
+          openNewTab();
+          break;
+        case 'w':
+          e.preventDefault();
+          if (tabs.length > 1) {
+            setTabs(prev => {
+              if (prev.length === 1) return prev;
+              const idx = prev.findIndex(t => t.id === activeTabId);
+              const next = prev.filter(t => t.id !== activeTabId);
+              const newActive = next[Math.max(0, idx - 1)];
+              setActiveTabId(newActive.id);
+              setUrl(newActive.url);
+              setInputUrl(newActive.url);
+              invoke('browser_navigate', { label: BROWSER_LABEL, url: newActive.url }).catch(() => {});
+              return next;
+            });
+          }
+          break;
+        case 'r':
+          e.preventDefault();
+          handleReload();
+          break;
+        case 'd':
+          e.preventDefault();
+          if (isFavorited) {
+            useBrowserStore.getState().removeFavorite(url);
+          } else {
+            useBrowserStore.getState().addFavorite(url, pageTitle || url);
+          }
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKey as EventListener);
+    return () => window.removeEventListener('keydown', onKey as EventListener);
+  }, [tabs, activeTabId, openNewTab, handleReload, url, pageTitle, isFavorited]);
+
+  // Inject pop-up handler into WKWebView (once on mount, after webview initializes)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      invoke('browser_eval', {
+        label: BROWSER_LABEL,
+        script: `(function(){
+        if(window.__popupHandled)return;
+        window.__popupHandled=true;
+        var orig=window.open;
+        window.open=function(url,target,features){
+          if(url&&typeof url==='string'&&url.startsWith('http')){
+            window.location.href=url;
+          }
+          return null;
+        };
+      })();`
+      }).catch(() => {});
+    }, 1200);
+    return () => clearTimeout(t);
+  }, []);
+
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
     setIsLoading(true);
