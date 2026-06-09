@@ -97,9 +97,20 @@ export function BrowserWindowApp() {
   const isFavorited = favorites.some(f => f.url === url);
   const { comment, dismiss } = useProactiveCommentary(url, pageTitle, pageContent, proactiveEnabled);
 
-  // Hydrate store on mount
+  // Hydrate store on mount, restore saved tabs
   useEffect(() => {
-    useBrowserStore.getState().hydrate();
+    useBrowserStore.getState().hydrate().then(() => {
+      const { savedTabs, savedActiveTabId } = useBrowserStore.getState();
+      if (savedTabs.length > 0) {
+        setTabs(savedTabs);
+        const targetId = savedActiveTabId ?? savedTabs[0].id;
+        setActiveTabId(targetId);
+        const activeTab = savedTabs.find(t => t.id === targetId) ?? savedTabs[0];
+        setUrl(activeTab.url);
+        setInputUrl(activeTab.url);
+        setPageTitle(activeTab.title);
+      }
+    }).catch(() => {});
   }, []);
 
   // Sync active tab's URL/title when URL or pageTitle changes
@@ -242,6 +253,14 @@ export function BrowserWindowApp() {
     if (!url) return;
     emit('browser:page-changed', { url, title: pageTitle, content: pageContent }).catch(() => {});
   }, [url, pageTitle, pageContent]);
+
+  // Persist tab state when tabs change (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      useBrowserStore.getState().setSavedTabs(tabs, activeTabId).catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, [tabs, activeTabId]);
 
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
