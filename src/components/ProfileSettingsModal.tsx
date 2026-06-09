@@ -114,7 +114,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   ) : (
                     <div className="w-20 h-20 rounded-2xl bg-[#9EADC8] flex items-center justify-center shadow-md">
                       <span className="text-3xl font-black text-white uppercase select-none">
-                        {(appSettings as any).penguinMode ? '🐧' : (displayName.charAt(0) || '?')}
+                        {displayName.charAt(0) || '?'}
                       </span>
                     </div>
                   )}
@@ -166,20 +166,6 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-primary' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.allowProfileUpdates ? 'right-0.5' : 'left-0.5'}`} />
                  </button>
-              </div>
-
-              {/* Penguin Mode */}
-              <div className="mt-3 flex items-center justify-between p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
-                <div className="flex flex-col">
-                  <span className="text-sm font-bold dark:text-neutral-200 block">🐧 Penguin Mode</span>
-                  <span className="text-tiny text-neutral-500 font-medium tracking-wide">Replace all emoji with penguins. Because why not.</span>
-                </div>
-                <button
-                  onClick={() => setAppSettings((prev: any) => ({ ...prev, penguinMode: !prev.penguinMode }))}
-                  className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${(appSettings as any).penguinMode ? 'bg-primary' : 'bg-neutral-300 dark:bg-neutral-700'}`}
-                >
-                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${(appSettings as any).penguinMode ? 'right-0.5' : 'left-0.5'}`} />
-                </button>
               </div>
 
               {/* User Guide section */}

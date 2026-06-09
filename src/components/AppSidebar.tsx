@@ -250,10 +250,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                       <img src={userAvatar} alt="You" className="w-6 h-6 rounded-lg object-cover" />
                     ) : (
                       <div className="w-6 h-6 rounded-lg bg-[#9EADC8] flex items-center justify-center">
-                        {(appSettings as any).penguinMode
-                          ? <span className="text-[10px]">🐧</span>
-                          : <span className="text-[10px] font-bold text-white uppercase">{displayName.charAt(0)}</span>
-                        }
+                        <span className="text-[10px] font-bold text-white uppercase">{displayName.charAt(0)}</span>
                       </div>
                     )}
                   </div>

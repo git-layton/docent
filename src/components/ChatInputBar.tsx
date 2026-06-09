@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
   AlertTriangle, Loader2, Brain, ListTodo, ShieldCheck, Trash2, Plus, Mic,
-  Telescope, Code2, ScrollText
+  Telescope, Code2, ScrollText, Smile
 } from 'lucide-react';
+import Picker from '@emoji-mart/react';
+import data from '@emoji-mart/data';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
 import type { SlashCommand } from './SlashCommandPalette';
 import { invoke } from '@tauri-apps/api/core';
@@ -79,6 +81,17 @@ export function ChatInputBar({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showToolPopover]);
+
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) setShowEmojiPicker(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showEmojiPicker]);
 
   const [mentionHighlight, setMentionHighlight] = useState(0);
   const mentionMatch = channelParticipants.length > 0 ? input.match(/@(\w*)$/) : null;
@@ -296,6 +309,33 @@ export function ChatInputBar({
             {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-lg transition-all ${isListening ? 'text-error bg-error-light dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
             {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
             <input type="file" ref={fileInputRef} onChange={onChatFileUpload} className="hidden" />
+            {/* Emoji picker */}
+            {models.length > 0 && (
+              <div className="relative" ref={emojiPickerRef}>
+                <button
+                  onClick={() => setShowEmojiPicker(v => !v)}
+                  className={`p-2 rounded-lg transition-all ${showEmojiPicker ? 'text-accent bg-accent-light dark:bg-[#5C452E]/20' : 'text-neutral-400 hover:text-accent hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
+                  title="Emoji"
+                >
+                  <Smile className="w-3.5 h-3.5" />
+                </button>
+                {showEmojiPicker && (
+                  <div className="absolute bottom-full right-0 mb-2 z-[200] animate-in slide-in-from-bottom-2 duration-150 drop-shadow-2xl">
+                    <Picker
+                      data={data}
+                      set="twitter"
+                      theme="auto"
+                      previewPosition="none"
+                      skinTonePosition="none"
+                      onEmojiSelect={(emoji: any) => {
+                        setInput(input + emoji.native);
+                        setShowEmojiPicker(false);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {!isGenerating && models.length > 0 && <button onClick={onEnhancePrompt} disabled={isEnhancing || !input.trim()} className={`p-2 rounded-lg transition-all ${input.trim() ? 'text-accent hover:bg-accent-light dark:hover:bg-[#5C452E]/20' : 'text-neutral-300 dark:text-neutral-600 cursor-default'} ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-3.5 h-3.5" /></button>}
             <button
               onClick={isGenerating ? onStop : onSend}
