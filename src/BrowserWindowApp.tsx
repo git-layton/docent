@@ -81,6 +81,8 @@ export function BrowserWindowApp() {
   const [pageContent, setPageContent] = useState('');
   const [isSavingToKB, setIsSavingToKB] = useState(false);
   const [kbSaved, setKbSaved] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
 
   const contentRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<Webview | null>(null);
@@ -242,6 +244,22 @@ export function BrowserWindowApp() {
     if (!url) return;
     emit('browser:page-changed', { url, title: pageTitle, content: pageContent }).catch(() => {});
   }, [url, pageTitle, pageContent]);
+
+  // Cmd+F / Ctrl+F to toggle find bar
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        setFindOpen(v => !v);
+      }
+      if (e.key === 'Escape' && findOpen) {
+        setFindOpen(false);
+        setFindQuery('');
+      }
+    };
+    window.addEventListener('keydown', onKey as EventListener);
+    return () => window.removeEventListener('keydown', onKey as EventListener);
+  }, [findOpen]);
 
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
@@ -496,6 +514,45 @@ export function BrowserWindowApp() {
               {fav.title}
             </button>
           ))}
+        </div>
+      )}
+
+      {findOpen && (
+        <div className="h-9 flex items-center gap-2 px-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0 bg-white dark:bg-neutral-900 z-10">
+          <input
+            autoFocus
+            type="text"
+            value={findQuery}
+            onChange={e => setFindQuery(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: !e.shiftKey }).catch(() => {});
+              }
+              if (e.key === 'Escape') {
+                setFindOpen(false);
+                setFindQuery('');
+              }
+            }}
+            placeholder="Find in page…"
+            className="flex-1 text-xs bg-neutral-100 dark:bg-neutral-800 rounded-lg px-3 h-6 outline-none focus:ring-1 ring-[#6A829E]/30 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400"
+          />
+          <button
+            onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: false }).catch(() => {})}
+            className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            title="Previous match"
+          >↑</button>
+          <button
+            onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: true }).catch(() => {})}
+            className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            title="Next match"
+          >↓</button>
+          <button
+            onClick={() => { setFindOpen(false); setFindQuery(''); }}
+            className="p-1 rounded text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            title="Close find bar"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
