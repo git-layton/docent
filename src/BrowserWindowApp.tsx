@@ -332,112 +332,6 @@ export function BrowserWindowApp() {
     return () => clearTimeout(t);
   }, [tabs, activeTabId]);
 
-  // Browser keyboard shortcuts (active when React chrome has focus)
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      switch (e.key) {
-        case 'l':
-          e.preventDefault();
-          (document.querySelector('input[type="text"]') as HTMLInputElement | null)?.focus();
-          break;
-        case 't':
-          e.preventDefault();
-          openNewTab();
-          break;
-        case 'w':
-          e.preventDefault();
-          if (tabs.length > 1) {
-            setTabs(prev => {
-              if (prev.length === 1) return prev;
-              const idx = prev.findIndex(t => t.id === activeTabId);
-              const next = prev.filter(t => t.id !== activeTabId);
-              const newActive = next[Math.max(0, idx - 1)];
-              setActiveTabId(newActive.id);
-              setUrl(newActive.url);
-              setInputUrl(newActive.url);
-              invoke('browser_navigate', { label: BROWSER_LABEL, url: newActive.url }).catch(() => {});
-              return next;
-            });
-          }
-          break;
-        case 'r':
-          e.preventDefault();
-          handleReload();
-          break;
-        case 'd':
-          e.preventDefault();
-          if (isFavorited) {
-            useBrowserStore.getState().removeFavorite(url);
-          } else {
-            useBrowserStore.getState().addFavorite(url, pageTitle || url);
-          }
-          break;
-      }
-    };
-    window.addEventListener('keydown', onKey as EventListener);
-    return () => window.removeEventListener('keydown', onKey as EventListener);
-  }, [tabs, activeTabId, openNewTab, handleReload, url, pageTitle, isFavorited]);
-
-  // Cmd+F / Ctrl+F to toggle find bar
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-        e.preventDefault();
-        setFindOpen(v => !v);
-      }
-      if (e.key === 'Escape' && findOpen) {
-        setFindOpen(false);
-        setFindQuery('');
-      }
-    };
-    window.addEventListener('keydown', onKey as EventListener);
-    return () => window.removeEventListener('keydown', onKey as EventListener);
-  }, [findOpen]);
-
-  // Zoom keyboard shortcuts: Cmd+= / Cmd++ to zoom in, Cmd+- to zoom out, Cmd+0 to reset
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      if (e.key === '+' || e.key === '=' || e.key === 'Equal') {
-        e.preventDefault();
-        setZoom(prev => {
-          const next = Math.round((prev + 0.1) * 100) / 100;
-          const clamped = Math.min(5.0, next);
-          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
-          return clamped;
-        });
-      } else if (e.key === '-' || e.key === 'Minus') {
-        e.preventDefault();
-        setZoom(prev => {
-          const next = Math.round((prev - 0.1) * 100) / 100;
-          const clamped = Math.max(0.25, next);
-          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
-          return clamped;
-        });
-      } else if (e.key === '0') {
-        e.preventDefault();
-        updateZoom(1.0);
-      }
-    };
-    window.addEventListener('keydown', onKey as EventListener);
-    return () => window.removeEventListener('keydown', onKey as EventListener);
-  }, [updateZoom]);
-
-  const handleDownload = useCallback(async (dlUrl: string, filename: string) => {
-    try {
-      const path = await invoke<string>('browser_download_url', { url: dlUrl, filename });
-      const name = path.split('/').pop() ?? filename;
-      setDownloadToast({ filename: name, success: true });
-      setTimeout(() => setDownloadToast(null), 4000);
-    } catch (_e) {
-      setDownloadToast({ filename, success: false });
-      setTimeout(() => setDownloadToast(null), 4000);
-    }
-  }, []);
-
   // Inject pop-up handler into WKWebView (once on mount, after webview initializes)
   useEffect(() => {
     const t = setTimeout(() => {
@@ -613,6 +507,100 @@ export function BrowserWindowApp() {
     invoke('browser_reload', { label: BROWSER_LABEL }).catch(() => {});
     setTimeout(() => { if (mountedRef.current) setIsLoading(false); }, 2000);
   };
+
+  // Browser keyboard shortcuts (active when React chrome has focus)
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      switch (e.key) {
+        case 'l':
+          e.preventDefault();
+          (document.querySelector('input[type="text"]') as HTMLInputElement | null)?.focus();
+          break;
+        case 't':
+          e.preventDefault();
+          openNewTab();
+          break;
+        case 'w':
+          e.preventDefault();
+          if (tabs.length > 1) {
+            setTabs(prev => {
+              if (prev.length === 1) return prev;
+              const idx = prev.findIndex(t => t.id === activeTabId);
+              const next = prev.filter(t => t.id !== activeTabId);
+              const newActive = next[Math.max(0, idx - 1)];
+              setActiveTabId(newActive.id);
+              setUrl(newActive.url);
+              setInputUrl(newActive.url);
+              invoke('browser_navigate', { label: BROWSER_LABEL, url: newActive.url }).catch(() => {});
+              return next;
+            });
+          }
+          break;
+        case 'r':
+          e.preventDefault();
+          handleReload();
+          break;
+        case 'd':
+          e.preventDefault();
+          if (isFavorited) {
+            useBrowserStore.getState().removeFavorite(url);
+          } else {
+            useBrowserStore.getState().addFavorite(url, pageTitle || url);
+          }
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKey as EventListener);
+    return () => window.removeEventListener('keydown', onKey as EventListener);
+  }, [tabs, activeTabId, openNewTab, handleReload, url, pageTitle, isFavorited]);
+
+  // Cmd+F / Ctrl+F to toggle find bar
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        setFindOpen(v => !v);
+      }
+      if (e.key === 'Escape' && findOpen) {
+        setFindOpen(false);
+        setFindQuery('');
+      }
+    };
+    window.addEventListener('keydown', onKey as EventListener);
+    return () => window.removeEventListener('keydown', onKey as EventListener);
+  }, [findOpen]);
+
+  // Zoom keyboard shortcuts: Cmd+= / Cmd++ to zoom in, Cmd+- to zoom out, Cmd+0 to reset
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === '+' || e.key === '=' || e.key === 'Equal') {
+        e.preventDefault();
+        setZoom(prev => {
+          const next = Math.round((prev + 0.1) * 100) / 100;
+          const clamped = Math.min(5.0, next);
+          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+          return clamped;
+        });
+      } else if (e.key === '-' || e.key === 'Minus') {
+        e.preventDefault();
+        setZoom(prev => {
+          const next = Math.round((prev - 0.1) * 100) / 100;
+          const clamped = Math.max(0.25, next);
+          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+          return clamped;
+        });
+      } else if (e.key === '0') {
+        e.preventDefault();
+        updateZoom(1.0);
+      }
+    };
+    window.addEventListener('keydown', onKey as EventListener);
+    return () => window.removeEventListener('keydown', onKey as EventListener);
+  }, [updateZoom]);
 
   const handleSaveToKB = async () => {
     if (isSavingToKB) return;
