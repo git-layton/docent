@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star, Key } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star, Key, Plus, BookMarked } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { Webview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
-import { emit } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import { useProactiveCommentary } from './services/proactiveCommentary';
 import { useBrowserStore } from './store/useBrowserStore';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useMemoryStore } from './store/useMemoryStore';
 import { generatePageDigest } from './services/pageDigest';
-import { BrowserSidebar } from './BrowserSidebar';
 import { BrowserContextMenu } from './components/BrowserContextMenu';
 import { BrowserPasswordBar } from './components/BrowserPasswordBar';
 
@@ -26,6 +25,30 @@ function normalizeUrl(input: string): string {
 }
 
 const BROWSER_LABEL = 'browser-panel';
+
+function tryHostname(rawUrl: string): string {
+  try { return new URL(rawUrl).hostname; } catch { return rawUrl; }
+}
+
+function TabFavicon({ url }: { url: string }) {
+  const [err, setErr] = useState(false);
+  if (err || !url || url === HOME_URL) return <Globe className="w-3 h-3 shrink-0 opacity-40" />;
+  try {
+    const origin = new URL(url).origin;
+    return (
+      <img
+        src={`${origin}/favicon.ico`}
+        width={12}
+        height={12}
+        onError={() => setErr(true)}
+        className="w-3 h-3 shrink-0 object-contain"
+        alt=""
+      />
+    );
+  } catch {
+    return <Globe className="w-3 h-3 shrink-0 opacity-40" />;
+  }
+}
 
 const AD_BLOCKED_DOMAINS = [
   'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
@@ -145,6 +168,10 @@ export function BrowserWindowApp() {
   const [downloadToast, setDownloadToast] = useState<{ filename: string; success: boolean } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: Array<{ label: string; action: () => void; danger?: boolean }> } | null>(null);
   const [passwordBarOpen, setPasswordBarOpen] = useState(false);
+  const [pwHost, setPwHost] = useState('');
+  const [pwMode, setPwMode] = useState<'autofill' | 'save-prompt' | null>(null);
+  const [pwSaveUsername, setPwSaveUsername] = useState('');
+  const [pwSavePassword, setPwSavePassword] = useState('');
 
   const updateZoom = useCallback((factor: number) => {
     const clamped = Math.max(0.25, Math.min(5.0, Math.round(factor * 100) / 100));
@@ -332,7 +359,7 @@ export function BrowserWindowApp() {
     return () => clearTimeout(t);
   }, [tabs, activeTabId]);
 
-  // Inject pop-up handler into WKWebView (once on mount, after webview initializes)
+  // Inject pop-up handler — opens popups as new tabs instead of hijacking current page navigation
   useEffect(() => {
     const t = setTimeout(() => {
       invoke('browser_eval', {
@@ -340,10 +367,9 @@ export function BrowserWindowApp() {
         script: `(function(){
         if(window.__popupHandled)return;
         window.__popupHandled=true;
-        var orig=window.open;
         window.open=function(url,target,features){
           if(url&&typeof url==='string'&&url.startsWith('http')){
-            window.location.href=url;
+            window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke('browser_open_tab',{url:url});
           }
           return null;
         };
@@ -391,6 +417,73 @@ export function BrowserWindowApp() {
     }, 1100);
     return () => clearTimeout(t);
   }, [url]);
+
+  // Inject password form detector — fires Tauri events on password field focus and form submit
+  useEffect(() => {
+    if (!url) return;
+    const t = setTimeout(() => {
+      invoke('browser_eval', {
+        label: BROWSER_LABEL,
+        script: `(function(){
+        if(window.__agfPwDetect)return;
+        window.__agfPwDetect=true;
+        var T=window.__TAURI_INTERNALS__;
+        document.addEventListener('focus',function(e){
+          if(e.target.type==='password'&&T){
+            T.invoke('browser_password_event',{eventType:'focus',host:location.hostname,username:null,password:null});
+          }
+        },true);
+        document.addEventListener('submit',function(e){
+          var f=e.target;
+          var pw=f.querySelector('input[type="password"]');
+          if(!pw||!pw.value||!T)return;
+          var u=f.querySelector('input[type="email"]')||f.querySelector('input[type="text"]')||f.querySelector('input[name*="user"]')||f.querySelector('input[name*="email"]');
+          T.invoke('browser_password_event',{eventType:'submit',host:location.hostname,username:u?u.value:null,password:pw.value});
+        },true);
+      })();`
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [url]);
+
+  // Listen for popup-as-new-tab requests from WKWebView content
+  useEffect(() => {
+    const p = listen<{ url: string }>('browser:open-tab', e => {
+      const tabUrl = e.payload?.url;
+      if (!tabUrl) return;
+      const t = makeTab(tabUrl, '');
+      setTabs(prev => [...prev, t]);
+      setActiveTabId(t.id);
+      setUrl(tabUrl);
+      setInputUrl(tabUrl);
+      setIsLoading(true);
+      invoke('browser_navigate', { label: BROWSER_LABEL, url: tabUrl }).catch(() => setIsLoading(false));
+    });
+    return () => { p.then(f => f()); };
+  }, []);
+
+  // Listen for password form events from WKWebView content
+  useEffect(() => {
+    const p = listen<{ type: string; host: string; username?: string; password?: string }>(
+      'browser:password-event',
+      async e => {
+        const { type, host, username, password } = e.payload ?? {};
+        if (type === 'focus') {
+          const result = await invoke<{ ok: boolean }>('keychain_get', { host }).catch(() => ({ ok: false }));
+          if (result.ok) {
+            setPwHost(host);
+            setPwMode('autofill');
+          }
+        } else if (type === 'submit' && password) {
+          setPwHost(host);
+          setPwSaveUsername(username ?? '');
+          setPwSavePassword(password);
+          setPwMode('save-prompt');
+        }
+      },
+    );
+    return () => { p.then(f => f()); };
+  }, []);
 
   const navigate = useCallback((target?: string) => {
     const dest = normalizeUrl(target ?? inputUrl);
@@ -507,6 +600,33 @@ export function BrowserWindowApp() {
     invoke('browser_reload', { label: BROWSER_LABEL }).catch(() => {});
     setTimeout(() => { if (mountedRef.current) setIsLoading(false); }, 2000);
   };
+
+  const handleAutofill = useCallback(async () => {
+    const result = await invoke<{ ok: boolean; username?: string; password?: string }>(
+      'keychain_get', { host: pwHost }
+    ).catch(() => ({ ok: false, username: undefined, password: undefined }));
+    if (!result.ok || !result.password) return;
+    const script = `(function(){
+      function fill(el,val){
+        if(!el)return;
+        var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value');
+        if(d&&d.set)d.set.call(el,val);else el.value=val;
+        el.dispatchEvent(new Event('input',{bubbles:true}));
+        el.dispatchEvent(new Event('change',{bubbles:true}));
+      }
+      var pw=document.querySelector('input[type="password"]');
+      var u=pw&&pw.form?(pw.form.querySelector('input[type="email"]')||pw.form.querySelector('input[type="text"]')):document.querySelector('input[type="email"]');
+      fill(pw,${JSON.stringify(result.password)});
+      fill(u,${JSON.stringify(result.username ?? '')});
+    })();`;
+    invoke('browser_eval', { label: BROWSER_LABEL, script }).catch(() => {});
+    setPwMode(null);
+  }, [pwHost]);
+
+  const handleSaveCredentials = useCallback(async () => {
+    await invoke('keychain_save', { host: pwHost, username: pwSaveUsername, password: pwSavePassword }).catch(() => {});
+    setPwMode(null);
+  }, [pwHost, pwSaveUsername, pwSavePassword]);
 
   // Browser keyboard shortcuts (active when React chrome has focus)
   useEffect(() => {
@@ -638,81 +758,93 @@ export function BrowserWindowApp() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-white dark:bg-neutral-900 overflow-hidden select-none">
+      <style>{`
+        @keyframes browser-progress {
+          0%   { width: 0% }
+          15%  { width: 35% }
+          50%  { width: 65% }
+          80%  { width: 82% }
+          100% { width: 92% }
+        }
+        .browser-progress-bar { animation: browser-progress 10s ease-out forwards; }
+      `}</style>
+
       {/* Tab bar */}
-      <div className="h-9 flex items-end gap-0 px-2 bg-neutral-100 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700 shrink-0 overflow-x-auto no-scrollbar">
+      <div className="h-9 flex items-center gap-0.5 px-1.5 bg-neutral-100 dark:bg-neutral-800 shrink-0 overflow-x-auto no-scrollbar">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => switchTab(tab.id)}
             onContextMenu={e => showTabContextMenu(e, tab.id)}
             className={clsx(
-              'flex items-center gap-1.5 px-3 h-7 rounded-t-lg text-[10px] font-medium shrink-0 max-w-[160px] transition-colors group',
+              'flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[11px] font-medium shrink-0 max-w-[180px] min-w-[80px] transition-all group',
               tab.id === activeTabId
-                ? 'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 border border-b-0 border-neutral-200 dark:border-neutral-700'
-                : 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
+                ? 'bg-white dark:bg-neutral-700 text-neutral-800 dark:text-neutral-100 shadow-sm'
+                : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/80 dark:hover:bg-neutral-700/80 hover:text-neutral-700 dark:hover:text-neutral-200',
             )}
           >
-            <Globe className="w-2.5 h-2.5 shrink-0 opacity-60" />
-            <span className="truncate flex-1">{tab.title || new URL(tab.url).hostname}</span>
-            {tabs.length > 1 && (
-              <span
-                onClick={e => closeTab(tab.id, e)}
-                className="ml-1 p-0.5 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <X className="w-2.5 h-2.5" />
-              </span>
-            )}
+            <TabFavicon url={tab.url} />
+            <span className="truncate flex-1 min-w-0 text-left">{tab.title || tryHostname(tab.url)}</span>
+            <span
+              onClick={e => closeTab(tab.id, e)}
+              className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-600 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
+              title="Close tab"
+            >
+              <X className="w-2.5 h-2.5" />
+            </span>
           </button>
         ))}
         <button
           onClick={openNewTab}
-          className="ml-1 p-1 rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors shrink-0 self-center"
-          title="New tab"
+          className="w-7 h-7 flex items-center justify-center ml-0.5 rounded-lg text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors shrink-0"
+          title="New tab (Cmd+T)"
         >
-          <span className="text-sm leading-none">+</span>
+          <Plus className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* Nav bar — rendered ABOVE the native webview overlay */}
-      <div className="h-11 flex items-center gap-1.5 px-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0 z-10 bg-white dark:bg-neutral-900">
-        <button
-          onClick={handleBack}
-          className="p-1.5 rounded-lg transition-colors text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
-          title="Back"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <button
-          onClick={handleForward}
-          className="p-1.5 rounded-lg transition-colors text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
-          title="Forward"
-        >
-          <ArrowRight className="w-4 h-4" />
-        </button>
-        <button
-          onClick={handleReload}
-          className={clsx(
-            'p-1.5 rounded-lg transition-colors text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200',
-            isLoading && 'animate-spin',
-          )}
-          title="Reload"
-        >
-          <RotateCw className="w-4 h-4" />
-        </button>
+      {/* Loading progress bar */}
+      {isLoading && (
+        <div className="h-[2px] bg-neutral-200 dark:bg-neutral-700 shrink-0 overflow-hidden">
+          <div className="h-full bg-[#4A5D75] browser-progress-bar" />
+        </div>
+      )}
 
-        {zoom !== 1.0 && (
+      {/* Nav bar */}
+      <div className="h-10 flex items-center gap-1 px-2 border-b border-neutral-100 dark:border-neutral-800 shrink-0 z-10 bg-white dark:bg-neutral-900">
+        {/* Navigation buttons */}
+        <div className="flex items-center gap-0.5 mr-0.5">
           <button
-            onClick={() => { setZoom(1.0); invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: 1.0 }).catch(() => {}); }}
-            className="text-[10px] text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 shrink-0 transition-colors font-medium"
-            title="Reset zoom to 100%"
+            onClick={handleBack}
+            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            title="Back"
           >
-            {Math.round(zoom * 100)}%
+            <ArrowLeft className="w-3.5 h-3.5" />
           </button>
-        )}
+          <button
+            onClick={handleForward}
+            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            title="Forward"
+          >
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleReload}
+            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            title="Reload (Cmd+R)"
+          >
+            <RotateCw className={clsx('w-3.5 h-3.5', isLoading && 'animate-spin')} />
+          </button>
+        </div>
+
+        {/* Address bar */}
         <div className="relative flex-1 min-w-0">
-          {url.startsWith('https://') && (
-            <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-emerald-500 pointer-events-none" />
-          )}
+          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+            {url.startsWith('https://')
+              ? <Lock className="w-3 h-3 text-emerald-500" />
+              : <Globe className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+            }
+          </div>
           <input
             type="text"
             value={inputUrl}
@@ -720,154 +852,139 @@ export function BrowserWindowApp() {
             onKeyDown={handleKeyDown}
             onFocus={e => e.target.select()}
             onContextMenu={showUrlContextMenu}
-            placeholder="Search or enter URL..."
-            className={clsx(
-              'w-full h-8 pr-3 rounded-lg text-xs font-medium outline-none',
-              url.startsWith('https://') ? 'pl-7' : 'pl-3',
-              'bg-neutral-100 dark:bg-neutral-800',
-              'text-neutral-900 dark:text-neutral-100',
-              'placeholder:text-neutral-400',
-              'focus:ring-1 ring-[#6A829E]/30',
-            )}
+            placeholder="Search or enter address"
+            className="w-full h-7 rounded-full bg-neutral-100 dark:bg-neutral-800 pl-8 pr-3 text-[11px] font-medium outline-none focus:ring-1 ring-[#6A829E]/40 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 transition-shadow"
           />
         </div>
 
+        {/* Right controls */}
+        {zoom !== 1.0 && (
+          <button
+            onClick={() => { setZoom(1.0); invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: 1.0 }).catch(() => {}); }}
+            className="text-[10px] font-semibold text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 px-1.5 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 shrink-0 transition-colors"
+            title="Reset zoom"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        )}
         <button
           onClick={() => {
             if (isFavorited) {
               useBrowserStore.getState().removeFavorite(url);
             } else {
-              useBrowserStore.getState().addFavorite(url, pageTitle || new URL(url).hostname);
+              useBrowserStore.getState().addFavorite(url, pageTitle || tryHostname(url));
             }
           }}
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             isFavorited
-              ? 'text-amber-400 hover:text-amber-500'
-              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-amber-400',
+              ? 'text-amber-400'
+              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-amber-400',
           )}
-          title={isFavorited ? 'Remove bookmark' : 'Bookmark this page'}
+          title={isFavorited ? 'Remove from favorites' : 'Add to favorites (Cmd+D)'}
         >
           <Star className={clsx('w-4 h-4', isFavorited && 'fill-current')} />
         </button>
-
         <button
           onClick={() => useBrowserStore.getState().setProactiveEnabled(!proactiveEnabled)}
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             proactiveEnabled
               ? 'bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#6A829E]'
-              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600',
+              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-300',
           )}
-          title={proactiveEnabled ? 'AI commentary on' : 'Enable AI commentary'}
+          title={proactiveEnabled ? 'AI commentary on' : 'AI commentary off'}
         >
           <Zap className="w-4 h-4" />
         </button>
-
         <button
           onClick={() => setPasswordBarOpen(v => !v)}
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             passwordBarOpen
               ? 'bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#6A829E]'
-              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600',
+              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-300',
           )}
-          title="Password manager"
+          title="Passwords"
         >
           <Key className="w-4 h-4" />
         </button>
-
         <button
           onClick={handleSaveToKB}
           disabled={isSavingToKB}
           className={clsx(
-            'flex items-center gap-1.5 px-3 h-8 rounded-lg transition-colors shrink-0 text-[10px] font-black uppercase tracking-widest',
+            'p-1.5 rounded-lg transition-colors shrink-0',
             kbSaved
-              ? 'bg-emerald-500 text-white'
-              : 'bg-[#4A5D75] hover:bg-[#3D4D61] text-white',
-            isSavingToKB && 'opacity-60 cursor-not-allowed',
+              ? 'text-emerald-500'
+              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-[#4A5D75] dark:hover:text-[#6A829E]',
+            isSavingToKB && 'opacity-50 cursor-not-allowed',
           )}
-          title="Save page to Knowledge Base"
+          title={kbSaved ? 'Saved to Knowledge Base' : 'Save to Knowledge Base'}
         >
-          {isSavingToKB ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-          {kbSaved ? 'Saved!' : 'Save to KB'}
+          {isSavingToKB
+            ? <RotateCw className="w-4 h-4 animate-spin" />
+            : <BookMarked className={clsx('w-4 h-4', kbSaved && 'fill-current')} />
+          }
         </button>
       </div>
 
-      {/* Password bar */}
-      {passwordBarOpen && (
+      {/* Password bar — auto modes (autofill / save-prompt) or manual via key button */}
+      {(pwMode || passwordBarOpen) && (
         <BrowserPasswordBar
-          host={(() => { try { return new URL(url).hostname; } catch { return url; } })()}
-          onClose={() => setPasswordBarOpen(false)}
+          mode={pwMode ?? 'manual'}
+          host={pwHost || (() => { try { return new URL(url).hostname; } catch { return url; } })()}
+          pendingUsername={pwSaveUsername}
+          pendingPassword={pwSavePassword}
+          onAutofill={handleAutofill}
+          onSaveConfirm={handleSaveCredentials}
+          onClose={() => { setPwMode(null); setPasswordBarOpen(false); }}
         />
       )}
 
       {/* Favorites bar */}
       {favorites.length > 0 && (
-        <div className="h-8 flex items-center gap-0.5 px-2 border-b border-neutral-200 dark:border-neutral-800 shrink-0 overflow-x-auto no-scrollbar">
+        <div className="h-8 flex items-center gap-0.5 px-3 bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 shrink-0 overflow-x-auto no-scrollbar">
           {favorites.map(fav => (
             <button
               key={fav.id}
               onClick={() => navigate(fav.url)}
               onContextMenu={e => { e.preventDefault(); useBrowserStore.getState().removeFavorite(fav.url); }}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors whitespace-nowrap shrink-0"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors whitespace-nowrap shrink-0"
               title={`${fav.url}\nRight-click to remove`}
             >
-              <Globe className="w-2.5 h-2.5 shrink-0 opacity-60" />
+              <TabFavicon url={fav.url} />
               {fav.title}
             </button>
           ))}
         </div>
       )}
 
+      {/* Find bar */}
       {findOpen && (
-        <div className="h-9 flex items-center gap-2 px-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0 bg-white dark:bg-neutral-900 z-10">
+        <div className="h-9 flex items-center gap-2 px-3 border-b border-neutral-100 dark:border-neutral-800 shrink-0 bg-white dark:bg-neutral-900 z-10">
           <input
             autoFocus
             type="text"
             value={findQuery}
             onChange={e => setFindQuery(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') {
-                invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: !e.shiftKey }).catch(() => {});
-              }
-              if (e.key === 'Escape') {
-                setFindOpen(false);
-                setFindQuery('');
-              }
+              if (e.key === 'Enter') invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: !e.shiftKey }).catch(() => {});
+              if (e.key === 'Escape') { setFindOpen(false); setFindQuery(''); }
             }}
             placeholder="Find in page…"
-            className="flex-1 text-xs bg-neutral-100 dark:bg-neutral-800 rounded-lg px-3 h-6 outline-none focus:ring-1 ring-[#6A829E]/30 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400"
+            className="flex-1 text-xs bg-neutral-100 dark:bg-neutral-800 rounded-full px-3 h-6 outline-none focus:ring-1 ring-[#6A829E]/30 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400"
           />
-          <button
-            onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: false }).catch(() => {})}
-            className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            title="Previous match"
-          >↑</button>
-          <button
-            onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: true }).catch(() => {})}
-            className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            title="Next match"
-          >↓</button>
-          <button
-            onClick={() => { setFindOpen(false); setFindQuery(''); }}
-            className="p-1 rounded text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            title="Close find bar"
-          >
+          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: false }).catch(() => {})} className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Previous">↑</button>
+          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: true }).catch(() => {})} className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Next">↓</button>
+          <button onClick={() => { setFindOpen(false); setFindQuery(''); }} className="p-1 rounded text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      <div className="flex flex-row flex-1 overflow-hidden">
-        {/* WKWebView placeholder — must be flex-1 */}
-        <div ref={contentRef} className="flex-1 h-full" />
-        {/* Sidebar slot — Unit 3 will fill this */}
-        <BrowserSidebar
-          url={url}
-          pageTitle={pageTitle}
-          pageContent={pageContent}
-        />
+      {/* Content — full width, no AI sidebar */}
+      <div className="flex-1 overflow-hidden">
+        <div ref={contentRef} className="w-full h-full" />
       </div>
 
       {comment && <ProactiveChip comment={comment} onDismiss={dismiss} />}
@@ -884,22 +1001,15 @@ export function BrowserWindowApp() {
           {downloadToast.success ? (
             <>
               <span className="text-emerald-500 font-bold">↓</span>
-              <span className="text-neutral-700 dark:text-neutral-300">
-                Downloaded: <strong>{downloadToast.filename}</strong>
-              </span>
+              <span className="text-neutral-700 dark:text-neutral-300">Downloaded: <strong>{downloadToast.filename}</strong></span>
             </>
           ) : (
             <>
               <span className="text-red-500 font-bold">✕</span>
-              <span className="text-neutral-700 dark:text-neutral-300">
-                Download failed: {downloadToast.filename}
-              </span>
+              <span className="text-neutral-700 dark:text-neutral-300">Download failed: {downloadToast.filename}</span>
             </>
           )}
-          <button
-            onClick={() => setDownloadToast(null)}
-            className="ml-1 p-0.5 rounded text-neutral-400 hover:text-neutral-600"
-          >
+          <button onClick={() => setDownloadToast(null)} className="ml-1 p-0.5 rounded text-neutral-400 hover:text-neutral-600">
             <X className="w-3 h-3" />
           </button>
         </div>

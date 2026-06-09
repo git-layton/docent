@@ -75,7 +75,7 @@ export function ModelWizardModal({
 
   const currentProvider = CLOUD_PROVIDERS.some(p => p.value === editingModel.provider)
     ? editingModel.provider
-    : 'openai';
+    : 'google';
 
   // Auto-select first recommended model when tab opens or provider changes
   useEffect(() => {
@@ -130,7 +130,7 @@ export function ModelWizardModal({
         {/* Tab switcher */}
         <div className="flex gap-2 mb-6 shrink-0 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-xl">
           <button
-            onClick={() => { setModelTab('cloud'); onProviderChange({ target: { value: 'openai' } } as React.ChangeEvent<HTMLSelectElement>); }}
+            onClick={() => { setModelTab('cloud'); onProviderChange({ target: { value: 'google' } } as React.ChangeEvent<HTMLSelectElement>); }}
             className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${modelTab === 'cloud' ? 'bg-white dark:bg-neutral-700 text-[#4A5D75] shadow-sm' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
           >
             <Cloud className="w-3.5 h-3.5" /> Cloud API

@@ -2502,35 +2502,37 @@ fn browser_get_url(app: tauri::AppHandle, label: String) -> Result<String, Strin
 mod keychain_impl {
     const SERVICE: &str = "AgentForgeBrowser";
 
+    // Store credentials as a JSON blob keyed by hostname so we can round-trip both username and password.
     pub fn save(host: &str, username: &str, password: &str) -> Result<(), String> {
         use std::process::Command;
-        // Use 'security' CLI to avoid requiring an objc crate
-        let account = format!("{}@{}", username, host);
-        Command::new("security")
-            .args(["add-generic-password", "-s", SERVICE, "-a", &account, "-w", password, "-U"])
-            .output()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-
-    pub fn get(host: &str) -> Result<Option<String>, String> {
-        use std::process::Command;
-        let output = Command::new("security")
-            .args(["find-generic-password", "-s", SERVICE, "-l", host, "-w"])
+        let data = serde_json::json!({ "username": username, "password": password }).to_string();
+        let out = Command::new("security")
+            .args(["add-generic-password", "-s", SERVICE, "-a", host, "-w", &data, "-U"])
             .output()
             .map_err(|e| e.to_string())?;
-        if output.status.success() {
-            Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+        if out.status.success() {
+            Ok(())
         } else {
-            Ok(None)
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(if err.is_empty() { format!("exit {}", out.status.code().unwrap_or(-1)) } else { err })
         }
     }
 
-    pub fn delete(host: &str, username: &str) -> Result<(), String> {
+    pub fn get(host: &str) -> Option<(String, String)> {
         use std::process::Command;
-        let account = format!("{}@{}", username, host);
+        let out = Command::new("security")
+            .args(["find-generic-password", "-s", SERVICE, "-a", host, "-w"])
+            .output().ok()?;
+        if !out.status.success() { return None; }
+        let data = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let val: serde_json::Value = serde_json::from_str(&data).ok()?;
+        Some((val["username"].as_str()?.to_string(), val["password"].as_str()?.to_string()))
+    }
+
+    pub fn delete(host: &str) -> Result<(), String> {
+        use std::process::Command;
         let _ = Command::new("security")
-            .args(["delete-generic-password", "-s", SERVICE, "-a", &account])
+            .args(["delete-generic-password", "-s", SERVICE, "-a", host])
             .output();
         Ok(())
     }
@@ -2541,12 +2543,12 @@ fn keychain_save(host: String, username: String, password: String) -> serde_json
     #[cfg(target_os = "macos")]
     {
         match keychain_impl::save(&host, &username, &password) {
-            Ok(_) => serde_json::json!({ "ok": true }),
+            Ok(()) => serde_json::json!({ "ok": true }),
             Err(e) => serde_json::json!({ "ok": false, "error": e }),
         }
     }
     #[cfg(not(target_os = "macos"))]
-    { serde_json::json!({ "ok": false, "error": "not supported on this platform" }) }
+    { serde_json::json!({ "ok": false, "error": "macOS only" }) }
 }
 
 #[tauri::command]
@@ -2554,9 +2556,8 @@ fn keychain_get(host: String) -> serde_json::Value {
     #[cfg(target_os = "macos")]
     {
         match keychain_impl::get(&host) {
-            Ok(Some(pw)) => serde_json::json!({ "ok": true, "password": pw }),
-            Ok(None) => serde_json::json!({ "ok": false }),
-            Err(e) => serde_json::json!({ "ok": false, "error": e }),
+            Some((username, password)) => serde_json::json!({ "ok": true, "username": username, "password": password }),
+            None => serde_json::json!({ "ok": false }),
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -2564,16 +2565,38 @@ fn keychain_get(host: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn keychain_delete(host: String, username: String) -> serde_json::Value {
+fn keychain_delete(host: String) -> serde_json::Value {
     #[cfg(target_os = "macos")]
     {
-        match keychain_impl::delete(&host, &username) {
-            Ok(_) => serde_json::json!({ "ok": true }),
+        match keychain_impl::delete(&host) {
+            Ok(()) => serde_json::json!({ "ok": true }),
             Err(e) => serde_json::json!({ "ok": false, "error": e }),
         }
     }
     #[cfg(not(target_os = "macos"))]
     { serde_json::json!({ "ok": true }) }
+}
+
+#[tauri::command]
+fn browser_open_tab(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    app.emit("browser:open-tab", serde_json::json!({ "url": url }))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_password_event(
+    app: tauri::AppHandle,
+    event_type: String,
+    host: String,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<(), String> {
+    app.emit("browser:password-event", serde_json::json!({
+        "type": event_type,
+        "host": host,
+        "username": username,
+        "password": password,
+    })).map_err(|e| e.to_string())
 }
 
 // ─── Additional Browser Commands ─────────────────────────────────────────────
@@ -3034,6 +3057,8 @@ pub fn run() {
             keychain_save,
             keychain_get,
             keychain_delete,
+            browser_open_tab,
+            browser_password_event,
             upsert_graph_node,
             upsert_graph_edge,
             get_graph_neighbors,
