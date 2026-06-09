@@ -47,13 +47,15 @@ import { AppSidebar } from './components/AppSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
-import { ChatHeader } from './components/ChatHeader';
 import { PlannerPanel } from './components/PlannerPanel';
-import { MessageList } from './components/MessageList';
-import { ChatInputBar } from './components/ChatInputBar';
 import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
+import { OmniTabBar } from './components/OmniTabBar';
+import { CommandNode } from './components/CommandNode';
+import { SpaceLogTabContent } from './components/SpaceLogTabContent';
+import { BrowserTabContent } from './components/BrowserTabContent';
+import { useSpaceStore } from './store/useSpaceStore';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -101,10 +103,8 @@ export default function App() {
   const showMemoCompose = useMemoryStore(s => s.showMemoCompose);
 
   const tasks = useTaskStore(s => s.tasks);
-  const showPlanner = useTaskStore(s => s.showPlanner);
 
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
-  const viewMode = useUIStore(s => s.viewMode);
   const generationMode = useUIStore(s => s.generationMode);
   const isDeepThinking = useUIStore(s => s.isDeepThinking);
   const speakingId = useChatStore(s => s.speakingId);
@@ -117,6 +117,8 @@ export default function App() {
   const showSaveModal = useUIStore(s => s.showSaveModal);
   const saveAppData = useUIStore(s => s.saveAppData);
   const isDbLoaded = useUIStore(s => s.isDbLoaded);
+
+  const activeOmniTab = useSpaceStore(s => s.omniTabs.find(t => t.id === s.activeOmniTabId) ?? null);
 
   // ── Local state (must stay in App.tsx) ──────────────────────────────────────
   const [llamaServerPid, setLlamaServerPid] = useState<number | null>(null);
@@ -215,6 +217,7 @@ export default function App() {
         await useTaskStore.getState().hydrate();
         await useUIStore.getState().hydrateSavedApps();
         await useBrowserStore.getState().hydrate();
+        useSpaceStore.getState().hydrate().catch(() => {});
 
       // Init Knowledge Core (creates ~/AgentForge/ on first run)
       try {
@@ -900,10 +903,6 @@ export default function App() {
     ag.setShowAssistantSettings(false);
   };
 
-  const createBlankArtifact = (type: string) => {
-    if (type === 'code' || type === 'doc') setPendingArtifactType(type);
-  };
-
   const confirmArtifactCreate = (agentId: string, type: 'code' | 'doc') => {
     useAgentStore.getState().setActiveFolderId(agentId);
     const { chats } = useChatStore.getState();
@@ -947,12 +946,6 @@ export default function App() {
     ui.setSavedApps((prev: any[]) => exists && !asNew ? prev.map((a: any) => a.id === id ? item : a) : [item, ...prev]);
     ui.setCanvasContent(item); ui.setShowSaveModal(false); ui.showToast('Saved to Archives!');
   };
-  const deleteSavedApp = (id: string) => {
-    const ui = useUIStore.getState();
-    ui.setSavedApps((prev: any[]) => prev.filter((app: any) => app.id !== id));
-    if (ui.canvasContent?.id === id) ui.setCanvasContent(null);
-  };
-
   const saveImageToLibrary = useCallback((src: string) => {
      const item = { id: generateId('art'), title: 'Generated Image', type: 'image', content: src, updatedAt: Date.now() };
      useUIStore.getState().setSavedApps((prev: any[]) => [item, ...prev]);
@@ -2244,7 +2237,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-transparent text-neutral-900 dark:text-neutral-100">
+    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-[#0a0b0e] text-neutral-900 dark:text-neutral-100">
 
       {nukeShieldPending && (
         <NukeShieldModal
@@ -2375,129 +2368,88 @@ export default function App() {
 
       {/* ── Sidebar ── */}
       <AppSidebar
-        onDeleteSavedApp={deleteSavedApp}
-        onCreateBlankArtifact={createBlankArtifact}
+        onDeleteSavedApp={() => {}}
+        onCreateBlankArtifact={() => {}}
       />
 
       {/* ── Main Panel ── */}
-      <div className="flex-1 flex flex-row overflow-hidden relative">
-        {viewMode === 'knowledge-graph' && (
-          <div className="flex-1 flex flex-col h-full overflow-hidden">
-            <KnowledgeGraphPanel />
-          </div>
-        )}
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        <OmniTabBar />
 
-        {viewMode !== 'knowledge-graph' && !canvasContent?.isStandalone && (
-          <div className={`flex flex-col h-full bg-white dark:bg-neutral-900 transition-all duration-300 flex-shrink-0 relative ${canvasContent ? 'w-1/2 border-r border-neutral-200 dark:border-neutral-800' : 'w-full'}`}>
-            
-            {/* Header */}
-            <ChatHeader
+        {/* Tab viewport */}
+        <div className="flex-1 relative overflow-hidden">
+          {(!activeOmniTab || activeOmniTab.type === 'space-log') && (
+            <SpaceLogTabContent
+              activeMessages={activeMessages}
+              isGenerating={isGenerating}
+              activeAssistant={activeAssistant}
+              forgettingIndex={appSettings?.showContextWindowLine ? forgettingIndex : -1}
+              onConfirmEdit={confirmEditMessage}
+              onBookmark={handleBookmark}
+              onToggleSpeak={toggleSpeak}
+              onAddTask={addTask}
+              messagesEndRef={messagesEndRef}
+              onRenderMessage={renderMessageWithWidgets}
+              onToast={showToast}
               dropdownRef={dropdownRef}
               llamaPaused={llamaPaused}
               llamaCoolingDown={llamaCoolingDown}
-              activeMessages={activeMessages}
               systemPromptLen={systemPromptLen}
               hasErrorLogs={hasErrorLogs}
               errorLogsCount={errorLogsCount}
               onRunDreamCycle={runDreamCycle}
-              onToast={showToast}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              isDragging={isDragging}
+              showAgentIntro={showAgentIntro}
+              onDismissAgentIntro={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
             />
-
-            {/* Views */}
-            {showPlanner ? (
-              <PlannerPanel
-                onDragStart={handleDragStart}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-              />
-            ) : (
-              <div
-                className={`flex-1 flex flex-col relative overflow-hidden transition-colors ${isDragging ? 'bg-[#9EADC8]/10' : ''}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                {/* ── First-time agent intro card ── */}
-                {showAgentIntro && (
-                  <div className="absolute top-4 right-4 z-50 w-80 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl p-4 animate-in slide-in-from-top-4 duration-300">
-                    <div className="flex items-start justify-between mb-2">
-                      <p className="text-sm font-black text-neutral-800 dark:text-neutral-200">Take your agents with you</p>
-                      <button onClick={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
-                        className="text-neutral-400 hover:text-neutral-600 ml-2 shrink-0"><X className="w-4 h-4"/></button>
-                    </div>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3 leading-relaxed">
-                      Press <kbd className="px-1.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-bold text-neutral-700 dark:text-neutral-300">⌘⇧F</kbd> from any Chrome or Safari tab to open your agent with that page's context automatically attached.
-                    </p>
-                    <div className="space-y-2 text-xs text-neutral-500 dark:text-neutral-400 border-t border-neutral-100 dark:border-neutral-800 pt-3">
-                      <div>
-                        <span className="font-bold text-neutral-700 dark:text-neutral-300">Chrome:</span>
-                        {' '}View → Developer → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Allow JavaScript from Apple Events</span>
-                      </div>
-                      <div className="space-y-0.5">
-                        <div><span className="font-bold text-neutral-700 dark:text-neutral-300">Safari step 1:</span>{' '}Settings → Advanced → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Show features for web developers</span></div>
-                        <div><span className="font-bold text-neutral-700 dark:text-neutral-300">Safari step 2:</span>{' '}Develop → <span className="font-semibold text-neutral-800 dark:text-neutral-200">Allow Remote Automation</span></div>
-                      </div>
-                    </div>
-                    <button onClick={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
-                      className="mt-3 w-full py-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all">
-                      Got it
-                    </button>
-                  </div>
-                )}
-
-                <MessageList
-                  activeMessages={activeMessages}
-                  isGenerating={isGenerating}
-                  activeAssistant={activeAssistant}
-                  forgettingIndex={appSettings?.showContextWindowLine ? forgettingIndex : -1}
-                  onConfirmEdit={confirmEditMessage}
-                  onBookmark={handleBookmark}
-                  onToggleSpeak={toggleSpeak}
-                  onAddTask={addTask}
-                  messagesEndRef={messagesEndRef}
-                  onRenderMessage={renderMessageWithWidgets}
-                  onToast={showToast}
-                />
-
-                {/* Input Bar */}
-                <ChatInputBar
-                  isGenerating={isGenerating}
-                  isEnhancing={isEnhancing}
-                  selectedModel={selectedModel}
-                  modelDropdownRef={modelDropdownRef}
-                  onSend={handleSendMessage}
-                  onStop={handleStop}
-                  onChatFileUpload={handleChatFileUpload}
-                  onEnhancePrompt={handleEnhancePrompt}
-                  fileInputRef={fileInputRef}
-                  activeAssistant={activeAssistant}
-                  channelParticipants={channelParticipants}
-                  llamaServerPid={llamaServerPid}
-                  llamaPaused={llamaPaused}
-                  setLlamaPaused={setLlamaPaused}
-                  llamaCoolingDown={llamaCoolingDown}
-                  isListening={isListening}
-                  onToggleListening={toggleListening}
-                  onSlashCommand={handleSlashCommand}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Canvas Panel ── */}
-        {canvasContent && (
-          <CanvasPanel
-            isGenerating={isGenerating}
-            onHistoryNavigate={handleHistoryNavigate}
-            onSaveToLibrary={saveToLibrary}
-            codeRef={codeRef}
-            lineNumbersRef={lineNumbersRef}
-            onCodeScroll={handleCodeScroll}
-            onSendMessage={handleSendMessage}
-          />
-        )}
-
+          )}
+          {activeOmniTab?.type === 'web' && (
+            <BrowserTabContent tabId={activeOmniTab.id} initialUrl={activeOmniTab.url} />
+          )}
+          {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'knowledge-graph' && (
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+              <KnowledgeGraphPanel />
+            </div>
+          )}
+          {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'planner' && (
+            <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />
+          )}
+          {activeOmniTab?.type === 'code-canvas' && canvasContent && (
+            <CanvasPanel
+              isGenerating={isGenerating}
+              onHistoryNavigate={handleHistoryNavigate}
+              onSaveToLibrary={saveToLibrary}
+              codeRef={codeRef}
+              lineNumbersRef={lineNumbersRef}
+              onCodeScroll={handleCodeScroll}
+              onSendMessage={handleSendMessage}
+            />
+          )}
+          {/* CommandNode floats over viewport */}
+          <CommandNode chatInputBarProps={{
+            isGenerating,
+            isEnhancing,
+            selectedModel,
+            modelDropdownRef,
+            onSend: handleSendMessage,
+            onStop: handleStop,
+            onChatFileUpload: handleChatFileUpload,
+            onEnhancePrompt: handleEnhancePrompt,
+            fileInputRef,
+            activeAssistant,
+            channelParticipants,
+            llamaServerPid,
+            llamaPaused,
+            setLlamaPaused,
+            llamaCoolingDown,
+            isListening,
+            onToggleListening: toggleListening,
+            onSlashCommand: handleSlashCommand,
+          }} />
+        </div>
 
       </div>
 
