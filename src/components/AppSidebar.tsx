@@ -230,7 +230,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
               <div className="px-1 mb-2 relative mt-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" /><input className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30" placeholder="Search people, agents, channels..." value={chatSearchQuery} onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)} /></div>
               <div className="space-y-1">
                 <div className="px-1 flex items-center justify-between">
-                  <span className="text-[9px] font-medium uppercase tracking-wider text-neutral-400">Network</span>
+                  <span className="text-[9px] font-medium uppercase tracking-wider text-neutral-400">People</span>
                   <button
                     onClick={toggleNetwork}
                     className={`p-1 rounded-lg transition-colors ${networkActive ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-50 dark:hover:bg-neutral-900/50'}`}
@@ -239,41 +239,59 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
                     {networkActive ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                {networkActive ? (
-                  <>
-                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl">
-                      <div className="shrink-0">
-                        {userAvatar ? (
-                          <img src={userAvatar} alt="You" className="w-6 h-6 rounded-lg object-cover" />
-                        ) : (
-                          <div className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
-                            {(appSettings as any).penguinMode
-                              ? <span className="text-[10px]">🐧</span>
-                              : <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">{displayName.charAt(0)}</span>
-                            }
-                          </div>
-                        )}
+
+                {/* You — always visible */}
+                <button
+                  onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
+                  className="group w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-all"
+                >
+                  <div className="shrink-0">
+                    {userAvatar ? (
+                      <img src={userAvatar} alt="You" className="w-6 h-6 rounded-lg object-cover" />
+                    ) : (
+                      <div className="w-6 h-6 rounded-lg bg-[#9EADC8] flex items-center justify-center">
+                        {(appSettings as any).penguinMode
+                          ? <span className="text-[10px]">🐧</span>
+                          : <span className="text-[10px] font-bold text-white uppercase">{displayName.charAt(0)}</span>
+                        }
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-xs truncate text-neutral-500 dark:text-neutral-400">{displayName} (you)</p>
-                      </div>
-                    </div>
-                    {networkPeers.map(peer => (
-                      <div key={peer.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-neutral-500">
-                        <div className="p-1.5 rounded-lg bg-[#EEF3F0] dark:bg-[#2C3E35]/30">
-                          <User className="w-3.5 h-3.5 text-[#7A9E8D]" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{peer.name}</p>
-                          <p className="text-[9px] truncate text-neutral-400">{peer.ip}</p>
-                        </div>
-                      </div>
-                    ))}
-                    {networkPeers.length === 0 && (
-                      <p className="text-[10px] text-neutral-400 text-center px-3 py-1.5">No one else found yet.</p>
                     )}
-                  </>
-                ) : null}
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{displayName}</p>
+                    <p className="text-[9px] text-neutral-400">you</p>
+                  </div>
+                  <Settings className="w-3 h-3 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                </button>
+
+                {/* Local people from settings */}
+                {(appSettings.people ?? []).filter((p: any) => `${p.label} ${p.role ?? ''}`.toLowerCase().includes(query)).map((person: any) => (
+                  <div key={person.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-neutral-500">
+                    <div className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 shrink-0">
+                      <User className="w-3.5 h-3.5 text-neutral-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{person.label}</p>
+                      {person.role && <p className="text-[9px] truncate text-neutral-400">{person.role}</p>}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Network peers (when active) */}
+                {networkActive && networkPeers.map(peer => (
+                  <div key={peer.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-neutral-500">
+                    <div className="p-1.5 rounded-lg bg-[#EEF3F0] dark:bg-[#2C3E35]/30 shrink-0">
+                      <User className="w-3.5 h-3.5 text-[#7A9E8D]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs truncate text-neutral-800 dark:text-neutral-200">{peer.name}</p>
+                      <p className="text-[9px] truncate text-neutral-400">{peer.ip}</p>
+                    </div>
+                  </div>
+                ))}
+                {networkActive && networkPeers.length === 0 && (
+                  <p className="text-[10px] text-neutral-400 text-center px-3 py-1.5">No one else on network yet.</p>
+                )}
               </div>
 
               <div className="space-y-1 pt-3">
@@ -348,26 +366,7 @@ export function AppSidebar({ onDeleteSavedApp, onCreateBlankArtifact }: AppSideb
         </div>
 
 
-        <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0 space-y-2">
-          {/* User card */}
-          <button
-            onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all group"
-          >
-            {userAvatar ? (
-              <img src={userAvatar} alt="You" className="w-7 h-7 rounded-lg object-cover shrink-0 shadow-sm" />
-            ) : (
-              <div className="w-7 h-7 rounded-lg bg-[#9EADC8] flex items-center justify-center shrink-0 shadow-sm">
-                {(appSettings as any).penguinMode
-                  ? <span className="text-sm leading-none">🐧</span>
-                  : <span className="text-[11px] font-black text-white uppercase">{displayName.charAt(0) || '?'}</span>
-                }
-              </div>
-            )}
-            <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex-1 truncate text-left">{displayName}</span>
-            <Settings className="w-3.5 h-3.5 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-          </button>
-
+        <div className="p-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
           <div className="grid grid-cols-2 gap-2">
             <button onClick={createAgent} className="flex items-center justify-center gap-2 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-semibold text-[11px] rounded-xl px-3 py-3 shadow-sm transition-all active:scale-95"><Plus className="w-3.5 h-3.5" /> Agent</button>
             <button onClick={createChannel} className="flex items-center justify-center gap-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-semibold text-[11px] rounded-xl px-3 py-3 shadow-sm transition-all active:scale-95"><Hash className="w-3.5 h-3.5" /> Channel</button>
