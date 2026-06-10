@@ -52,6 +52,11 @@ interface UIStore {
   // Boot
   isDbLoaded: boolean;
 
+  // OS navigation
+  activeOmniTabId: string | null;
+  isCommandNodeExpanded: boolean;
+  commandNodeWidth: number;
+
   // Actions
   setIsSidebarOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
   setIsAgentDropdownOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
@@ -82,6 +87,9 @@ interface UIStore {
   setRamStats: (v: { total_mb: number; used_mb: number; available_mb: number } | null) => void;
   setHwProfile: (v: any) => void;
   setIsDbLoaded: (v: boolean) => void;
+  setActiveOmniTabId: (id: string | null) => void;
+  setIsCommandNodeExpanded: (v: boolean) => void;
+  setCommandNodeWidth: (v: number) => void;
 
   // savedApps persistence
   hydrateSavedApps: () => Promise<void>;
@@ -117,6 +125,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   ramStats: null,
   hwProfile: null,
   isDbLoaded: false,
+  activeOmniTabId: null,
+  isCommandNodeExpanded: true,
+  commandNodeWidth: 720,
 
   setIsSidebarOpen: (v) =>
     set(s => ({ isSidebarOpen: typeof v === 'function' ? v(s.isSidebarOpen) : v })),
@@ -163,6 +174,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setRamStats: (v) => set({ ramStats: v }),
   setHwProfile: (v) => set({ hwProfile: v }),
   setIsDbLoaded: (v) => set({ isDbLoaded: v }),
+  setActiveOmniTabId: (id) => set({ activeOmniTabId: id }),
+  setIsCommandNodeExpanded: (v) => set({ isCommandNodeExpanded: v }),
+  setCommandNodeWidth: (v) => set({ commandNodeWidth: v }),
 
   hydrateSavedApps: async () => {
     const savedApps = await db.get('savedApps', []);

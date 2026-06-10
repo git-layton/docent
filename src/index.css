@@ -1,3 +1,11 @@
 @import "tailwindcss";
 /* Design tokens: primary/secondary/accent/error/success/surface + micro/tiny/mini font sizes
    See tailwind.config.js for values. Use token names instead of raw hex going forward. */
+
+:root {
+  --os-base: #0a0b0e;
+  --os-panel: #12141a;
+  --os-panel-2: #171920;
+  --os-border: rgba(255, 255, 255, 0.05);
+  --os-border-2: rgba(255, 255, 255, 0.08);
+}

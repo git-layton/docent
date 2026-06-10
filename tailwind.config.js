@@ -22,6 +22,13 @@ export default {
         'success-light':   '#9FBBAF',
         surface:           '#F0F4F8',
         'surface-dark':    '#1E2B38',
+        'os-base':         '#0a0b0e',
+        'os-panel':        '#12141a',
+        'os-panel-2':      '#171920',
+        'os-border':       'rgba(255, 255, 255, 0.05)',
+        'os-border-2':     'rgba(255, 255, 255, 0.08)',
+        'os-text-dim':     'rgba(255, 255, 255, 0.4)',
+        'os-text-muted':   'rgba(255, 255, 255, 0.6)',
       },
       fontSize: {
         micro: ['9px',  { lineHeight: '1.2' }],
