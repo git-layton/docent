@@ -77,8 +77,14 @@ export function CmdKPalette(): React.ReactElement | null {
           onSelect: () => useAgentStore.getState().setActiveFolderId(a.id),
         })),
     ];
-    if (!q) return all.slice(0, 20);
-    return all.filter(r => `${r.label} ${r.sublabel ?? ''}`.toLowerCase().includes(q)).slice(0, 30);
+    if (!q) return all.slice(0, 30);
+    // Prefix matches rank above substring matches; stable within each tier.
+    const matched = all.filter(r => `${r.label} ${r.sublabel ?? ''}`.toLowerCase().includes(q));
+    return matched
+      .map((r, i) => ({ r, i, prefix: r.label.toLowerCase().startsWith(q) ? 0 : 1 }))
+      .sort((a, b) => a.prefix - b.prefix || a.i - b.i)
+      .map(x => x.r)
+      .slice(0, 30);
   }, [query, spaces, omniTabs, assistants]);
 
   if (!open) return null;
@@ -115,20 +121,35 @@ export function CmdKPalette(): React.ReactElement | null {
           ) : (
             results.map((r, i) => {
               const Icon = r.icon;
+              // When not searching, group results under a section header per kind.
+              const showHeader = !query.trim() && (i === 0 || results[i - 1].kind !== r.kind);
+              const sectionLabel = r.kind === 'space' ? 'Spaces' : r.kind === 'tab' ? 'Tabs' : 'Agents';
               return (
-                <button
-                  key={`${r.kind}-${r.id}`}
-                  onClick={() => choose(r)}
-                  onMouseEnter={() => setHighlight(i)}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === highlight ? 'bg-[rgba(255,255,255,0.07)]' : 'hover:bg-[rgba(255,255,255,0.04)]'}`}
-                >
-                  <Icon className="w-4 h-4 text-neutral-400 shrink-0" />
-                  <span className="text-sm text-neutral-200 truncate flex-1">{r.label}</span>
-                  {r.sublabel && <span className="text-[10px] text-neutral-500 truncate max-w-[180px]">{r.sublabel}</span>}
-                </button>
+                <div key={`${r.kind}-${r.id}`}>
+                  {showHeader && (
+                    <div className="px-4 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600">
+                      {sectionLabel}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => choose(r)}
+                    onMouseEnter={() => setHighlight(i)}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === highlight ? 'bg-[rgba(255,255,255,0.07)]' : 'hover:bg-[rgba(255,255,255,0.04)]'}`}
+                  >
+                    <Icon className="w-4 h-4 text-neutral-400 shrink-0" />
+                    <span className="text-sm text-neutral-200 truncate flex-1">{r.label}</span>
+                    {r.sublabel && <span className="text-[10px] text-neutral-500 truncate max-w-[180px]">{r.sublabel}</span>}
+                  </button>
+                </div>
               );
             })
           )}
+        </div>
+        {/* Footer hint */}
+        <div className="flex items-center gap-3 px-4 py-2 border-t border-[rgba(255,255,255,0.06)] text-[10px] text-neutral-600">
+          <span>↑↓ navigate</span>
+          <span>↵ open</span>
+          <span>esc close</span>
         </div>
       </div>
     </div>

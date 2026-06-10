@@ -1,32 +1,35 @@
-import React from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import clsx from 'clsx';
-
-// ---------------------------------------------------------------------------
-// AgentVisionToggle — master switch that reveals/hides AI marginalia on a
-// doc/canvas. Focus Mode (off) = AI invisible; Review Mode (on) = comments show.
-// ---------------------------------------------------------------------------
 
 interface AgentVisionToggleProps {
   on: boolean;
   onToggle: (v: boolean) => void;
 }
 
-export function AgentVisionToggle({ on, onToggle }: AgentVisionToggleProps): React.ReactElement {
+/**
+ * Pill toggle that reveals ("Review") or hides ("Focus") the AI marginalia
+ * layer. On = Review Mode (cards visible); Off = Focus Mode (cards hidden).
+ */
+export function AgentVisionToggle({ on, onToggle }: AgentVisionToggleProps) {
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label="Agent Vision"
+      title={on ? 'Agent Vision: Review Mode (showing notes)' : 'Agent Vision: Focus Mode (notes hidden)'}
       onClick={() => onToggle(!on)}
-      title={on ? 'Agent Vision on — AI comments visible' : 'Agent Vision off — focus mode'}
       className={clsx(
-        'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all border',
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide transition-colors select-none',
         on
-          ? 'bg-[#4A5D75]/20 border-[#4A5D75]/50 text-[#9EADC8]'
-          : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.4)] hover:text-[rgba(255,255,255,0.7)]'
+          ? 'border-[#2A3B4D] bg-[#1E2B38]/70 text-[#8FB5DA] hover:bg-[#1E2B38]'
+          : 'border-neutral-700 bg-neutral-800/60 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-300',
       )}
     >
-      {on ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-      Agent Vision
+      {on ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+      <span>{on ? 'Review' : 'Focus'}</span>
     </button>
   );
 }
+
+export default AgentVisionToggle;

@@ -1,13 +1,6 @@
-import React from 'react';
 import { Check, X } from 'lucide-react';
+import clsx from 'clsx';
 import type { Annotation } from '../store/useMarginaliaStore';
-
-// ---------------------------------------------------------------------------
-// MarginaliaLayer — overlays AI comment cards on a doc/canvas when Agent Vision
-// is on. Each card shows the agent's note (color-coded) and, when a rewrite is
-// suggested, an [Apply Fix] button. v1 renders cards in a right-edge column;
-// precise text-range anchoring is a follow-up the leaf worker will deepen.
-// ---------------------------------------------------------------------------
 
 interface MarginaliaLayerProps {
   tabId: string;
@@ -17,44 +10,105 @@ interface MarginaliaLayerProps {
   onDismiss: (id: string) => void;
 }
 
-export function MarginaliaLayer({ annotations, visible, onAccept, onDismiss }: MarginaliaLayerProps): React.ReactElement | null {
-  if (!visible || annotations.length === 0) return null;
+/**
+ * Overlay of color-coded comment cards (marginalia) for a single tab.
+ * Renders only the `open` annotations belonging to `tabId`. Each card shows
+ * the agent's note, an optional suggested rewrite in a monospace block, an
+ * [Apply Fix] button (only when a suggestion exists), and a [Dismiss] button.
+ *
+ * Returns null when hidden or when there is nothing to show — the parent
+ * coordinator (App.tsx) owns the actual document mutation on accept.
+ */
+export function MarginaliaLayer({
+  tabId,
+  annotations,
+  visible,
+  onAccept,
+  onDismiss,
+}: MarginaliaLayerProps) {
+  const open = annotations.filter(a => a.tabId === tabId && a.status === 'open');
+
+  if (!visible || open.length === 0) return null;
 
   return (
-    <div className="absolute top-4 right-4 z-40 flex flex-col gap-2 w-72 pointer-events-none">
-      {annotations.map(an => (
-        <div
-          key={an.id}
-          className="pointer-events-auto rounded-xl bg-[#12141a] border shadow-[0_8px_32px_rgba(0,0,0,0.5)] p-3 animate-in slide-in-from-right-4 duration-200"
-          style={{ borderColor: an.color }}
-        >
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: an.color }} />
-            <p className="text-xs text-neutral-200 leading-relaxed flex-1">{an.body}</p>
-          </div>
-          {an.suggestedText && (
-            <div className="mt-2 text-[11px] text-neutral-400 bg-[rgba(255,255,255,0.04)] rounded-lg px-2 py-1.5 font-mono leading-relaxed">
-              {an.suggestedText}
-            </div>
-          )}
-          <div className="mt-2.5 flex items-center gap-2">
-            {an.suggestedText && (
-              <button
-                onClick={() => onAccept(an.id)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#2C3E35]/40 hover:bg-[#2C3E35]/70 text-[#7A9E8D] text-[10px] font-bold uppercase tracking-wide transition-colors"
-              >
-                <Check className="w-3 h-3" /> Apply Fix
-              </button>
+    <div
+      data-testid="marginalia-layer"
+      className="pointer-events-none absolute inset-y-0 right-0 z-20 flex w-[19rem] max-w-[80vw] flex-col gap-2 overflow-y-auto p-3"
+    >
+      {open.map(ann => {
+        const accent = ann.color || '#8A8F98';
+        const hasFix = typeof ann.suggestedText === 'string' && ann.suggestedText.length > 0;
+        return (
+          <div
+            key={ann.id}
+            data-testid="marginalia-card"
+            data-agent-id={ann.agentId}
+            style={{ borderLeftColor: accent }}
+            className={clsx(
+              'pointer-events-auto rounded-lg border border-l-4 border-neutral-800',
+              'bg-neutral-900/95 p-3 shadow-lg backdrop-blur-sm',
+              'animate-[marginalia-in_180ms_ease-out]',
             )}
-            <button
-              onClick={() => onDismiss(an.id)}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-500 hover:text-neutral-300 text-[10px] font-bold uppercase tracking-wide transition-colors"
-            >
-              <X className="w-3 h-3" /> Dismiss
-            </button>
+          >
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: accent, boxShadow: `0 0 6px ${accent}88` }}
+                aria-hidden="true"
+              />
+              <span
+                className="text-[10px] font-black uppercase tracking-widest"
+                style={{ color: accent }}
+              >
+                {ann.agentId}
+              </span>
+            </div>
+
+            <p className="whitespace-pre-wrap text-[12px] leading-snug text-neutral-200">
+              {ann.body}
+            </p>
+
+            {hasFix && (
+              <pre
+                data-testid="marginalia-suggestion"
+                className="mt-2 max-h-40 overflow-auto rounded-md border border-neutral-800 bg-neutral-950/80 p-2 font-mono text-[11px] leading-snug text-neutral-300"
+              >
+                {ann.suggestedText}
+              </pre>
+            )}
+
+            <div className="mt-2.5 flex items-center justify-end gap-2">
+              {hasFix && (
+                <button
+                  type="button"
+                  onClick={() => onAccept(ann.id)}
+                  className="inline-flex items-center gap-1 rounded-md bg-[#1E2B38] px-2 py-1 text-[11px] font-semibold text-[#8FB5DA] transition-colors hover:bg-[#27384a]"
+                >
+                  <Check className="h-3 w-3" />
+                  Apply Fix
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onDismiss(ann.id)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
+              >
+                <X className="h-3 w-3" />
+                Dismiss
+              </button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
+
+      <style>{`
+        @keyframes marginalia-in {
+          from { opacity: 0; transform: translateX(8px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
     </div>
   );
 }
+
+export default MarginaliaLayer;

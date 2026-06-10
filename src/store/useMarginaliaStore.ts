@@ -1,72 +1,118 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
 
-// ---------------------------------------------------------------------------
-// Ghost UI / Marginalia — AI annotations on doc/code-canvas tabs. An "Agent
-// Vision" toggle reveals color-coded comment cards; each can carry a suggested
-// rewrite that the user applies with one click (handled by MarginaliaLayer).
-// v1 is scoped to our own canvas — NOT the native browser webview.
-// ---------------------------------------------------------------------------
+const generateId = (prefix: string) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 export type AnnotationStatus = 'open' | 'accepted' | 'dismissed';
 
+export interface AnnotationAnchor {
+  kind: 'text' | 'line';
+  start: number;
+  end: number;
+}
+
 export interface Annotation {
   id: string;
-  tabId: string;                    // doc/canvas tab this anchors to
-  agentId: string;                  // authoring agent
-  color: string;                    // per-agent accent (e.g. Dev=blue, Alexis=pink, Aria=green)
-  anchor: { kind: 'text' | 'line'; start: number; end: number };
-  body: string;                     // the comment
-  suggestedText?: string;           // optional inline replacement → enables "Apply Fix"
+  tabId: string;
+  agentId: string;
+  color: string;
+  anchor: AnnotationAnchor;
+  body: string;
+  suggestedText?: string;
   status: AnnotationStatus;
   createdAt: number;
 }
 
-const genId = () => `ann-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+// Accent colors per agent, in the OS dark palette.
+const AGENT_COLORS: Record<string, string> = {
+  dev: '#6AA9FF',
+  alexis: '#E59FC4',
+  lexi: '#E59FC4',
+  aria: '#7A9E8D',
+};
+
+const DEFAULT_AGENT_COLOR = '#8A8F98';
+
+/**
+ * Map a known agent id to its accent color. Unknown agents fall back to a
+ * neutral gray. Lookup is case-insensitive.
+ */
+export function getAgentColor(agentId: string): string {
+  if (!agentId) return DEFAULT_AGENT_COLOR;
+  return AGENT_COLORS[agentId.toLowerCase()] ?? DEFAULT_AGENT_COLOR;
+}
 
 interface MarginaliaStore {
   annotations: Annotation[];
   agentVisionOn: boolean;
-  addAnnotation(a: Omit<Annotation, 'id' | 'createdAt'>): string;
-  updateAnnotationStatus(id: string, status: AnnotationStatus): void;
-  removeAnnotation(id: string): void;
-  setAgentVisionOn(v: boolean): void;
-  annotationsForTab(tabId: string): Annotation[];
-  hydrate(): Promise<void>;
-  persist(): Promise<void>;
+
+  addAnnotation: (
+    a: Omit<Annotation, 'id' | 'status' | 'createdAt' | 'color'> & {
+      color?: string;
+      status?: AnnotationStatus;
+    },
+  ) => Annotation;
+  updateAnnotationStatus: (id: string, status: AnnotationStatus) => void;
+  removeAnnotation: (id: string) => void;
+  setAgentVisionOn: (on: boolean) => void;
+  annotationsForTab: (tabId: string) => Annotation[];
+
+  hydrate: () => Promise<void>;
+  persist: () => Promise<void>;
 }
 
 export const useMarginaliaStore = create<MarginaliaStore>((set, get) => ({
   annotations: [],
-  agentVisionOn: false,
+  agentVisionOn: true,
 
   addAnnotation: (a) => {
-    const id = genId();
-    set(s => ({ annotations: [...s.annotations, { ...a, id, createdAt: Date.now() }] }));
+    const annotation: Annotation = {
+      id: generateId('ann'),
+      status: a.status ?? 'open',
+      createdAt: Date.now(),
+      color: a.color ?? getAgentColor(a.agentId),
+      tabId: a.tabId,
+      agentId: a.agentId,
+      anchor: a.anchor,
+      body: a.body,
+      suggestedText: a.suggestedText,
+    };
+    set(s => ({ annotations: [...s.annotations, annotation] }));
     get().persist();
-    return id;
+    return annotation;
   },
 
   updateAnnotationStatus: (id, status) => {
-    set(s => ({ annotations: s.annotations.map(an => (an.id === id ? { ...an, status } : an)) }));
+    set(s => ({
+      annotations: s.annotations.map(ann =>
+        ann.id === id ? { ...ann, status } : ann,
+      ),
+    }));
     get().persist();
   },
 
   removeAnnotation: (id) => {
-    set(s => ({ annotations: s.annotations.filter(an => an.id !== id) }));
+    set(s => ({ annotations: s.annotations.filter(ann => ann.id !== id) }));
     get().persist();
   },
 
-  setAgentVisionOn: (v) => set({ agentVisionOn: v }),
+  setAgentVisionOn: (on) => {
+    set({ agentVisionOn: on });
+    db.set('agentVisionOn', on);
+  },
 
-  annotationsForTab: (tabId) => get().annotations.filter(an => an.tabId === tabId && an.status === 'open'),
+  annotationsForTab: (tabId) =>
+    get().annotations.filter(ann => ann.tabId === tabId),
 
   hydrate: async () => {
-    const saved = await db.get('marginaliaAnnotations', null);
-    if (saved !== null) set({ annotations: saved as Annotation[] });
+    const annotations = await db.get('annotations', []);
+    const agentVisionOn = await db.get('agentVisionOn', true);
+    set({ annotations, agentVisionOn });
   },
 
   persist: async () => {
-    await db.set('marginaliaAnnotations', get().annotations);
+    const { annotations } = get();
+    await db.set('annotations', annotations);
   },
 }));

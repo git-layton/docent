@@ -1,11 +1,13 @@
 import React from 'react';
-import { Sparkles, FileText, Globe, Calendar, Code, Search } from 'lucide-react';
-
-// ---------------------------------------------------------------------------
-// SpaceHomeLanding — the "new tab page" hero shown inline (centered) when a
-// Space's chat thread is empty. It does NOT render its own input — the chat
-// input lives in ChatPanel's footer. Chips funnel through onSendPrompt.
-// ---------------------------------------------------------------------------
+import clsx from 'clsx';
+import {
+  Sparkles,
+  PenLine,
+  Telescope,
+  Globe,
+  CalendarRange,
+  Code2,
+} from 'lucide-react';
 
 export interface SuggestionChip {
   id: string;
@@ -20,49 +22,112 @@ interface SpaceHomeLandingProps {
   suggestions?: SuggestionChip[];
 }
 
+/**
+ * Default suggestion set — spans the common modes of work so the empty state
+ * feels genuinely useful rather than decorative: drafting, research, web,
+ * planning, and building.
+ */
 const DEFAULT_SUGGESTIONS: SuggestionChip[] = [
-  { id: 'draft-doc', label: 'Draft a document', prompt: 'Help me draft a new document. Ask me what it should cover.', icon: FileText },
-  { id: 'research', label: 'Research a topic', prompt: 'Research a topic for me and summarize what you find.', icon: Search },
-  { id: 'open-web', label: 'Browse the web', prompt: 'Open a web page for me — ask me which site.', icon: Globe },
-  { id: 'plan-day', label: 'Plan my day', prompt: 'Look at my calendar and to-do list and help me plan my day.', icon: Calendar },
-  { id: 'write-code', label: 'Build something', prompt: 'Let’s build something in a code canvas. Ask me what.', icon: Code },
+  {
+    id: 'draft',
+    label: 'Draft something',
+    prompt: 'Help me draft a clear, well-structured first version of something. Ask me what it is, who it is for, and the tone you should hit before you start.',
+    icon: PenLine,
+  },
+  {
+    id: 'research',
+    label: 'Research a topic',
+    prompt: 'I want to dig into a topic in depth. Ask me what to research, then give me a structured briefing with the key facts, tradeoffs, and open questions.',
+    icon: Telescope,
+  },
+  {
+    id: 'web',
+    label: 'Search the web',
+    prompt: 'Search the web for the latest on a topic I care about and summarize what you find with sources. Ask me what to look up first.',
+    icon: Globe,
+  },
+  {
+    id: 'plan',
+    label: 'Plan my week',
+    prompt: 'Help me plan the week ahead. Ask me about my priorities, deadlines, and constraints, then propose a realistic day-by-day plan.',
+    icon: CalendarRange,
+  },
+  {
+    id: 'build',
+    label: 'Build a quick tool',
+    prompt: 'Help me build a small, self-contained tool or script. Ask me what it should do and what inputs and outputs you should design around.',
+    icon: Code2,
+  },
 ];
 
-export function SpaceHomeLanding({ agentName, onSendPrompt, suggestions }: SpaceHomeLandingProps): React.ReactElement {
+export function SpaceHomeLanding({
+  agentName,
+  onSendPrompt,
+  suggestions,
+}: SpaceHomeLandingProps) {
   const chips = suggestions ?? DEFAULT_SUGGESTIONS;
+  const subtitle = agentName
+    ? `Chat with ${agentName}, or pick a starting point below to get going.`
+    : 'Ask anything, or pick a starting point below to get going.';
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 text-center select-none">
-      {/* Glyph */}
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#4A5D75] to-[#2C3E50] flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.4)] mb-6">
-        <Sparkles className="w-7 h-7 text-white/90" />
-      </div>
+    <div className="flex h-full w-full items-center justify-center px-6 py-12">
+      <div className="flex w-full max-w-2xl flex-col items-center text-center">
+        {/* Gradient glyph */}
+        <div className="relative mb-7">
+          {/* Soft ambient glow behind the glyph */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 -z-10 rounded-[28px] bg-gradient-to-br from-[#4A5D75]/50 via-[#6A829E]/35 to-[#9EADC8]/30 blur-2xl"
+          />
+          <div className="flex h-16 w-16 items-center justify-center rounded-[20px] bg-gradient-to-br from-[#4A5D75] via-[#3D4D61] to-[#2C3E50] shadow-lg shadow-black/40 ring-1 ring-white/10">
+            <Sparkles className="h-7 w-7 text-white drop-shadow-sm" strokeWidth={2.25} />
+          </div>
+        </div>
 
-      {/* Headline */}
-      <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white max-w-md leading-tight">
-        What are we diving into today?
-      </h1>
-      <p className="mt-3 text-sm text-[rgba(255,255,255,0.5)] max-w-sm leading-relaxed">
-        Chat with {agentName ? agentName : 'your team'}, search the web, or open an app.
-      </p>
+        {/* Headline */}
+        <h1 className="bg-gradient-to-b from-white to-white/60 bg-clip-text text-2xl font-semibold tracking-tight text-transparent sm:text-3xl">
+          What are we diving into today?
+        </h1>
 
-      {/* Suggestion chips */}
-      <div className="mt-8 flex flex-wrap items-center justify-center gap-2 max-w-lg">
-        {chips.map(chip => {
-          const Icon = chip.icon ?? Sparkles;
-          return (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => onSendPrompt(chip.prompt)}
-              className="group flex items-center gap-2 px-3.5 py-2 rounded-full bg-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.7)] hover:text-white text-xs font-medium transition-all"
-            >
-              <Icon className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover:opacity-100" />
-              {chip.label}
-            </button>
-          );
-        })}
+        {/* Subtitle */}
+        <p className="mt-3 max-w-md text-sm leading-relaxed text-white/45">
+          {subtitle}
+        </p>
+
+        {/* Suggestion chips */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
+          {chips.map((chip) => {
+            const Icon = chip.icon;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => onSendPrompt(chip.prompt)}
+                className={clsx(
+                  'group inline-flex items-center gap-2 rounded-full',
+                  'border border-white/[0.07] bg-[#12141a] px-4 py-2',
+                  'text-[13px] font-medium text-white/70',
+                  'shadow-sm transition-all duration-150',
+                  'hover:-translate-y-0.5 hover:border-white/[0.14] hover:bg-[#171922] hover:text-white',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6A829E]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0b0e]',
+                  'active:translate-y-0',
+                )}
+              >
+                {Icon && (
+                  <Icon
+                    className="h-4 w-4 text-[#9EADC8]/80 transition-colors group-hover:text-[#9EADC8]"
+                    aria-hidden="true"
+                  />
+                )}
+                <span>{chip.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
+
+export default SpaceHomeLanding;
