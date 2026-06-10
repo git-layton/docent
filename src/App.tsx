@@ -7,6 +7,7 @@ import {
   AlignLeft, MapPin, Workflow,
   AlertTriangle, Loader2, Activity, UserPlus, Bookmark, CalendarDays,
   MessageSquare, Mail, Layers, Send, CheckCircle2, CalendarClock,
+  PanelRightOpen,
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -52,10 +53,14 @@ import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
 import { OmniTabBar } from './components/OmniTabBar';
-import { CommandNode } from './components/CommandNode';
-import { SpaceLogTabContent } from './components/SpaceLogTabContent';
+import { ChatPanel } from './components/ChatPanel';
 import { BrowserTabContent } from './components/BrowserTabContent';
+import { CalendarPanel } from './components/CalendarPanel';
+import { CmdKPalette } from './components/CmdKPalette';
+import { MarginaliaLayer } from './components/MarginaliaLayer';
+import { AgentVisionToggle } from './components/AgentVisionToggle';
 import { useSpaceStore } from './store/useSpaceStore';
+import { useMarginaliaStore } from './store/useMarginaliaStore';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -119,6 +124,30 @@ export default function App() {
   const isDbLoaded = useUIStore(s => s.isDbLoaded);
 
   const activeOmniTab = useSpaceStore(s => s.omniTabs.find(t => t.id === s.activeOmniTabId) ?? null);
+
+  // ── Chat dock mode (hybrid): inline & centered on the Home/chat tab; docked to
+  //    the right rail when a web/doc/canvas/tool tab is active so the AI rides
+  //    alongside the content. Derived (never stored) to avoid stale-frame mismatch.
+  const chatDockMode: 'inline' | 'right' = (() => {
+    const t = activeOmniTab?.type;
+    if (!activeOmniTab || t === 'space-log') return 'inline';
+    // A freshly-opened doc/canvas with nothing generated yet has no canvas content → inline
+    if (!canvasContent && (t === 'code-canvas' || t === 'doc')) return 'inline';
+    if (t === 'web' || t === 'doc' || t === 'code-canvas' || t === 'tool') return 'right';
+    return 'inline';
+  })();
+  // Right-rail open/collapsed state — reuse the unused useUIStore field
+  const isChatPanelOpen = useUIStore(s => s.isCommandNodeExpanded);
+  const setIsChatPanelOpen = useUIStore(s => s.setIsCommandNodeExpanded);
+
+  // Ghost UI / marginalia (doc + code-canvas tabs only)
+  const agentVisionOn = useMarginaliaStore(s => s.agentVisionOn);
+  const setAgentVisionOn = useMarginaliaStore(s => s.setAgentVisionOn);
+  const annotations = useMarginaliaStore(s => s.annotations);
+  const isCanvasTab = activeOmniTab?.type === 'doc' || activeOmniTab?.type === 'code-canvas';
+  const tabAnnotations = isCanvasTab && activeOmniTab
+    ? annotations.filter(a => a.tabId === activeOmniTab.id && a.status === 'open')
+    : [];
 
   // ── Local state (must stay in App.tsx) ──────────────────────────────────────
   const [llamaServerPid, setLlamaServerPid] = useState<number | null>(null);
@@ -218,6 +247,7 @@ export default function App() {
         await useUIStore.getState().hydrateSavedApps();
         await useBrowserStore.getState().hydrate();
         useSpaceStore.getState().hydrate().catch(() => {});
+        useMarginaliaStore.getState().hydrate().catch(() => {});
 
       // Init Knowledge Core (creates ~/AgentForge/ on first run)
       try {
@@ -1859,7 +1889,15 @@ export default function App() {
         await processChatRequest(chatId, msgForProcessing, currentHistory);
     }
   };
-  
+
+  // Send a prompt programmatically (Home hero chips / suggestions). handleSendMessage
+  // reads input from the UI store, so set it then send on the next microtask.
+  const handleSendPrompt = (text: string) => {
+    if (!text.trim()) return;
+    useUIStore.getState().setInput(text);
+    queueMicrotask(() => { void handleSendMessage(); });
+  };
+
   const confirmEditMessage = async (msgId: string) => {
      const { editingMessageContent: _emc, activeChatId: _activeChatId, messages: _messages } = useChatStore.getState();
      if (!_emc.trim() || !_activeChatId) return;
@@ -2236,6 +2274,56 @@ export default function App() {
     ui.setSlashHighlight(0);
   }
 
+  // ── Hoisted prop bags (shared by inline + docked ChatPanel) ──────────────
+  const spaceLogProps = {
+    activeMessages,
+    isGenerating,
+    activeAssistant,
+    forgettingIndex: appSettings?.showContextWindowLine ? forgettingIndex : -1,
+    onConfirmEdit: confirmEditMessage,
+    onBookmark: handleBookmark,
+    onToggleSpeak: toggleSpeak,
+    onAddTask: addTask,
+    messagesEndRef,
+    onRenderMessage: renderMessageWithWidgets,
+    onToast: showToast,
+    dropdownRef,
+    llamaPaused,
+    llamaCoolingDown,
+    systemPromptLen,
+    hasErrorLogs,
+    errorLogsCount,
+    onRunDreamCycle: runDreamCycle,
+    onDragStart: handleDragStart,
+    onDragOver: handleDragOver,
+    onDragLeave: handleDragLeave,
+    onDrop: handleDrop,
+    isDragging,
+    showAgentIntro,
+    onDismissAgentIntro: () => { setShowAgentIntro(false); db.set('agentIntroSeen', true); },
+  };
+
+  const chatInputBarProps = {
+    isGenerating,
+    isEnhancing,
+    selectedModel,
+    modelDropdownRef,
+    onSend: handleSendMessage,
+    onStop: handleStop,
+    onChatFileUpload: handleChatFileUpload,
+    onEnhancePrompt: handleEnhancePrompt,
+    fileInputRef,
+    activeAssistant,
+    channelParticipants,
+    llamaServerPid,
+    llamaPaused,
+    setLlamaPaused,
+    llamaCoolingDown,
+    isListening,
+    onToggleListening: toggleListening,
+    onSlashCommand: handleSlashCommand,
+  };
+
   return (
     <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-[#0a0b0e] text-neutral-900 dark:text-neutral-100">
 
@@ -2369,88 +2457,103 @@ export default function App() {
       {/* ── Sidebar ── */}
       <AppSidebar />
 
-      {/* ── Main Panel ── */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      {/* ── Center column: tab bar + viewport ── */}
+      <div className="flex-1 flex flex-col overflow-hidden relative min-w-0">
         <OmniTabBar />
 
-        {/* Tab viewport */}
-        <div className="flex-1 relative overflow-hidden">
-          {(!activeOmniTab || activeOmniTab.type === 'space-log') && (
-            <SpaceLogTabContent
-              activeMessages={activeMessages}
-              isGenerating={isGenerating}
-              activeAssistant={activeAssistant}
-              forgettingIndex={appSettings?.showContextWindowLine ? forgettingIndex : -1}
-              onConfirmEdit={confirmEditMessage}
-              onBookmark={handleBookmark}
-              onToggleSpeak={toggleSpeak}
-              onAddTask={addTask}
-              messagesEndRef={messagesEndRef}
-              onRenderMessage={renderMessageWithWidgets}
-              onToast={showToast}
-              dropdownRef={dropdownRef}
-              llamaPaused={llamaPaused}
-              llamaCoolingDown={llamaCoolingDown}
-              systemPromptLen={systemPromptLen}
-              hasErrorLogs={hasErrorLogs}
-              errorLogsCount={errorLogsCount}
-              onRunDreamCycle={runDreamCycle}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              isDragging={isDragging}
-              showAgentIntro={showAgentIntro}
-              onDismissAgentIntro={() => { setShowAgentIntro(false); db.set('agentIntroSeen', true); }}
-            />
-          )}
-          {activeOmniTab?.type === 'web' && (
-            <BrowserTabContent tabId={activeOmniTab.id} initialUrl={activeOmniTab.url} />
-          )}
-          {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'knowledge-graph' && (
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
-              <KnowledgeGraphPanel />
+        <div className="flex-1 flex overflow-hidden min-h-0">
+          {/* CENTER viewport */}
+          <div className="flex-1 relative overflow-hidden min-w-0">
+            {chatDockMode === 'inline' ? (
+              /* Home / inline: chat fills the center (hero when the thread is empty) */
+              <ChatPanel
+                mode="inline"
+                spaceLogProps={spaceLogProps}
+                chatInputBarProps={chatInputBarProps}
+                isThreadEmpty={activeMessages.length === 0}
+                onSendPrompt={handleSendPrompt}
+              />
+            ) : (
+              /* Docked: content tab fills the center; chat lives in the right rail */
+              <>
+                {activeOmniTab?.type === 'web' && (
+                  <BrowserTabContent tabId={activeOmniTab.id} initialUrl={activeOmniTab.url} />
+                )}
+                {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'knowledge-graph' && (
+                  <div className="flex-1 flex flex-col h-full overflow-hidden">
+                    <KnowledgeGraphPanel />
+                  </div>
+                )}
+                {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'planner' && (
+                  <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />
+                )}
+                {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'calendar' && (
+                  <CalendarPanel onToast={showToast} />
+                )}
+                {(activeOmniTab?.type === 'code-canvas' || activeOmniTab?.type === 'doc') && canvasContent && (
+                  <CanvasPanel
+                    isGenerating={isGenerating}
+                    onHistoryNavigate={handleHistoryNavigate}
+                    onSaveToLibrary={saveToLibrary}
+                    codeRef={codeRef}
+                    lineNumbersRef={lineNumbersRef}
+                    onCodeScroll={handleCodeScroll}
+                    onSendMessage={handleSendMessage}
+                  />
+                )}
+
+                {/* Ghost UI: Agent Vision toggle + marginalia overlay (doc/canvas only) */}
+                {isCanvasTab && activeOmniTab && (
+                  <>
+                    <div className="absolute top-3 right-3 z-50">
+                      <AgentVisionToggle on={agentVisionOn} onToggle={setAgentVisionOn} />
+                    </div>
+                    <MarginaliaLayer
+                      tabId={activeOmniTab.id}
+                      annotations={tabAnnotations}
+                      visible={agentVisionOn}
+                      onAccept={(id) => useMarginaliaStore.getState().updateAnnotationStatus(id, 'accepted')}
+                      onDismiss={(id) => useMarginaliaStore.getState().updateAnnotationStatus(id, 'dismissed')}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* RIGHT rail: collapsible docked chat (dock mode only) */}
+          {chatDockMode === 'right' && (
+            <div
+              className={`shrink-0 h-full border-l border-[rgba(255,255,255,0.07)] bg-[#0a0b0e] flex flex-col transition-[width] duration-200 ease-out ${isChatPanelOpen ? 'w-[420px]' : 'w-12'}`}
+            >
+              {isChatPanelOpen ? (
+                <ChatPanel
+                  mode="docked"
+                  spaceLogProps={spaceLogProps}
+                  chatInputBarProps={chatInputBarProps}
+                  isThreadEmpty={activeMessages.length === 0}
+                  onSendPrompt={handleSendPrompt}
+                  onCollapse={() => setIsChatPanelOpen(false)}
+                />
+              ) : (
+                <button
+                  onClick={() => setIsChatPanelOpen(true)}
+                  className="h-full w-full flex flex-col items-center pt-3 gap-2 text-[rgba(255,255,255,0.45)] hover:text-white hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+                  title="Open chat"
+                >
+                  <PanelRightOpen className="w-4 h-4" />
+                  <span className="[writing-mode:vertical-rl] text-[10px] uppercase tracking-widest">Chat</span>
+                </button>
+              )}
             </div>
           )}
-          {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'planner' && (
-            <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />
-          )}
-          {activeOmniTab?.type === 'code-canvas' && canvasContent && (
-            <CanvasPanel
-              isGenerating={isGenerating}
-              onHistoryNavigate={handleHistoryNavigate}
-              onSaveToLibrary={saveToLibrary}
-              codeRef={codeRef}
-              lineNumbersRef={lineNumbersRef}
-              onCodeScroll={handleCodeScroll}
-              onSendMessage={handleSendMessage}
-            />
-          )}
-          {/* CommandNode floats over viewport */}
-          <CommandNode chatInputBarProps={{
-            isGenerating,
-            isEnhancing,
-            selectedModel,
-            modelDropdownRef,
-            onSend: handleSendMessage,
-            onStop: handleStop,
-            onChatFileUpload: handleChatFileUpload,
-            onEnhancePrompt: handleEnhancePrompt,
-            fileInputRef,
-            activeAssistant,
-            channelParticipants,
-            llamaServerPid,
-            llamaPaused,
-            setLlamaPaused,
-            llamaCoolingDown,
-            isListening,
-            onToggleListening: toggleListening,
-            onSlashCommand: handleSlashCommand,
-          }} />
         </div>
-
       </div>
 
       {/* ── Modals ── */}
+
+      {/* Global ⌘K command palette / library net */}
+      <CmdKPalette />
 
       {/* Assistant Settings */}
       {showAssistantSettings && editingAssistant && (

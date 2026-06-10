@@ -5,6 +5,9 @@ import type { OmniTab, Space } from '../types/omniTab';
 const generateId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+// Bump this when the persisted schema changes in a breaking way — forces a clean reseed
+const STORE_VERSION = '2';
+
 const defaultSpace: Space = {
   id: 'space-home',
   name: 'Home',
@@ -34,6 +37,7 @@ interface SpaceStore {
   closeTab(id: string): void;
   moveTab(fromIdx: number, toIdx: number): void;
   updateTabLabel(id: string, url: string, title: string): void;
+  toggleFavorite(id: string): void;
   createSpace(name: string, agentIds?: string[]): Space;
   deleteSpace(id: string): void;
   updateSpace(id: string, patch: Partial<Space>): void;
@@ -53,14 +57,23 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
 
   openTab: (tab) => {
     const id = generateId('tab');
-    const newTab: OmniTab = { ...tab, id };
-    set(s => ({ omniTabs: [...s.omniTabs, newTab], activeOmniTabId: id }));
+    const { activeSpaceId, spaces } = get();
+    // Auto-assign spaceId from active space if not explicitly set
+    const spaceId = tab.spaceId ?? activeSpaceId ?? undefined;
+    const newTab: OmniTab = { ...tab, id, spaceId };
+    // Also record the new tab id in the owning space's tabIds
+    const updatedSpaces = spaceId
+      ? spaces.map(s => s.id === spaceId
+          ? { ...s, tabIds: [...s.tabIds, id], updatedAt: Date.now() }
+          : s)
+      : spaces;
+    set(s => ({ omniTabs: [...s.omniTabs, newTab], activeOmniTabId: id, spaces: updatedSpaces }));
     get().persist();
     return id;
   },
 
   closeTab: (id) => {
-    const { omniTabs, activeOmniTabId } = get();
+    const { omniTabs, activeOmniTabId, activeSpaceId } = get();
     const tab = omniTabs.find(t => t.id === id);
     if (!tab || tab.isPinned) return;
 
@@ -68,13 +81,17 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     let nextActiveId = activeOmniTabId;
 
     if (activeOmniTabId === id) {
-      const idx = omniTabs.findIndex(t => t.id === id);
-      if (remaining.length === 0) {
-        nextActiveId = null;
-      } else if (idx > 0) {
-        nextActiveId = remaining[idx - 1].id;
+      // Prefer to land on another tab in the same space
+      const spaceRemaining = remaining.filter(t => t.spaceId === (tab.spaceId ?? activeSpaceId));
+      const allIdx = omniTabs.findIndex(t => t.id === id);
+      if (spaceRemaining.length > 0) {
+        // Pick the closest tab in the space (pinned first, then by position)
+        const pinned = spaceRemaining.find(t => t.isPinned);
+        nextActiveId = pinned?.id ?? spaceRemaining[Math.max(0, allIdx - 1) % spaceRemaining.length]?.id ?? null;
+      } else if (remaining.length > 0) {
+        nextActiveId = remaining[Math.max(0, allIdx - 1)]?.id ?? remaining[0].id;
       } else {
-        nextActiveId = remaining[0].id;
+        nextActiveId = null;
       }
     }
 
@@ -105,17 +122,36 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     get().persist();
   },
 
+  toggleFavorite: (id) => {
+    set(s => ({
+      omniTabs: s.omniTabs.map(t =>
+        t.id === id ? { ...t, isFavorite: !t.isFavorite } : t
+      ),
+    }));
+    get().persist();
+  },
+
   createSpace: (name, agentIds = []) => {
+    const spaceId = generateId('space');
+    const tabId = generateId('tab');
+    // Every new space gets a pinned chat tab automatically
+    const chatTab: OmniTab = {
+      id: tabId,
+      type: 'space-log',
+      label: name,
+      spaceId,
+      isPinned: true,
+    };
     const space: Space = {
-      id: generateId('space'),
+      id: spaceId,
       name,
       agentIds,
       peopleIds: [],
-      tabIds: [],
+      tabIds: [tabId],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    set(s => ({ spaces: [...s.spaces, space] }));
+    set(s => ({ spaces: [...s.spaces, space], omniTabs: [...s.omniTabs, chatTab] }));
     get().persist();
     return space;
   },
@@ -134,15 +170,25 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     get().persist();
   },
 
-  setActiveSpaceId: (id) => set({ activeSpaceId: id }),
+  setActiveSpaceId: (id) => {
+    if (!id) { set({ activeSpaceId: null }); return; }
+    const { omniTabs } = get();
+    const spaceTabs = omniTabs.filter(t => t.spaceId === id);
+    const pinned = spaceTabs.find(t => t.isPinned);
+    const first = spaceTabs[0];
+    set({ activeSpaceId: id, activeOmniTabId: (pinned ?? first)?.id ?? null });
+  },
 
   hydrate: async () => {
+    const version = await db.get('spaceStoreVersion', null);
     const spaces = await db.get('spaceStoreSpaces', null);
     const omniTabs = await db.get('spaceStoreOmniTabs', null);
     const activeIds = await db.get('spaceStoreActiveIds', null);
 
-    if (spaces !== null && omniTabs !== null) {
-      // Restore from persisted data
+    const isCompatible = version === STORE_VERSION && spaces !== null && omniTabs !== null;
+
+    if (isCompatible) {
+      // Restore from persisted data — tabs already have spaceId from v2+
       set({
         spaces: spaces as Space[],
         omniTabs: omniTabs as OmniTab[],
@@ -150,18 +196,28 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
     } else {
-      // First run: seed defaults
+      // First run OR stale schema (v1 tabs had no spaceId) — reseed cleanly
+      if (version !== null) {
+        console.info(`[SpaceStore] schema v${version} → v${STORE_VERSION}, reseeding`);
+      }
       set({
         spaces: [{ ...defaultSpace, createdAt: Date.now(), updatedAt: Date.now() }],
         omniTabs: [defaultTab],
         activeOmniTabId: 'tab-space-log-default',
         activeSpaceId: 'space-home',
       });
+      // Persist new clean state immediately
+      const { spaces: s, omniTabs: t, activeOmniTabId, activeSpaceId } = get();
+      await db.set('spaceStoreVersion', STORE_VERSION);
+      await db.set('spaceStoreSpaces', s);
+      await db.set('spaceStoreOmniTabs', t);
+      await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });
     }
   },
 
   persist: async () => {
     const { spaces, omniTabs, activeOmniTabId, activeSpaceId } = get();
+    await db.set('spaceStoreVersion', STORE_VERSION);
     await db.set('spaceStoreSpaces', spaces);
     await db.set('spaceStoreOmniTabs', omniTabs);
     await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });

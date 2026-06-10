@@ -1,6 +1,36 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, Component } from 'react';
+import type { ReactNode } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import type { NodeObject, LinkObject } from 'react-force-graph-2d';
+
+// ---------------------------------------------------------------------------
+// Error boundary — keeps a ForceGraph2D crash from taking down the whole app
+// ---------------------------------------------------------------------------
+class GraphErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-neutral-400">
+          <span className="text-2xl">📊</span>
+          <p className="text-xs font-bold uppercase tracking-widest">Graph renderer unavailable</p>
+          <p className="text-[10px] text-neutral-500 max-w-xs text-center">{this.state.error.message}</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="text-[10px] px-3 py-1.5 rounded-lg bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.1)] transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { X, Search } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -250,6 +280,7 @@ export function KnowledgeGraphPanel() {
               No nodes match filter
             </div>
           ) : (
+            <GraphErrorBoundary>
             <ForceGraph2D
               width={dimensions.width}
               height={dimensions.height}
@@ -271,6 +302,7 @@ export function KnowledgeGraphPanel() {
               enablePanInteraction
               cooldownTicks={80}
             />
+            </GraphErrorBoundary>
           )}
         </div>
 

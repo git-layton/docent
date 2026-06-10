@@ -1,5 +1,5 @@
 export type OmniTabType = 'space-log' | 'web' | 'doc' | 'code-canvas' | 'tool';
-export type ToolTabId = 'knowledge-graph' | 'planner' | 'inbox' | 'model-store';
+export type ToolTabId = 'knowledge-graph' | 'planner' | 'inbox' | 'model-store' | 'calendar';
 
 export interface OmniTab {
   id: string;
@@ -10,6 +10,7 @@ export interface OmniTab {
   toolId?: ToolTabId;       // for 'tool' tabs
   canvasContentId?: string; // for 'doc'/'code-canvas'
   isPinned?: boolean;       // pinned tabs have no close button
+  isFavorite?: boolean;     // user-starred → surfaced in the sidebar FAVORITES section
 }
 
 export interface Space {

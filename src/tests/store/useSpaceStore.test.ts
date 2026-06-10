@@ -224,6 +224,50 @@ describe('moveTab', () => {
 })
 
 // ---------------------------------------------------------------------------
+// toggleFavorite
+// ---------------------------------------------------------------------------
+
+describe('toggleFavorite', () => {
+  beforeEach(resetStore)
+
+  it('marks an unfavorited tab as favorite', () => {
+    useSpaceStore.setState({
+      omniTabs: [{ id: 'fav-a', type: 'web', label: 'A', url: 'https://a.com' }],
+    })
+    useSpaceStore.getState().toggleFavorite('fav-a')
+    expect(useSpaceStore.getState().omniTabs[0].isFavorite).toBe(true)
+  })
+
+  it('unfavorites a favorited tab (toggles off)', () => {
+    useSpaceStore.setState({
+      omniTabs: [{ id: 'fav-b', type: 'doc', label: 'B', isFavorite: true }],
+    })
+    useSpaceStore.getState().toggleFavorite('fav-b')
+    expect(useSpaceStore.getState().omniTabs[0].isFavorite).toBe(false)
+  })
+
+  it('only affects the targeted tab', () => {
+    useSpaceStore.setState({
+      omniTabs: [
+        { id: 'x', type: 'web', label: 'X' },
+        { id: 'y', type: 'web', label: 'Y' },
+      ],
+    })
+    useSpaceStore.getState().toggleFavorite('y')
+    const tabs = useSpaceStore.getState().omniTabs
+    expect(tabs.find(t => t.id === 'x')?.isFavorite).toBeFalsy()
+    expect(tabs.find(t => t.id === 'y')?.isFavorite).toBe(true)
+  })
+
+  it('persists after toggling', async () => {
+    useSpaceStore.setState({ omniTabs: [{ id: 'p', type: 'web', label: 'P' }] })
+    useSpaceStore.getState().toggleFavorite('p')
+    await useSpaceStore.getState().persist()
+    expect(vi.mocked(db.set).mock.calls.some(c => c[0] === 'spaceStoreOmniTabs')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // createSpace
 // ---------------------------------------------------------------------------
 
@@ -256,10 +300,15 @@ describe('createSpace', () => {
     expect(space.agentIds).toEqual([])
   })
 
-  it('initialises peopleIds and tabIds as empty arrays', () => {
+  it('initialises peopleIds as empty array and auto-creates a pinned chat tab', () => {
     const space = useSpaceStore.getState().createSpace('Fresh')
     expect(space.peopleIds).toEqual([])
-    expect(space.tabIds).toEqual([])
+    // createSpace now seeds one pinned space-log tab automatically
+    expect(space.tabIds).toHaveLength(1)
+    const tab = useSpaceStore.getState().omniTabs.find(t => t.id === space.tabIds[0])
+    expect(tab?.type).toBe('space-log')
+    expect(tab?.isPinned).toBe(true)
+    expect(tab?.spaceId).toBe(space.id)
   })
 
   it('createdAt and updatedAt are numeric timestamps', () => {
@@ -342,6 +391,7 @@ describe('hydrate — restore from DB', () => {
     const savedActiveIds = { activeOmniTabId: 'tab-test', activeSpaceId: 'space-test' }
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
+      if (key === 'spaceStoreVersion') return '2'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return savedActiveIds
@@ -367,6 +417,7 @@ describe('hydrate — restore from DB', () => {
     ]
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
+      if (key === 'spaceStoreVersion') return '2'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return { activeOmniTabId: 'tab-a', activeSpaceId: 'space-a' }

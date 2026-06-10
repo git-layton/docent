@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus } from 'lucide-react';
+import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Calendar, Star } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import type { OmniTab } from '../types/omniTab';
@@ -91,7 +91,7 @@ function TabPill({ tab, isActive, index }: TabPillProps) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       className={clsx(
-        'group h-8 rounded-t-lg px-3 text-[11px] font-medium max-w-[160px] min-w-[60px] shrink-0 flex items-center gap-1.5 transition-colors',
+        'group h-8 rounded-t-lg px-3 text-[11px] font-medium max-w-[200px] min-w-[80px] shrink-0 flex items-center gap-1.5 transition-colors',
         isActive
           ? 'bg-[#12141a] border border-b-0 border-[rgba(255,255,255,0.08)] text-white'
           : 'text-[rgba(255,255,255,0.45)] hover:text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.04)]',
@@ -99,6 +99,30 @@ function TabPill({ tab, isActive, index }: TabPillProps) {
     >
       <TypeIcon tab={tab} />
       <span className="truncate flex-1 min-w-0">{tab.label}</span>
+      {/* Star — pins this tab into the sidebar FAVORITES section */}
+      <span
+        role="button"
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          useSpaceStore.getState().toggleFavorite(tab.id);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            useSpaceStore.getState().toggleFavorite(tab.id);
+          }
+        }}
+        className={clsx(
+          'transition-opacity shrink-0',
+          tab.isFavorite
+            ? 'opacity-100 text-[#C9A227] hover:text-[#E0B530]'
+            : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[rgba(255,255,255,0.6)]',
+        )}
+        title={tab.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+      >
+        <Star className={clsx('w-3 h-3', tab.isFavorite && 'fill-current')} />
+      </span>
       {!tab.isPinned && (
         <span
           role="button"
@@ -142,7 +166,7 @@ function NewTabButton() {
   }, [open]);
 
   const openTab = useCallback(
-    (type: 'web' | 'doc' | 'code-canvas') => {
+    (type: 'web' | 'doc' | 'code-canvas' | 'calendar') => {
       setOpen(false);
       switch (type) {
         case 'web':
@@ -153,6 +177,9 @@ function NewTabButton() {
           break;
         case 'code-canvas':
           useSpaceStore.getState().openTab({ type: 'code-canvas', label: 'Untitled Canvas' });
+          break;
+        case 'calendar':
+          useSpaceStore.getState().openTab({ type: 'tool', toolId: 'calendar', label: 'Calendar' });
           break;
       }
     },
@@ -196,6 +223,14 @@ function NewTabButton() {
             <Code className="w-3.5 h-3.5 shrink-0" />
             Code Canvas
           </button>
+          <button
+            type="button"
+            onClick={() => openTab('calendar')}
+            className="w-full text-left px-3 py-2 text-xs text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2 transition-colors"
+          >
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            Calendar
+          </button>
         </div>
       )}
     </div>
@@ -206,14 +241,22 @@ function NewTabButton() {
 // OmniTabBar — public export
 // ---------------------------------------------------------------------------
 export function OmniTabBar(): React.JSX.Element {
-  const omniTabs = useSpaceStore(s => s.omniTabs);
+  const allTabs = useSpaceStore(s => s.omniTabs);
   const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
+  const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
+
+  // Only show tabs belonging to the active Space — this IS the Space context
+  const spaceTabs = allTabs.filter(t => t.spaceId === activeSpaceId);
 
   return (
     <div className="h-10 flex items-end px-2 bg-[#0a0b0e] border-b border-[rgba(255,255,255,0.05)] shrink-0 relative z-20">
-      {omniTabs.map((tab, idx) => (
-        <TabPill key={tab.id} tab={tab} isActive={tab.id === activeOmniTabId} index={idx} />
-      ))}
+      {spaceTabs.map((tab) => {
+        // Pass the global index so moveTab operates on the full omniTabs array correctly
+        const globalIdx = allTabs.findIndex(t => t.id === tab.id);
+        return (
+          <TabPill key={tab.id} tab={tab} isActive={tab.id === activeOmniTabId} index={globalIdx} />
+        );
+      })}
       <NewTabButton />
     </div>
   );

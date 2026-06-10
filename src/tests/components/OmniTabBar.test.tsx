@@ -9,21 +9,26 @@ import type { OmniTab } from '../../types/omniTab'
 // Helpers
 // ---------------------------------------------------------------------------
 
+const TEST_SPACE_ID = 'space-test'
+
 function makeTab(overrides: Partial<OmniTab>): OmniTab {
   return {
     id: 'tab-test',
     type: 'space-log',
     label: 'Test Tab',
+    spaceId: TEST_SPACE_ID,   // tabs must belong to the active space to be visible
     ...overrides,
   }
 }
 
 function seedStore(tabs: OmniTab[], activeId: string | null = null) {
+  // Ensure all tabs have the test spaceId so OmniTabBar's filter shows them
+  const spacedTabs = tabs.map(t => ({ spaceId: TEST_SPACE_ID, ...t }))
   useSpaceStore.setState({
-    omniTabs: tabs,
-    activeOmniTabId: activeId ?? (tabs[0]?.id ?? null),
-    spaces: [],
-    activeSpaceId: null,
+    omniTabs: spacedTabs,
+    activeOmniTabId: activeId ?? (spacedTabs[0]?.id ?? null),
+    spaces: [{ id: TEST_SPACE_ID, name: 'Test', agentIds: [], peopleIds: [], tabIds: spacedTabs.map(t => t.id), createdAt: 0, updatedAt: 0 }],
+    activeSpaceId: TEST_SPACE_ID,
   })
 }
 
@@ -105,6 +110,49 @@ describe('OmniTabBar — tab interactions', () => {
     render(<OmniTabBar />)
     fireEvent.click(screen.getByText('Only Tab'))
     expect(spy).toHaveBeenCalledWith('tab-x')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Favorite (star) affordance
+// ---------------------------------------------------------------------------
+
+describe('OmniTabBar — favorite star', () => {
+  it('renders an "Add to favorites" star on a non-favorited tab', () => {
+    seedStore([makeTab({ id: 'a', label: 'Plain', isFavorite: false })], 'a')
+    render(<OmniTabBar />)
+    expect(screen.getByTitle('Add to favorites')).toBeInTheDocument()
+  })
+
+  it('renders "Remove from favorites" on a favorited tab', () => {
+    seedStore([makeTab({ id: 'b', label: 'Starred', isFavorite: true })], 'b')
+    render(<OmniTabBar />)
+    expect(screen.getByTitle('Remove from favorites')).toBeInTheDocument()
+  })
+
+  it('clicking the star calls toggleFavorite with the tab id', () => {
+    seedStore([makeTab({ id: 'star-me', label: 'Star Me' })], 'star-me')
+    const spy = vi.spyOn(useSpaceStore.getState(), 'toggleFavorite')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('Add to favorites'))
+    expect(spy).toHaveBeenCalledWith('star-me')
+  })
+
+  it('star click does not propagate to setActiveTab', () => {
+    seedStore([
+      makeTab({ id: 'one', label: 'One' }),
+      makeTab({ id: 'two', label: 'Two' }),
+    ], 'one')
+    const setActive = vi.spyOn(useSpaceStore.getState(), 'setActiveTab')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getAllByTitle('Add to favorites')[0])
+    expect(setActive).not.toHaveBeenCalled()
+  })
+
+  it('pinned tabs still show a star (favorites are independent of pinning)', () => {
+    seedStore([makeTab({ id: 'p', label: 'Pinned', isPinned: true })], 'p')
+    render(<OmniTabBar />)
+    expect(screen.getByTitle('Add to favorites')).toBeInTheDocument()
   })
 })
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, Search, Edit2, Trash2, Hash, User, Plus, Wifi, WifiOff, Settings, Network, CheckSquare, Inbox } from 'lucide-react';
+import { Bot, Search, Edit2, User, Plus, Wifi, WifiOff, Settings, CheckSquare, Calendar, Star, Globe, FileText, Code, Layers } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -7,8 +7,8 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSpaceStore } from '../store/useSpaceStore';
-import { normalizeChatRecord } from '../services/channels';
 import { AgentIcon } from './ui/AgentIcon';
+import { normalizeChatRecord } from '../services/channels';
 
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -27,8 +27,6 @@ export function AppSidebar(_: AppSidebarProps) {
   const chats = useChatStore(s => s.chats);
   const activeChatId = useChatStore(s => s.activeChatId);
   const chatSearchQuery = useChatStore(s => s.chatSearchQuery);
-  const editingChatId = useChatStore(s => s.editingChatId);
-  const editingChatName = useChatStore(s => s.editingChatName);
 
   const activeFolderId = useAgentStore(s => s.activeFolderId);
   const assistants = useAgentStore(s => s.assistants);
@@ -40,6 +38,9 @@ export function AppSidebar(_: AppSidebarProps) {
 
   const spaces = useSpaceStore(s => s.spaces);
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
+  const omniTabs = useSpaceStore(s => s.omniTabs);
+  const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
+  const favorites = omniTabs.filter(t => t.isFavorite);
 
   const displayName = (() => {
     if (userName?.trim()) return userName.trim();
@@ -109,27 +110,6 @@ export function AppSidebar(_: AppSidebarProps) {
     useUIStore.getState().setViewMode('chat');
   };
 
-  const createChannel = () => {
-    const id = generateId('c');
-    const chat = normalizeChatRecord({
-      id,
-      folderId: activeFolderId,
-      primaryAgentId: activeFolderId,
-      participantAgentIds: [activeFolderId],
-      kind: 'channel',
-      name: 'New Channel',
-      goal: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }, activeFolderId);
-    useChatStore.getState().setChats((prev: any[]) => [chat, ...prev]);
-    useChatStore.getState().setActiveChatId(id);
-    useChatStore.getState().setMessages((prev: any) => ({ ...prev, [id]: [] }));
-    useTaskStore.getState().setShowPlanner(false);
-    useUIStore.getState().setCanvasContent(null);
-    useUIStore.getState().setViewMode('chat');
-  };
-
   const createAgent = () => {
     useAgentStore.getState().setEditingAssistant({
       id: 'new',
@@ -148,33 +128,10 @@ export function AppSidebar(_: AppSidebarProps) {
     useAgentStore.getState().setShowAssistantSettings(true);
   };
 
-  const renameChat = (chatId: string, name: string) => {
-    useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, name: name || 'Unnamed' } : c));
-  };
-
-  const deleteChannel = (chatId: string, name: string) => {
-    if (!window.confirm(`Delete "${name}" and its messages?`)) return;
-    const { chats: currentChats, activeChatId: currentActiveChatId } = useChatStore.getState();
-    const nextChats = currentChats.filter((chat: any) => chat.id !== chatId);
-    useChatStore.getState().setChats(nextChats);
-    useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
-      const next = { ...prev };
-      delete next[chatId];
-      return next;
-    });
-    if (currentActiveChatId === chatId) {
-      useChatStore.getState().setActiveChatId(nextChats[0]?.id ?? null);
-    }
-  };
-
   const query = chatSearchQuery.toLowerCase();
   const visibleAgents = assistants
     .filter((agent: any) => agent.id !== 'forge-guide' && agent.id !== 'f-default')
     .filter((agent: any) => `${agent.name} ${agent.description ?? ''}`.toLowerCase().includes(query));
-  const visibleChannels = chats
-    .map((chat: any) => normalizeChatRecord(chat, activeFolderId))
-    .filter((chat: any) => chat.kind === 'channel')
-    .filter((chat: any) => `${chat.name} ${chat.goal ?? ''}`.toLowerCase().includes(query));
 
   return (
     <div className={`shrink-0 transition-all duration-300 border-r border-[rgba(255,255,255,0.05)] z-[60] bg-[#0a0b0e] overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
@@ -193,7 +150,7 @@ export function AppSidebar(_: AppSidebarProps) {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" />
               <input
                 className="w-full bg-[rgba(255,255,255,0.06)] rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30 text-neutral-200 placeholder:text-neutral-500"
-                placeholder="Search people, agents, channels..."
+                placeholder="Search people, agents, spaces..."
                 value={chatSearchQuery}
                 onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)}
               />
@@ -302,12 +259,62 @@ export function AppSidebar(_: AppSidebarProps) {
               {visibleAgents.length === 0 && <div className="text-center text-xs text-neutral-500 font-bold mt-4">No agents match this search.</div>}
             </div>
 
-            {/* SPACES section */}
+            {/* TOOLS section — permanent built-in apps (global, never go away) */}
+            <div className="space-y-1 pt-3">
+              <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Tools</div>
+              <div
+                onClick={() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'planner', label: 'To-Do' })}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200 transition-colors"
+              >
+                <CheckSquare className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-xs">To-Do</span>
+              </div>
+              <div
+                onClick={() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'calendar', label: 'Calendar' })}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200 transition-colors"
+              >
+                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-xs">Calendar</span>
+              </div>
+            </div>
+
+            {/* FAVORITES section — user-starred tabs (star a tab to pin it here) */}
+            <div className="space-y-1 pt-3">
+              <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Favorites</div>
+              {favorites.map(tab => {
+                const FavIcon = tab.type === 'web' ? Globe : tab.type === 'doc' ? FileText : tab.type === 'code-canvas' ? Code : Layers;
+                return (
+                  <div
+                    key={tab.id}
+                    onClick={() => useSpaceStore.getState().setActiveTab(tab.id)}
+                    className={`group flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${activeOmniTabId === tab.id ? 'bg-[rgba(255,255,255,0.07)] text-neutral-200' : 'text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200'}`}
+                  >
+                    <FavIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span className="text-xs truncate flex-1">{tab.label}</span>
+                    <button
+                      onClick={e => { e.stopPropagation(); useSpaceStore.getState().toggleFavorite(tab.id); }}
+                      className="opacity-0 group-hover:opacity-100 text-[#C9A227] hover:text-[#E0B530] transition-all shrink-0"
+                      title="Remove from favorites"
+                    >
+                      <Star className="w-3 h-3 fill-current" />
+                    </button>
+                  </div>
+                );
+              })}
+              {favorites.length === 0 && (
+                <div className="px-3 py-1.5 text-[10px] text-neutral-600 leading-relaxed">Star a tab to pin it here for quick access.</div>
+              )}
+            </div>
+
+            {/* SPACES section — each Space is a context container with its own tabs */}
             <div className="space-y-1 pt-3">
               <div className="px-1 flex items-center justify-between">
                 <span className="text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Spaces</span>
                 <button
-                  onClick={() => useSpaceStore.getState().createSpace('New Space', [])}
+                  onClick={() => {
+                    const space = useSpaceStore.getState().createSpace('New Space', []);
+                    useSpaceStore.getState().setActiveSpaceId(space.id);
+                  }}
                   className="p-1 rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-[rgba(255,255,255,0.04)] transition-colors"
                   title="Create new space"
                 >
@@ -317,112 +324,18 @@ export function AppSidebar(_: AppSidebarProps) {
               {spaces.map(space => (
                 <div
                   key={space.id}
-                  onClick={() => {
-                    useSpaceStore.getState().setActiveSpaceId(space.id);
-                    const pinned = useSpaceStore.getState().omniTabs.find(t => t.spaceId === space.id && t.isPinned);
-                    if (pinned) useSpaceStore.getState().setActiveTab(pinned.id);
-                  }}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all text-sm ${activeSpaceId === space.id ? 'bg-[rgba(255,255,255,0.07)] border-l-2 border-[#4A5D75]' : 'hover:bg-[rgba(255,255,255,0.04)] text-neutral-400'}`}
+                  onClick={() => useSpaceStore.getState().setActiveSpaceId(space.id)}
+                  className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${activeSpaceId === space.id ? 'bg-[rgba(255,255,255,0.07)] border-l-2 border-[#4A5D75]' : 'hover:bg-[rgba(255,255,255,0.04)] text-neutral-400'}`}
                 >
                   <span className="text-xs truncate text-neutral-200">{space.name}</span>
                   <span className="ml-2 shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[rgba(255,255,255,0.06)] text-neutral-400">
-                    {space.agentIds.length}
+                    {space.agentIds.length > 0 ? `${space.agentIds.length} agent${space.agentIds.length !== 1 ? 's' : ''}` : 'no agents'}
                   </span>
                 </div>
               ))}
               {spaces.length === 0 && (
                 <div className="text-center text-xs text-neutral-500 font-bold mt-3">No spaces yet.</div>
               )}
-            </div>
-
-            {/* CHANNELS section */}
-            <div className="space-y-1 pt-3">
-              <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Channels</div>
-              {visibleChannels.map((chat: any) => (
-                <div
-                  key={chat.id}
-                  onClick={() => {
-                    useAgentStore.getState().setActiveFolderId(chat.primaryAgentId ?? activeFolderId);
-                    useChatStore.getState().setActiveChatId(chat.id);
-                    useUIStore.getState().setCanvasContent(null);
-                    useTaskStore.getState().setShowPlanner(false);
-                  }}
-                  className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showPlanner ? 'bg-[rgba(255,255,255,0.07)] border-l-2 border-[#4A5D75] font-bold' : 'hover:bg-[rgba(255,255,255,0.04)] text-neutral-400'}`}
-                >
-                  {editingChatId === chat.id ? (
-                    <input
-                      autoFocus
-                      value={editingChatName}
-                      onChange={e => useChatStore.getState().setEditingChatName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          renameChat(chat.id, editingChatName);
-                          useChatStore.getState().setEditingChatId(null);
-                        } else if (e.key === 'Escape') {
-                          useChatStore.getState().setEditingChatId(null);
-                        }
-                      }}
-                      onBlur={() => {
-                        renameChat(chat.id, editingChatName);
-                        useChatStore.getState().setEditingChatId(null);
-                      }}
-                      className="w-full bg-[rgba(255,255,255,0.06)] text-sm font-bold px-3 py-2 rounded-xl outline-none border border-[rgba(255,255,255,0.1)] focus:border-[#6A829E] transition-colors text-neutral-200"
-                    />
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 truncate flex-1">
-                        <Hash className="w-3 h-3 text-[#6A829E] shrink-0" />
-                        <span className="text-xs truncate flex-1 text-neutral-200">{chat.name}</span>
-                      </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            useChatStore.getState().setEditingChatId(chat.id);
-                            useChatStore.getState().setEditingChatName(chat.name);
-                          }}
-                          className="text-neutral-400 hover:text-[#6A829E]"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); deleteChannel(chat.id, chat.name); }}
-                          className="text-neutral-400 hover:text-[#C98A8A]"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))}
-              {visibleChannels.length === 0 && <div className="text-center text-xs text-neutral-500 font-bold mt-3">No channels yet.</div>}
-            </div>
-
-            {/* UTILITIES section */}
-            <div className="space-y-1 pt-3">
-              <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Utilities</div>
-              <div
-                onClick={() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'knowledge-graph', label: 'Knowledge Graph' })}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200 transition-colors"
-              >
-                <Network className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-xs">Knowledge Graph</span>
-              </div>
-              <div
-                onClick={() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'planner', label: 'Planner' })}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200 transition-colors"
-              >
-                <CheckSquare className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-xs">Planner</span>
-              </div>
-              <div
-                onClick={() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'inbox', label: 'Inbox' })}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200 transition-colors"
-              >
-                <Inbox className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-xs">Inbox</span>
-              </div>
             </div>
           </div>
         </div>
@@ -437,10 +350,13 @@ export function AppSidebar(_: AppSidebarProps) {
               <Plus className="w-3.5 h-3.5" /> Agent
             </button>
             <button
-              onClick={createChannel}
+              onClick={() => {
+                const space = useSpaceStore.getState().createSpace('New Space', []);
+                useSpaceStore.getState().setActiveSpaceId(space.id);
+              }}
               className="flex items-center justify-center gap-1.5 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-semibold text-[11px] rounded-xl px-2 py-3 shadow-sm transition-all active:scale-95"
             >
-              <Hash className="w-3.5 h-3.5" /> Channel
+              <Plus className="w-3.5 h-3.5" /> Space
             </button>
             <button
               onClick={() => useSpaceStore.getState().openTab({ type: 'code-canvas', label: 'Untitled Canvas' })}

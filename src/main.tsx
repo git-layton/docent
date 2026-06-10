@@ -1,8 +1,40 @@
 import './index.css';
-import React from "react";
+import React, { Component } from "react";
+import type { ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import SpotlightBar from "./components/SpotlightBar";
+
+// ---------------------------------------------------------------------------
+// Root error boundary — turns white-screen crashes into readable diagnostics
+// ---------------------------------------------------------------------------
+class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    const { error } = this.state;
+    if (error) {
+      return (
+        <div style={{ padding: '2rem', background: '#0a0b0e', color: '#ff6b6b', height: '100vh', fontFamily: 'monospace', overflow: 'auto' }}>
+          <div style={{ fontSize: '18px', marginBottom: '1rem' }}>⚠️ App crashed — {error.message}</div>
+          <pre style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'pre-wrap', marginBottom: '1.5rem' }}>
+            {error.stack}
+          </pre>
+          <button
+            onClick={() => this.setState({ error: null })}
+            style={{ padding: '0.5rem 1.5rem', background: '#4A5D75', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const windowParam = new URLSearchParams(window.location.search).get('window');
 
@@ -25,8 +57,10 @@ function BrowserWindowShim() {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {windowParam === 'spotlight' ? <SpotlightBar /> :
-     windowParam === 'browser'   ? <BrowserWindowShim /> :
-     <App />}
+    <RootErrorBoundary>
+      {windowParam === 'spotlight' ? <SpotlightBar /> :
+       windowParam === 'browser'   ? <BrowserWindowShim /> :
+       <App />}
+    </RootErrorBoundary>
   </React.StrictMode>,
 );
