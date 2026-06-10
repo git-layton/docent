@@ -286,7 +286,7 @@ export function AppSidebar(_: AppSidebarProps) {
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {spaces.map(space => (
+              {spaces.filter(s => s.kind === 'space').map(space => (
                 <div
                   key={space.id}
                   onClick={() => useSpaceStore.getState().setActiveSpaceId(space.id)}
@@ -298,7 +298,7 @@ export function AppSidebar(_: AppSidebarProps) {
                   </span>
                 </div>
               ))}
-              {spaces.length === 0 && (
+              {spaces.filter(s => s.kind === 'space').length === 0 && (
                 <div className="text-center text-xs text-neutral-500 font-bold mt-3">No spaces yet.</div>
               )}
             </div>

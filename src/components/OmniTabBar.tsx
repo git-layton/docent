@@ -1,7 +1,8 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Calendar, Star } from 'lucide-react';
+import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Calendar, Star, SplitSquareHorizontal } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
+import { useUIStore } from '../store/useUIStore';
 import type { OmniTab } from '../types/omniTab';
 
 // ---------------------------------------------------------------------------
@@ -54,10 +55,11 @@ function TypeIcon({ tab }: { tab: OmniTab }) {
 interface TabPillProps {
   tab: OmniTab;
   isActive: boolean;
+  isSplit: boolean;
   index: number;
 }
 
-function TabPill({ tab, isActive, index }: TabPillProps) {
+function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
   const handleDragStart = useCallback(
     (e: React.DragEvent<HTMLButtonElement>) => {
       e.dataTransfer.effectAllowed = 'move';
@@ -123,6 +125,27 @@ function TabPill({ tab, isActive, index }: TabPillProps) {
       >
         <Star className={clsx('w-3 h-3', tab.isFavorite && 'fill-current')} />
       </span>
+      {/* Split — show this tab beside the active one */}
+      {!isActive && (
+        <span
+          role="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            const cur = useUIStore.getState().splitTabId;
+            useUIStore.getState().setSplitTabId(cur === tab.id ? null : tab.id);
+          }}
+          className={clsx(
+            'transition-opacity shrink-0',
+            isSplit
+              ? 'opacity-100 text-[#9EADC8] hover:text-white'
+              : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[rgba(255,255,255,0.6)]',
+          )}
+          title={isSplit ? 'Close split' : 'Open beside current tab'}
+        >
+          <SplitSquareHorizontal className="w-3 h-3" />
+        </span>
+      )}
       {!tab.isPinned && (
         <span
           role="button"
@@ -244,6 +267,7 @@ export function OmniTabBar(): React.JSX.Element {
   const allTabs = useSpaceStore(s => s.omniTabs);
   const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
+  const splitTabId = useUIStore(s => s.splitTabId);
 
   // Only show tabs belonging to the active Space — this IS the Space context
   const spaceTabs = allTabs.filter(t => t.spaceId === activeSpaceId);
@@ -254,7 +278,13 @@ export function OmniTabBar(): React.JSX.Element {
         // Pass the global index so moveTab operates on the full omniTabs array correctly
         const globalIdx = allTabs.findIndex(t => t.id === tab.id);
         return (
-          <TabPill key={tab.id} tab={tab} isActive={tab.id === activeOmniTabId} index={globalIdx} />
+          <TabPill
+            key={tab.id}
+            tab={tab}
+            isActive={tab.id === activeOmniTabId}
+            isSplit={tab.id === splitTabId}
+            index={globalIdx}
+          />
         );
       })}
       <NewTabButton />

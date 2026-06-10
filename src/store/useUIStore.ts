@@ -56,6 +56,9 @@ interface UIStore {
   activeOmniTabId: string | null;
   isCommandNodeExpanded: boolean;
   commandNodeWidth: number;
+  // Split view: a second tab shown beside the active one (resizable)
+  splitTabId: string | null;
+  splitRatio: number;       // primary pane width fraction (0.2–0.8)
 
   // Actions
   setIsSidebarOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
@@ -90,6 +93,8 @@ interface UIStore {
   setActiveOmniTabId: (id: string | null) => void;
   setIsCommandNodeExpanded: (v: boolean) => void;
   setCommandNodeWidth: (v: number) => void;
+  setSplitTabId: (id: string | null) => void;
+  setSplitRatio: (v: number) => void;
 
   // savedApps persistence
   hydrateSavedApps: () => Promise<void>;
@@ -128,6 +133,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   activeOmniTabId: null,
   isCommandNodeExpanded: true,
   commandNodeWidth: 720,
+  splitTabId: null,
+  splitRatio: 0.5,
 
   setIsSidebarOpen: (v) =>
     set(s => ({ isSidebarOpen: typeof v === 'function' ? v(s.isSidebarOpen) : v })),
@@ -177,6 +184,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setActiveOmniTabId: (id) => set({ activeOmniTabId: id }),
   setIsCommandNodeExpanded: (v) => set({ isCommandNodeExpanded: v }),
   setCommandNodeWidth: (v) => set({ commandNodeWidth: v }),
+  setSplitTabId: (id) => set({ splitTabId: id }),
+  setSplitRatio: (v) => set({ splitRatio: Math.max(0.2, Math.min(0.8, v)) }),
 
   hydrateSavedApps: async () => {
     const savedApps = await db.get('savedApps', []);

@@ -1,11 +1,10 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
-  Menu, Settings, CalendarDays,
+  Menu, Settings,
   BookOpen, Search,
-  Hash, Users, Inbox, FileText, Zap, Bookmark, Info
+  Hash, Users, FileText, Zap, Bookmark, Info
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
-import { ActivityMonitorBar, ActivityMonitorButton } from './ActivityMonitor';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -30,8 +29,8 @@ export function ChatHeader({
   dropdownRef,
   llamaPaused: _llamaPaused,
   llamaCoolingDown: _llamaCoolingDown,
-  activeMessages,
-  systemPromptLen,
+  activeMessages: _activeMessages,
+  systemPromptLen: _systemPromptLen,
   hasErrorLogs: _hasErrorLogs,
   errorLogsCount: _errorLogsCount,
   onRunDreamCycle: _onRunDreamCycle,
@@ -39,13 +38,9 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   // Store reads
   const showPlanner = useTaskStore(s => s.showPlanner);
-  const tasks = useTaskStore(s => s.tasks);
 
   const assistants = useAgentStore(s => s.assistants);
   const activeFolderId = useAgentStore(s => s.activeFolderId);
-
-  const models = useSettingsStore(s => s.models);
-  const selectedModelId = useSettingsStore(s => s.selectedModelId);
 
   const chats = useChatStore(s => s.chats);
   const activeChatId = useChatStore(s => s.activeChatId);
@@ -58,12 +53,10 @@ export function ChatHeader({
   const isAgentDropdownOpen = useUIStore(s => s.isAgentDropdownOpen);
 
   const [agentSearch, setAgentSearch] = useState('');
-  const [showActivityBar, setShowActivityBar] = useState(true);
   const [showContextPeek, setShowContextPeek] = useState(false);
   const contextPeekRef = useRef<HTMLDivElement>(null);
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
-  const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
   const activeAgentPinnedMessageObjects = useMemo(() => globalPins.filter(p => p.agentId === activeAssistant?.id), [globalPins, activeAssistant?.id]);
   const activeChat = useMemo(() => chats.find((c: any) => c.id === activeChatId) ?? null, [chats, activeChatId]);
   const normalizedChat = useMemo(() => activeChat ? normalizeChatRecord(activeChat, activeFolderId) : null, [activeChat, activeFolderId]);
@@ -226,18 +219,17 @@ export function ChatHeader({
         </div>
 
         <div className="flex items-center gap-1">
-          {!showPlanner && (
-            <button
-              onClick={() => {
-                useUIStore.getState().setForcedTool('workspace');
-                _onToast('Forge Search armed. Ask what to find across memory, channels, and the Knowledge Core.');
-              }}
-              className="p-2 rounded-lg transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-[#4A5D75]"
-              title="Forge Search"
-            >
-              <Search className="w-5 h-5" />
-            </button>
-          )}
+          {/* Search — find across memory, channels, and the Knowledge Core */}
+          <button
+            onClick={() => {
+              useUIStore.getState().setForcedTool('workspace');
+              _onToast('Forge Search armed. Ask what to find across memory, channels, and the Knowledge Core.');
+            }}
+            className="p-2 rounded-lg transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-[#4A5D75]"
+            title="Forge Search"
+          >
+            <Search className="w-5 h-5" />
+          </button>
           {ramStats && ramStats.available_mb < (hwProfile?.hud_show_mb ?? 2000) && (
             <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
               ramStats.available_mb < (hwProfile?.hud_warn_mb ?? 1200) ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
@@ -246,50 +238,28 @@ export function ChatHeader({
               {(ramStats.available_mb / 1024).toFixed(1)}GB
             </div>
           )}
-          <ActivityMonitorButton visible={showActivityBar} onToggle={() => setShowActivityBar(v => !v)} />
-          <button onClick={() => useTaskStore.getState().setShowPlanner(v => !v)} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showPlanner ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}>
-            <CalendarDays className="w-5 h-5" />
-            {tasks.filter(t => !t.completed).length > 0 && <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#6A829E] text-white text-[9px] font-black">{tasks.filter(t => !t.completed).length}</span>}
-          </button>
-          <button
-            onClick={() => {
-              useMemoryStore.getState().setMemmoPanelTab('inbox');
-              useMemoryStore.getState().setShowMemmoPanel(true);
-            }}
-            className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel && memmoPanelTab === 'inbox' ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
-            title="Forge Inbox"
-          >
-            <Inbox className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => {
-              if (memmoPanelTab === 'inbox') useMemoryStore.getState().setMemmoPanelTab('library');
-              useMemoryStore.getState().setShowMemmoPanel(v => !v);
-            }}
-            className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel && memmoPanelTab !== 'inbox' ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
-            title="Memos & Memory (⌘⇧M)"
-          >
-            <BookOpen className="w-5 h-5" />
-            {activeAgentPinnedMessageObjects.length > 0 && (
-              <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#D4AA7D] text-white text-[9px] font-black">
-                {activeAgentPinnedMessageObjects.length}
-              </span>
-            )}
-          </button>
+          {/* Knowledge base — only meaningful in a 1:1 DM with a single agent */}
+          {!isChannel && (
+            <button
+              onClick={() => {
+                if (memmoPanelTab === 'inbox') useMemoryStore.getState().setMemmoPanelTab('library');
+                useMemoryStore.getState().setShowMemmoPanel(v => !v);
+              }}
+              className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${showMemmoPanel && memmoPanelTab !== 'inbox' ? 'bg-[#D6E0EA] dark:bg-[#1E2B38]/50 text-[#4A5D75]' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400'}`}
+              title="Knowledge Base"
+            >
+              <BookOpen className="w-5 h-5" />
+              {activeAgentPinnedMessageObjects.length > 0 && (
+                <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#D4AA7D] text-white text-[9px] font-black">
+                  {activeAgentPinnedMessageObjects.length}
+                </span>
+              )}
+            </button>
+          )}
           <div className="w-px h-6 bg-neutral-200 dark:bg-neutral-800 mx-1" />
           <button onClick={() => useSettingsStore.getState().setShowProfileSettings(true)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg text-neutral-400"><Settings className="w-5 h-5" /></button>
         </div>
       </header>
-
-      {showActivityBar && (
-        <ActivityMonitorBar
-          messages={!showPlanner ? activeMessages : []}
-          systemPromptLen={!showPlanner ? systemPromptLen : 0}
-          limit={selectedModel?.contextLimit ?? 32000}
-          showContext={!showPlanner}
-          onHide={() => setShowActivityBar(false)}
-        />
-      )}
     </>
   );
 }

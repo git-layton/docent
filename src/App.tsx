@@ -7,7 +7,6 @@ import {
   AlignLeft, MapPin, Workflow,
   AlertTriangle, Loader2, Activity, UserPlus, Bookmark, CalendarDays,
   MessageSquare, Mail, Layers, Send, CheckCircle2, CalendarClock,
-  PanelRightOpen,
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -124,30 +123,22 @@ export default function App() {
   const isDbLoaded = useUIStore(s => s.isDbLoaded);
 
   const activeOmniTab = useSpaceStore(s => s.omniTabs.find(t => t.id === s.activeOmniTabId) ?? null);
+  const allOmniTabs = useSpaceStore(s => s.omniTabs);
+  const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
 
-  // ── Chat dock mode (hybrid): inline & centered on the Home/chat tab; docked to
-  //    the right rail when a web/doc/canvas/tool tab is active so the AI rides
-  //    alongside the content. Derived (never stored) to avoid stale-frame mismatch.
-  const chatDockMode: 'inline' | 'right' = (() => {
-    const t = activeOmniTab?.type;
-    if (!activeOmniTab || t === 'space-log') return 'inline';
-    // A freshly-opened doc/canvas with nothing generated yet has no canvas content → inline
-    if (!canvasContent && (t === 'code-canvas' || t === 'doc')) return 'inline';
-    if (t === 'web' || t === 'doc' || t === 'code-canvas' || t === 'tool') return 'right';
-    return 'inline';
-  })();
-  // Right-rail open/collapsed state — reuse the unused useUIStore field
-  const isChatPanelOpen = useUIStore(s => s.isCommandNodeExpanded);
-  const setIsChatPanelOpen = useUIStore(s => s.setIsCommandNodeExpanded);
+  // ── Split view: every tab is full-screen by default; optionally show a second
+  //    tab beside it with a draggable divider (e.g. chat next to a doc).
+  const splitTabId = useUIStore(s => s.splitTabId);
+  const splitRatio = useUIStore(s => s.splitRatio);
+  const splitTab = splitTabId
+    ? allOmniTabs.find(t => t.id === splitTabId && t.spaceId === activeSpaceId && t.id !== activeOmniTab?.id) ?? null
+    : null;
+  const splitContainerRef = useRef<HTMLDivElement>(null);
 
   // Ghost UI / marginalia (doc + code-canvas tabs only)
   const agentVisionOn = useMarginaliaStore(s => s.agentVisionOn);
   const setAgentVisionOn = useMarginaliaStore(s => s.setAgentVisionOn);
   const annotations = useMarginaliaStore(s => s.annotations);
-  const isCanvasTab = activeOmniTab?.type === 'doc' || activeOmniTab?.type === 'code-canvas';
-  const tabAnnotations = isCanvasTab && activeOmniTab
-    ? annotations.filter(a => a.tabId === activeOmniTab.id && a.status === 'open')
-    : [];
 
   // ── Local state (must stay in App.tsx) ──────────────────────────────────────
   const [llamaServerPid, setLlamaServerPid] = useState<number | null>(null);
@@ -2324,6 +2315,84 @@ export default function App() {
     onSlashCommand: handleSlashCommand,
   };
 
+  // Render the content for any tab — the chat (space-log) is just another tab,
+  // shown full-width by default and splittable beside another.
+  const renderTabContent = (tab: typeof activeOmniTab) => {
+    if (!tab || tab.type === 'space-log') {
+      return (
+        <ChatPanel
+          mode="inline"
+          spaceLogProps={spaceLogProps}
+          chatInputBarProps={chatInputBarProps}
+          isThreadEmpty={activeMessages.length === 0}
+          onSendPrompt={handleSendPrompt}
+        />
+      );
+    }
+    if (tab.type === 'web') {
+      return <BrowserTabContent tabId={tab.id} initialUrl={tab.url} />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'knowledge-graph') {
+      return <div className="flex-1 flex flex-col h-full overflow-hidden"><KnowledgeGraphPanel /></div>;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'planner') {
+      return <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'calendar') {
+      return <CalendarPanel onToast={showToast} />;
+    }
+    if (tab.type === 'code-canvas' || tab.type === 'doc') {
+      const tabAnns = annotations.filter(a => a.tabId === tab.id && a.status === 'open');
+      return (
+        <>
+          {canvasContent ? (
+            <CanvasPanel
+              isGenerating={isGenerating}
+              onHistoryNavigate={handleHistoryNavigate}
+              onSaveToLibrary={saveToLibrary}
+              codeRef={codeRef}
+              lineNumbersRef={lineNumbersRef}
+              onCodeScroll={handleCodeScroll}
+              onSendMessage={handleSendMessage}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center h-full text-xs text-neutral-500">
+              Nothing here yet — ask an agent to build something.
+            </div>
+          )}
+          {/* Ghost UI: Agent Vision toggle + marginalia overlay */}
+          <div className="absolute top-3 right-3 z-50">
+            <AgentVisionToggle on={agentVisionOn} onToggle={setAgentVisionOn} />
+          </div>
+          <MarginaliaLayer
+            tabId={tab.id}
+            annotations={tabAnns}
+            visible={agentVisionOn}
+            onAccept={(id) => useMarginaliaStore.getState().updateAnnotationStatus(id, 'accepted')}
+            onDismiss={(id) => useMarginaliaStore.getState().updateAnnotationStatus(id, 'dismissed')}
+          />
+        </>
+      );
+    }
+    return null;
+  };
+
+  // Drag the split divider to resize the two panes.
+  const handleSplitDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const move = (ev: MouseEvent) => {
+      const rect = splitContainerRef.current?.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+      useUIStore.getState().setSplitRatio((ev.clientX - rect.left) / rect.width);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
   return (
     <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-[#0a0b0e] text-neutral-900 dark:text-neutral-100">
 
@@ -2461,91 +2530,34 @@ export default function App() {
       <div className="flex-1 flex flex-col overflow-hidden relative min-w-0">
         <OmniTabBar />
 
-        <div className="flex-1 flex overflow-hidden min-h-0">
-          {/* CENTER viewport */}
-          <div className="flex-1 relative overflow-hidden min-w-0">
-            {chatDockMode === 'inline' ? (
-              /* Home / inline: chat fills the center (hero when the thread is empty) */
-              <ChatPanel
-                mode="inline"
-                spaceLogProps={spaceLogProps}
-                chatInputBarProps={chatInputBarProps}
-                isThreadEmpty={activeMessages.length === 0}
-                onSendPrompt={handleSendPrompt}
-              />
-            ) : (
-              /* Docked: content tab fills the center; chat lives in the right rail */
-              <>
-                {activeOmniTab?.type === 'web' && (
-                  <BrowserTabContent tabId={activeOmniTab.id} initialUrl={activeOmniTab.url} />
-                )}
-                {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'knowledge-graph' && (
-                  <div className="flex-1 flex flex-col h-full overflow-hidden">
-                    <KnowledgeGraphPanel />
-                  </div>
-                )}
-                {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'planner' && (
-                  <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />
-                )}
-                {activeOmniTab?.type === 'tool' && activeOmniTab.toolId === 'calendar' && (
-                  <CalendarPanel onToast={showToast} />
-                )}
-                {(activeOmniTab?.type === 'code-canvas' || activeOmniTab?.type === 'doc') && canvasContent && (
-                  <CanvasPanel
-                    isGenerating={isGenerating}
-                    onHistoryNavigate={handleHistoryNavigate}
-                    onSaveToLibrary={saveToLibrary}
-                    codeRef={codeRef}
-                    lineNumbersRef={lineNumbersRef}
-                    onCodeScroll={handleCodeScroll}
-                    onSendMessage={handleSendMessage}
-                  />
-                )}
-
-                {/* Ghost UI: Agent Vision toggle + marginalia overlay (doc/canvas only) */}
-                {isCanvasTab && activeOmniTab && (
-                  <>
-                    <div className="absolute top-3 right-3 z-50">
-                      <AgentVisionToggle on={agentVisionOn} onToggle={setAgentVisionOn} />
-                    </div>
-                    <MarginaliaLayer
-                      tabId={activeOmniTab.id}
-                      annotations={tabAnnotations}
-                      visible={agentVisionOn}
-                      onAccept={(id) => useMarginaliaStore.getState().updateAnnotationStatus(id, 'accepted')}
-                      onDismiss={(id) => useMarginaliaStore.getState().updateAnnotationStatus(id, 'dismissed')}
-                    />
-                  </>
-                )}
-              </>
-            )}
+        <div ref={splitContainerRef} className="flex-1 flex overflow-hidden min-h-0">
+          {/* PRIMARY pane — the active tab, full width unless split */}
+          <div
+            className="relative overflow-hidden min-w-0 flex flex-col"
+            style={{ flex: splitTab ? `0 0 ${splitRatio * 100}%` : '1 1 100%' }}
+          >
+            {renderTabContent(activeOmniTab)}
           </div>
 
-          {/* RIGHT rail: collapsible docked chat (dock mode only) */}
-          {chatDockMode === 'right' && (
-            <div
-              className={`shrink-0 h-full border-l border-[rgba(255,255,255,0.07)] bg-[#0a0b0e] flex flex-col transition-[width] duration-200 ease-out ${isChatPanelOpen ? 'w-[420px]' : 'w-12'}`}
-            >
-              {isChatPanelOpen ? (
-                <ChatPanel
-                  mode="docked"
-                  spaceLogProps={spaceLogProps}
-                  chatInputBarProps={chatInputBarProps}
-                  isThreadEmpty={activeMessages.length === 0}
-                  onSendPrompt={handleSendPrompt}
-                  onCollapse={() => setIsChatPanelOpen(false)}
-                />
-              ) : (
+          {/* SPLIT pane — a second tab beside the active one, with a draggable divider */}
+          {splitTab && (
+            <>
+              <div
+                onMouseDown={handleSplitDrag}
+                className="w-1 shrink-0 cursor-col-resize bg-[rgba(255,255,255,0.07)] hover:bg-[#4A5D75] transition-colors"
+                title="Drag to resize"
+              />
+              <div className="relative overflow-hidden min-w-0 flex flex-col flex-1">
                 <button
-                  onClick={() => setIsChatPanelOpen(true)}
-                  className="h-full w-full flex flex-col items-center pt-3 gap-2 text-[rgba(255,255,255,0.45)] hover:text-white hover:bg-[rgba(255,255,255,0.04)] transition-colors"
-                  title="Open chat"
+                  onClick={() => useUIStore.getState().setSplitTabId(null)}
+                  className="absolute top-2 right-2 z-[60] p-1 rounded-md bg-[#12141a]/80 text-neutral-400 hover:text-white hover:bg-[rgba(255,255,255,0.1)] transition-colors"
+                  title="Close split"
                 >
-                  <PanelRightOpen className="w-4 h-4" />
-                  <span className="[writing-mode:vertical-rl] text-[10px] uppercase tracking-widest">Chat</span>
+                  <X className="w-3.5 h-3.5" />
                 </button>
-              )}
-            </div>
+                {renderTabContent(splitTab)}
+              </div>
+            </>
           )}
         </div>
       </div>
