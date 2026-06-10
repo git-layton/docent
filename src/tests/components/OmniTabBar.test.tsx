@@ -1,0 +1,276 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import '@testing-library/jest-dom'
+import { OmniTabBar } from '../../components/OmniTabBar'
+import { useSpaceStore } from '../../store/useSpaceStore'
+import type { OmniTab } from '../../types/omniTab'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeTab(overrides: Partial<OmniTab>): OmniTab {
+  return {
+    id: 'tab-test',
+    type: 'space-log',
+    label: 'Test Tab',
+    ...overrides,
+  }
+}
+
+function seedStore(tabs: OmniTab[], activeId: string | null = null) {
+  useSpaceStore.setState({
+    omniTabs: tabs,
+    activeOmniTabId: activeId ?? (tabs[0]?.id ?? null),
+    spaces: [],
+    activeSpaceId: null,
+  })
+}
+
+beforeEach(() => {
+  useSpaceStore.setState({
+    omniTabs: [],
+    activeOmniTabId: null,
+    spaces: [],
+    activeSpaceId: null,
+  })
+  vi.clearAllMocks()
+})
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+describe('OmniTabBar — rendering', () => {
+  it('renders nothing but the + button when there are no tabs', () => {
+    seedStore([])
+    render(<OmniTabBar />)
+    expect(screen.getByTitle('New tab')).toBeInTheDocument()
+  })
+
+  it('renders one pill per tab', () => {
+    seedStore([
+      makeTab({ id: 'a', label: 'Space Log', type: 'space-log' }),
+      makeTab({ id: 'b', label: 'Google', type: 'web', url: 'https://google.com' }),
+      makeTab({ id: 'c', label: 'My Doc', type: 'doc' }),
+    ], 'a')
+    render(<OmniTabBar />)
+    expect(screen.getByText('Space Log')).toBeInTheDocument()
+    expect(screen.getByText('Google')).toBeInTheDocument()
+    expect(screen.getByText('My Doc')).toBeInTheDocument()
+  })
+
+  it('active tab gets the bg-[#12141a] class', () => {
+    seedStore([
+      makeTab({ id: 'a', label: 'Active Tab', type: 'space-log' }),
+      makeTab({ id: 'b', label: 'Idle Tab', type: 'doc' }),
+    ], 'a')
+    render(<OmniTabBar />)
+    const activeBtn = screen.getByText('Active Tab').closest('button')!
+    const idleBtn   = screen.getByText('Idle Tab').closest('button')!
+    expect(activeBtn.className).toContain('bg-[#12141a]')
+    expect(idleBtn.className).not.toContain('bg-[#12141a]')
+  })
+
+  it('inactive tab gets the hover text class, not active bg', () => {
+    seedStore([
+      makeTab({ id: 'a', label: 'Home', type: 'space-log' }),
+      makeTab({ id: 'b', label: 'Other', type: 'doc' }),
+    ], 'a')
+    render(<OmniTabBar />)
+    const idle = screen.getByText('Other').closest('button')!
+    expect(idle.className).toContain('hover:text-[rgba(255,255,255,0.7)]')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tab interactions
+// ---------------------------------------------------------------------------
+
+describe('OmniTabBar — tab interactions', () => {
+  it('clicking an inactive tab calls setActiveTab with its id', () => {
+    seedStore([
+      makeTab({ id: 'tab-a', label: 'First', type: 'space-log' }),
+      makeTab({ id: 'tab-b', label: 'Second', type: 'doc' }),
+    ], 'tab-a')
+    const spy = vi.spyOn(useSpaceStore.getState(), 'setActiveTab')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByText('Second'))
+    expect(spy).toHaveBeenCalledWith('tab-b')
+  })
+
+  it('clicking the already-active tab still calls setActiveTab', () => {
+    seedStore([makeTab({ id: 'tab-x', label: 'Only Tab', type: 'space-log' })], 'tab-x')
+    const spy = vi.spyOn(useSpaceStore.getState(), 'setActiveTab')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByText('Only Tab'))
+    expect(spy).toHaveBeenCalledWith('tab-x')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Pinned vs closeable tabs
+// ---------------------------------------------------------------------------
+
+describe('OmniTabBar — pinned tab protection', () => {
+  it('pinned tab has no close button', () => {
+    seedStore([makeTab({ id: 'pinned', label: 'Pinned', isPinned: true })], 'pinned')
+    render(<OmniTabBar />)
+    expect(screen.queryByTitle('Close tab')).not.toBeInTheDocument()
+  })
+
+  it('non-pinned tab renders a close button', () => {
+    seedStore([makeTab({ id: 'free', label: 'Closeable', isPinned: false })], 'free')
+    render(<OmniTabBar />)
+    expect(screen.getByTitle('Close tab')).toBeInTheDocument()
+  })
+
+  it('multiple tabs: only non-pinned ones show close buttons', () => {
+    seedStore([
+      makeTab({ id: 'p', label: 'Pinned',    isPinned: true }),
+      makeTab({ id: 'a', label: 'Free A',    isPinned: false }),
+      makeTab({ id: 'b', label: 'Free B',    isPinned: false }),
+    ], 'p')
+    render(<OmniTabBar />)
+    expect(screen.getAllByTitle('Close tab')).toHaveLength(2)
+  })
+
+  it('close button click calls closeTab with the correct id', () => {
+    seedStore([makeTab({ id: 'kill-me', label: 'Kill Me', isPinned: false })], 'kill-me')
+    const spy = vi.spyOn(useSpaceStore.getState(), 'closeTab')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('Close tab'))
+    expect(spy).toHaveBeenCalledWith('kill-me')
+  })
+
+  it('close button click does NOT propagate to setActiveTab', () => {
+    seedStore([
+      makeTab({ id: 'tab-1', label: 'First', isPinned: false }),
+      makeTab({ id: 'tab-2', label: 'Second', isPinned: false }),
+    ], 'tab-1')
+    const setActive = vi.spyOn(useSpaceStore.getState(), 'setActiveTab')
+    render(<OmniTabBar />)
+    // Click close on the FIRST tab (which is active)
+    const closeBtns = screen.getAllByTitle('Close tab')
+    fireEvent.click(closeBtns[0])
+    // setActiveTab should NOT have been triggered by the close click
+    expect(setActive).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// New tab popover
+// ---------------------------------------------------------------------------
+
+describe('OmniTabBar — new tab popover', () => {
+  it('+ button is always present', () => {
+    seedStore([])
+    render(<OmniTabBar />)
+    expect(screen.getByTitle('New tab')).toBeInTheDocument()
+  })
+
+  it('popover is hidden before clicking +', () => {
+    seedStore([])
+    render(<OmniTabBar />)
+    expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
+  })
+
+  it('clicking + reveals all three tab type options', () => {
+    seedStore([])
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('New tab'))
+    expect(screen.getByText('Web Browser')).toBeInTheDocument()
+    expect(screen.getByText('Document')).toBeInTheDocument()
+    expect(screen.getByText('Code Canvas')).toBeInTheDocument()
+  })
+
+  it('clicking "Web Browser" calls openTab with type=web', () => {
+    seedStore([])
+    const spy = vi.spyOn(useSpaceStore.getState(), 'openTab')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('New tab'))
+    fireEvent.click(screen.getByText('Web Browser'))
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'web' }),
+    )
+  })
+
+  it('clicking "Document" calls openTab with type=doc', () => {
+    seedStore([])
+    const spy = vi.spyOn(useSpaceStore.getState(), 'openTab')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('New tab'))
+    fireEvent.click(screen.getByText('Document'))
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'doc' }),
+    )
+  })
+
+  it('clicking "Code Canvas" calls openTab with type=code-canvas', () => {
+    seedStore([])
+    const spy = vi.spyOn(useSpaceStore.getState(), 'openTab')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('New tab'))
+    fireEvent.click(screen.getByText('Code Canvas'))
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'code-canvas' }),
+    )
+  })
+
+  it('selecting a tab type closes the popover', () => {
+    seedStore([])
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('New tab'))
+    fireEvent.click(screen.getByText('Web Browser'))
+    expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
+  })
+
+  it('clicking outside the popover closes it', () => {
+    seedStore([])
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('New tab'))
+    expect(screen.getByText('Web Browser')).toBeInTheDocument()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Drag-to-reorder
+// ---------------------------------------------------------------------------
+
+describe('OmniTabBar — drag-to-reorder', () => {
+  it('draggable attribute is true on non-pinned tabs', () => {
+    seedStore([makeTab({ id: 'x', label: 'Drag Me', isPinned: false })], 'x')
+    render(<OmniTabBar />)
+    const btn = screen.getByText('Drag Me').closest('button')!
+    expect(btn).toHaveAttribute('draggable', 'true')
+  })
+
+  it('draggable attribute is false on pinned tabs', () => {
+    seedStore([makeTab({ id: 'p', label: 'Pinned', isPinned: true })], 'p')
+    render(<OmniTabBar />)
+    const btn = screen.getByText('Pinned').closest('button')!
+    expect(btn).toHaveAttribute('draggable', 'false')
+  })
+
+  it('drop from index 0 to index 1 calls moveTab(0, 1)', () => {
+    seedStore([
+      makeTab({ id: 'first',  label: 'First',  isPinned: false }),
+      makeTab({ id: 'second', label: 'Second', isPinned: false }),
+    ], 'first')
+    const spy = vi.spyOn(useSpaceStore.getState(), 'moveTab')
+    render(<OmniTabBar />)
+
+    const [firstBtn, secondBtn] = screen.getAllByRole('button').filter(
+      b => b.getAttribute('draggable') !== null,
+    )
+
+    const dt = { effectAllowed: '', dropEffect: '', getData: () => '0', setData: vi.fn() }
+    fireEvent.dragStart(firstBtn, { dataTransfer: dt })
+    fireEvent.dragOver(secondBtn, { dataTransfer: { ...dt, dropEffect: '' } })
+    fireEvent.drop(secondBtn, { dataTransfer: { ...dt, getData: () => '0' } })
+
+    expect(spy).toHaveBeenCalledWith(0, 1)
+  })
+})

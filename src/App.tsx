@@ -2367,10 +2367,7 @@ export default function App() {
       )}
 
       {/* ── Sidebar ── */}
-      <AppSidebar
-        onDeleteSavedApp={() => {}}
-        onCreateBlankArtifact={() => {}}
-      />
+      <AppSidebar />
 
       {/* ── Main Panel ── */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
