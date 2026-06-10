@@ -372,25 +372,33 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     return () => clearTimeout(t);
   }, [tabs, activeTabId]);
 
-  // Inject pop-up handler — opens popups as new tabs instead of hijacking current page navigation
+  // Inject pop-up handler — opens popups as new tabs instead of hijacking current page navigation.
+  // Re-injects per navigation (each page load is a fresh JS context). Skips auth/sign-in domains
+  // (Google etc.) whose own flows rely on native window.open/navigation, and returns a stub window
+  // object instead of null so caller code that touches the result doesn't throw.
   useEffect(() => {
+    if (!url) return;
     const t = setTimeout(() => {
       invoke('browser_eval', {
         label: BROWSER_LABEL,
         script: `(function(){
         if(window.__popupHandled)return;
         window.__popupHandled=true;
-        window.open=function(url,target,features){
-          if(url&&typeof url==='string'&&url.startsWith('http')){
-            window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke('browser_open_tab',{url:url});
+        var h=location.hostname||'';
+        if(/(^|\\.)(google\\.com|gmail\\.com|youtube\\.com|googleusercontent\\.com|accounts\\.youtube\\.com)$/.test(h))return;
+        var _open=window.open;
+        window.open=function(u,target,features){
+          if(u&&typeof u==='string'&&u.startsWith('http')){
+            window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke('browser_open_tab',{url:u});
+            return {closed:false,focus:function(){},blur:function(){},close:function(){},postMessage:function(){},location:{href:u},document:null};
           }
-          return null;
+          return _open?_open.apply(window,arguments):null;
         };
       })();`
       }).catch(() => {});
-    }, 1200);
+    }, 800);
     return () => clearTimeout(t);
-  }, []);
+  }, [url]);
 
   // Inject download link interceptor into WKWebView (best-effort, one-time on mount)
   useEffect(() => {
@@ -413,9 +421,14 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     return () => clearTimeout(t);
   }, []);
 
-  // Inject ad/tracker blocker into each page after load
+  // Inject ad/tracker blocker into each page after load — skip Google/auth domains so the
+  // element-hiding heuristics never clip sign-in UI or break login flows.
   useEffect(() => {
     if (!url || url === HOME_URL) return;
+    try {
+      const h = new URL(url).hostname;
+      if (/(^|\.)(google\.com|gmail\.com|accounts\.google\.com|youtube\.com)$/.test(h)) return;
+    } catch { /* fall through */ }
     const t = setTimeout(() => {
       invoke('browser_eval', { label: BROWSER_LABEL, script: AD_BLOCK_SCRIPT }).catch(() => {});
     }, 900);
