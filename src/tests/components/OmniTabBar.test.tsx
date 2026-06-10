@@ -27,7 +27,7 @@ function seedStore(tabs: OmniTab[], activeId: string | null = null) {
   useSpaceStore.setState({
     omniTabs: spacedTabs,
     activeOmniTabId: activeId ?? (spacedTabs[0]?.id ?? null),
-    spaces: [{ id: TEST_SPACE_ID, name: 'Test', agentIds: [], peopleIds: [], tabIds: spacedTabs.map(t => t.id), createdAt: 0, updatedAt: 0 }],
+    spaces: [{ id: TEST_SPACE_ID, kind: 'space', name: 'Test', agentIds: [], peopleIds: [], tabIds: spacedTabs.map(t => t.id), chatId: 'chat-test', createdAt: 0, updatedAt: 0 }],
     activeSpaceId: TEST_SPACE_ID,
   })
 }

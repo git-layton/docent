@@ -22,6 +22,8 @@ vi.mock('../../services/database', () => {
 
 // Import the mocked db after vi.mock is hoisted
 import { db } from '../../services/database'
+import { useChatStore } from '../../store/useChatStore'
+import { useAgentStore } from '../../store/useAgentStore'
 
 // ---------------------------------------------------------------------------
 // Helper: reset store to blank state before each test
@@ -377,10 +379,12 @@ describe('hydrate — restore from DB', () => {
     const savedSpaces: Space[] = [
       {
         id: 'space-test',
+        kind: 'space',
         name: 'Test Space',
         agentIds: [],
         peopleIds: [],
         tabIds: ['tab-test'],
+        chatId: 'chat-test',
         createdAt: 1000,
         updatedAt: 1001,
       },
@@ -391,7 +395,7 @@ describe('hydrate — restore from DB', () => {
     const savedActiveIds = { activeOmniTabId: 'tab-test', activeSpaceId: 'space-test' }
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
-      if (key === 'spaceStoreVersion') return '2'
+      if (key === 'spaceStoreVersion') return '3'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return savedActiveIds
@@ -410,14 +414,14 @@ describe('hydrate — restore from DB', () => {
 
   it('does not seed defaults when persisted data exists', async () => {
     const savedSpaces: Space[] = [
-      { id: 'space-a', name: 'A', agentIds: [], peopleIds: [], tabIds: [], createdAt: 0, updatedAt: 0 },
+      { id: 'space-a', kind: 'space', name: 'A', agentIds: [], peopleIds: [], tabIds: [], chatId: 'chat-a', createdAt: 0, updatedAt: 0 },
     ]
     const savedTabs: OmniTab[] = [
       { id: 'tab-a', type: 'doc', label: 'Doc A' },
     ]
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
-      if (key === 'spaceStoreVersion') return '2'
+      if (key === 'spaceStoreVersion') return '3'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return { activeOmniTabId: 'tab-a', activeSpaceId: 'space-a' }
@@ -478,5 +482,61 @@ describe('persist', () => {
     const activeIds = persisted['spaceStoreActiveIds'] as { activeOmniTabId: string; activeSpaceId: string }
     expect(activeIds.activeOmniTabId).toBe('tab-xyz')
     expect(activeIds.activeSpaceId).toBe('space-abc')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unified container model — each container (DM or Space) owns its own thread.
+// This is the fix for "DMs bleeding into Spaces".
+// ---------------------------------------------------------------------------
+
+describe('container model — per-container threads', () => {
+  beforeEach(() => {
+    resetStore()
+    useChatStore.setState({ chats: [], messages: {}, activeChatId: null })
+  })
+
+  it('createSpace gives the space its own chatId and a backing chat thread', () => {
+    const space = useSpaceStore.getState().createSpace('Project X')
+    expect(space.kind).toBe('space')
+    expect(space.chatId).toBeTruthy()
+    // a chat record + messages bucket now exist for that thread
+    expect(useChatStore.getState().chats.some(c => c.id === space.chatId)).toBe(true)
+    expect(useChatStore.getState().messages[space.chatId]).toEqual([])
+  })
+
+  it('openAgentDm creates a DM container with the stable id dm-<agentId>', () => {
+    const id = useSpaceStore.getState().openAgentDm({ id: 'lexi', name: 'Lexi' })
+    expect(id).toBe('dm-lexi')
+    const dm = useSpaceStore.getState().spaces.find(s => s.id === 'dm-lexi')
+    expect(dm?.kind).toBe('dm')
+    expect(dm?.agentIds).toEqual(['lexi'])
+    expect(dm?.chatId).toBeTruthy()
+  })
+
+  it('openAgentDm is idempotent — clicking the same agent twice reuses the container', () => {
+    useSpaceStore.getState().openAgentDm({ id: 'aria', name: 'Aria' })
+    useSpaceStore.getState().openAgentDm({ id: 'aria', name: 'Aria' })
+    const dms = useSpaceStore.getState().spaces.filter(s => s.id === 'dm-aria')
+    expect(dms).toHaveLength(1)
+  })
+
+  it('selecting a container drives activeChatId to ITS thread (no bleed)', () => {
+    const space = useSpaceStore.getState().createSpace('Work')
+    useSpaceStore.getState().openAgentDm({ id: 'dev', name: 'Dev' })
+    // Now in the DM — activeChatId is the DM's thread
+    const dm = useSpaceStore.getState().spaces.find(s => s.id === 'dm-dev')!
+    expect(useChatStore.getState().activeChatId).toBe(dm.chatId)
+    // Switch to the Space — activeChatId follows to the Space's own thread
+    useSpaceStore.getState().setActiveSpaceId(space.id)
+    expect(useChatStore.getState().activeChatId).toBe(space.chatId)
+    expect(space.chatId).not.toBe(dm.chatId)
+  })
+
+  it('selecting a container sets the active agent to its primary', () => {
+    useSpaceStore.getState().createSpace('Team', ['dev', 'aria'])
+    const team = useSpaceStore.getState().spaces.find(s => s.name === 'Team')!
+    useSpaceStore.getState().setActiveSpaceId(team.id)
+    expect(useAgentStore.getState().activeFolderId).toBe('dev')
   })
 })

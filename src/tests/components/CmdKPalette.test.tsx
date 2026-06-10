@@ -14,7 +14,7 @@ function openPalette() {
 beforeEach(() => {
   cleanup()
   useSpaceStore.setState({
-    spaces: [{ id: 'sp1', name: 'Q4 Launch', agentIds: [], peopleIds: [], tabIds: [], createdAt: 0, updatedAt: 0 }],
+    spaces: [{ id: 'sp1', kind: 'space', name: 'Q4 Launch', agentIds: [], peopleIds: [], tabIds: [], chatId: 'chat-sp1', createdAt: 0, updatedAt: 0 }],
     omniTabs: [
       { id: 'tab-doc', type: 'doc', label: 'Spec Doc' },
       { id: 'tab-web', type: 'web', label: 'GitHub', url: 'https://github.com' },

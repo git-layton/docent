@@ -1,19 +1,27 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
-import type { OmniTab, Space } from '../types/omniTab';
+import type { OmniTab, Space, SpaceKind } from '../types/omniTab';
+import { useChatStore } from './useChatStore';
+import { useAgentStore } from './useAgentStore';
+import { normalizeChatRecord } from '../services/channels';
 
 const generateId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-// Bump this when the persisted schema changes in a breaking way — forces a clean reseed
-const STORE_VERSION = '2';
+// Bump when the persisted schema changes in a breaking way — forces a clean reseed.
+// v3: Spaces are unified containers — each carries `kind` + its own `chatId`.
+const STORE_VERSION = '3';
+
+const HOME_CHAT_ID = 'chat-home';
 
 const defaultSpace: Space = {
   id: 'space-home',
+  kind: 'space',
   name: 'Home',
   agentIds: ['alexis'],
   peopleIds: [],
   tabIds: ['tab-space-log-default'],
+  chatId: HOME_CHAT_ID,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };
@@ -25,6 +33,45 @@ const defaultTab: OmniTab = {
   spaceId: 'space-home',
   isPinned: true,
 };
+
+// ---------------------------------------------------------------------------
+// Cross-store helpers — a container's conversation lives in useChatStore.
+// These only call plain setters, so coupling stays shallow.
+// ---------------------------------------------------------------------------
+
+/** Ensure a chat record + messages bucket exist for `chatId` (no-op if present). */
+function ensureChatThread(
+  chatId: string,
+  opts: { kind: 'dm' | 'channel'; name: string; primaryAgentId: string; agentIds: string[] },
+) {
+  const cs = useChatStore.getState();
+  if (cs.chats.some((c: any) => c.id === chatId)) return;
+  const rec = normalizeChatRecord(
+    {
+      id: chatId,
+      folderId: opts.primaryAgentId,
+      primaryAgentId: opts.primaryAgentId,
+      participantAgentIds: opts.agentIds,
+      kind: opts.kind,
+      name: opts.name,
+      goal: '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    },
+    opts.primaryAgentId,
+  );
+  cs.setChats((prev: any[]) => [rec, ...prev]);
+  cs.setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId] ?? [] }));
+}
+
+/** Find an existing DM chat for an agent (preserves history across the migration). */
+function findExistingDmChatId(agentId: string): string | null {
+  const { chats } = useChatStore.getState();
+  const dm = chats.find(
+    (c: any) => c.kind === 'dm' && (c.primaryAgentId === agentId || c.folderId === agentId),
+  );
+  return dm?.id ?? null;
+}
 
 interface SpaceStore {
   spaces: Space[];
@@ -38,7 +85,8 @@ interface SpaceStore {
   moveTab(fromIdx: number, toIdx: number): void;
   updateTabLabel(id: string, url: string, title: string): void;
   toggleFavorite(id: string): void;
-  createSpace(name: string, agentIds?: string[]): Space;
+  createSpace(name: string, agentIds?: string[], kind?: SpaceKind): Space;
+  openAgentDm(agent: { id: string; name?: string }): string;
   deleteSpace(id: string): void;
   updateSpace(id: string, patch: Partial<Space>): void;
   setActiveSpaceId(id: string | null): void;
@@ -58,10 +106,8 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
   openTab: (tab) => {
     const id = generateId('tab');
     const { activeSpaceId, spaces } = get();
-    // Auto-assign spaceId from active space if not explicitly set
     const spaceId = tab.spaceId ?? activeSpaceId ?? undefined;
     const newTab: OmniTab = { ...tab, id, spaceId };
-    // Also record the new tab id in the owning space's tabIds
     const updatedSpaces = spaceId
       ? spaces.map(s => s.id === spaceId
           ? { ...s, tabIds: [...s.tabIds, id], updatedAt: Date.now() }
@@ -81,11 +127,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     let nextActiveId = activeOmniTabId;
 
     if (activeOmniTabId === id) {
-      // Prefer to land on another tab in the same space
       const spaceRemaining = remaining.filter(t => t.spaceId === (tab.spaceId ?? activeSpaceId));
       const allIdx = omniTabs.findIndex(t => t.id === id);
       if (spaceRemaining.length > 0) {
-        // Pick the closest tab in the space (pinned first, then by position)
         const pinned = spaceRemaining.find(t => t.isPinned);
         nextActiveId = pinned?.id ?? spaceRemaining[Math.max(0, allIdx - 1) % spaceRemaining.length]?.id ?? null;
       } else if (remaining.length > 0) {
@@ -131,10 +175,21 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     get().persist();
   },
 
-  createSpace: (name, agentIds = []) => {
+  createSpace: (name, agentIds = [], kind = 'space') => {
     const spaceId = generateId('space');
     const tabId = generateId('tab');
-    // Every new space gets a pinned chat tab automatically
+    const chatId = generateId('chat');
+    const primaryAgentId = agentIds[0] ?? 'alexis';
+    const participants = agentIds.length > 0 ? agentIds : [primaryAgentId];
+
+    // Each container owns its own conversation thread.
+    ensureChatThread(chatId, {
+      kind: kind === 'dm' ? 'dm' : 'channel',
+      name,
+      primaryAgentId,
+      agentIds: participants,
+    });
+
     const chatTab: OmniTab = {
       id: tabId,
       type: 'space-log',
@@ -144,16 +199,55 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     };
     const space: Space = {
       id: spaceId,
+      kind,
       name,
       agentIds,
       peopleIds: [],
       tabIds: [tabId],
+      chatId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     set(s => ({ spaces: [...s.spaces, space], omniTabs: [...s.omniTabs, chatTab] }));
     get().persist();
     return space;
+  },
+
+  openAgentDm: (agent) => {
+    const containerId = `dm-${agent.id}`;
+    const existing = get().spaces.find(s => s.id === containerId);
+    if (!existing) {
+      // Reuse an existing DM chat (preserves history) or start a fresh one.
+      const chatId = findExistingDmChatId(agent.id) ?? generateId('chat');
+      ensureChatThread(chatId, {
+        kind: 'dm',
+        name: agent.name ?? 'Agent',
+        primaryAgentId: agent.id,
+        agentIds: [agent.id],
+      });
+      const tabId = `tab-${containerId}`;
+      const chatTab: OmniTab = {
+        id: tabId,
+        type: 'space-log',
+        label: agent.name ?? 'Agent',
+        spaceId: containerId,
+        isPinned: true,
+      };
+      const dm: Space = {
+        id: containerId,
+        kind: 'dm',
+        name: agent.name ?? 'Agent',
+        agentIds: [agent.id],
+        peopleIds: [],
+        tabIds: [tabId],
+        chatId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      set(s => ({ spaces: [...s.spaces, dm], omniTabs: [...s.omniTabs, chatTab] }));
+    }
+    get().setActiveSpaceId(containerId);
+    return containerId;
   },
 
   deleteSpace: (id) => {
@@ -172,11 +266,20 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
 
   setActiveSpaceId: (id) => {
     if (!id) { set({ activeSpaceId: null }); return; }
-    const { omniTabs } = get();
+    const { omniTabs, spaces } = get();
+    const space = spaces.find(s => s.id === id);
     const spaceTabs = omniTabs.filter(t => t.spaceId === id);
     const pinned = spaceTabs.find(t => t.isPinned);
     const first = spaceTabs[0];
     set({ activeSpaceId: id, activeOmniTabId: (pinned ?? first)?.id ?? null });
+
+    // Drive the global conversation + active agent to THIS container's thread.
+    if (space) {
+      useChatStore.getState().setActiveChatId(space.chatId);
+      const primary = space.agentIds[0];
+      if (primary) useAgentStore.getState().setActiveFolderId(primary);
+    }
+    get().persist();
   },
 
   hydrate: async () => {
@@ -188,7 +291,6 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const isCompatible = version === STORE_VERSION && spaces !== null && omniTabs !== null;
 
     if (isCompatible) {
-      // Restore from persisted data — tabs already have spaceId from v2+
       set({
         spaces: spaces as Space[],
         omniTabs: omniTabs as OmniTab[],
@@ -196,7 +298,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
     } else {
-      // First run OR stale schema (v1 tabs had no spaceId) — reseed cleanly
+      // First run or stale schema (pre-v3 had no kind/chatId) — reseed cleanly.
       if (version !== null) {
         console.info(`[SpaceStore] schema v${version} → v${STORE_VERSION}, reseeding`);
       }
@@ -206,12 +308,26 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         activeOmniTabId: 'tab-space-log-default',
         activeSpaceId: 'space-home',
       });
-      // Persist new clean state immediately
       const { spaces: s, omniTabs: t, activeOmniTabId, activeSpaceId } = get();
       await db.set('spaceStoreVersion', STORE_VERSION);
       await db.set('spaceStoreSpaces', s);
       await db.set('spaceStoreOmniTabs', t);
       await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });
+    }
+
+    // Reconcile the active conversation with the active container's own thread,
+    // so the chat panel never shows a leftover DM when a Space is active.
+    const active = get().spaces.find(s => s.id === get().activeSpaceId);
+    if (active) {
+      ensureChatThread(active.chatId, {
+        kind: active.kind === 'dm' ? 'dm' : 'channel',
+        name: active.name,
+        primaryAgentId: active.agentIds[0] ?? 'alexis',
+        agentIds: active.agentIds.length > 0 ? active.agentIds : ['alexis'],
+      });
+      useChatStore.getState().setActiveChatId(active.chatId);
+      const primary = active.agentIds[0];
+      if (primary) useAgentStore.getState().setActiveFolderId(primary);
     }
   },
 

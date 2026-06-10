@@ -8,9 +8,7 @@ import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { AgentIcon } from './ui/AgentIcon';
-import { normalizeChatRecord } from '../services/channels';
 
-const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 interface AppSidebarProps {
   // onDeleteSavedApp and onCreateBlankArtifact removed — Unit 7 (App.tsx migration) handles call site cleanup
@@ -24,11 +22,8 @@ export function AppSidebar(_: AppSidebarProps) {
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
   const canvasContent = useUIStore(s => s.canvasContent);
 
-  const chats = useChatStore(s => s.chats);
-  const activeChatId = useChatStore(s => s.activeChatId);
   const chatSearchQuery = useChatStore(s => s.chatSearchQuery);
 
-  const activeFolderId = useAgentStore(s => s.activeFolderId);
   const assistants = useAgentStore(s => s.assistants);
   const appSettings = useSettingsStore(s => s.appSettings);
   const userProfile = useSettingsStore(s => s.userProfile);
@@ -74,36 +69,9 @@ export function AppSidebar(_: AppSidebarProps) {
   }, [networkActive]);
 
   const openDirect = (agent: any) => {
-    const allDms = chats
-      .map((chat: any) => normalizeChatRecord(chat, agent.id))
-      .filter((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === agent.id || chat.folderId === agent.id));
-    // Pick most recently updated to avoid landing on blank duplicates
-    const existingDirect = allDms.sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
-    if (existingDirect) {
-      useAgentStore.getState().setActiveFolderId(agent.id);
-      useChatStore.getState().setActiveChatId(existingDirect.id);
-      if (agent.defaultModelId) useSettingsStore.getState().setSelectedModelId(agent.defaultModelId);
-      useTaskStore.getState().setShowPlanner(false);
-      useUIStore.getState().setCanvasContent(null);
-      useUIStore.getState().setViewMode('chat');
-      return;
-    }
-    const id = generateId('c');
-    const chat = normalizeChatRecord({
-      id,
-      folderId: agent.id,
-      primaryAgentId: agent.id,
-      participantAgentIds: [agent.id],
-      kind: 'dm',
-      name: `${agent?.name ?? 'Agent'} Direct`,
-      goal: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }, agent.id);
-    useAgentStore.getState().setActiveFolderId(agent.id);
-    useChatStore.getState().setChats((prev: any[]) => [chat, ...prev]);
-    useChatStore.getState().setActiveChatId(id);
-    useChatStore.getState().setMessages((prev: any) => ({ ...prev, [id]: [] }));
+    // A DM is a container scoped to one agent — open (or create) it; the store
+    // wires the active container, its tab, its own thread, and the active agent.
+    useSpaceStore.getState().openAgentDm({ id: agent.id, name: agent.name });
     if (agent.defaultModelId) useSettingsStore.getState().setSelectedModelId(agent.defaultModelId);
     useTaskStore.getState().setShowPlanner(false);
     useUIStore.getState().setCanvasContent(null);
@@ -224,11 +192,8 @@ export function AppSidebar(_: AppSidebarProps) {
             <div className="space-y-1 pt-3">
               <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Agents</div>
               {visibleAgents.map((agent: any) => {
-                const direct = chats
-                  .map((chat: any) => normalizeChatRecord(chat, agent.id))
-                  .filter((chat: any) => chat.kind === 'dm' && (chat.primaryAgentId === agent.id || chat.folderId === agent.id))
-                  .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
-                const isActive = activeChatId === direct?.id || (!activeChatId && activeFolderId === agent.id);
+                // A DM container has the stable id `dm-<agentId>`.
+                const isActive = activeSpaceId === `dm-${agent.id}`;
                 return (
                   <div
                     key={agent.id}
