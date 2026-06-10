@@ -257,7 +257,6 @@ export function BrowserWindowApp() {
         y: Math.round(rect.top),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       });
       webviewRef.current = wv;
 
@@ -366,8 +365,9 @@ export function BrowserWindowApp() {
     return () => clearTimeout(t);
   }, [tabs, activeTabId]);
 
-  // Inject pop-up handler — opens popups as new tabs instead of hijacking current page navigation
+  // Inject pop-up handler on every navigation — re-injects because each page has a fresh JS context
   useEffect(() => {
+    if (!url) return;
     const t = setTimeout(() => {
       invoke('browser_eval', {
         label: BROWSER_LABEL,
@@ -376,18 +376,23 @@ export function BrowserWindowApp() {
         window.__popupHandled=true;
         window.open=function(url,target,features){
           if(url&&typeof url==='string'&&url.startsWith('http')){
-            window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke('browser_open_tab',{url:url});
+            if(features&&features.length>0){
+              window.location.href=url;
+            } else {
+              window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke('browser_open_tab',{url:url});
+            }
           }
           return null;
         };
       })();`
       }).catch(() => {});
-    }, 1200);
+    }, 800);
     return () => clearTimeout(t);
-  }, []);
+  }, [url]);
 
-  // Inject download link interceptor into WKWebView (best-effort, one-time on mount)
+  // Inject download link interceptor on every navigation
   useEffect(() => {
+    if (!url) return;
     const t = setTimeout(() => {
       invoke('browser_eval', {
         label: BROWSER_LABEL,
@@ -403,13 +408,17 @@ export function BrowserWindowApp() {
         },true);
       })();`
       }).catch(() => {});
-    }, 1400);
+    }, 900);
     return () => clearTimeout(t);
-  }, []);
+  }, [url]);
 
-  // Inject ad/tracker blocker into each page after load
+  // Inject ad/tracker blocker — skip Google/auth domains to avoid breaking login flows
   useEffect(() => {
     if (!url || url === HOME_URL) return;
+    try {
+      const h = new URL(url).hostname;
+      if (/(?:^|\.)google\.com$|^accounts\.google\.com$|^gmail\.com$|^youtube\.com$/.test(h)) return;
+    } catch (_) {}
     const t = setTimeout(() => {
       invoke('browser_eval', { label: BROWSER_LABEL, script: AD_BLOCK_SCRIPT }).catch(() => {});
     }, 900);
