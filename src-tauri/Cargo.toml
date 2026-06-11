@@ -36,3 +36,7 @@ reqwest = { version = "0.12", features = ["stream"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["time"] }
 scraper = "0.20"
+# Local-first mail layer (IMAP read; SMTP/parse added next). Uses native-tls = macOS Security.framework,
+# already in the tree, so no new TLS stack.
+imap = "2"
+native-tls = "0.2"

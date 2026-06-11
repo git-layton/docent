@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star, Key, Plus, BookMarked } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star, Key, Plus, BookMarked, ExternalLink, ShieldAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { Webview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
 import { emit, listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useProactiveCommentary } from '../services/proactiveCommentary';
 import { useBrowserStore } from '../store/useBrowserStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -26,6 +27,13 @@ function normalizeUrl(input: string): string {
 }
 
 const BROWSER_LABEL = 'browser-panel';
+
+// Present a genuine desktop Safari identity — WKWebView *is* WebKit/Safari, so this matches the real
+// JS environment (no Chrome token, no missing navigator.userAgentData). Paired with a document-start
+// mask (see the Rust `browser_create` command) that fills in `window.safari`, the one global real
+// Safari exposes that WKWebView omits.
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15';
 
 function tryHostname(rawUrl: string): string {
   try { return new URL(rawUrl).hostname; } catch { return rawUrl; }
@@ -256,14 +264,27 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       if (rect.width < 10 || rect.height < 10) return; // layout not ready
 
       const win = await getCurrentWindow();
-      const wv = new Webview(win, BROWSER_LABEL, {
+      // Create via the Rust command (not `new Webview`) so the document-start Safari mask is baked in
+      // at build time — the JS WebviewOptions API has no init-script hook. Then grab a JS handle for
+      // bounds/navigation/close.
+      await invoke('browser_create', {
+        windowLabel: win.label,
+        label: BROWSER_LABEL,
         url: startUrl,
         x: Math.round(rect.left),
         y: Math.round(rect.top),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        userAgent: BROWSER_UA,
       });
+
+      // The webview registers asynchronously on the main thread; poll briefly for its handle.
+      let wv: Webview | null = null;
+      for (let i = 0; i < 20 && mountedRef.current && !wv; i++) {
+        wv = await Webview.getByLabel(BROWSER_LABEL);
+        if (!wv) await new Promise(r => setTimeout(r, 50));
+      }
+      if (!wv || !mountedRef.current) return;
       webviewRef.current = wv;
 
       // Poll URL every 800ms to sync nav bar with user clicks inside the webview
@@ -444,9 +465,12 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     return () => clearTimeout(t);
   }, [url]);
 
-  // Inject password form detector — fires Tauri events on password field focus and form submit
+  // Inject password form detector — fires Tauri events on password field focus and form submit.
+  // Skip Google/auth domains: don't capture Google credentials and keep injected-script surface
+  // off their sign-in pages.
   useEffect(() => {
     if (!url) return;
+    if (/(^|\.)(google\.com|gmail\.com|youtube\.com)$/.test(tryHostname(url))) return;
     const t = setTimeout(() => {
       invoke('browser_eval', {
         label: BROWSER_LABEL,
@@ -627,6 +651,12 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     setTimeout(() => { if (mountedRef.current) setIsLoading(false); }, 2000);
   }, []);
 
+  // Open the current page in the user's real default browser. The reliable escape hatch when
+  // Google refuses to sign in inside the embedded WKWebView ("this browser may not be secure").
+  const openInSystemBrowser = useCallback(() => {
+    if (url) openUrl(url).catch(() => {});
+  }, [url]);
+
   const handleAutofill = useCallback(async () => {
     const result = await invoke<{ ok: boolean; username?: string; password?: string }>(
       'keychain_get', { host: pwHost }
@@ -782,6 +812,10 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     }
   };
 
+  // Google serves the "this browser may not be secure" block from accounts.google.com and won't
+  // let the user sign in inside an embedded webview. Surface the system-browser escape hatch there.
+  const isGoogleAuth = tryHostname(url) === 'accounts.google.com';
+
   return (
     <div className="flex flex-col h-full w-full bg-white dark:bg-neutral-900 overflow-hidden select-none">
       <style>{`
@@ -860,6 +894,13 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
             title="Reload (Cmd+R)"
           >
             <RotateCw className={clsx('w-3.5 h-3.5', isLoading && 'animate-spin')} />
+          </button>
+          <button
+            onClick={openInSystemBrowser}
+            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            title="Open in your default browser"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
           </button>
         </div>
 
@@ -1004,6 +1045,24 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: true }).catch(() => {})} className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Next">↓</button>
           <button onClick={() => { setFindOpen(false); setFindQuery(''); }} className="p-1 rounded text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Google blocks sign-in inside embedded webviews — offer the system-browser escape hatch.
+          Lives in the flex-column flow (not an overlay) so it stays above the native webview. */}
+      {isGoogleAuth && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 text-xs text-amber-800 dark:text-amber-200">
+          <ShieldAlert className="w-4 h-4 shrink-0" />
+          <span className="flex-1 min-w-0">
+            Google blocks sign-in inside embedded browsers. Open this page in your default browser to sign in.
+          </span>
+          <button
+            onClick={openInSystemBrowser}
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Open in default browser
           </button>
         </div>
       )}

@@ -5,6 +5,8 @@ use sysinfo::{System, CpuRefreshKind, RefreshKind};
 use tauri::{Emitter, Manager};
 use futures_util::StreamExt;
 
+mod mail;
+
 // ─── App State ───────────────────────────────────────────────────────────────
 
 struct LlamaState {
@@ -2461,6 +2463,77 @@ fn check_page_is_private(html: String, url: String) -> bool {
 
 // ─── Browser Panel Navigation Commands ───────────────────────────────────────
 
+// Document-start mask that makes the embedded WKWebView present as genuine desktop Safari.
+//
+// WKWebView *is* WebKit/Safari under the hood, but it omits `window.safari` — an object real
+// desktop Safari always exposes. That absence is one of the few reliable client-side tells that
+// distinguishes an embedded webview from the real browser, and Google's "this browser may not be
+// secure" check is the kind of gate that keys on it. We define a minimal, believable `window.safari`
+// before any page script runs so the environment is internally consistent with the Safari UA.
+//
+// Runs via `initialization_script_for_all_frames` (document-start, every frame) so the mask is in
+// place before Google's detection JS — our older post-load `browser_eval` injection fires far too
+// late. Defensive: only defines what's missing, wrapped in try/catch, so it can't break other sites.
+const BROWSER_MASK_SCRIPT: &str = r#"
+(function () {
+  try {
+    if (!('safari' in window)) {
+      var pushNotification = {
+        toString: function () { return '[object SafariRemoteNotification]'; },
+        permission: function () { return { deviceToken: null, permission: 'default' }; },
+        requestPermission: function () {}
+      };
+      Object.defineProperty(window, 'safari', {
+        value: Object.freeze({ pushNotification: Object.freeze(pushNotification) }),
+        configurable: false,
+        enumerable: false,
+        writable: false
+      });
+    }
+  } catch (e) {}
+})();
+"#;
+
+// Create the browser-panel webview as a child of the given window, with the Safari UA and the
+// document-start mask baked in. Replaces the JS-side `new Webview(...)` because the JS WebviewOptions
+// API (Tauri 2.10) exposes `userAgent` but no initialization-script hook — and the mask MUST be a
+// real document-start script to land before page JS.
+// NOTE: must be `async` so Tauri runs it off the main thread. `add_child` schedules the webview
+// build onto the main thread and blocks until it completes — a sync command (which Tauri runs on
+// the main thread) would deadlock waiting on itself and freeze the app.
+#[tauri::command]
+async fn browser_create(
+    app: tauri::AppHandle,
+    window_label: String,
+    label: String,
+    url: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    user_agent: String,
+) -> Result<(), String> {
+    // Already exists (e.g. re-entrant mount) — leave it; the JS side closes stale ones first.
+    if app.get_webview(&label).is_some() {
+        return Ok(());
+    }
+    let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    let window = app
+        .get_window(&window_label)
+        .ok_or_else(|| format!("window '{}' not found", window_label))?;
+    let builder = tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
+        .user_agent(&user_agent)
+        .initialization_script_for_all_frames(BROWSER_MASK_SCRIPT);
+    window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(x, y),
+            tauri::LogicalSize::new(width, height),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 fn browser_navigate(app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
     let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
@@ -3045,6 +3118,8 @@ pub fn run() {
             start_local_model,
             extract_page_text,
             check_page_is_private,
+            mail::mail_test_connection,
+            browser_create,
             browser_navigate,
             browser_reload,
             browser_go_back,
