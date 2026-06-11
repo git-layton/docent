@@ -20,6 +20,12 @@ function toLocalISODate(dateObj: Date): string {
   return new Date(dateObj.getTime() - offset).toISOString().split('T')[0];
 }
 
+/** Add `n` days to an ISO date string, returning a new ISO date string. */
+function addISODays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return toLocalISODate(new Date(y, m - 1, d + n));
+}
+
 const EVENT_EMOJI: Record<RecurringEvent['type'], string> = {
   birthday: '🎂',
   anniversary: '💍',
@@ -68,14 +74,22 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
     [year, monthNum],
   );
 
-  // Group active (incomplete) tasks by their dueDate for O(1) per-cell lookup.
+  // Group active (incomplete) tasks by date for O(1) per-cell lookup. Multi-day
+  // tasks (those with an `endDate` after their start) are registered on every
+  // day they span.
   const tasksByDate = useMemo(() => {
     const map = new Map<string, any[]>();
+    const push = (iso: string, t: any) => {
+      const list = map.get(iso);
+      if (list) list.push(t);
+      else map.set(iso, [t]);
+    };
     for (const t of tasks) {
       if (!t || t.completed || !t.dueDate) continue;
-      const list = map.get(t.dueDate);
-      if (list) list.push(t);
-      else map.set(t.dueDate, [t]);
+      const end = t.endDate && t.endDate > t.dueDate ? t.endDate : t.dueDate;
+      for (let iso = t.dueDate, guard = 0; iso <= end && guard < 366; iso = addISODays(iso, 1), guard++) {
+        push(iso, t);
+      }
     }
     return map;
   }, [tasks]);
@@ -234,15 +248,21 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                 </span>
 
                 <div className="flex flex-col gap-0.5 overflow-hidden">
-                  {dayTasks.map(t => (
-                    <span
-                      key={t.id}
-                      title={t.title}
-                      className="text-[9px] font-bold truncate px-1.5 py-0.5 rounded bg-[#6A829E]/25 text-[#C5D3E0]"
-                    >
-                      {t.title}
-                    </span>
-                  ))}
+                  {dayTasks.map(t => {
+                    const isSpan = t.endDate && t.endDate > t.dueDate;
+                    return (
+                      <span
+                        key={t.id}
+                        title={isSpan ? `${t.title} (${t.dueDate} → ${t.endDate})` : t.title}
+                        className={clsx(
+                          'text-[9px] font-bold truncate px-1.5 py-0.5 rounded text-[#C5D3E0]',
+                          isSpan ? 'bg-[#6A829E]/40 border-l-2 border-[#9EADC8]' : 'bg-[#6A829E]/25',
+                        )}
+                      >
+                        {t.title}
+                      </span>
+                    );
+                  })}
                   {dayEvents.map(ev => (
                     <span
                       key={ev.id}

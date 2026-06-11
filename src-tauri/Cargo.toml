@@ -40,3 +40,5 @@ scraper = "0.20"
 # already in the tree, so no new TLS stack.
 imap = "2"
 native-tls = "0.2"
+mail-parser = "0.9"
+lettre = "0.11"

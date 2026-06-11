@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browser-remote",
+  "description": "Remote (http/https) pages loaded in the browser-panel child webview may reach ONLY the fire-and-forget reporting commands the injected annotator / password-detector scripts need. Everything else (keychain_*, browser_eval, browser_navigate, mail_*, fs/graph/model commands) is denied for these untrusted origins.",
+  "webviews": ["browser-panel"],
+  "remote": {
+    "urls": ["http://*", "https://*"]
+  },
+  "local": false,
+  "permissions": [
+    "allow-browser-remote"
+  ]
+}

@@ -50,7 +50,7 @@ describe('OmniTabBar — rendering', () => {
   it('renders nothing but the + button when there are no tabs', () => {
     seedStore([])
     render(<OmniTabBar />)
-    expect(screen.getByTitle('New tab')).toBeInTheDocument()
+    expect(screen.getByTitle('New tab — Home')).toBeInTheDocument()
   })
 
   it('renders one pill per tab', () => {
@@ -207,79 +207,48 @@ describe('OmniTabBar — pinned tab protection', () => {
 })
 
 // ---------------------------------------------------------------------------
-// New tab popover
+// New tab button — opens the Home start page
 // ---------------------------------------------------------------------------
 
-describe('OmniTabBar — new tab popover', () => {
+describe('OmniTabBar — new tab button', () => {
   it('+ button is always present', () => {
     seedStore([])
     render(<OmniTabBar />)
-    expect(screen.getByTitle('New tab')).toBeInTheDocument()
+    expect(screen.getByTitle('New tab — Home')).toBeInTheDocument()
   })
 
-  it('popover is hidden before clicking +', () => {
+  it('does not render a tab-type dropdown (the old popover is gone)', () => {
     seedStore([])
     render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('New tab — Home'))
     expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
+    expect(screen.queryByText('Code Canvas')).not.toBeInTheDocument()
   })
 
-  it('clicking + reveals all three tab type options', () => {
-    seedStore([])
-    render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
-    expect(screen.getByText('Web Browser')).toBeInTheDocument()
-    expect(screen.getByText('Document')).toBeInTheDocument()
-    expect(screen.getByText('Code Canvas')).toBeInTheDocument()
-  })
-
-  it('clicking "Web Browser" calls openTab with type=web', () => {
+  it('clicking + opens a Home tab when none exists', () => {
     seedStore([])
     const spy = vi.spyOn(useSpaceStore.getState(), 'openTab')
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
-    fireEvent.click(screen.getByText('Web Browser'))
+    fireEvent.click(screen.getByTitle('New tab — Home'))
     expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'web' }),
+      expect.objectContaining({ type: 'home' }),
     )
   })
 
-  it('clicking "Document" calls openTab with type=doc', () => {
-    seedStore([])
-    const spy = vi.spyOn(useSpaceStore.getState(), 'openTab')
-    render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
-    fireEvent.click(screen.getByText('Document'))
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'doc' }),
+  it('clicking + focuses the existing Home tab instead of opening a duplicate', () => {
+    seedStore(
+      [
+        makeTab({ id: 'home-1', type: 'home', label: 'Home' }),
+        makeTab({ id: 'log-1', type: 'space-log', label: 'Chat' }),
+      ],
+      'log-1',
     )
-  })
-
-  it('clicking "Code Canvas" calls openTab with type=code-canvas', () => {
-    seedStore([])
-    const spy = vi.spyOn(useSpaceStore.getState(), 'openTab')
+    const openSpy = vi.spyOn(useSpaceStore.getState(), 'openTab')
+    const activeSpy = vi.spyOn(useSpaceStore.getState(), 'setActiveTab')
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
-    fireEvent.click(screen.getByText('Code Canvas'))
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'code-canvas' }),
-    )
-  })
-
-  it('selecting a tab type closes the popover', () => {
-    seedStore([])
-    render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
-    fireEvent.click(screen.getByText('Web Browser'))
-    expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
-  })
-
-  it('clicking outside the popover closes it', () => {
-    seedStore([])
-    render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
-    expect(screen.getByText('Web Browser')).toBeInTheDocument()
-    fireEvent.mouseDown(document.body)
-    expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('New tab — Home'))
+    expect(activeSpy).toHaveBeenCalledWith('home-1')
+    expect(openSpy).not.toHaveBeenCalled()
   })
 })
 

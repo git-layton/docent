@@ -5,8 +5,8 @@ import {
   FileText,
   Clock, ListTodo,
   AlignLeft, MapPin, Workflow,
-  AlertTriangle, Loader2, Activity, UserPlus, Bookmark, CalendarDays,
-  MessageSquare, Mail, Layers, Send, CheckCircle2, CalendarClock,
+  AlertTriangle, Loader2, Activity, UserPlus, Bookmark,
+  MessageSquare, Mail, Layers, Send, CheckCircle2,
 } from 'lucide-react';
 
 import { db } from './services/database';
@@ -23,6 +23,7 @@ import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse
 import { normalizeChatRecord, routeAgentsForChannel, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
+import { runBrowserAgent, isBrowserPanelReady } from './services/browserAgent';
 import { evaluateDroppedMessages } from './services/contextEvaluator';
 import { computePinProfile } from './services/pinPersonalization';
 import { invoke } from '@tauri-apps/api/core';
@@ -52,9 +53,12 @@ import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
 import { OmniTabBar } from './components/OmniTabBar';
+import { StartPage } from './components/StartPage';
 import { ChatPanel } from './components/ChatPanel';
 import { BrowserTabContent } from './components/BrowserTabContent';
+import { MailInboxPanel } from './components/MailInboxPanel';
 import { CalendarPanel } from './components/CalendarPanel';
+import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateCard, GcalDeleteCard } from './components/EventCards';
 import { CmdKPalette } from './components/CmdKPalette';
 import { MarginaliaLayer } from './components/MarginaliaLayer';
 import { AgentVisionToggle } from './components/AgentVisionToggle';
@@ -1390,6 +1394,7 @@ export default function App() {
     const _isDeepThinking = useUIStore.getState().isDeepThinking;
     const _canvasContent = useUIStore.getState().canvasContent;
     const _tasks = useTaskStore.getState().tasks;
+    const _recurringEvents = useTaskStore.getState().recurringEvents;
     const _userProfile = useSettingsStore.getState().userProfile;
     const _userName = useSettingsStore.getState().userName;
 
@@ -1417,6 +1422,8 @@ export default function App() {
           toolUsed = 'Knowledge Search';
       } else if (primaryToolRoute === 'web_search') {
           toolUsed = 'Web Search';
+      } else if (primaryToolRoute === 'browser') {
+          toolUsed = 'Browse';
       } else if (primaryToolRoute === 'calendar') {
           toolUsed = 'Calendar';
       }
@@ -1428,6 +1435,7 @@ export default function App() {
         const toolMsgId = generateId('tool');
         const searchProviders: string[] = [];
         let searchResultCount = 0;
+        let browseSummary = '';
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false, timestamp: Date.now() }] }));
 
         if (toolUsed === 'Knowledge Search') {
@@ -1558,6 +1566,51 @@ export default function App() {
                 useUIStore.getState().showToast("Web search failed. Check console logs.");
                 toolData += `\n\n[SYSTEM NOTE: WEB SEARCH FAILED]\nThe web search encountered an error: ${e.message}\n[END SEARCH]`;
             }
+        } else if (toolUsed === 'Browse') {
+            try {
+                if (!(await isBrowserPanelReady())) {
+                    browseSummary = '🌐 Browse · open the browser panel first';
+                    useUIStore.getState().showToast('Open the browser panel to let me browse the web for you.');
+                    toolData += `\n\n[SYSTEM NOTE: BROWSE UNAVAILABLE]\nThe embedded browser panel is not open, so agentic browsing could not run. Ask the user to open the Browser view, then try again.\n[END BROWSE]`;
+                } else {
+                    // Start from an explicit URL in the message if present, otherwise a DuckDuckGo HTML
+                    // results page the agent can click through. (DDG's html endpoint renders plain
+                    // result links and doesn't gate the embedded webview the way Google sign-in does.)
+                    const urlMatch = userMsg.content.match(/https?:\/\/[^\s)]+/i);
+                    const query = userMsg.content.replace(/^\s*(browse|open|go to|navigate to|visit|look on|check)\s+/i, '').trim() || userMsg.content;
+                    const startUrl = urlMatch ? urlMatch[0] : `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+
+                    const result = await runBrowserAgent({
+                        task: userMsg.content,
+                        startUrl,
+                        modelConfig: _selectedModel,
+                        signal: abortControllerRef.current?.signal,
+                        confirmSubmit: (desc: string) => window.confirm(`Agent Forge wants to submit a form while browsing.\n\n${desc}\n\nAllow?`),
+                        onProgress: (p) => {
+                            const label = `🌐 Browsing · step ${p.step}/${p.maxSteps}${p.action ? ` · ${p.action}` : ''}`;
+                            useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${label} ] ` } : m) }));
+                        },
+                    });
+
+                    result.sources.forEach((s) => {
+                        if (!foundSources.some((x: any) => x.url === s.url)) foundSources.push({ title: s.title, url: s.url, snippet: '' });
+                    });
+
+                    const sourceList = result.sources.length > 0
+                        ? '\n\nPages visited:\n' + result.sources.map((s) => `- ${s.title} (${s.url})`).join('\n')
+                        : '';
+                    const budgetNote = result.reachedBudget ? '\n(Note: the browsing step budget was reached before a definitive answer.)' : '';
+                    toolData += `\n\n[SYSTEM NOTE: BROWSE FINDINGS]\n${result.answer}${budgetNote}${sourceList}\n[END BROWSE]`;
+                    browseSummary = result.error
+                        ? '🌐 Browse · error'
+                        : `🌐 Browse · ${result.steps} step${result.steps !== 1 ? 's' : ''} · ${result.sources.length} page${result.sources.length !== 1 ? 's' : ''}`;
+                }
+            } catch (e: any) {
+                console.error('Browse agent failed:', e);
+                useUIStore.getState().showToast('Browsing failed. Check console logs.');
+                browseSummary = '🌐 Browse · error';
+                toolData += `\n\n[SYSTEM NOTE: BROWSE FAILED]\nThe browse agent encountered an error: ${e?.message ?? e}\n[END BROWSE]`;
+            }
         } else if (toolUsed === 'Calendar') {
             try {
                 const taskText = userMsg.content.replace(/^(schedule|remind me to|add|calendar|set reminder for)\s*/i, '').trim();
@@ -1574,6 +1627,8 @@ export default function App() {
             ? `🔍 ${searchProviders.length > 0 ? searchProviders.join(' + ') : 'Web'} · ${searchResultCount} result${searchResultCount !== 1 ? 's' : ''}`
             : `🔍 Web Search · no results found`;
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${summary} ]` } : m) }));
+        } else if (toolUsed === 'Browse') {
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${browseSummary || '🌐 Browse'} ]` } : m) }));
         } else {
           await new Promise(r => setTimeout(r, 800));
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
@@ -1636,6 +1691,7 @@ export default function App() {
             attachedDocs: userMsg.attachedFiles,
             agent: agentWithChannelContext,
             tasks: _tasks,
+            recurringEvents: _recurringEvents,
             mode: isImageRequest ? 'image' : _generationMode,
             canvasContent: _canvasContent,
             isDeepThinking: _isDeepThinking,
@@ -1690,6 +1746,7 @@ export default function App() {
               attachedDocs: userMsg.attachedFiles,
               agent: fallbackWithContext,
               tasks: _tasks,
+              recurringEvents: _recurringEvents,
               mode: isImageRequest ? 'image' : _generationMode,
               canvasContent: _canvasContent,
               isDeepThinking: _isDeepThinking,
@@ -1749,6 +1806,7 @@ export default function App() {
             attachedDocs: userMsg.attachedFiles,
             agent: _activeAssistant,
             tasks: _tasks,
+            recurringEvents: _recurringEvents,
             mode: isImageRequest ? 'image' : _generationMode,
             canvasContent: _canvasContent,
             isDeepThinking: _isDeepThinking,
@@ -2026,33 +2084,18 @@ export default function App() {
       } else if (lang === 'event') {
         try {
           const ev = JSON.parse(code);
-          const isRecurring = ev.type !== 'date';
-          const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const displayDate = isRecurring
-            ? `${MONTH_NAMES[(ev.month ?? 1) - 1]} ${ev.day}${ev.year ? `, ${ev.year}` : ''}`
-            : ev.dueDate;
-          const typeEmoji: Record<string, string> = { birthday: '🎂', anniversary: '💍', custom: '📅', date: '📅' };
-          const typeLabel: Record<string, string> = { birthday: 'Birthday', anniversary: 'Anniversary', custom: 'Event', date: 'Appointment' };
-          elements.push(
-            <div key={`ev-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#D6E0EA] dark:border-[#2C3E50]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 flex flex-col gap-3 shadow-sm">
-              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><CalendarDays className="w-4 h-4" /> Add to Calendar</div>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-bold text-neutral-800 dark:text-neutral-100">{isRecurring ? ev.name : ev.title}</p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{typeEmoji[ev.type] ?? '📅'} {typeLabel[ev.type] ?? 'Event'} · {displayDate}</p>
-                </div>
-                <button onClick={() => {
-                  if (isRecurring) {
-                    useTaskStore.getState().addRecurringEvent({ type: ev.type, name: ev.name, month: ev.month, day: ev.day, year: ev.year });
-                  } else {
-                    addTask(ev.title, ev.dueDate, ev.details ?? '');
-                  }
-                  useTaskStore.getState().setShowPlanner(true);
-                }} className="px-3 py-2 bg-[#4A5D75] text-white rounded-lg text-xs font-bold hover:bg-[#3D4D61] shadow-md transition-all active:scale-95 shrink-0">Add Event</button>
-              </div>
-            </div>
-          );
+          elements.push(<EventCard key={`ev-${match.index}`} data={ev} onToast={showToast} />);
         } catch { elements.push(<div key={`err-ev-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event block.</div>); }
+      } else if (lang === 'event_update') {
+        try {
+          const ev = JSON.parse(code);
+          elements.push(<EventUpdateCard key={`evu-${match.index}`} data={ev} onToast={showToast} />);
+        } catch { elements.push(<div key={`err-evu-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event update.</div>); }
+      } else if (lang === 'event_delete') {
+        try {
+          const ev = JSON.parse(code);
+          elements.push(<EventDeleteCard key={`evd-${match.index}`} data={ev} onToast={showToast} />);
+        } catch { elements.push(<div key={`err-evd-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event delete.</div>); }
       } else if (lang === 'slack_post') {
         try {
           const sd = JSON.parse(code);
@@ -2159,46 +2202,18 @@ export default function App() {
       } else if (lang === 'gcal_event') {
         try {
           const ge = JSON.parse(code);
-          const _integrations = useSettingsStore.getState().integrations;
-          elements.push(
-            <div key={`gcal-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
-              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><CalendarClock className="w-4 h-4" /> Create Google Calendar Event</div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Title</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.title}</span></div>
-                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Start</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.start}</span></div>
-                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">End</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.end}</span></div>
-                {ge.location && <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Location</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.location}</span></div>}
-                {ge.accountLabel && <div className="col-span-2"><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Account</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{ge.accountLabel}</span></div>}
-              </div>
-              {ge.description && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">{ge.description}</div>}
-              <button onClick={async () => {
-                const workspaces: any[] = _integrations.googleWorkspaces ?? [];
-                const acct = ge.accountLabel
-                  ? workspaces.find((a: any) => a.label === ge.accountLabel)
-                  : workspaces.find((a: any) => a.scopes?.calendar && a.clientId && a.refreshToken);
-                if (!acct) { showToast('No Google Calendar account configured.'); return; }
-                try {
-                  const { fetchWithRetry: fw } = await import('./services/llm');
-                  const tokenRes = await fw('https://oauth2.googleapis.com/token', {
-                    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ client_id: acct.clientId, client_secret: acct.clientSecret, refresh_token: acct.refreshToken, grant_type: 'refresh_token' }).toString(),
-                  }, 1);
-                  if (!tokenRes.access_token) throw new Error('Token refresh failed');
-                  const event: any = { summary: ge.title, start: { dateTime: ge.start }, end: { dateTime: ge.end } };
-                  if (ge.description) event.description = ge.description;
-                  if (ge.location) event.location = ge.location;
-                  const res = await fw('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-                    method: 'POST', headers: { Authorization: `Bearer ${tokenRes.access_token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify(event),
-                  }, 1);
-                  if (res.id) { showToast('✅ Event created in Google Calendar'); } else { showToast('Calendar create failed'); }
-                } catch (e: any) { showToast(`Calendar error: ${e.message}`); }
-              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
-                <CalendarClock className="w-3.5 h-3.5" /> Create Event
-              </button>
-            </div>
-          );
+          elements.push(<GcalEventCard key={`gcal-${match.index}`} data={ge} onToast={showToast} />);
         } catch { elements.push(<div key={`err-gcal-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar event.</div>); }
+      } else if (lang === 'gcal_update') {
+        try {
+          const ge = JSON.parse(code);
+          elements.push(<GcalUpdateCard key={`gcalu-${match.index}`} data={ge} onToast={showToast} />);
+        } catch { elements.push(<div key={`err-gcalu-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar update.</div>); }
+      } else if (lang === 'gcal_delete') {
+        try {
+          const ge = JSON.parse(code);
+          elements.push(<GcalDeleteCard key={`gcald-${match.index}`} data={ge} onToast={showToast} />);
+        } catch { elements.push(<div key={`err-gcald-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar delete.</div>); }
       } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'event') {
         const codePreview = code.split('\n').slice(0, 4).join('\n') + (code.split('\n').length > 4 ? '\n...' : '');
         elements.push(
@@ -2318,6 +2333,9 @@ export default function App() {
   // Render the content for any tab — the chat (space-log) is just another tab,
   // shown full-width by default and splittable beside another.
   const renderTabContent = (tab: typeof activeOmniTab) => {
+    if (tab?.type === 'home') {
+      return <StartPage onAsk={handleSendPrompt} />;
+    }
     if (!tab || tab.type === 'space-log') {
       return (
         <ChatPanel
@@ -2340,6 +2358,9 @@ export default function App() {
     }
     if (tab.type === 'tool' && tab.toolId === 'calendar') {
       return <CalendarPanel onToast={showToast} />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'inbox') {
+      return <MailInboxPanel />;
     }
     if (tab.type === 'code-canvas' || tab.type === 'doc') {
       const tabAnns = annotations.filter(a => a.tabId === tab.id && a.status === 'open');

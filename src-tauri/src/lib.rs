@@ -2535,7 +2535,8 @@ async fn browser_create(
 }
 
 #[tauri::command]
-fn browser_navigate(app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
+fn browser_navigate(caller: tauri::Webview, app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
+    ensure_trusted_caller(&caller)?;
     let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
     let webview = app.get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
@@ -2568,6 +2569,23 @@ fn browser_get_url(app: tauri::AppHandle, label: String) -> Result<String, Strin
     let webview = app.get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     webview.url().map(|u| u.to_string()).map_err(|e| e.to_string())
+}
+
+// ─── Caller-origin guard (defense in depth) ──────────────────────────────────
+// The capability ACL (capabilities/*.json + permissions/app.toml) is the PRIMARY gate that
+// keeps remote pages in the `browser-panel` webview away from privileged commands. This is a
+// belt-and-suspenders second check inside the most dangerous commands, so a future ACL
+// misconfiguration can't silently re-open credential theft / JS injection.
+//
+// App commands aren't given the caller origin, but they CAN be handed the calling `Webview`,
+// and we trust its label: only "main" (the app UI, which hosts the browser chrome) and
+// "spotlight" are app-controlled. The `browser-panel` webview — the one that loads untrusted
+// remote content — is never on this allowlist.
+fn ensure_trusted_caller(webview: &tauri::Webview) -> Result<(), String> {
+    match webview.label() {
+        "main" | "spotlight" => Ok(()),
+        other => Err(format!("command not permitted from webview '{}'", other)),
+    }
 }
 
 // ─── macOS Keychain ──────────────────────────────────────────────────────────
@@ -2612,7 +2630,10 @@ mod keychain_impl {
 }
 
 #[tauri::command]
-fn keychain_save(host: String, username: String, password: String) -> serde_json::Value {
+fn keychain_save(webview: tauri::Webview, host: String, username: String, password: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     #[cfg(target_os = "macos")]
     {
         match keychain_impl::save(&host, &username, &password) {
@@ -2625,7 +2646,10 @@ fn keychain_save(host: String, username: String, password: String) -> serde_json
 }
 
 #[tauri::command]
-fn keychain_get(host: String) -> serde_json::Value {
+fn keychain_get(webview: tauri::Webview, host: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     #[cfg(target_os = "macos")]
     {
         match keychain_impl::get(&host) {
@@ -2638,7 +2662,10 @@ fn keychain_get(host: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn keychain_delete(host: String) -> serde_json::Value {
+fn keychain_delete(webview: tauri::Webview, host: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     #[cfg(target_os = "macos")]
     {
         match keychain_impl::delete(&host) {
@@ -2672,10 +2699,22 @@ fn browser_password_event(
     })).map_err(|e| e.to_string())
 }
 
+// Return channel for the agentic browse loop. `browser_eval` is fire-and-forget — it can't hand a
+// value back to the orchestrator — so the annotator script injected into the page calls this command
+// (via __TAURI_INTERNALS__.invoke, the same path the password detector uses) and we re-emit the
+// payload to the main window as `browser-agent:observation`. The orchestrator matches on the
+// `requestId` it embedded in the script to ignore stale observations from earlier steps.
+#[tauri::command]
+fn browser_agent_report(app: tauri::AppHandle, payload: serde_json::Value) -> Result<(), String> {
+    app.emit("browser-agent:observation", payload)
+        .map_err(|e| e.to_string())
+}
+
 // ─── Additional Browser Commands ─────────────────────────────────────────────
 
 #[tauri::command]
-fn browser_eval(app: tauri::AppHandle, label: String, script: String) -> Result<(), String> {
+fn browser_eval(caller: tauri::Webview, app: tauri::AppHandle, label: String, script: String) -> Result<(), String> {
+    ensure_trusted_caller(&caller)?;
     let webview = app.get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     webview.eval(&script).map_err(|e| e.to_string())
@@ -3119,6 +3158,11 @@ pub fn run() {
             extract_page_text,
             check_page_is_private,
             mail::mail_test_connection,
+            mail::mail_fetch_recent,
+            mail::mail_fetch_body,
+            mail::mail_set_seen,
+            mail::mail_delete,
+            mail::mail_send,
             browser_create,
             browser_navigate,
             browser_reload,
@@ -3134,6 +3178,7 @@ pub fn run() {
             keychain_delete,
             browser_open_tab,
             browser_password_event,
+            browser_agent_report,
             upsert_graph_node,
             upsert_graph_edge,
             get_graph_neighbors,
@@ -3161,6 +3206,101 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // ── Capability ACL gating ─────────────────────────────────────────────────
+    // Faithful, automated proof of the remote-isolation fix. We load the EXACT files
+    // `tauri::generate_context!` consumes (gen/schemas/{acl-manifests,capabilities}.json),
+    // run the EXACT resolver tauri's IPC layer runs (`Resolved::resolve` +
+    // `RuntimeAuthority::resolve_access`, tauri-2.10.3), and assert who can reach what.
+    //
+    // Gated on debug_assertions because `RuntimeAuthority::new` takes an extra `acl` arg under
+    // `any(feature = "dynamic-acl", debug_assertions)` — which is exactly the `cargo test` build.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn remote_origin_is_locked_out_of_privileged_commands() {
+        use std::collections::BTreeMap;
+        use tauri::ipc::{Origin, RuntimeAuthority};
+        use tauri::utils::acl::{capability::Capability, manifest::Manifest, resolved::Resolved};
+        use tauri::utils::platform::Target;
+
+        let acl: BTreeMap<String, Manifest> = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/gen/schemas/acl-manifests.json"
+            ))
+            .expect("read acl-manifests.json"),
+        )
+        .expect("parse acl-manifests.json");
+
+        let capabilities: BTreeMap<String, Capability> = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/gen/schemas/capabilities.json"
+            ))
+            .expect("read capabilities.json"),
+        )
+        .expect("parse capabilities.json");
+
+        let resolved = Resolved::resolve(&acl, capabilities, Target::MacOS).expect("resolve ACL");
+
+        // The whole fix hinges on this: with an app ACL manifest present, tauri enforces the ACL
+        // for app commands too (webview/mod.rs ~L1804: `plugin_command.is_some() || has_app_acl_manifest`).
+        assert!(
+            resolved.has_app_acl,
+            "app ACL manifest missing — app commands would bypass the ACL entirely"
+        );
+
+        let authority = RuntimeAuthority::new(acl, resolved);
+
+        // The main window's primary webview is labelled "main"; the untrusted browser is the
+        // "browser-panel" child webview *inside* the "main" window.
+        let local = Origin::Local;
+        let remote = Origin::Remote {
+            url: tauri::Url::parse("https://attacker.example/login").expect("url"),
+        };
+        let allowed = |cmd: &str, win: &str, wv: &str, o: &Origin| {
+            authority.resolve_access(cmd, win, wv, o).is_some()
+        };
+
+        // (a) Local app UI keeps full access to everything it uses.
+        for cmd in [
+            "keychain_get", "keychain_save", "keychain_delete", "browser_eval", "browser_navigate",
+            "browser_create", "write_memory", "mail_test_connection", "start_local_model",
+            "browser_agent_report", "browser_download_url",
+        ] {
+            assert!(allowed(cmd, "main", "main", &local), "local main must reach {cmd}");
+        }
+        // Spotlight (separate local window) keeps the access it needs.
+        assert!(allowed("write_memory", "spotlight", "spotlight", &local), "spotlight write_memory");
+
+        // (b) A remote page in browser-panel may reach ONLY the four fire-and-forget reporters.
+        for cmd in [
+            "browser_agent_report", "browser_open_tab", "browser_password_event", "browser_download_url",
+        ] {
+            assert!(allowed(cmd, "main", "browser-panel", &remote), "remote must reach safe cmd {cmd}");
+        }
+
+        // ...and is denied everything dangerous — credential theft, JS injection, navigation,
+        // mail, fs, model, and graph commands.
+        for cmd in [
+            "keychain_get", "keychain_save", "keychain_delete", "browser_eval", "browser_navigate",
+            "browser_create", "browser_reload", "mail_test_connection", "mail_fetch_recent",
+            "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
+            "download_model", "upsert_graph_node", "get_graph_stats", "setup_relay",
+        ] {
+            assert!(
+                !allowed(cmd, "main", "browser-panel", &remote),
+                "SECURITY: remote page reached privileged command {cmd}"
+            );
+        }
+
+        // The browser-panel webview must not inherit the full local surface even for a (hypothetical)
+        // local-origin page — `default` is scoped to the "main" webview, not the whole window.
+        assert!(
+            !allowed("keychain_get", "main", "browser-panel", &local),
+            "browser-panel webview should not inherit the local keychain command"
+        );
+    }
 
     // ── normalize_path_lexically ──────────────────────────────────────────────
 

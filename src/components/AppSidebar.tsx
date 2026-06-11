@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, Search, Edit2, User, Plus, Wifi, WifiOff, Settings, CheckSquare, Calendar, Star, Globe, FileText, Code, Layers } from 'lucide-react';
+import { Bot, Search, Edit2, User, Plus, Wifi, WifiOff, Settings } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -33,9 +33,6 @@ export function AppSidebar(_: AppSidebarProps) {
 
   const spaces = useSpaceStore(s => s.spaces);
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
-  const omniTabs = useSpaceStore(s => s.omniTabs);
-  const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
-  const favorites = omniTabs.filter(t => t.isFavorite);
 
   const displayName = (() => {
     if (userName?.trim()) return userName.trim();
@@ -224,52 +221,9 @@ export function AppSidebar(_: AppSidebarProps) {
               {visibleAgents.length === 0 && <div className="text-center text-xs text-neutral-500 font-bold mt-4">No agents match this search.</div>}
             </div>
 
-            {/* TOOLS section — permanent built-in apps (global, never go away) */}
-            <div className="space-y-1 pt-3">
-              <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Tools</div>
-              <div
-                onClick={() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'planner', label: 'To-Do' })}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200 transition-colors"
-              >
-                <CheckSquare className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-xs">To-Do</span>
-              </div>
-              <div
-                onClick={() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'calendar', label: 'Calendar' })}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200 transition-colors"
-              >
-                <Calendar className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-xs">Calendar</span>
-              </div>
-            </div>
-
-            {/* FAVORITES section — user-starred tabs (star a tab to pin it here) */}
-            <div className="space-y-1 pt-3">
-              <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Favorites</div>
-              {favorites.map(tab => {
-                const FavIcon = tab.type === 'web' ? Globe : tab.type === 'doc' ? FileText : tab.type === 'code-canvas' ? Code : Layers;
-                return (
-                  <div
-                    key={tab.id}
-                    onClick={() => useSpaceStore.getState().setActiveTab(tab.id)}
-                    className={`group flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${activeOmniTabId === tab.id ? 'bg-[rgba(255,255,255,0.07)] text-neutral-200' : 'text-neutral-400 hover:bg-[rgba(255,255,255,0.04)] hover:text-neutral-200'}`}
-                  >
-                    <FavIcon className="w-3.5 h-3.5 shrink-0" />
-                    <span className="text-xs truncate flex-1">{tab.label}</span>
-                    <button
-                      onClick={e => { e.stopPropagation(); useSpaceStore.getState().toggleFavorite(tab.id); }}
-                      className="opacity-0 group-hover:opacity-100 text-[#C9A227] hover:text-[#E0B530] transition-all shrink-0"
-                      title="Remove from favorites"
-                    >
-                      <Star className="w-3 h-3 fill-current" />
-                    </button>
-                  </div>
-                );
-              })}
-              {favorites.length === 0 && (
-                <div className="px-3 py-1.5 text-[10px] text-neutral-600 leading-relaxed">Star a tab to pin it here for quick access.</div>
-              )}
-            </div>
+            {/* Tools & Favorites now live on the Home start page (opened via the
+                new-tab "+" button) — the sidebar stays focused on who/where:
+                People, Agents, and Spaces. */}
 
             {/* SPACES section — each Space is a context container with its own tabs */}
             <div className="space-y-1 pt-3">

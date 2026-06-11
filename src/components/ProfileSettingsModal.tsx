@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
-  MessageSquare, Mail, FolderOpen, CheckCircle2, Layers, Plus, Trash2, CalendarClock, Eye, Upload
+  MessageSquare, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
 
@@ -48,6 +49,48 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
 
   const [guideStatus, setGuideStatus] = useState<'installed' | 'deleted' | 'checking'>('checking');
+
+  // Mail (IMAP) connection probe — app-password login, no OAuth/web-login. Verifies we can read
+  // the mailbox before we build the native inbox on top of it.
+  const [mailProvider, setMailProvider] = useState<'gmail' | 'icloud'>('gmail');
+  const [mailEmail, setMailEmail] = useState('');
+  const [mailPassword, setMailPassword] = useState('');
+  const [mailStatus, setMailStatus] = useState<{ state: 'idle' | 'testing' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
+  const [addingMail, setAddingMail] = useState(false);
+
+  // Connected mail accounts: metadata only (no secret) — passwords live in the Keychain.
+  const mailAccounts: Array<{ id: string; provider: 'gmail' | 'icloud'; email: string }> = (integrations as any).mailAccounts ?? [];
+
+  const handleMailConnect = async () => {
+    const email = mailEmail.trim();
+    // Gmail shows the app password as 4 space-separated groups; IMAP wants it joined.
+    const password = mailPassword.replace(/\s+/g, '');
+    if (!email || !password) return;
+    setMailStatus({ state: 'testing' });
+    try {
+      const count = await invoke<number>('mail_test_connection', { provider: mailProvider, email, password });
+      // Password → macOS Keychain (encrypted, local). Account metadata → settings (no secret there).
+      await invoke('keychain_save', { host: `mail:${email}`, username: email, password });
+      setIntegrations((prev: any) => {
+        const rest = (prev.mailAccounts ?? []).filter((a: any) => a.email !== email);
+        return { ...prev, mailAccounts: [...rest, { id: `mail-${Date.now()}`, provider: mailProvider, email }] };
+      });
+      // Persist immediately so the account survives a reload (don't rely only on the autosave subscribe).
+      await useSettingsStore.getState().persist();
+      setMailStatus({ state: 'ok', msg: `Connected — ${count.toLocaleString()} messages` });
+      setMailEmail('');
+      setMailPassword('');
+      setAddingMail(false);
+    } catch (e) {
+      setMailStatus({ state: 'error', msg: String(e) });
+    }
+  };
+
+  const handleMailRemove = async (email: string) => {
+    await invoke('keychain_delete', { host: `mail:${email}` }).catch(() => {});
+    setIntegrations((prev: any) => ({ ...prev, mailAccounts: (prev.mailAccounts ?? []).filter((a: any) => a.email !== email) }));
+    await useSettingsStore.getState().persist();
+  };
 
   useEffect(() => {
     db.get('userDocsInstalled', false).then(v => setGuideStatus(v ? 'installed' : 'deleted'));
@@ -434,130 +477,126 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 )}
               </div>
 
-              {/* Google Workspace Integration — multi-account */}
+              {/* Mail accounts (IMAP) — multi-account, app-password, no web login.
+                  Replaces the old Google Workspace OAuth card. */}
               <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700 flex items-center gap-1">
-                      <Mail className="w-4 h-4 text-error" />
-                      <FolderOpen className="w-4 h-4 text-accent" />
-                      <CalendarClock className="w-4 h-4 text-secondary" />
+                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700">
+                      <Mail className="w-5 h-5 text-secondary" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Google Workspace</span>
-                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Gmail · Drive · Calendar — add multiple accounts.</span>
+                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Mail accounts</span>
+                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Gmail &amp; iCloud over IMAP — app password, no web login. Add as many as you like.</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setIntegrations((prev: any) => ({
-                      ...prev,
-                      googleWorkspaces: [...(prev.googleWorkspaces ?? []), { id: `gw-${Date.now()}`, label: '', clientId: '', clientSecret: '', refreshToken: '', scopes: { gmail: false, drive: false, calendar: false } }]
-                    }))}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0"
-                  ><Plus className="w-3.5 h-3.5" /> Add Account</button>
+                  {!addingMail && (
+                    <button
+                      onClick={() => { setAddingMail(true); setMailStatus({ state: 'idle' }); setMailEmail(''); setMailPassword(''); }}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0"
+                    ><Plus className="w-3.5 h-3.5" /> Add account</button>
+                  )}
                 </div>
 
-                {(integrations.googleWorkspaces ?? []).length === 0 && (
-                  <p className="text-tiny text-neutral-400 text-center py-2">No Google accounts added yet. Click "Add Account" to connect one.</p>
+                {/* Connected accounts */}
+                {mailAccounts.length === 0 && !addingMail && (
+                  <p className="text-tiny text-neutral-400 text-center py-2">No mail accounts yet. Click "Add account" to connect Gmail or iCloud.</p>
                 )}
-
-                {(integrations.googleWorkspaces ?? []).map((acct: any, idx: number) => (
-                  <div key={acct.id} className="flex flex-col gap-3 pt-4 border-t border-neutral-100 dark:border-neutral-800 animate-in slide-in-from-top-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <input
-                        type="text"
-                        value={acct.label}
-                        onChange={e => setIntegrations((prev: any) => {
-                          const arr = [...(prev.googleWorkspaces ?? [])];
-                          arr[idx] = { ...arr[idx], label: e.target.value };
-                          return { ...prev, googleWorkspaces: arr };
-                        })}
-                        placeholder="Account label (e.g. Work, Personal)"
-                        className="flex-1 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-secondary font-bold transition-all"
-                      />
-                      <button
-                        onClick={() => setIntegrations((prev: any) => ({
-                          ...prev,
-                          googleWorkspaces: (prev.googleWorkspaces ?? []).filter((_: any, i: number) => i !== idx)
-                        }))}
-                        className="p-2 text-neutral-400 hover:text-error transition-colors"
-                      ><Trash2 className="w-4 h-4" /></button>
+                {mailAccounts.map(acct => (
+                  <div key={acct.id} className="flex items-center gap-3 pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: acct.provider === 'gmail' ? '#D85A30' : '#378ADD' }} />
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="text-sm font-bold truncate dark:text-neutral-200">{acct.email}</span>
+                      <span className="text-tiny font-medium text-neutral-400">{acct.provider === 'gmail' ? 'Gmail' : 'iCloud'} · IMAP connected</span>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {[
-                        { field: 'clientId', label: 'OAuth Client ID', placeholder: 'xxxx.apps.googleusercontent.com' },
-                        { field: 'clientSecret', label: 'OAuth Client Secret', placeholder: 'GOCSPX-...' },
-                      ].map(f => (
-                        <div key={f.field} className="flex flex-col gap-1.5">
-                          <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">{f.label}</label>
-                          <input
-                            type="password"
-                            value={acct[f.field] || ''}
-                            onChange={e => setIntegrations((prev: any) => {
-                              const arr = [...(prev.googleWorkspaces ?? [])];
-                              arr[idx] = { ...arr[idx], [f.field]: e.target.value };
-                              return { ...prev, googleWorkspaces: arr };
-                            })}
-                            placeholder={f.placeholder}
-                            className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">Refresh Token</label>
-                      <input
-                        type="password"
-                        value={acct.refreshToken || ''}
-                        onChange={e => setIntegrations((prev: any) => {
-                          const arr = [...(prev.googleWorkspaces ?? [])];
-                          arr[idx] = { ...arr[idx], refreshToken: e.target.value };
-                          return { ...prev, googleWorkspaces: arr };
-                        })}
-                        placeholder="1//0g..."
-                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">Scopes</label>
-                      <div className="flex gap-2 flex-wrap">
-                        {[
-                          { id: 'gmail', label: 'Gmail', icon: Mail, color: 'text-error' },
-                          { id: 'drive', label: 'Drive / Docs', icon: FolderOpen, color: 'text-accent' },
-                          { id: 'calendar', label: 'Calendar', icon: CalendarClock, color: 'text-secondary' },
-                        ].map(scope => {
-                          const ScopeIcon = scope.icon;
-                          const active = acct.scopes?.[scope.id];
-                          return (
-                            <button
-                              key={scope.id}
-                              onClick={() => setIntegrations((prev: any) => {
-                                const arr = [...(prev.googleWorkspaces ?? [])];
-                                arr[idx] = { ...arr[idx], scopes: { ...arr[idx].scopes, [scope.id]: !active } };
-                                return { ...prev, googleWorkspaces: arr };
-                              })}
-                              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${active ? 'bg-surface dark:bg-[#1E2B38]/40 border-primary/30 text-primary dark:text-secondary-light' : 'border-neutral-200 dark:border-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
-                            >
-                              <ScopeIcon className={`w-3.5 h-3.5 ${active ? scope.color : ''}`} />
-                              {scope.label}
-                              {active && <CheckCircle2 className="w-3 h-3 text-success-light" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    {acct.clientId && acct.refreshToken && (
-                      <div className="flex items-center gap-2 text-tiny font-black uppercase tracking-widest text-success-light">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Credentials saved
-                      </div>
-                    )}
+                    <CheckCircle2 className="w-4 h-4 text-success-light shrink-0" />
+                    <button onClick={() => handleMailRemove(acct.email)} className="p-2 text-neutral-400 hover:text-error transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 ))}
 
-                {(integrations.googleWorkspaces ?? []).length > 0 && (
-                  <p className="text-tiny text-neutral-400 leading-relaxed pt-2 border-t border-neutral-100 dark:border-neutral-800">
-                    <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">console.cloud.google.com</span> → project → enable Gmail/Drive/Calendar APIs → OAuth 2.0 Desktop credentials → run OAuth flow once → paste refresh token.
-                  </p>
+                {/* Add-account flow */}
+                {addingMail && (
+                  <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-4 animate-in slide-in-from-top-2">
+                    <div className="flex gap-2">
+                      {(['gmail', 'icloud'] as const).map(p => (
+                        <button
+                          key={p}
+                          onClick={() => { setMailProvider(p); setMailStatus({ state: 'idle' }); }}
+                          className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${mailProvider === p ? 'bg-surface dark:bg-[#1E2B38]/40 border-primary/30 text-primary dark:text-secondary-light' : 'border-neutral-200 dark:border-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+                        >{p === 'gmail' ? 'Gmail' : 'iCloud'}</button>
+                      ))}
+                    </div>
+
+                    {/* Step 1 — generate the app password in the real browser (the in-app login is what's blocked) */}
+                    <div className="rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40 p-4 flex flex-col gap-3">
+                      <span className="text-tiny font-black uppercase tracking-widest text-neutral-500">Step 1 · Get your app password</span>
+                      <ol className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
+                        {mailProvider === 'gmail' ? (
+                          <>
+                            <li>Open the page below — it signs in with your real browser.</li>
+                            <li>Name it <span className="font-bold">Agent Forge</span>, then click <span className="font-bold">Create</span>.</li>
+                            <li>Copy the 16-character password — <span className="font-bold">save it</span>, you only see it once.</li>
+                            <li>Paste it into Step 2 below.</li>
+                          </>
+                        ) : (
+                          <>
+                            <li>Open the page below and sign in.</li>
+                            <li><span className="font-bold">App-Specific Passwords</span> → <span className="font-bold">+</span> → name it <span className="font-bold">Agent Forge</span>.</li>
+                            <li>Copy the password — <span className="font-bold">save it</span>, you only see it once.</li>
+                            <li>Paste it into Step 2 below.</li>
+                          </>
+                        )}
+                      </ol>
+                      <button
+                        onClick={() => openUrl(mailProvider === 'gmail' ? 'https://myaccount.google.com/apppasswords' : 'https://account.apple.com').catch(() => {})}
+                        className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
+                      ><ExternalLink className="w-3.5 h-3.5" /> {mailProvider === 'gmail' ? 'Open Gmail app passwords' : 'Open Apple ID page'}</button>
+                      {mailProvider === 'gmail' && (
+                        <p className="text-tiny text-neutral-400 leading-relaxed">Page says it's unavailable? Switch on 2-Step Verification in your Google account first, then reopen it.</p>
+                      )}
+                    </div>
+
+                    {/* Step 2 — paste it back and connect */}
+                    <div className="rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40 p-4 flex flex-col gap-3">
+                      <span className="text-tiny font-black uppercase tracking-widest text-neutral-500">Step 2 · Connect</span>
+                      <input
+                        type="email"
+                        value={mailEmail}
+                        onChange={e => setMailEmail(e.target.value)}
+                        placeholder={mailProvider === 'gmail' ? 'you@gmail.com' : 'you@icloud.com'}
+                        className="w-full bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
+                      />
+                      <input
+                        type="password"
+                        value={mailPassword}
+                        onChange={e => setMailPassword(e.target.value)}
+                        placeholder="Paste the app password (spaces ok)"
+                        className="w-full bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
+                      />
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <button
+                          onClick={handleMailConnect}
+                          disabled={!mailEmail.trim() || !mailPassword || mailStatus.state === 'testing'}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0 disabled:opacity-40"
+                        >
+                          {mailStatus.state === 'testing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />}
+                          {mailStatus.state === 'testing' ? 'Connecting…' : 'Connect & save'}
+                        </button>
+                        <button
+                          onClick={() => { setAddingMail(false); setMailStatus({ state: 'idle' }); }}
+                          className="px-4 py-2.5 rounded-xl text-xs font-bold text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-all"
+                        >Cancel</button>
+                      </div>
+                      {mailStatus.state === 'error' && (
+                        <div className="text-tiny font-bold text-error break-words flex flex-col gap-1">
+                          <span>✗ {mailStatus.msg}</span>
+                          {/application-specific|app password|app-specific|185833/i.test(mailStatus.msg ?? '') && (
+                            <span className="text-neutral-400 font-medium">↑ That looks like your normal password. Use the app password from Step 1.</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
 

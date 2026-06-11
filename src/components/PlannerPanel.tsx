@@ -6,7 +6,7 @@ import {
   Cake, Plus
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
-import { useTaskStore } from '../store/useTaskStore';
+import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import type { RecurringEvent } from '../store/useTaskStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useUIStore } from '../store/useUIStore';
@@ -201,7 +201,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                   const ds = toLocalISODate(dateObj) as string;
                   const isToday = ds === toLocalISODate(new Date());
                   const isSelected = ds === newTaskDate;
-                  const dayTasks = tasks.filter(t => t.dueDate === ds && !t.completed);
+                  const dayTasks = tasks.filter(t => !t.completed && taskCoversDate(t, ds));
                   const dayBirthdays = recurringEvents.filter(ev => ev.month === calendarMonth && ev.day === dateObj.getDate());
                   const dayHolidays = holidaysThisMonth.filter(h => h.date === ds);
                   return (
@@ -221,7 +221,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                 const monthNum = parseInt(mm);
                 const dayNum = parseInt(dd);
                 const detailDate = new Date(parseInt(yyyy), monthNum - 1, dayNum);
-                const detailTasks = tasks.filter(t => t.dueDate === selectedDayDetail);
+                const detailTasks = tasks.filter(t => taskCoversDate(t, selectedDayDetail));
                 const detailHolidays = holidaysThisMonth.filter(h => h.date === selectedDayDetail);
                 const detailBirthdays = recurringEvents.filter(ev => ev.month === monthNum && ev.day === dayNum);
                 return (
@@ -336,7 +336,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                     <div className="flex flex-col">
                       <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{task.title}</span>
                       <div className="flex items-center gap-3 mt-1 flex-wrap">
-                        {task.dueDate    && <span className="text-[10px] font-black uppercase text-[#6A829E] tracking-wider flex items-center gap-1"><Clock className="w-3 h-3" /> {task.dueDate}</span>}
+                        {task.dueDate    && <span className="text-[10px] font-black uppercase text-[#6A829E] tracking-wider flex items-center gap-1"><Clock className="w-3 h-3" /> {task.dueDate}{task.endDate && task.endDate > task.dueDate ? ` → ${task.endDate}` : ''}</span>}
                         {task.location  && <span className="text-[10px] font-bold text-[#7A9E8D] flex items-center gap-1"><MapPin className="w-3 h-3" /> {task.location}</span>}
                       </div>
                       {task.details && <p className="text-xs text-neutral-500 mt-1.5 max-w-xl bg-neutral-50 dark:bg-neutral-900 p-2 rounded-lg">{task.details}</p>}

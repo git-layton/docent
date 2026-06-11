@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Calendar, Star, SplitSquareHorizontal } from 'lucide-react';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
@@ -34,6 +34,8 @@ function TabFavicon({ url }: { url: string }) {
 function TypeIcon({ tab }: { tab: OmniTab }) {
   const cls = 'w-3 h-3 shrink-0';
   switch (tab.type) {
+    case 'home':
+      return <Home className={cls} />;
     case 'web':
       return tab.url ? <TabFavicon url={tab.url} /> : <Globe className={cls} />;
     case 'space-log':
@@ -87,13 +89,16 @@ function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
   return (
     <button
       type="button"
+      data-active={isActive}
       onClick={() => useSpaceStore.getState().setActiveTab(tab.id)}
       draggable={!tab.isPinned}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       className={clsx(
-        'group h-8 rounded-t-lg px-3 text-[11px] font-medium max-w-[200px] min-w-[80px] shrink-0 flex items-center gap-1.5 transition-colors',
+        // Chrome-style sizing: each tab prefers ~168px but will shrink down to a
+        // favicon-only sliver (min-w) as more tabs crowd in; past that the strip scrolls.
+        'group h-8 rounded-t-lg px-3 text-[11px] font-medium grow-0 shrink basis-[168px] max-w-[220px] min-w-[44px] flex items-center gap-1.5 overflow-hidden transition-colors',
         isActive
           ? 'bg-[#12141a] border border-b-0 border-[rgba(255,255,255,0.08)] text-white'
           : 'text-[rgba(255,255,255,0.45)] hover:text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.04)]',
@@ -174,89 +179,27 @@ function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
 // NewTabButton
 // ---------------------------------------------------------------------------
 function NewTabButton() {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+  // "+" opens the OS-style Home/start page. If the active Space already has a
+  // Home tab, focus it rather than spawning a duplicate.
+  const openHome = useCallback(() => {
+    const { omniTabs, activeSpaceId, setActiveTab, openTab } = useSpaceStore.getState();
+    const existing = omniTabs.find(t => t.type === 'home' && t.spaceId === (activeSpaceId ?? undefined));
+    if (existing) {
+      setActiveTab(existing.id);
+      return;
     }
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, [open]);
-
-  const openTab = useCallback(
-    (type: 'web' | 'doc' | 'code-canvas' | 'calendar') => {
-      setOpen(false);
-      switch (type) {
-        case 'web':
-          useSpaceStore.getState().openTab({ type: 'web', label: 'New Tab', url: 'https://duckduckgo.com' });
-          break;
-        case 'doc':
-          useSpaceStore.getState().openTab({ type: 'doc', label: 'Untitled Doc' });
-          break;
-        case 'code-canvas':
-          useSpaceStore.getState().openTab({ type: 'code-canvas', label: 'Untitled Canvas' });
-          break;
-        case 'calendar':
-          useSpaceStore.getState().openTab({ type: 'tool', toolId: 'calendar', label: 'Calendar' });
-          break;
-      }
-    },
-    [],
-  );
+    openTab({ type: 'home', label: 'Home' });
+  }, []);
 
   return (
-    <div ref={containerRef} className="relative mb-1">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="w-7 h-7 flex items-center justify-center rounded-md text-[rgba(255,255,255,0.4)] hover:text-white hover:bg-[rgba(255,255,255,0.08)] transition-colors"
-        title="New tab"
-      >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
-
-      {open && (
-        <div className="absolute top-full left-0 mt-1 w-44 bg-[#1c1f26] border border-[rgba(255,255,255,0.08)] rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.6)] overflow-hidden z-50 py-1">
-          <button
-            type="button"
-            onClick={() => openTab('web')}
-            className="w-full text-left px-3 py-2 text-xs text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2 transition-colors"
-          >
-            <Globe className="w-3.5 h-3.5 shrink-0" />
-            Web Browser
-          </button>
-          <button
-            type="button"
-            onClick={() => openTab('doc')}
-            className="w-full text-left px-3 py-2 text-xs text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2 transition-colors"
-          >
-            <FileText className="w-3.5 h-3.5 shrink-0" />
-            Document
-          </button>
-          <button
-            type="button"
-            onClick={() => openTab('code-canvas')}
-            className="w-full text-left px-3 py-2 text-xs text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2 transition-colors"
-          >
-            <Code className="w-3.5 h-3.5 shrink-0" />
-            Code Canvas
-          </button>
-          <button
-            type="button"
-            onClick={() => openTab('calendar')}
-            className="w-full text-left px-3 py-2 text-xs text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2 transition-colors"
-          >
-            <Calendar className="w-3.5 h-3.5 shrink-0" />
-            Calendar
-          </button>
-        </div>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={openHome}
+      className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-[rgba(255,255,255,0.4)] hover:text-white hover:bg-[rgba(255,255,255,0.08)] transition-colors mb-1"
+      title="New tab — Home"
+    >
+      <Plus className="w-3.5 h-3.5" />
+    </button>
   );
 }
 
@@ -272,22 +215,45 @@ export function OmniTabBar(): React.JSX.Element {
   // Only show tabs belonging to the active Space — this IS the Space context
   const spaceTabs = allTabs.filter(t => t.spaceId === activeSpaceId);
 
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  // Keep the active tab visible as the strip shrinks / scrolls (e.g. after
+  // opening a new tab at the end, or activating one that's scrolled off-screen).
+  useEffect(() => {
+    const el = stripRef.current?.querySelector<HTMLElement>('[data-active="true"]');
+    el?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [activeOmniTabId, spaceTabs.length]);
+
+  // Once tabs overflow they can't shrink further, so let a vertical wheel /
+  // trackpad gesture scroll the strip horizontally (no visible scrollbar).
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    const el = stripRef.current;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) el.scrollLeft += e.deltaY;
+  }, []);
+
   return (
-    <div className="h-10 flex items-end px-2 bg-[#0a0b0e] border-b border-[rgba(255,255,255,0.05)] shrink-0 relative z-20">
-      {spaceTabs.map((tab) => {
-        // Pass the global index so moveTab operates on the full omniTabs array correctly
-        const globalIdx = allTabs.findIndex(t => t.id === tab.id);
-        return (
-          <TabPill
-            key={tab.id}
-            tab={tab}
-            isActive={tab.id === activeOmniTabId}
-            isSplit={tab.id === splitTabId}
-            index={globalIdx}
-          />
-        );
-      })}
-      <NewTabButton />
+    <div className="h-10 flex items-end bg-[#0a0b0e] border-b border-[rgba(255,255,255,0.05)] shrink-0 relative z-20">
+      <div
+        ref={stripRef}
+        onWheel={handleWheel}
+        className="flex-1 min-w-0 flex items-end px-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {spaceTabs.map((tab) => {
+          // Pass the global index so moveTab operates on the full omniTabs array correctly
+          const globalIdx = allTabs.findIndex(t => t.id === tab.id);
+          return (
+            <TabPill
+              key={tab.id}
+              tab={tab}
+              isActive={tab.id === activeOmniTabId}
+              isSplit={tab.id === splitTabId}
+              index={globalIdx}
+            />
+          );
+        })}
+        <NewTabButton />
+      </div>
     </div>
   );
 }

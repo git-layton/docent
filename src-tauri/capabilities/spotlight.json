@@ -3,7 +3,9 @@
   "identifier": "spotlight",
   "description": "Forge Spotlight window — tab reader and LLM research",
   "windows": ["spotlight"],
+  "local": true,
   "permissions": [
+    "allow-app-local",
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-set-size",

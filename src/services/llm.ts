@@ -160,7 +160,7 @@ export const getSystemPromptBreakdown = (params: {
   return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
@@ -174,7 +174,13 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
 
   const pending = tasks.filter((t: any) => !t.completed);
   if (pending.length > 0) {
-    prompt += `[PENDING TASKS]\n${pending.map((t: any) => `- ${t.title} (Due: ${t.dueDate ?? 'No Date'})`).join('\n')}\n\n`;
+    // Include the stable id so the agent can reference a task to move/delete it.
+    prompt += `[PENDING TASKS]\n${pending.map((t: any) => `- [id: ${t.id}] ${t.title} (Due: ${t.dueDate ?? 'No Date'}${t.endDate && t.endDate > t.dueDate ? ` → ${t.endDate}` : ''})`).join('\n')}\n\n`;
+  }
+
+  if (recurringEvents && recurringEvents.length > 0) {
+    const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    prompt += `[SAVED EVENTS]\nRecurring/calendar events the user has saved (reference the id to move or delete one):\n${recurringEvents.map((e: any) => `- [id: ${e.id}] ${e.name} (${e.type}, ${MONTH_ABBR[(e.month ?? 1) - 1]} ${e.day}${e.year ? `, ${e.year}` : ''})`).join('\n')}\n\n`;
   }
 
   if (agentPinnedMessages && agentPinnedMessages.length > 0) {
@@ -209,7 +215,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
 
   if (agent.trainingDocs?.length > 0) prompt += `\n\n${agent.trainingDocs.map((d: any) => `[KNOWLEDGE BASE: ${d.name}]\n${d.content}`).join('\n\n')}`;
   prompt += `\n[LIBRARY SAVE]\nTo save content to the user's Library, output a \`\`\`save codeblock with JSON: {"title": "...", "content": "..."}. Use this when the user asks you to "save this", "take a note", "add to my library", or when you generate a highly valuable artifact (code, plan, document) that the user says is important or will need later. If the user says something like "this is exactly what I needed" about a long response, naturally suggest they bookmark it using the 🔖 icon.\n`;
-  prompt += `\n[CALENDAR EVENTS]\nWhen the user mentions a birthday, anniversary, or any recurring annual event, output a \`\`\`event codeblock with JSON: {"type": "birthday"|"anniversary"|"custom", "name": "Full Name", "month": <1-12>, "day": <1-31>, "year": <optional birth year>}. When the user mentions a one-time appointment, deadline, or dated event, output a \`\`\`event codeblock with JSON: {"type": "date", "title": "...", "dueDate": "YYYY-MM-DD", "details": "<optional>"}. Always output the block immediately without asking for confirmation first.\n`;
+  prompt += `\n[CALENDAR EVENTS]\nWhen the user mentions a birthday, anniversary, or any recurring annual event, output a \`\`\`event codeblock with JSON: {"type": "birthday"|"anniversary"|"custom", "name": "Full Name", "month": <1-12>, "day": <1-31>, "year": <optional birth year>}. When the user mentions a one-time appointment, deadline, or dated event, output a \`\`\`event codeblock with JSON: {"type": "date", "title": "...", "dueDate": "YYYY-MM-DD", "endDate": "<optional YYYY-MM-DD — include ONLY for multi-day events that span more than one day, e.g. a 3-day trip or conference>", "details": "<optional>"}. The user can edit any field before saving, so always output the block immediately without asking for confirmation first.\nTo MOVE/RESCHEDULE or EDIT a saved item, output a \`\`\`event_update codeblock with JSON: {"id": "<the [id: …] from PENDING TASKS or SAVED EVENTS>", "dueDate": "<new YYYY-MM-DD>", "endDate": "<optional new end>", "title": "<optional new title>", "details": "<optional>"}. For a saved recurring event you may instead pass {"id": "…", "month": <1-12>, "day": <1-31>, "name": "<optional>"}. To DELETE/REMOVE a saved item, output a \`\`\`event_delete codeblock with JSON: {"id": "<the [id: …]>"}. Always include the exact id shown in context; the user confirms before anything changes.\n`;
   if (activeTools.includes('slack')) {
     prompt += `\n[SLACK ACTION]\nWhen the user asks you to post, send, or share something to Slack, output a \`\`\`slack_post codeblock with JSON: {"channel": "channel-name", "text": "message text"}. Always confirm the channel and message text before posting.\n`;
   }
@@ -220,7 +226,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
     prompt += `\n[GUS ACTION]\nWhen the user asks you to create a work item, bug, or story in GUS, output a \`\`\`gus_create codeblock with JSON: {"subject": "...", "type": "Story|Bug|Task", "priority": "P0|P1|P2|P3", "assignee": "username or null", "details": "..."}. Always confirm details before creating.\n`;
   }
   if (activeTools.includes('google_calendar')) {
-    prompt += `\n[GOOGLE CALENDAR ACTION]\nWhen the user asks you to create or schedule a calendar event, output a \`\`\`gcal_event codeblock with JSON: {"title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "optional", "location": "optional", "accountLabel": "label of account to use or null for first"}. Always confirm details before creating.\n`;
+    prompt += `\n[GOOGLE CALENDAR ACTION]\nWhen the user asks you to create or schedule a calendar event, output a \`\`\`gcal_event codeblock with JSON: {"title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "allDay": <optional boolean>, "description": "optional", "location": "optional", "accountLabel": "label of account to use or null for first"}. For all-day or multi-day events (e.g. a vacation, conference, or anything without a specific time), set "allDay": true and use date-only "YYYY-MM-DD" for start and end, where end is the LAST day the event covers (inclusive). For timed events that simply run across midnight into the next day, keep "allDay" false and use full datetimes. The user can edit every field before booking, so output the block immediately without asking for confirmation first.\nTo MOVE/RESCHEDULE or EDIT an existing Google Calendar event, output a \`\`\`gcal_update codeblock with JSON: {"eventId": "<the (id: …) from the calendar search results>", "title": "<optional>", "start": "<optional new start>", "end": "<optional new end>", "allDay": <optional boolean>, "location": "<optional>", "description": "<optional>", "accountLabel": "<account or null>"}. To DELETE an existing Google Calendar event, output a \`\`\`gcal_delete codeblock with JSON: {"eventId": "<the (id: …)>", "title": "<for display>", "accountLabel": "<account or null>"}. You can only move or delete events that appear in the calendar search results (which include their id); if you don't have the id, say so. The user confirms before anything changes.\n`;
   }
 
   prompt += `\n[CITATIONS]\nYou MUST cite sources inline when answering from provided context.\n- For web search results: [Source: Title](URL)\n- For local Knowledge Core files: [[Title]] using the exact title shown in the search results\nNever fabricate a citation. If the answer is not in the provided context, say so explicitly.`;
@@ -233,7 +239,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, canvasConte
 const stripThinkingTags = (text: string): string =>
   text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -288,7 +294,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);

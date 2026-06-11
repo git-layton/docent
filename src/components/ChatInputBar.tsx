@@ -323,7 +323,7 @@ export function ChatInputBar({
                   <div className="absolute bottom-full right-0 mb-2 z-[200] animate-in slide-in-from-bottom-2 duration-150 drop-shadow-2xl">
                     <Picker
                       data={data}
-                      set="twitter"
+                      set="native"
                       theme="auto"
                       previewPosition="none"
                       skinTonePosition="none"

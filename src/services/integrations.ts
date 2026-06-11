@@ -81,7 +81,8 @@ async function searchCalendar(query: string, creds: GoogleCreds): Promise<string
   if (items.length === 0) return `No upcoming calendar events found matching "${query}"${label}.`;
   return items.map(e => {
     const start = e.start?.dateTime ?? e.start?.date ?? '';
-    return `${label ? label + ' ' : ''}${e.summary ?? '(no title)'} — ${start}${e.location ? ` @ ${e.location}` : ''}`;
+    // Surface the event id so the agent can reference it to move or delete the event.
+    return `${label ? label + ' ' : ''}${e.summary ?? '(no title)'} — ${start}${e.location ? ` @ ${e.location}` : ''} (id: ${e.id})`;
   }).join('\n');
 }
 

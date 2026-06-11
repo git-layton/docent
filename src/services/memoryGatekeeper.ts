@@ -138,6 +138,7 @@ function routeToolCandidates(input: MemoryGatekeeperInput, text: string, isExpli
 
   if (forced === 'workspace') routes.push('memory_search');
   if (forced === 'search') routes.push('web_search');
+  if (forced === 'browse') routes.push('browser');
   if (forced) return routes.length > 0 ? routes : ['none'];
 
   if ((enabled.calendar_sync || enabled.google_calendar) && TASK_RE.test(text)) routes.push('calendar');

@@ -1,0 +1,112 @@
+# Agent Forge app-command ACL.
+#
+# This file is what flips `RuntimeAuthority::has_app_manifest()` to `true`: once any app
+# permission exists, tauri-build emits the `__app-acl__` manifest, and tauri's IPC layer
+# (tauri-2.10.3 src/webview/mod.rs ~L1804: `plugin_command.is_some() || has_app_acl_manifest`)
+# starts enforcing the capability ACL for app-defined `#[tauri::command]`s too — not just
+# `plugin:`-prefixed ones. Without this, every app command was reachable from ANY origin,
+# including remote pages loaded in the `browser-panel` child webview.
+#
+# Two permissions:
+#   * allow-app-local      — the full app command surface, granted ONLY to local trusted
+#                            windows (main + spotlight) via local capabilities.
+#   * allow-browser-remote — the small fire-and-forget reporting surface that injected
+#                            scripts legitimately need, granted to the browser-panel webview
+#                            for remote (http/https) origins.
+#
+# Anything not granted to a remote origin (keychain_*, browser_eval, browser_navigate,
+# mail_*, fs/graph/model commands, …) is now rejected by the ACL for remote callers.
+
+# ── Full app surface — local trusted windows only ──────────────────────────────
+[[permission]]
+identifier = "allow-app-local"
+description = "Every app-defined command. Intended for local trusted windows (main, spotlight) only."
+
+[permission.commands]
+allow = [
+  "greet",
+  "get_ram_stats",
+  "get_system_stats",
+  "spawn_llama_server",
+  "sigstop_llama_server",
+  "sigcont_llama_server",
+  "safe_write_file",
+  "rollback_file",
+  "init_knowledge_core",
+  "write_memory",
+  "append_task",
+  "complete_task",
+  "revert_memory_commit",
+  "search_knowledge",
+  "get_hardware_profile",
+  "init_file_watcher",
+  "sync_knowledge_core_index",
+  "get_index_status",
+  "search_knowledge_semantic",
+  "delete_memory_file",
+  "archive_memory_file",
+  "restore_archived_file",
+  "read_dream_log",
+  "write_dream_log",
+  "list_archive_files",
+  "list_agent_memory_files",
+  "list_library_files",
+  "read_knowledge_file",
+  "get_active_tab",
+  "show_spotlight",
+  "hide_spotlight",
+  "setup_relay",
+  "get_relay_status",
+  "list_inbox_captures",
+  "create_inbox_capture",
+  "update_inbox_capture",
+  "read_inbox_attachment",
+  "set_network_active",
+  "get_network_peers",
+  "get_models_dir",
+  "list_gguf_models",
+  "download_model",
+  "cancel_download",
+  "start_local_model",
+  "extract_page_text",
+  "check_page_is_private",
+  "mail_test_connection",
+  "mail_fetch_recent",
+  "browser_create",
+  "browser_navigate",
+  "browser_reload",
+  "browser_go_back",
+  "browser_go_forward",
+  "browser_get_url",
+  "browser_eval",
+  "browser_find",
+  "browser_set_zoom",
+  "browser_download_url",
+  "keychain_save",
+  "keychain_get",
+  "keychain_delete",
+  "browser_open_tab",
+  "browser_password_event",
+  "browser_agent_report",
+  "upsert_graph_node",
+  "upsert_graph_edge",
+  "get_graph_neighbors",
+  "get_graph_stats",
+  "delete_graph_node",
+]
+
+# ── Remote-safe surface — exposed to untrusted pages in the browser-panel webview ──
+# These four are fire-and-forget reporters that the injected annotator / password-detector
+# scripts call via window.__TAURI_INTERNALS__.invoke from inside the (untrusted) page. They
+# only emit events to the main window or trigger a download — none read secrets or inject JS.
+[[permission]]
+identifier = "allow-browser-remote"
+description = "Fire-and-forget reporting commands safe to expose to remote (http/https) origins in the browser-panel webview."
+
+[permission.commands]
+allow = [
+  "browser_agent_report",
+  "browser_open_tab",
+  "browser_password_event",
+  "browser_download_url",
+]

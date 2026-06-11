@@ -29,7 +29,7 @@ const defaultSpace: Space = {
 const defaultTab: OmniTab = {
   id: 'tab-space-log-default',
   type: 'space-log',
-  label: 'Space Log',
+  label: 'Chat',
   spaceId: 'space-home',
   isPinned: true,
 };
@@ -193,7 +193,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const chatTab: OmniTab = {
       id: tabId,
       type: 'space-log',
-      label: name,
+      label: 'Chat',
       spaceId,
       isPinned: true,
     };
@@ -229,7 +229,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       const chatTab: OmniTab = {
         id: tabId,
         type: 'space-log',
-        label: agent.name ?? 'Agent',
+        label: 'Chat',
         spaceId: containerId,
         isPinned: true,
       };
