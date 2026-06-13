@@ -211,6 +211,14 @@ An **Observer** turns ambient snapshots into durable memory without a chat turn.
   links. Reuses `contextEvaluator.ts`'s MEMS logic rather than inventing new heuristics.
 - Recall: `search_knowledge_semantic` already returns these. Add a `trust`/`quarantined` filter so
   authoritative flows can exclude unverified web-derived memories (§3 rule 3).
+- **Cost governance (load-bearing).** The salience *gate* (`evaluateMemoryGate`) is pure heuristic —
+  **free** — so deciding *whether* to remember never costs anything. The *enrichment* steps that DO
+  call a model (`contextEvaluator`, `pageDigest`, `graphEntityExtractor` → `generateTextResponse`)
+  run on the passive/background path **with free compute only**: a local model if one is hooked up,
+  otherwise store a heuristic/raw-trimmed memory with no model call. A **paid cloud model is never
+  invoked for background work** unless the user explicitly opts into "use cloud for background
+  tasks." Foreground (user-initiated) actions use whatever model is configured — that cost is
+  expected and visible. Same rule governs scrubbing (§8 #3).
 - Controls (must-haves): a visible "what I've been remembering" log (the `activity` tool tab is a
   natural home), a per-Space passive-capture toggle, and PII/secret scrubbing before any
   `untrusted-external` write.
@@ -239,17 +247,19 @@ Each phase is independently reviewable/revertable. Phase 1 is the unlock; 2–4 
 
 ---
 
-## 8. Open questions (need your call)
+## 8. Decisions (resolved 2026-06-12)
 
-1. **Passive capture default** — off by default with per-Space opt-in, or on for `space` containers
-   and off for `dm`? (Privacy vs "it just remembers.")
-2. **Inbound email body trust** — treat as `untrusted-external` (recommended; emails are
-   attacker-authored) even though it's "your" mailbox? Affects whether mail content can drive
-   actions without confirmation.
-3. **Scrubbing aggressiveness** — regex/heuristic PII+secret scrub now, or gate behind a local-model
-   pass? Heuristic is cheaper and ships sooner.
-4. **Capability granularity for mail/calendar** — one `mail` capability with sub-actions, or separate
-   `mail_read` / `mail_send` (so `effect` differs and send stays `authority`)? I lean separate.
-5. **Registry discovery** — explicit import-list index module (simple, reviewable) vs a glob/codegen
-   auto-register (more "drop-in", more magic). I lean explicit for v1.
+1. **Passive capture** — **on by default**, exposed as a **per-agent setting** (lives with the
+   agent's tools/settings, default `true`); same default for Spaces and DMs, user can disable per
+   agent.
+2. **Inbound email bodies** — `untrusted-external` (attacker-authored), even in your own mailbox; mail
+   content cannot drive `authority` actions without confirmation.
+3. **Scrubbing / background cost** — deterministic regex/heuristic scrub **always** (free; must run
+   before any untrusted write); a **local model enhances it when one is available**; **never a paid
+   cloud model by default**. This is the specific case of the §6 cost-governance rule: background
+   enrichment uses free compute only; cloud-for-background is opt-in.
+4. **Mail/calendar granularity** — **split** (`mail_read` vs `mail_send`, `calendar_read` vs
+   `calendar_write`) so `effect` differs and *send/write* stays `authority`.
+5. **Registry discovery** — **explicit import-list** index module for v1 (reviewable); revisit
+   codegen auto-register later if authoring volume warrants it.
 ```
