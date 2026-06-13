@@ -20,10 +20,11 @@ import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
-import { normalizeChatRecord, routeAgentsForChannel, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
+import { buildAmbientContext } from './services/context/ambient';
+import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
-import { runBrowserAgent, isBrowserPanelReady } from './services/browserAgent';
+import { capabilityForRoute, type CapabilityContext } from './services/capabilities';
 import { evaluateDroppedMessages } from './services/contextEvaluator';
 import { computePinProfile } from './services/pinPersonalization';
 import { invoke } from '@tauri-apps/api/core';
@@ -48,7 +49,6 @@ import { OnboardingWizard } from './components/OnboardingWizard';
 import { AppSidebar } from './components/AppSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
-import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
 import { PlannerPanel } from './components/PlannerPanel';
 import { ActivityPanel } from './components/ActivityMonitor';
 import { TypingIndicator } from './components/ui/TypingIndicator';
@@ -59,6 +59,7 @@ import { StartPage } from './components/StartPage';
 import { ChatPanel } from './components/ChatPanel';
 import { BrowserTabContent } from './components/BrowserTabContent';
 import { MailInboxPanel } from './components/MailInboxPanel';
+import { MessagesPanel } from './components/MessagesPanel';
 import { CalendarPanel } from './components/CalendarPanel';
 import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateCard, GcalDeleteCard } from './components/EventCards';
 import { CmdKPalette } from './components/CmdKPalette';
@@ -498,8 +499,10 @@ export default function App() {
     const c = chats.find(c => c.id === activeChatId);
     return c ? normalizeChatRecord(c, activeFolderId) : null;
   }, [chats, activeChatId, activeFolderId]);
+  // Agents available to @-mention in the composer — the active container's participants. Populated
+  // for DMs and Spaces alike so the @-picker (and Cmd+Shift+@) works everywhere, not just channels.
   const channelParticipants = useMemo(() => {
-    if (!activeChat || activeChat.kind !== 'channel') return [];
+    if (!activeChat) return [];
     return getParticipantAgents(activeChat, assistants).map((a: any) => ({ id: a.id, name: a.name }));
   }, [activeChat, assistants]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
@@ -519,8 +522,17 @@ export default function App() {
   const browserContext = browserActiveTab?.content
     ? { pageContent: browserActiveTab.content, url: browserActiveTab.url, title: browserActiveTab.title }
     : undefined;
+  // Trust-tagged snapshot of the tabs open in the active Space/DM — for the context-window gauge.
+  const ambientContext = useMemo(
+    () => buildAmbientContext(
+      allOmniTabs.filter(t => t.spaceId === activeSpaceId),
+      activeOmniTab?.id ?? null,
+      (id: string) => assistants.find(a => a.id === id)?.name,
+    ),
+    [allOmniTabs, activeSpaceId, activeOmniTab?.id, assistants],
+  );
 
-  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings, browserContext]);
+  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext]);
 
   // Recency-weighted fingerprint of what this agent's user actually saves
   const pinProfile = useMemo(
@@ -1421,240 +1433,63 @@ export default function App() {
       await persistGatekeeperMemory(chatId, userMsg, gatekeeperDecision, _activeAssistant);
 
       const primaryToolRoute = selectPrimaryToolRoute(gatekeeperDecision);
-      if (primaryToolRoute === 'memory_search') {
-          toolUsed = 'Knowledge Search';
-      } else if (primaryToolRoute === 'web_search') {
-          toolUsed = 'Web Search';
-      } else if (primaryToolRoute === 'browser') {
-          toolUsed = 'Browse';
-      } else if (primaryToolRoute === 'calendar') {
-          toolUsed = 'Calendar';
-      }
       if (_forcedTool) useUIStore.getState().setForcedTool(null);
+
+      // Resolve the gatekeeper's chosen route to a registered capability, scoped to what's open in
+      // the active Space/DM (design §4). Phase 1: the four built-ins are surface-'*', so this is
+      // behavior-identical to the former if-chain — the scoping machinery is exercised by future
+      // capabilities. The capability bodies live in services/capabilities/builtins/*.
+      const { spaces: _spaces, activeSpaceId: _activeSpaceId, omniTabs: _omniTabs } = useSpaceStore.getState();
+      const _activeSpace = _spaces.find((s: any) => s.id === _activeSpaceId) ?? null;
+      const _openTabs = _activeSpace ? _omniTabs.filter((t: any) => _activeSpace.tabIds.includes(t.id)) : _omniTabs;
+      // Ambient sight: trust-tagged snapshot of the tabs open in this Space/DM, shown to every agent.
+      const _ambientContext = buildAmbientContext(
+        _openTabs,
+        useSpaceStore.getState().activeOmniTabId,
+        (id: string) => _assistants.find((a: any) => a.id === id)?.name,
+      );
+
+      const toolMsgId = generateId('tool');
+      const capabilityCtx: CapabilityContext = {
+        userMsg,
+        chatId,
+        agentId: _activeAssistant?.id ?? null,
+        assistant: _activeAssistant,
+        hwProfile: _hwProfile,
+        integrations: _integrations,
+        model: _selectedModel,
+        signal: abortControllerRef.current?.signal,
+        openTabs: _openTabs,
+        setStatus: (label: string) => {
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${label} ] ` } : m) }));
+        },
+      };
+      const capability = capabilityForRoute(primaryToolRoute, capabilityCtx);
+      toolUsed = capability?.title ?? null;
 
       let messagesForLLM = [...history];
 
-      if (toolUsed) {
-        const toolMsgId = generateId('tool');
-        const searchProviders: string[] = [];
-        let searchResultCount = 0;
-        let browseSummary = '';
+      if (capability) {
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), { id: toolMsgId, role: 'bot', content: `[ ⚡ Interfacing with ${toolUsed}... ]`, isToolCall: true, isPinned: false, timestamp: Date.now() }] }));
 
-        if (toolUsed === 'Knowledge Search') {
-             try {
-                 let ragData = "No relevant documents found in Knowledge Core.";
-                 if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
-                     const kcResult = await invoke<{ results: Array<{ path: string; title: string; snippet: string; score: number }> }>(
-                         'search_knowledge_semantic', { query: userMsg.content.replace(/^\[PLANNING MODE[^\]]*\]\n+/i, '').trim(), agentId: _activeAssistant?.id ?? null, maxResults: _hwProfile?.rag_results ?? 5, snippetChars: _hwProfile?.rag_snippet_chars ?? 400 }
-                     );
-                     const hits = kcResult.results ?? [];
-                     if (hits.length > 0) {
-                         ragData = hits.map((h: any, i: number) => `[${i + 1}] ${h.title}\n${h.snippet}`).join('\n\n---\n\n');
-                         hits.forEach((h: any) => foundSources.push({ title: h.title, path: h.path, snippet: h.snippet }));
-                     }
-                 }
-                 toolData += `\n\n[SYSTEM NOTE: KNOWLEDGE SEARCH RESULTS]\n${ragData}\n[END SEARCH]`;
-             } catch (e: any) {
-                 console.error('Local RAG failed:', e);
-                 toolData += `\n\n[SYSTEM NOTE: LOCAL RAG FAILED]\nError: ${e.message}\n[END SEARCH]`;
-             }
-        } else if (toolUsed === 'Web Search') {
-            try {
-                const query = userMsg.content.replace(/search( for)?|who is|what is|find/gi, '').trim() || userMsg.content;
+        const result = await capability.execute(capabilityCtx);
+        toolData = result.toolData;
+        foundSources = result.sources;
 
-                // Tavily Fetch — via Tauri HTTP backend to bypass WebView CORS
-                if (_integrations.tavily?.enabled) {
-                    if (!_integrations.tavily?.apiKey) {
-                        useUIStore.getState().showToast("Tavily API key missing. Please add it in Settings → Integrations.");
-                    } else {
-                        try {
-                            const tvData = await fetchWithRetry(
-                                'https://api.tavily.com/search',
-                                {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        api_key: _integrations.tavily.apiKey,
-                                        query,
-                                        max_results: 3,
-                                        search_depth: "advanced",
-                                        include_answer: true
-                                    })
-                                },
-                                1
-                            );
-                            if (tvData.results) {
-                                tvData.results.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.content }));
-                                if (tvData.results.length > 0) { searchProviders.push('Tavily'); searchResultCount += tvData.results.length; }
-                            }
-                            if (tvData.answer) {
-                                toolData += `\n[TAVILY AI SUMMARY]\n${tvData.answer}\n`;
-                            }
-                        } catch (tvErr: any) {
-                            const msg = tvErr?.message ?? String(tvErr);
-                            const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
-                            useUIStore.getState().showToast(
-                                isAuth
-                                    ? 'Tavily: Invalid API key — check Settings → Integrations.'
-                                    : `Tavily search failed: ${msg}`
-                            );
-                            console.warn("Tavily search failed:", tvErr);
-                        }
-                    }
-                }
-
-                // Brave Search Fetch
-                if (_integrations.brave?.enabled && _integrations.brave?.apiKey) {
-                    try {
-                        const braveData = await fetchWithRetry(
-                            `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`,
-                            {
-                                method: 'GET',
-                                headers: {
-                                    'Accept': 'application/json',
-                                    'Accept-Encoding': 'gzip',
-                                    'X-Subscription-Token': _integrations.brave.apiKey,
-                                },
-                            },
-                            1
-                        );
-                        if (braveData?.web?.results) {
-                            const braveNew = braveData.web.results.slice(0, 5).filter((r: any) => !foundSources.some((x: any) => x.url === r.url));
-                            braveNew.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.description ?? '' }));
-                            if (braveNew.length > 0) { searchProviders.push('Brave'); searchResultCount += braveNew.length; }
-                        }
-                    } catch (braveErr: any) {
-                        const msg = braveErr?.message ?? String(braveErr);
-                        const isAuth = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
-                        useUIStore.getState().showToast(
-                            isAuth
-                                ? 'Brave Search: Invalid API key — check Settings → Integrations.'
-                                : `Brave search failed: ${msg}`
-                        );
-                        console.warn("Brave search failed:", braveErr);
-                    }
-                }
-
-                // Wikipedia Fetch — via Tauri HTTP backend
-                const wikiQuery = query.split(' ').slice(0, 4).join(' ').trim();
-                if (wikiQuery) {
-                    try {
-                        const wikiData = await fetchWithRetry(
-                            `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`,
-                            { method: 'GET' },
-                            1
-                        );
-                        if (wikiData?.query?.search) {
-                            const wikiNew = wikiData.query.search.slice(0, 2).filter((s: any) => !foundSources.some((x: any) => x.url === `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`));
-                            wikiNew.forEach((s: any) => {
-                                const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`;
-                                foundSources.push({ title: `Wikipedia: ${s.title}`, url, snippet: s.snippet.replace(/<[^>]*>?/gm, '') });
-                            });
-                            if (wikiNew.length > 0) { searchProviders.push('Wikipedia'); searchResultCount += wikiNew.length; }
-                        }
-                    } catch (wikiErr: any) {
-                        console.warn("Wikipedia search failed:", wikiErr);
-                    }
-                }
-                
-                if (foundSources.length > 0) {
-                    const searchResults = foundSources.map(s => `- ${s.title}: ${s.snippet} (URL: ${s.url})`).join('\n');
-                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\n${searchResults}\n[END SEARCH]`;
-                } else {
-                    toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo relevant results found online.\n[END SEARCH]`;
-                }
-            } catch (e: any) {
-                console.error('Web search failed:', e);
-                useUIStore.getState().showToast("Web search failed. Check console logs.");
-                toolData += `\n\n[SYSTEM NOTE: WEB SEARCH FAILED]\nThe web search encountered an error: ${e.message}\n[END SEARCH]`;
-            }
-        } else if (toolUsed === 'Browse') {
-            try {
-                // Start from an explicit URL in the message if present, otherwise a DuckDuckGo HTML
-                // results page the agent can click through. (DDG's html endpoint renders plain
-                // result links and doesn't gate the embedded webview the way Google sign-in does.)
-                const urlMatch = userMsg.content.match(/https?:\/\/[^\s)]+/i);
-                const query = userMsg.content.replace(/^\s*(browse|open|go to|navigate to|visit|look on|check)\s+/i, '').trim() || userMsg.content;
-                const startUrl = urlMatch ? urlMatch[0] : `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-
-                // If no browser is live in the current Space/DM, open a real, visible 'web' tab there
-                // (which mounts BrowserTabContent → the browser-panel webview) and wait for it to
-                // register. The agent always drives this visible tab — never a hidden browser.
-                let panelReady = await isBrowserPanelReady();
-                if (!panelReady) {
-                    useSpaceStore.getState().openTab({ type: 'web', label: 'Browsing…', url: startUrl });
-                    for (let i = 0; i < 40 && !panelReady; i++) {
-                        await new Promise(r => setTimeout(r, 150));
-                        panelReady = await isBrowserPanelReady();
-                    }
-                }
-
-                if (!panelReady) {
-                    browseSummary = '🌐 Browse · could not open a browser tab';
-                    useUIStore.getState().showToast('Could not open a browser tab to browse with.');
-                    toolData += `\n\n[SYSTEM NOTE: BROWSE UNAVAILABLE]\nA browser tab could not be opened in time, so agentic browsing did not run.\n[END BROWSE]`;
-                } else {
-                    const result = await runBrowserAgent({
-                        task: userMsg.content,
-                        startUrl,
-                        modelConfig: _selectedModel,
-                        signal: abortControllerRef.current?.signal,
-                        confirmSubmit: (desc: string) => window.confirm(`Agent Forge wants to submit a form while browsing.\n\n${desc}\n\nAllow?`),
-                        onProgress: (p) => {
-                            const label = `🌐 Browsing · step ${p.step}/${p.maxSteps}${p.action ? ` · ${p.action}` : ''}`;
-                            useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${label} ] ` } : m) }));
-                        },
-                    });
-
-                    result.sources.forEach((s) => {
-                        if (!foundSources.some((x: any) => x.url === s.url)) foundSources.push({ title: s.title, url: s.url, snippet: '' });
-                    });
-
-                    const sourceList = result.sources.length > 0
-                        ? '\n\nPages visited:\n' + result.sources.map((s) => `- ${s.title} (${s.url})`).join('\n')
-                        : '';
-                    const budgetNote = result.reachedBudget ? '\n(Note: the browsing step budget was reached before a definitive answer.)' : '';
-                    toolData += `\n\n[SYSTEM NOTE: BROWSE FINDINGS]\n${result.answer}${budgetNote}${sourceList}\n[END BROWSE]`;
-                    browseSummary = result.error
-                        ? '🌐 Browse · error'
-                        : `🌐 Browse · ${result.steps} step${result.steps !== 1 ? 's' : ''} · ${result.sources.length} page${result.sources.length !== 1 ? 's' : ''}`;
-                }
-            } catch (e: any) {
-                console.error('Browse agent failed:', e);
-                useUIStore.getState().showToast('Browsing failed. Check console logs.');
-                browseSummary = '🌐 Browse · error';
-                toolData += `\n\n[SYSTEM NOTE: BROWSE FAILED]\nThe browse agent encountered an error: ${e?.message ?? e}\n[END BROWSE]`;
-            }
-        } else if (toolUsed === 'Calendar') {
-            try {
-                const taskText = userMsg.content.replace(/^(schedule|remind me to|add|calendar|set reminder for)\s*/i, '').trim();
-                await invoke('append_task', { text: taskText });
-                toolData += `\n\n[CALENDAR]\nAdded to local planner: "${taskText}"\nSaved to ~/AgentForge/memory/tasks.md`;
-                useUIStore.getState().showToast(`Added to planner: ${taskText.slice(0, 60)}${taskText.length > 60 ? '…' : ''}`);
-            } catch (e: any) {
-                toolData += `\n\n[CALENDAR ERROR]\n${e?.message ?? e}`;
-            }
-        }
-
-        if (toolUsed === 'Web Search') {
-          const summary = searchResultCount > 0
-            ? `🔍 ${searchProviders.length > 0 ? searchProviders.join(' + ') : 'Web'} · ${searchResultCount} result${searchResultCount !== 1 ? 's' : ''}`
-            : `🔍 Web Search · no results found`;
-          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${summary} ]` } : m) }));
-        } else if (toolUsed === 'Browse') {
-          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${browseSummary || '🌐 Browse'} ]` } : m) }));
+        if (result.status.type === 'replace') {
+          const finalContent = result.status.content;
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${finalContent} ]` } : m) }));
         } else {
           await new Promise(r => setTimeout(r, 800));
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
         }
-        
+
         if (toolData) {
             // Only inject toolData into the LLM payload — never into stored messages (avoids SYSTEM NOTE bleed in chat bubbles)
             messagesForLLM = history.map(m => m.id === userMsg.id ? { ...m, content: m.content + toolData } : m);
         }
       }
-      
+
       const isImageRequest = _generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
 
       const currentChatRecord = useChatStore.getState().chats.find((c: any) => c.id === chatId);
@@ -1662,7 +1497,12 @@ export default function App() {
       const isChannelChat = normalizedCurrentChat.kind === 'channel';
 
       if (isChannelChat) {
-        const routedAgents = routeAgentsForChannel(userMsg.content, normalizedCurrentChat, _assistants, _activeFolderId);
+        // Scoped/sticky routing (spec §5): a tagged agent stays the sole responder across follow-ups
+        // until the user @s someone else. No tag + active scope → still just the scoped agent(s).
+        const _stickyScopeIds = (currentChatRecord as any)?.scopedAgentIds ?? null;
+        const { agents: routedAgents, scopeIds: _newScopeIds } = scopeAgentsForChat(userMsg.content, normalizedCurrentChat, _assistants, _activeFolderId, _stickyScopeIds);
+        const _isScoped = !!(_newScopeIds && _newScopeIds.length > 0);
+        useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, scopedAgentIds: _newScopeIds } : c));
         const allParticipants = getParticipantAgents(normalizedCurrentChat, _assistants);
         const mentionedIds = extractMentionedAgentIds(userMsg.content, allParticipants);
         const previousResponses: Array<{ agentName: string; content: string }> = [];
@@ -1678,7 +1518,7 @@ export default function App() {
           };
 
           // Channel context PREPENDED so it frames the persona, not buried after it
-          const channelAddendum = buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, mentionedIds.has(agent.id));
+          const channelAddendum = buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, mentionedIds.has(agent.id) || _isScoped);
           const agentWithChannelContext = {
             ...agent,
             prompt: channelAddendum + '\n\n---\n\n' + (agent.prompt || ''),
@@ -1717,6 +1557,8 @@ export default function App() {
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
+            ambientContext: _ambientContext,
+            goal: _activeSpace?.agentGoals?.[agent.id],
           });
 
           const isPass = agentResponse.trim().toUpperCase() === '[PASS]';
@@ -1772,6 +1614,8 @@ export default function App() {
               integrations: _integrations,
               models: _models,
               runIntegrationTools,
+              ambientContext: _ambientContext,
+              goal: _activeSpace?.agentGoals?.[primaryAgent.id],
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
               ...prev,
@@ -1833,6 +1677,8 @@ export default function App() {
             models: _models,
             runIntegrationTools,
             browserContext: _browserContext,
+            ambientContext: _ambientContext,
+            goal: _activeSpace?.agentGoals?.[_activeAssistant?.id],
         });
 
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
@@ -2365,9 +2211,6 @@ export default function App() {
     if (tab.type === 'web') {
       return <BrowserTabContent tabId={tab.id} initialUrl={tab.url} />;
     }
-    if (tab.type === 'tool' && tab.toolId === 'knowledge-graph') {
-      return <div className="flex-1 flex flex-col h-full overflow-hidden"><KnowledgeGraphPanel /></div>;
-    }
     if (tab.type === 'tool' && tab.toolId === 'planner') {
       return <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />;
     }
@@ -2376,6 +2219,9 @@ export default function App() {
     }
     if (tab.type === 'tool' && tab.toolId === 'inbox') {
       return <MailInboxPanel />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'messages') {
+      return <MessagesPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'activity') {
       return (

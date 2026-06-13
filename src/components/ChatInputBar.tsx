@@ -94,6 +94,7 @@ export function ChatInputBar({
   }, [showEmojiPicker]);
 
   const [mentionHighlight, setMentionHighlight] = useState(0);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const mentionMatch = channelParticipants.length > 0 ? input.match(/@(\w*)$/) : null;
   const mentionQuery = mentionMatch ? mentionMatch[1].toLowerCase() : null;
   const filteredMentions = mentionQuery !== null
@@ -106,6 +107,23 @@ export function ChatInputBar({
     setInput(newInput);
     setMentionHighlight(0);
   };
+
+  // Cmd/Ctrl+Shift+@ — summon the agent picker on the current surface (spec §5). Inserts a trailing
+  // '@' so the existing mention palette opens, scoped to this chat's participants, then focuses the
+  // composer. (Shift+2 on US layouts yields e.key === '@'.)
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '@') {
+        e.preventDefault();
+        const cur = useUIStore.getState().input;
+        const next = !cur || cur.endsWith(' ') || cur.endsWith('@') ? `${cur}@` : `${cur} @`;
+        setInput(next);
+        composerRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setInput]);
 
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
@@ -182,6 +200,7 @@ export function ChatInputBar({
         {/* Textarea */}
         <div className={`bg-panel border shadow-sm rounded-3xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-edge-2' : 'border-edge-2 focus-within:border-accent'}`}>
           <textarea
+            ref={composerRef}
             value={input}
             onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
             onKeyDown={e => {

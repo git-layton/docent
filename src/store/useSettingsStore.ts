@@ -129,6 +129,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     google: { apiKey: '' },
     customImage: { apiKey: '' },
     slack: { enabled: false, botToken: '' },
+    imessage: { enabled: false, setupComplete: false },
     googleWorkspaces: [],
     gus: { enabled: false, instanceUrl: '', accessToken: '' },
   },

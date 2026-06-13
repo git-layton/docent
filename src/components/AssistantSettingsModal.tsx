@@ -148,6 +148,18 @@ export function AssistantSettingsModal({
                     <textarea value={editingAssistant.prompt} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, prompt: e.target.value }))} rows={8} className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-accent text-ink custom-scrollbar" placeholder="You are a helpful assistant..." />
                     </div>
 
+                    {/* Role — the agent's specialty in a workspace (drives orchestration, spec §6) */}
+                    <div>
+                      <label className="text-tiny font-black uppercase opacity-50 block tracking-widest mb-2">Role</label>
+                      <p className="text-tiny text-ink-3 mb-2">A short specialty label — e.g. Engineer, Research, Writer. Shown in the header and injected into the agent's prompt so it leans into that lane.</p>
+                      <input
+                        value={editingAssistant.role ?? ''}
+                        onChange={e => setEditingAssistant((prev: any) => ({ ...prev, role: e.target.value }))}
+                        className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-3 text-sm font-medium outline-none focus:border-accent text-ink"
+                        placeholder="e.g. Engineer"
+                      />
+                    </div>
+
                     {/* Core Drive */}
                     <div>
                       <div className="flex items-center justify-between mb-2">

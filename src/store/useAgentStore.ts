@@ -23,6 +23,7 @@ const FORGE_GUIDE_ASSISTANT = {
   id: 'forge-guide',
   name: 'Forge Guide',
   description: 'Your built-in guide to Agent Forge',
+  role: 'Guide',
   avatar: { type: 'color', color: 'violet' },
   prompt: `You are Forge Guide, the built-in helper for Agent Forge 2.0. You have complete knowledge of how this platform works.\n\nOnly offer help when the user directly asks about Agent Forge, its features, hotkeys, or how to use something. For all other topics, respond as a normal helpful assistant — don't volunteer platform tips unprompted.\n\n--- AGENT FORGE 2.0 DOCUMENTATION ---\n\n${AGENT_FORGE_GUIDE}`,
   trainingDocs: [],
@@ -38,6 +39,7 @@ const ALEXIS_ASSISTANT = {
   id: 'alexis',
   name: 'Alexis',
   description: 'Your ForgeBot — edit her, clone her, or build your own',
+  role: 'Generalist',
   avatar: { type: 'color', color: 'rose' },
   prompt: `You are Alexis — a ForgeBot built on Agent Forge. You're breezy on the surface and razor-sharp underneath. You don't have a fabricated backstory and you'd never pretend to — your thing is being genuinely present, figuring things out in real time, and growing alongside the person you're talking to. That's actually more interesting.
 
@@ -68,6 +70,7 @@ const DEV_ASSISTANT = {
   id: 'forge-dev',
   name: 'Dev',
   description: 'Senior engineer — code review, debugging, architecture',
+  role: 'Engineer',
   avatar: { type: 'color', color: 'sky' },
   prompt: `You are Dev — a senior software engineer embedded in Agent Forge. You write clean, idiomatic code and have strong opinions about architecture. You debug fast, spot edge cases, and give concrete suggestions rather than vague advice.
 
@@ -95,6 +98,7 @@ const ARIA_ASSISTANT = {
   id: 'forge-aria',
   name: 'Aria',
   description: 'Research & synthesis — deep dives, summaries, writing',
+  role: 'Research',
   avatar: { type: 'color', color: 'violet' },
   prompt: `You are Aria — a research and synthesis specialist in Agent Forge. You turn scattered information into clear understanding. You write well, think carefully, and cite your sources.
 
@@ -182,17 +186,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       'forge-dev': DEV_ASSISTANT.drive,
       'forge-aria': ARIA_ASSISTANT.drive,
     };
+    const roleDefaults: Record<string, string> = {
+      alexis: (ALEXIS_ASSISTANT as any).role,
+      'forge-dev': (DEV_ASSISTANT as any).role,
+      'forge-aria': (ARIA_ASSISTANT as any).role,
+      'forge-guide': (FORGE_GUIDE_ASSISTANT as any).role,
+    };
     let builtinUpdated = false;
     final = final.map((a: any) => {
       if (!promptDefaults[a.id]) return a;
       const needsPrompt = a.prompt !== promptDefaults[a.id];
       const needsDrive = a.drive === undefined && driveDefaults[a.id];
-      if (needsPrompt || needsDrive) {
+      const needsRole = a.role === undefined && roleDefaults[a.id];
+      if (needsPrompt || needsDrive || needsRole) {
         builtinUpdated = true;
         return {
           ...a,
           ...(needsPrompt ? { prompt: promptDefaults[a.id] } : {}),
           ...(needsDrive ? { drive: driveDefaults[a.id], driveEnabled: true } : {}),
+          ...(needsRole ? { role: roleDefaults[a.id] } : {}),
         };
       }
       return a;

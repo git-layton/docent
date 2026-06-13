@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
-  MessageSquare, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
+  MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
   Sun, Moon, Monitor, Check
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -94,6 +94,24 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     await invoke('keychain_delete', { host: `mail:${email}` }).catch(() => {});
     setIntegrations((prev: any) => ({ ...prev, mailAccounts: (prev.mailAccounts ?? []).filter((a: any) => a.email !== email) }));
     await useSettingsStore.getState().persist();
+  };
+
+  // iMessage — there are no credentials; it reads the local Messages database, which needs Full Disk
+  // Access. "Connecting" = probing that we can open chat.db. We flip `imessage.enabled` once verified.
+  const [imsgStatus, setImsgStatus] = useState<{ state: 'idle' | 'checking' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
+  const imessageEnabled = !!(integrations as any).imessage?.enabled;
+
+  const handleImessageCheck = async () => {
+    setImsgStatus({ state: 'checking' });
+    try {
+      const count = await invoke<number>('imessage_check_access');
+      setIntegrations((prev: any) => ({ ...prev, imessage: { enabled: true } }));
+      await useSettingsStore.getState().persist();
+      setImsgStatus({ state: 'ok', msg: `Connected — ${count.toLocaleString()} conversations` });
+    } catch (e) {
+      setIntegrations((prev: any) => ({ ...prev, imessage: { enabled: false } }));
+      setImsgStatus({ state: 'error', msg: String(e) });
+    }
   };
 
   useEffect(() => {
@@ -655,6 +673,56 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                         </div>
                       )}
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* iMessage — reads the local Messages database (Full Disk Access); sends via Messages.app */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2">
+                      <MessageCircle className="w-5 h-5 text-secondary" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black uppercase tracking-widest block">iMessage</span>
+                      <span className="text-xs text-ink-3 font-medium mt-0.5">Your iMessage &amp; SMS, read straight from this Mac. No account — just a one-time permission.</span>
+                    </div>
+                  </div>
+                  {imessageEnabled
+                    ? <span className="flex items-center gap-1.5 text-xs font-bold text-success-light shrink-0"><CheckCircle2 className="w-4 h-4" /> Connected</span>
+                    : (
+                      <button
+                        onClick={handleImessageCheck}
+                        disabled={imsgStatus.state === 'checking'}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0 disabled:opacity-40"
+                      >
+                        {imsgStatus.state === 'checking' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />}
+                        {imsgStatus.state === 'checking' ? 'Checking…' : 'Connect'}
+                      </button>
+                    )}
+                </div>
+
+                <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
+                  <span className="text-tiny font-black uppercase tracking-widest text-ink-3">One-time setup</span>
+                  <ol className="text-xs text-ink-3 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
+                    <li>Open <span className="font-bold">Full Disk Access</span> and switch on <span className="font-bold">Agent Forge</span> (so it can read your message history).</li>
+                    <li>Click <span className="font-bold">Connect</span> above to verify.</li>
+                    <li>The first time you send, macOS asks to let Agent Forge control Messages — click <span className="font-bold">OK</span>.</li>
+                  </ol>
+                  <button
+                    onClick={() => openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles').catch(() => {})}
+                    className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
+                  ><ExternalLink className="w-3.5 h-3.5" /> Open Full Disk Access</button>
+                </div>
+
+                {imsgStatus.state === 'ok' && (
+                  <span className="text-tiny font-bold text-success-light">✓ {imsgStatus.msg}</span>
+                )}
+                {imsgStatus.state === 'error' && (
+                  <div className="text-tiny font-bold text-error break-words flex flex-col gap-1">
+                    <span>✗ {imsgStatus.msg}</span>
+                    <span className="text-ink-3 font-medium">↑ Turn on Full Disk Access for Agent Forge, then click Connect again. (A full quit &amp; relaunch may be needed after granting.)</span>
                   </div>
                 )}
               </div>

@@ -1,5 +1,5 @@
 export type OmniTabType = 'home' | 'space-log' | 'web' | 'doc' | 'code-canvas' | 'tool';
-export type ToolTabId = 'knowledge-graph' | 'planner' | 'inbox' | 'model-store' | 'calendar' | 'activity';
+export type ToolTabId = 'planner' | 'inbox' | 'messages' | 'model-store' | 'calendar' | 'activity';
 
 export interface OmniTab {
   id: string;
@@ -11,6 +11,7 @@ export interface OmniTab {
   canvasContentId?: string; // for 'doc'/'code-canvas'
   isPinned?: boolean;       // pinned tabs have no close button
   isFavorite?: boolean;     // user-starred → surfaced in the sidebar FAVORITES section
+  openedByAgentId?: string; // if an agent opened this tab, group it under that agent in the overflow menu
 }
 
 /**
@@ -30,6 +31,7 @@ export interface Space {
   agentIds: string[];
   peopleIds: string[];
   tabIds: string[];
+  agentGoals?: Record<string, string>; // per-agent standing goal within this Space (spec §6)
   chatId: string;        // this container's own conversation thread (in useChatStore)
   createdAt: number;
   updatedAt: number;

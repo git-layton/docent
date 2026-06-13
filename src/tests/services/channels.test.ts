@@ -6,6 +6,7 @@ import {
   buildChannelPromptAddendum,
   chatIncludesAgent,
   getParticipantAgents,
+  scopeAgentsForChat,
 } from '../../services/channels'
 
 // ---------------------------------------------------------------------------
@@ -261,8 +262,10 @@ describe('buildChannelPromptAddendum', () => {
   it('adds a direct-mention directive when isMentioned is true', () => {
     const chat = makeChannel()
     const addendum = buildChannelPromptAddendum(chat, allParticipants, [], alice, true)
-    expect(addendum).toContain('directly mentioned')
+    expect(addendum).toContain('directly tagged')
     expect(addendum).toContain('MUST respond')
+    // scoped/sticky sessions: a tagged agent asks clarifying questions instead of punting
+    expect(addendum).toContain('clarifying question')
   })
 
   it('social norm instructs ALWAYS responding', () => {
@@ -391,5 +394,49 @@ describe('getParticipantAgents', () => {
     const channel = makeChannel()
     const result = getParticipantAgents(channel, [])
     expect(result).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// scopeAgentsForChat — scoped/sticky sessions (spec §5)
+// ---------------------------------------------------------------------------
+
+describe('scopeAgentsForChat', () => {
+  const agents = [alice, bob, charlie]
+
+  it('tagging one agent → only that agent responds, and becomes the sticky scope', () => {
+    const r = scopeAgentsForChat('hey @bob can you look at this', makeChannel(), agents, alice.id, null)
+    expect(r.agents.map(a => a.id)).toEqual([bob.id])
+    expect(r.scopeIds).toEqual([bob.id])
+  })
+
+  it('an active sticky scope keeps only the scoped agent responding when no one is tagged', () => {
+    const r = scopeAgentsForChat('and one more follow-up', makeChannel(), agents, alice.id, [bob.id])
+    expect(r.agents.map(a => a.id)).toEqual([bob.id])
+    expect(r.scopeIds).toEqual([bob.id])
+  })
+
+  it('tagging a different agent overrides the sticky scope', () => {
+    const r = scopeAgentsForChat('@charlie what do you think?', makeChannel(), agents, alice.id, [bob.id])
+    expect(r.agents.map(a => a.id)).toEqual([charlie.id])
+    expect(r.scopeIds).toEqual([charlie.id])
+  })
+
+  it('tagging multiple agents scopes the session to exactly those, in mention order', () => {
+    const r = scopeAgentsForChat('@charlie @bob please sync', makeChannel(), agents, alice.id, null)
+    expect(r.agents.map(a => a.id)).toEqual([charlie.id, bob.id])
+    expect(r.scopeIds).toEqual([charlie.id, bob.id])
+  })
+
+  it('no tag and no sticky scope → default routing, no scope persisted', () => {
+    const r = scopeAgentsForChat('what does everyone think?', makeChannel(), agents, alice.id, null)
+    expect(r.scopeIds).toBeNull()
+    expect(r.agents.length).toBe(agents.length)
+  })
+
+  it('a stale scope id that is no longer a participant falls back to default routing', () => {
+    const r = scopeAgentsForChat('continuing on', makeChannel(), agents, alice.id, ['ghost-agent'])
+    expect(r.scopeIds).toBeNull()
+    expect(r.agents.length).toBe(agents.length)
   })
 })

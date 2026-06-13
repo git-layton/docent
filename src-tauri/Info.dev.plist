@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Dev-only overlay (used during `tauri dev`). Mirrors Info.plist so iMessage sending and contact
+    access work while developing, not just in release bundles. Keep these in sync with Info.plist.
+  -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Agent Forge sends your iMessages and texts through the Messages app on your behalf.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>Agent Forge matches phone numbers and emails in your conversations to names from your contacts.</string>
+</dict>
+</plist>

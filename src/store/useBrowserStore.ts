@@ -45,6 +45,7 @@ interface BrowserStore {
   updateActiveTabContent: (content: string) => void;
   addVisitLogEntry: (entry: VisitLogEntry) => Promise<void>;
   markVisitDigested: (id: string) => Promise<void>;
+  updateVisitWordCount: (id: string, wordCount: number) => Promise<void>;
   setBrowserChatId: (id: string | null) => void;
   setProactiveEnabled: (v: boolean) => void;
   clearVisitLog: () => Promise<void>;
@@ -76,6 +77,13 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
 
   markVisitDigested: async (id) => {
     set(s => ({ visitLog: s.visitLog.map(e => e.id === id ? { ...e, wasDigested: true } : e) }));
+    await get().persist();
+  },
+
+  // Backfill a visit's word count once the page text has been captured (it's logged as 0 at
+  // navigation time, before the async content extraction settles).
+  updateVisitWordCount: async (id, wordCount) => {
+    set(s => ({ visitLog: s.visitLog.map(e => e.id === id ? { ...e, wordCount } : e) }));
     await get().persist();
   },
 

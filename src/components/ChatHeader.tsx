@@ -50,6 +50,8 @@ export function ChatHeader({
 
   const ramStats = useUIStore(s => s.ramStats);
   const hwProfile = useUIStore(s => s.hwProfile);
+  const spaces = useSpaceStore(s => s.spaces);
+  const headerActiveSpaceId = useSpaceStore(s => s.activeSpaceId);
 
   const [showContextPeek, setShowContextPeek] = useState(false);
   const contextPeekRef = useRef<HTMLDivElement>(null);
@@ -61,6 +63,10 @@ export function ChatHeader({
   const isChannel = normalizedChat?.kind === 'channel';
   const participantCount = normalizedChat?.participantAgentIds?.length ?? 0;
   const pinnedCount = activeAgentPinnedMessageObjects.length;
+  const activeSpaceGoal = useMemo(
+    () => spaces.find(s => s.id === headerActiveSpaceId)?.agentGoals?.[activeAssistant?.id ?? ''] ?? '',
+    [spaces, headerActiveSpaceId, activeAssistant?.id],
+  );
   // The name trigger only opens the context peek in 1:1 DMs (not planner, not channels).
   const isPeekable = !showPlanner && !isChannel;
 
@@ -108,6 +114,9 @@ export function ChatHeader({
               {!showPlanner && activeAssistant && <AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1 rounded-md shadow-sm" />}
               {isChannel && <Hash className="w-4 h-4 text-accent" />}
               <span className="text-sm font-black tracking-tight text-ink">{showPlanner ? 'My Planner' : isChannel ? normalizedChat?.name : activeAssistant?.name ?? 'Assistant'}</span>
+              {!showPlanner && !isChannel && activeAssistant?.role && (
+                <span className="hidden sm:inline-flex items-center text-[9px] font-bold uppercase tracking-wider bg-accent-soft text-accent-soft-ink px-1.5 py-0.5 rounded-full" title="Agent role">{activeAssistant.role}</span>
+              )}
               {!showPlanner && !isChannel && activeAssistant && (
                 <span className="hidden sm:flex items-center gap-1.5 text-[10px] font-medium text-ink-3">
                   <span className="w-2 h-2 rounded-full bg-accent" aria-hidden="true" />
@@ -136,6 +145,23 @@ export function ChatHeader({
                       <div className="text-[10px] text-ink-3 line-clamp-2">{activeAssistant.description}</div>
                     )}
                   </div>
+                </div>
+
+                {/* Goal in this space (spec §6) — per-agent standing goal, editable inline. */}
+                <div className="mb-3">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-ink-3 mb-1.5">Goal in this space</div>
+                  <input
+                    key={`${headerActiveSpaceId}-${activeAssistant?.id}`}
+                    defaultValue={activeSpaceGoal}
+                    onBlur={e => {
+                      const v = e.target.value.trim();
+                      if (headerActiveSpaceId && activeAssistant && v !== activeSpaceGoal) {
+                        useSpaceStore.getState().setAgentGoal(headerActiveSpaceId, activeAssistant.id, v);
+                      }
+                    }}
+                    placeholder="What should this agent keep driving toward here?"
+                    className="w-full bg-inset border border-edge rounded-lg px-2.5 py-1.5 text-[11px] text-ink outline-none focus:border-accent placeholder:text-ink-3"
+                  />
                 </div>
 
                 {/* System prompt snippet */}

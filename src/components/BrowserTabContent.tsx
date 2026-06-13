@@ -12,6 +12,7 @@ import { useBrowserStore } from '../store/useBrowserStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { generatePageDigest } from '../services/pageDigest';
+import { capturePageText } from '../services/pageCapture';
 import { BrowserContextMenu } from './BrowserContextMenu';
 import { BrowserPasswordBar } from './BrowserPasswordBar';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -27,6 +28,10 @@ function normalizeUrl(input: string): string {
 }
 
 const BROWSER_LABEL = 'browser-panel';
+
+// Wait for a settled navigation before grabbing page HTML — same order of magnitude as the nav-bar
+// URL poll and other per-page injections below, so we read the loaded DOM rather than a blank page.
+const CONTENT_SETTLE_MS = 1200;
 
 // Present a genuine desktop Safari identity — WKWebView *is* WebKit/Safari, so this matches the real
 // JS environment (no Chrome token, no missing navigator.userAgentData). Paired with a document-start
@@ -373,6 +378,25 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         wasDigested: false,
         isPrivate,
       });
+
+      // Populate the page's readable text for agents. Skip private and non-http(s) pages: we don't
+      // capture content behind auth/login walls, and about:/javascript:/data: URLs have nothing to
+      // read. Debounce until the navigation settles so we read the loaded DOM, not a blank page.
+      // Best-effort and non-fatal — capturePageText resolves to '' on any failure.
+      if (isPrivate || !/^https?:\/\//i.test(url)) return;
+
+      await new Promise<void>(r => setTimeout(r, CONTENT_SETTLE_MS));
+      if (cancelled || visitIdRef.current !== visitId) return;
+
+      const captured = await capturePageText(url);
+      if (cancelled || visitIdRef.current !== visitId || !captured) return;
+
+      useBrowserStore.getState().updateActiveTabContent(captured);
+      setPageContent(captured);
+      useBrowserStore.getState().updateVisitWordCount(
+        visitId,
+        captured.split(/\s+/).filter(Boolean).length,
+      );
     }
 
     capture();

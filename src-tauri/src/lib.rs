@@ -6,6 +6,7 @@ use tauri::{Emitter, Manager};
 use futures_util::StreamExt;
 
 mod mail;
+mod imessage;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -3165,6 +3166,11 @@ pub fn run() {
             mail::mail_unread_count,
             mail::mail_delete,
             mail::mail_send,
+            imessage::imessage_check_access,
+            imessage::imessage_unread_count,
+            imessage::imessage_list_chats,
+            imessage::imessage_fetch_messages,
+            imessage::imessage_send,
             browser_create,
             browser_navigate,
             browser_reload,
@@ -3287,6 +3293,7 @@ mod tests {
         for cmd in [
             "keychain_get", "keychain_save", "keychain_delete", "browser_eval", "browser_navigate",
             "browser_create", "browser_reload", "mail_test_connection", "mail_fetch_recent",
+            "imessage_check_access", "imessage_unread_count", "imessage_list_chats", "imessage_fetch_messages", "imessage_send",
             "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
             "download_model", "upsert_graph_node", "get_graph_stats", "setup_relay",
         ] {

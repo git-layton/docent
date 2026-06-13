@@ -1,14 +1,66 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, Activity } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, CheckSquare, Mail, CalendarDays, Activity } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useMessagesStore } from '../store/useMessagesStore';
 import type { OmniTab } from '../types/omniTab';
+import { TabOverflowMenu } from './TabOverflowMenu';
+
+// ---------------------------------------------------------------------------
+// Overflow threshold — past this many tabs, the surplus collapse into a
+// searchable dropdown anchored at the end of the strip.
+// ---------------------------------------------------------------------------
+export const MAX_VISIBLE_TABS = 8;
+
+// ---------------------------------------------------------------------------
+// partitionTabs — PURE. Splits a Space's tabs into the visible set (Chrome-style
+// pills) and the overflow set (collapsed into the dropdown). The active tab is
+// never hidden: if it would land in overflow it's swapped into the last visible
+// slot. Visible tabs keep their original order; overflow tabs keep theirs too.
+// ---------------------------------------------------------------------------
+export function partitionTabs(
+  tabs: OmniTab[],
+  activeId: string | null,
+  maxVisible: number = MAX_VISIBLE_TABS,
+): { visible: OmniTab[]; overflow: OmniTab[] } {
+  if (tabs.length <= maxVisible) return { visible: tabs, overflow: tabs.slice(maxVisible) };
+
+  const visible = tabs.slice(0, maxVisible);
+  const overflow = tabs.slice(maxVisible);
+
+  // Active tab is never hidden — if it's in overflow, swap it into the last
+  // visible slot so the strip always shows where the user currently is.
+  if (activeId != null && overflow.some(t => t.id === activeId)) {
+    const activeIdx = overflow.findIndex(t => t.id === activeId);
+    const lastVisibleIdx = visible.length - 1;
+    const demoted = visible[lastVisibleIdx];
+    visible[lastVisibleIdx] = overflow[activeIdx];
+    overflow[activeIdx] = demoted;
+  }
+
+  return { visible, overflow };
+}
+
+// ---------------------------------------------------------------------------
+// filterHiddenTabs — PURE. Case-insensitive filter of overflow tabs by `label`
+// and (for `web` tabs) `url`. An empty/whitespace query returns the input as-is.
+// ---------------------------------------------------------------------------
+export function filterHiddenTabs(tabs: OmniTab[], query: string): OmniTab[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return tabs;
+  return tabs.filter(t => {
+    if (t.label.toLowerCase().includes(q)) return true;
+    if (t.type === 'web' && t.url && t.url.toLowerCase().includes(q)) return true;
+    return false;
+  });
+}
 
 // ---------------------------------------------------------------------------
 // TabFavicon — copied from BrowserWindowApp.tsx
 // ---------------------------------------------------------------------------
-function TabFavicon({ url }: { url: string }) {
+export function TabFavicon({ url }: { url: string }) {
   const [err, setErr] = React.useState(false);
   if (err || !url) return <Globe className="w-3 h-3 shrink-0 opacity-40" />;
   try {
@@ -31,7 +83,7 @@ function TabFavicon({ url }: { url: string }) {
 // ---------------------------------------------------------------------------
 // TypeIcon — maps OmniTabType to a lucide icon
 // ---------------------------------------------------------------------------
-function TypeIcon({ tab }: { tab: OmniTab }) {
+export function TypeIcon({ tab }: { tab: OmniTab }) {
   const cls = 'w-3 h-3 shrink-0';
   switch (tab.type) {
     case 'home':
@@ -46,12 +98,12 @@ function TypeIcon({ tab }: { tab: OmniTab }) {
       return <Code className={cls} />;
     case 'tool':
       switch (tab.toolId) {
-        case 'knowledge-graph':
-          return <Share2 className={cls} />;
         case 'planner':
           return <CheckSquare className={cls} />;
         case 'inbox':
           return <Mail className={cls} />;
+        case 'messages':
+          return <MessageCircle className={cls} />;
         case 'calendar':
           return <CalendarDays className={cls} />;
         case 'activity':
@@ -75,6 +127,10 @@ interface TabPillProps {
 }
 
 function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
+  // Activity bubble: unread iMessage count on the Messages tab.
+  const unread = useMessagesStore(s => s.unread);
+  const showUnread = tab.type === 'tool' && tab.toolId === 'messages' && unread > 0;
+
   const handleDragStart = useCallback(
     (e: React.DragEvent<HTMLButtonElement>) => {
       e.dataTransfer.effectAllowed = 'move';
@@ -119,6 +175,14 @@ function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
     >
       <TypeIcon tab={tab} />
       <span className="truncate flex-1 min-w-0">{tab.label}</span>
+      {showUnread && (
+        <span
+          className="shrink-0 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-on-accent text-[9px] font-bold flex items-center justify-center leading-none"
+          title={`${unread} unread message${unread !== 1 ? 's' : ''}`}
+        >
+          {unread > 99 ? '99+' : unread}
+        </span>
+      )}
       {/* Star — pins this tab into the sidebar FAVORITES section */}
       <span
         role="button"
@@ -225,8 +289,24 @@ export function OmniTabBar(): React.JSX.Element {
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
   const splitTabId = useUIStore(s => s.splitTabId);
 
+  // Poll the iMessage unread count so the Messages tab's activity bubble (and the Home card) stay
+  // fresh. OmniTabBar is always mounted, so this is the app-wide heartbeat for that count. Held off
+  // until the user has completed Messages setup so we don't probe (and fail) before access exists.
+  const imessageReady: boolean = useSettingsStore(s => (s.integrations as any).imessage?.setupComplete) ?? false;
+  const refreshUnread = useMessagesStore(s => s.refreshUnread);
+  useEffect(() => {
+    if (!imessageReady) return;
+    refreshUnread();
+    const t = setInterval(refreshUnread, 15_000);
+    return () => clearInterval(t);
+  }, [imessageReady, refreshUnread]);
+
   // Only show tabs belonging to the active Space — this IS the Space context
   const spaceTabs = allTabs.filter(t => t.spaceId === activeSpaceId);
+
+  // Past the threshold, the surplus collapses into the overflow dropdown.
+  // The active tab is never hidden (partitionTabs swaps it in if needed).
+  const { visible: visibleTabs, overflow: overflowTabs } = partitionTabs(spaceTabs, activeOmniTabId);
 
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -235,7 +315,7 @@ export function OmniTabBar(): React.JSX.Element {
   useEffect(() => {
     const el = stripRef.current?.querySelector<HTMLElement>('[data-active="true"]');
     el?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-  }, [activeOmniTabId, spaceTabs.length]);
+  }, [activeOmniTabId, visibleTabs.length]);
 
   // Once tabs overflow they can't shrink further, so let a vertical wheel /
   // trackpad gesture scroll the strip horizontally (no visible scrollbar).
@@ -252,7 +332,7 @@ export function OmniTabBar(): React.JSX.Element {
         onWheel={handleWheel}
         className="flex-1 min-w-0 flex items-end px-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {spaceTabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           // Pass the global index so moveTab operates on the full omniTabs array correctly
           const globalIdx = allTabs.findIndex(t => t.id === tab.id);
           return (
@@ -267,6 +347,13 @@ export function OmniTabBar(): React.JSX.Element {
         })}
         <NewTabButton />
       </div>
+      {/* Overflow dropdown is pinned outside the scrolling strip so its panel
+          (which drops below the bar) isn't clipped by the strip's overflow. */}
+      {overflowTabs.length > 0 && (
+        <div className="shrink-0 pr-2">
+          <TabOverflowMenu tabs={overflowTabs} />
+        </div>
+      )}
     </div>
   );
 }

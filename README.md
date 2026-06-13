@@ -70,6 +70,28 @@ Before publishing a build:
 - Confirm Dream Cycle is manual and previewed before users rely on it.
 - Tag the release from the real Git repo.
 
+## Mail & Messages (macOS)
+
+Agent Forge can bring your inbox and your iMessage/SMS history into the app, all locally.
+
+- **Mail** (Gmail / iCloud): uses IMAP/SMTP with an **app-specific password** — no OAuth, no web login. Add an account under Settings → Integrations.
+- **iMessage & SMS**: reads your local Messages database and resolves numbers/emails to names from your Contacts, and sends through the Messages app. Everything stays on your Mac — no servers, no credentials stored.
+
+### One-time setup for iMessage
+
+macOS gates this behind two permissions you grant yourself (no app can enable them for you):
+
+1. **Full Disk Access** — lets Agent Forge read your messages and match contacts.
+   System Settings → Privacy & Security → **Full Disk Access** → enable **Agent Forge**.
+   The in-app iMessage card has a button that opens this pane directly. Quit and reopen the app after granting.
+2. **Automation** — lets Agent Forge send messages. The first time you send, macOS prompts
+   *"Agent Forge wants to control Messages"* — click **OK**.
+
+> Running a downloaded (unsigned) build? macOS Gatekeeper will block the first launch. Right-click the
+> app → **Open** → **Open** to allow it. Building from source avoids this entirely.
+
+Contacts are read straight from the macOS address book once Full Disk Access is on — there's no separate import step, and no Apple Developer account is required.
+
 ## Security Model
 
 Agent Forge stores user data locally. The Knowledge Core lives under `~/AgentForge`, and release builds should keep file operations locked to that directory.

@@ -10,6 +10,9 @@ export interface ChannelChat {
   participantAgentIds?: string[];
   primaryAgentId?: string;
   goal?: string;
+  /** Sticky scope: when set, ONLY these agents respond (across follow-ups) until the user @s
+   *  someone else. Set by tagging an agent; null/undefined = default norm-based routing. */
+  scopedAgentIds?: string[] | null;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -126,6 +129,51 @@ export const routeAgentsForChannel = (
   return [...mentioned, ...remaining];
 };
 
+/** The agents @-mentioned in `input`, in order of first mention, de-duplicated. */
+export const mentionedAgentsInOrder = (input: string, participants: any[]): any[] =>
+  [...input.matchAll(/@(\w+)/gi)]
+    .map(m => m[1].toLowerCase())
+    .reduce<any[]>((acc, query) => {
+      const match = participants.find(p => {
+        const name = (p.name ?? '').toLowerCase();
+        return name.replace(/\s+/g, '').startsWith(query) || name.split(/\s+/)[0].startsWith(query);
+      });
+      if (match && !acc.find(a => a.id === match.id)) acc.push(match);
+      return acc;
+    }, []);
+
+/**
+ * Resolve who responds to a message, honoring scoped/sticky sessions (spec §5):
+ *  - the message @-mentions agents → ONLY those respond, and they become the sticky scope
+ *  - else a sticky scope is active → ONLY those respond (across any number of follow-ups)
+ *  - else → default routing (channel norm-based participation / DM primary)
+ * Returns the agents to respond plus the scope to persist (`null` = no active scope).
+ */
+export const scopeAgentsForChat = (
+  input: string,
+  chat: any,
+  agents: any[],
+  activeAgentId: string,
+  stickyScopeIds: string[] | null | undefined,
+): { agents: any[]; scopeIds: string[] | null } => {
+  const normalized = normalizeChatRecord(chat, activeAgentId);
+  const participants = getParticipantAgents(normalized, agents);
+
+  const mentioned = mentionedAgentsInOrder(input, participants);
+  if (mentioned.length > 0) {
+    return { agents: mentioned, scopeIds: mentioned.map(a => a.id) };
+  }
+
+  if (stickyScopeIds && stickyScopeIds.length > 0) {
+    const scoped = stickyScopeIds
+      .map(id => participants.find(p => p.id === id))
+      .filter(Boolean);
+    if (scoped.length > 0) return { agents: scoped, scopeIds: stickyScopeIds };
+  }
+
+  return { agents: routeAgentsForChannel(input, chat, agents, activeAgentId), scopeIds: null };
+};
+
 export const buildChannelPromptAddendum = (
   chat: any,
   allParticipants: any[],
@@ -161,7 +209,7 @@ export const buildChannelPromptAddendum = (
   const norm: ChannelNorm = chat.norm ?? 'default';
 
   if (isMentioned) {
-    addendum += `\n→ You were directly mentioned — you MUST respond to this message.`;
+    addendum += `\n→ You were directly tagged — you MUST respond to this message. If the request is ambiguous or you're missing context, ask a brief clarifying question instead of guessing, and do NOT defer or punt to another agent: the user is talking to you specifically.`;
   } else {
     switch (norm) {
       case 'social':

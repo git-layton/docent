@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    macOS TCC usage strings. Tauri merges this file into the bundled Info.plist.
+
+    NSAppleEventsUsageDescription is REQUIRED for sending iMessages: since macOS Mojave, an app
+    cannot send Apple Events to Messages.app (our osascript send) at all — no permission prompt even
+    appears — unless this key exists. Without it, sending silently fails.
+
+    NSContactsUsageDescription covers the Contacts framework. Today we read contacts from the
+    AddressBook database via Full Disk Access (so this isn't strictly required), but it's here for
+    hygiene and in case we later switch to CNContactStore.
+  -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Agent Forge sends your iMessages and texts through the Messages app on your behalf.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>Agent Forge matches phone numbers and emails in your conversations to names from your contacts.</string>
+</dict>
+</plist>

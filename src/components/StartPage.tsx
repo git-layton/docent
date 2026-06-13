@@ -6,10 +6,10 @@ import {
   Code2,
   CheckSquare,
   CalendarDays,
-  Share2,
   Image as ImageIcon,
   Mail,
   MessageSquare,
+  MessageCircle,
   Building2,
   Star,
   CornerDownLeft,
@@ -27,6 +27,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
+import { useMessagesStore } from '../store/useMessagesStore';
 import { getUnreadTotal } from '../lib/mailUnread';
 import type { OmniTab, OmniTabType, ToolTabId } from '../types/omniTab';
 
@@ -64,7 +65,41 @@ function focusExisting(tabId: string | undefined, targetId: string) {
   if (tabId && tabId !== targetId) st.closeTab(tabId);
 }
 
+// Order mirrors the home-page mockup: lead with the actionable daily-driver apps
+// (Inbox, Calendar, To-Do, Messages), then the creation/utility apps.
 const APPS: AppEntry[] = [
+  {
+    id: 'inbox',
+    label: 'Inbox',
+    sub: 'Gmail & iCloud mail',
+    icon: Mail,
+    tint: 'bg-orange-500/12 text-orange-700 dark:bg-orange-400/15 dark:text-orange-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'inbox' as ToolTabId, label: 'Inbox' }),
+  },
+  {
+    id: 'calendar',
+    label: 'Calendar',
+    sub: 'Your schedule',
+    icon: CalendarDays,
+    tint: 'bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'calendar' as ToolTabId, label: 'Calendar' }),
+  },
+  {
+    id: 'todo',
+    label: 'To-Do',
+    sub: 'Tasks & planning',
+    icon: CheckSquare,
+    tint: 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'planner' as ToolTabId, label: 'To-Do' }),
+  },
+  {
+    id: 'messages',
+    label: 'Messages',
+    sub: 'iMessage & SMS',
+    icon: MessageCircle,
+    tint: 'bg-green-500/12 text-green-700 dark:bg-green-400/15 dark:text-green-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'messages' as ToolTabId, label: 'Messages' }),
+  },
   {
     id: 'chat',
     label: 'Chat',
@@ -80,22 +115,6 @@ const APPS: AppEntry[] = [
         omniTabs.find((t) => t.type === 'space-log');
       if (log) focusExisting(tabId, log.id);
     },
-  },
-  {
-    id: 'browser',
-    label: 'Web Browser',
-    sub: 'Browse the web',
-    icon: Globe,
-    tint: 'bg-blue-500/12 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300',
-    open: (tabId) => launch(tabId, { type: 'web', label: 'New Tab', url: 'https://duckduckgo.com' }),
-  },
-  {
-    id: 'inbox',
-    label: 'Inbox',
-    sub: 'Gmail & iCloud mail',
-    icon: Mail,
-    tint: 'bg-orange-500/12 text-orange-700 dark:bg-orange-400/15 dark:text-orange-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'inbox' as ToolTabId, label: 'Inbox' }),
   },
   {
     id: 'doc',
@@ -114,28 +133,12 @@ const APPS: AppEntry[] = [
     open: (tabId) => launch(tabId, { type: 'code-canvas', label: 'Untitled Canvas' }),
   },
   {
-    id: 'todo',
-    label: 'To-Do',
-    sub: 'Tasks & planning',
-    icon: CheckSquare,
-    tint: 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'planner' as ToolTabId, label: 'To-Do' }),
-  },
-  {
-    id: 'calendar',
-    label: 'Calendar',
-    sub: 'Your schedule',
-    icon: CalendarDays,
-    tint: 'bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'calendar' as ToolTabId, label: 'Calendar' }),
-  },
-  {
-    id: 'graph',
-    label: 'Knowledge Graph',
-    sub: 'Connected memory',
-    icon: Share2,
-    tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'knowledge-graph' as ToolTabId, label: 'Knowledge Graph' }),
+    id: 'browser',
+    label: 'Web Browser',
+    sub: 'Browse the web',
+    icon: Globe,
+    tint: 'bg-blue-500/12 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300',
+    open: (tabId) => launch(tabId, { type: 'web', label: 'New Tab', url: 'https://duckduckgo.com' }),
   },
   {
     id: 'activity',
@@ -296,6 +299,15 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mailKey]);
 
+  // Unread iMessage count — shared store, kept fresh app-wide by OmniTabBar's poller. Refresh on
+  // open too so the Home card is immediate. Gated on completed Messages setup.
+  const msgUnread = useMessagesStore(s => s.unread);
+  const refreshMsgUnread = useMessagesStore(s => s.refreshUnread);
+  const imessageReady = !!(integrations as any)?.imessage?.setupComplete;
+  useEffect(() => {
+    if (imessageReady) refreshMsgUnread();
+  }, [imessageReady, refreshMsgUnread]);
+
   // Live clock — ticks every 30s so the time + greeting stay current.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -352,12 +364,14 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
       calendar: todayEvents.length > 0 ? `Today: ${todayEvents[0].name}` : dueToday.length > 0 ? `Due: ${dueToday[0].title}` : undefined,
     };
     if (unread !== null && unread > 0) sub.inbox = `${unread} unread`;
+    if (msgUnread > 0) sub.messages = `${msgUnread} new message${msgUnread !== 1 ? 's' : ''}`;
     const badge: Record<string, { text: string; tone: 'warning' | 'accent' } | undefined> = {
       todo: dueToday.length > 0 ? { text: `${dueToday.length} due`, tone: 'warning' } : undefined,
       inbox: unread !== null && unread > 0 ? { text: `${unread} new`, tone: 'accent' } : undefined,
+      messages: msgUnread > 0 ? { text: `${msgUnread} new`, tone: 'accent' } : undefined,
     };
     return { sub, badge };
-  }, [now, tasks, savedApps, bookmarks, integrations, recurringEvents, unread]);
+  }, [now, tasks, savedApps, bookmarks, integrations, recurringEvents, unread, msgUnread]);
 
   // ── Pick up where you left off: most recent doc + most recent chat ──
   const recentDoc = docs[0];
