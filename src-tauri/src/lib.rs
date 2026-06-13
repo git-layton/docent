@@ -3161,6 +3161,8 @@ pub fn run() {
             mail::mail_fetch_recent,
             mail::mail_fetch_body,
             mail::mail_set_seen,
+            mail::mail_set_flagged,
+            mail::mail_unread_count,
             mail::mail_delete,
             mail::mail_send,
             browser_create,

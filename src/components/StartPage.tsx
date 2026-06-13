@@ -27,6 +27,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
+import { getUnreadTotal } from '../lib/mailUnread';
 import type { OmniTab, OmniTabType, ToolTabId } from '../types/omniTab';
 
 // ---------------------------------------------------------------------------
@@ -283,6 +284,18 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
 
   const [query, setQuery] = useState('');
 
+  // Unread mail badge — cheap IMAP SEARCH per account, cached 5 min in lib/mailUnread.
+  const [unread, setUnread] = useState<number | null>(null);
+  const mailAccounts = ((integrations as any)?.mailAccounts ?? []) as Array<{ id: string; provider: string; email: string }>;
+  const mailKey = mailAccounts.map(a => a.email).join(',');
+  useEffect(() => {
+    let alive = true;
+    if (mailAccounts.length === 0) { setUnread(null); return; }
+    getUnreadTotal(mailAccounts).then(n => { if (alive) setUnread(n); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mailKey]);
+
   // Live clock — ticks every 30s so the time + greeting stay current.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -338,11 +351,13 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
       inbox: mailCount > 0 ? `${mailCount} account${mailCount !== 1 ? 's' : ''} connected` : undefined,
       calendar: todayEvents.length > 0 ? `Today: ${todayEvents[0].name}` : dueToday.length > 0 ? `Due: ${dueToday[0].title}` : undefined,
     };
+    if (unread !== null && unread > 0) sub.inbox = `${unread} unread`;
     const badge: Record<string, { text: string; tone: 'warning' | 'accent' } | undefined> = {
       todo: dueToday.length > 0 ? { text: `${dueToday.length} due`, tone: 'warning' } : undefined,
+      inbox: unread !== null && unread > 0 ? { text: `${unread} new`, tone: 'accent' } : undefined,
     };
     return { sub, badge };
-  }, [now, tasks, savedApps, bookmarks, integrations, recurringEvents]);
+  }, [now, tasks, savedApps, bookmarks, integrations, recurringEvents, unread]);
 
   // ── Pick up where you left off: most recent doc + most recent chat ──
   const recentDoc = docs[0];

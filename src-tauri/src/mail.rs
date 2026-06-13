@@ -58,6 +58,7 @@ pub struct MailHeader {
     subject: String,
     date: String,
     seen: bool,
+    flagged: bool,
 }
 
 /// Fetch the most recent `limit` headers from INBOX (ENVELOPE + flags only — cheap, no bodies).
@@ -102,6 +103,7 @@ pub async fn mail_fetch_recent(
         let mut out: Vec<MailHeader> = Vec::with_capacity(fetches.len());
         for msg in fetches.iter() {
             let seen = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Seen));
+            let flagged = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Flagged));
             let env = msg.envelope();
             let subject = env
                 .and_then(|e| e.subject)
@@ -129,6 +131,7 @@ pub async fn mail_fetch_recent(
                 subject,
                 date,
                 seen,
+                flagged,
             });
         }
         let _ = session.logout();
@@ -226,6 +229,51 @@ pub async fn mail_set_seen(
         session.uid_store(uid.to_string(), query).map_err(|e| format!("store failed: {e}"))?;
         let _ = session.logout();
         Ok(())
+    })
+    .await
+    .map_err(|e| format!("mail task failed: {e}"))?
+}
+
+/// Set or clear the \Flagged flag on a message (star / unstar).
+#[tauri::command]
+pub async fn mail_set_flagged(
+    provider: String,
+    email: String,
+    password: String,
+    uid: u32,
+    flagged: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let (host, port) = imap_endpoint(&provider)?;
+        let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client.login(&email, &password).map_err(|(e, _c)| format!("login rejected: {e}"))?;
+        session.select("INBOX").map_err(|e| format!("could not open INBOX: {e}"))?;
+        let query = if flagged { "+FLAGS (\\Flagged)" } else { "-FLAGS (\\Flagged)" };
+        session.uid_store(uid.to_string(), query).map_err(|e| format!("store failed: {e}"))?;
+        let _ = session.logout();
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("mail task failed: {e}"))?
+}
+
+/// Count unread (UNSEEN) messages in INBOX — cheap SEARCH, no envelopes fetched.
+#[tauri::command]
+pub async fn mail_unread_count(
+    provider: String,
+    email: String,
+    password: String,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
+        let (host, port) = imap_endpoint(&provider)?;
+        let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client.login(&email, &password).map_err(|(e, _c)| format!("login rejected: {e}"))?;
+        session.select("INBOX").map_err(|e| format!("could not open INBOX: {e}"))?;
+        let unseen = session.search("UNSEEN").map_err(|e| format!("search failed: {e}"))?;
+        let _ = session.logout();
+        Ok(unseen.len() as u32)
     })
     .await
     .map_err(|e| format!("mail task failed: {e}"))?

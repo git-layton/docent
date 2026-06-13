@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Inbox, RotateCw, Mail, Settings as SettingsIcon, ArrowLeft, Reply, ReplyAll, Trash2, Send, Pencil, X, Wand2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Inbox, RotateCw, Mail, Settings as SettingsIcon, ArrowLeft, Reply, ReplyAll, Trash2, Send, Pencil, X, Wand2, Star, Plus } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { generateTextResponse } from '../services/llm';
+import { db } from '../services/database';
+import { invalidateUnreadCache } from '../lib/mailUnread';
 
 interface MailHeader {
   uid: number;
@@ -13,6 +15,14 @@ interface MailHeader {
   subject: string;
   date: string;
   seen: boolean;
+  flagged: boolean;
+}
+
+/** A saved smart filter — natural-language description, persisted locally. */
+interface SmartFilter {
+  id: string;
+  name: string;
+  description: string;
 }
 interface MailRow extends MailHeader {
   account: string;
@@ -39,7 +49,9 @@ interface ComposeState {
   provider: 'gmail' | 'icloud';
 }
 
-type SortMode = 'newest' | 'oldest' | 'unread' | 'sender';
+type SortMode = 'newest' | 'oldest' | 'unread' | 'starred' | 'sender';
+
+const rowKey = (r: { account: string; uid: number }) => `${r.account}-${r.uid}`;
 
 const DOT: Record<'gmail' | 'icloud', string> = { gmail: '#D85A30', icloud: '#378ADD' };
 
@@ -88,11 +100,19 @@ export function MailInboxPanel() {
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>('newest');
 
-  // AI "describe what to show" filter
+  // ── Smart filters: natural-language, persisted, re-evaluated when mail reloads ──
   const [aiQuery, setAiQuery] = useState('');
-  const [aiFilter, setAiFilter] = useState<{ description: string; keys: Set<string> } | null>(null);
+  const [savedFilters, setSavedFilters] = useState<SmartFilter[]>([]);
+  const [activeFilter, setActiveFilter] = useState<SmartFilter | null>(null); // saved OR ad-hoc (ad-hoc id = '')
+  const [filterKeys, setFilterKeys] = useState<Set<string> | null>(null);     // matches for activeFilter
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [starredOnly, setStarredOnly] = useState(false);
+  const matchRunId = useRef(0);
+
+  // Load + persist saved filters
+  useEffect(() => { db.get('mailSmartFilters', []).then((f: SmartFilter[]) => setSavedFilters(Array.isArray(f) ? f : [])); }, []);
+  const persistFilters = (next: SmartFilter[]) => { setSavedFilters(next); void db.set('mailSmartFilters', next); };
 
   const [selected, setSelected] = useState<MailRow | null>(null);
   const [body, setBody] = useState<MailBodyData | null>(null);
@@ -141,56 +161,117 @@ export function MailInboxPanel() {
     switch (sort) {
       case 'oldest': return r.sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0));
       case 'unread': return r.sort((a, b) => Number(a.seen) - Number(b.seen) || (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+      case 'starred': return r.sort((a, b) => Number(b.flagged) - Number(a.flagged) || (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
       case 'sender': return r.sort((a, b) => (a.fromName || a.fromEmail).localeCompare(b.fromName || b.fromEmail));
       default: return r.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
     }
   }, [rows, sort]);
 
-  const displayRows = useMemo(
-    () => (aiFilter ? sortedRows.filter(r => aiFilter.keys.has(`${r.account}-${r.uid}`)) : sortedRows),
-    [sortedRows, aiFilter],
-  );
+  const displayRows = useMemo(() => {
+    let r = sortedRows;
+    if (starredOnly) r = r.filter(x => x.flagged);
+    if (activeFilter && filterKeys) r = r.filter(x => filterKeys.has(rowKey(x)));
+    return r;
+  }, [sortedRows, starredOnly, activeFilter, filterKeys]);
 
-  // AI filter: ask the model which of the loaded messages match the user's description, then
-  // narrow the list to those. Indexed by position for a stable, easy-to-parse mapping.
-  const runAiFilter = async () => {
-    const q = aiQuery.trim();
-    if (!q || sortedRows.length === 0) return;
+  // Core matcher: ask the model which loaded messages fit a description. Includes date and
+  // read/star state so filters like "unread newsletters from this week" actually work.
+  const matchFilter = useCallback(async (description: string, list: MailRow[]): Promise<Set<string>> => {
     const modelConfig = (models as any[]).find(m => m.id === selectedModelId) ?? (models as any[])[0];
-    if (!modelConfig) { setAiError('No model configured in Settings'); return; }
+    if (!modelConfig) throw new Error('No model configured in Settings');
+    if (list.length === 0) return new Set();
+    const listing = list
+      .map((r, i) => `${i + 1}. From: ${r.fromName || r.fromEmail} <${r.fromEmail}> | Subject: ${r.subject || '(no subject)'} | Date: ${r.date} | ${r.seen ? 'read' : 'UNREAD'}${r.flagged ? ' | STARRED' : ''}`)
+      .join('\n');
+    const prompt = `You are filtering an email inbox. Today is ${new Date().toDateString()}. Below is a numbered list of emails.\n\nReturn ONLY a JSON array of the numbers of the emails that match this request: "${description}". Match on intent and be reasonably inclusive. Output just the array, e.g. [1,4,5] — no other text. If nothing matches, output [].\n\n${listing}`;
+    const resp: string = await generateTextResponse({
+      messages: [{ id: `mailfilter-${Date.now()}`, role: 'user', content: prompt }],
+      modelConfig,
+      agent: { prompt: 'You output only a JSON array of integers, nothing else.', tools: {}, trainingDocs: [] },
+      profile: '', tasks: [], attachedDocs: [], agentPinnedMessages: [], mode: 'text',
+      canvasContent: null, isDeepThinking: false, onChunk: null, signal: null,
+      appSettings: {}, integrations: {}, models: [],
+    });
+    const m = resp.match(/\[[\s\S]*?\]/);
+    const idxs: number[] = m ? JSON.parse(m[0]) : [];
+    return new Set(idxs.map(n => list[n - 1]).filter(Boolean).map(rowKey));
+  }, [models, selectedModelId]);
+
+  // Apply a filter (saved or ad-hoc) against the current rows.
+  const applyFilter = useCallback(async (filter: SmartFilter, list: MailRow[]) => {
+    const runId = ++matchRunId.current;
+    setActiveFilter(filter);
     setAiLoading(true);
     setAiError(null);
-    const list = sortedRows;
-    const listing = list
-      .map((r, i) => `${i + 1}. From: ${r.fromName || r.fromEmail} | Subject: ${r.subject || '(no subject)'}`)
-      .join('\n');
-    const prompt = `You are filtering an email inbox. Below is a numbered list of emails.\n\nReturn ONLY a JSON array of the numbers of the emails that match this request: "${q}". Match on intent and be reasonably inclusive. Output just the array, e.g. [1,4,5] — no other text.\n\n${listing}`;
     try {
-      const resp: string = await generateTextResponse({
-        messages: [{ id: `mailfilter-${list.length}`, role: 'user', content: prompt }],
-        modelConfig,
-        agent: { prompt: 'You output only a JSON array of integers, nothing else.', tools: {}, trainingDocs: [] },
-        profile: '', tasks: [], attachedDocs: [], agentPinnedMessages: [], mode: 'text',
-        canvasContent: null, isDeepThinking: false, onChunk: null, signal: null,
-        appSettings: {}, integrations: {}, models: [],
-      });
-      const m = resp.match(/\[[\s\S]*?\]/);
-      const idxs: number[] = m ? JSON.parse(m[0]) : [];
-      const keys = new Set(
-        idxs.map(n => list[n - 1]).filter(Boolean).map(r => `${r.account}-${r.uid}`),
-      );
-      setAiFilter({ description: q, keys });
+      const keys = await matchFilter(filter.description, list);
+      if (matchRunId.current === runId) setFilterKeys(keys);
     } catch (e) {
-      setAiError(String(e));
+      if (matchRunId.current === runId) { setAiError(String(e)); setActiveFilter(null); setFilterKeys(null); }
     } finally {
-      setAiLoading(false);
+      if (matchRunId.current === runId) setAiLoading(false);
     }
+  }, [matchFilter]);
+
+  // THE persistence fix: when mail reloads while a filter is active, re-evaluate it against the
+  // fresh rows instead of filtering with a stale UID set (which silently showed nothing).
+  const rowsSignature = useMemo(() => rows.map(rowKey).sort().join('|'), [rows]);
+  const lastSignature = useRef(rowsSignature);
+  useEffect(() => {
+    if (rowsSignature === lastSignature.current) return;
+    lastSignature.current = rowsSignature;
+    if (activeFilter && rows.length > 0) void applyFilter(activeFilter, rows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowsSignature]);
+
+  const runAdhocFilter = () => {
+    const q = aiQuery.trim();
+    if (!q || sortedRows.length === 0) return;
+    void applyFilter({ id: '', name: q, description: q }, sortedRows);
   };
 
-  const clearAiFilter = () => { setAiFilter(null); setAiQuery(''); setAiError(null); };
+  const saveActiveFilter = () => {
+    if (!activeFilter || activeFilter.id) return;
+    const name = activeFilter.description.length > 28 ? `${activeFilter.description.slice(0, 28)}…` : activeFilter.description;
+    const saved: SmartFilter = { ...activeFilter, id: `flt-${Date.now()}`, name };
+    persistFilters([...savedFilters, saved]);
+    setActiveFilter(saved);
+  };
+
+  const toggleSavedFilter = (f: SmartFilter) => {
+    if (activeFilter?.id === f.id) { clearAiFilter(); return; }
+    setAiQuery('');
+    void applyFilter(f, sortedRows);
+  };
+
+  const deleteSavedFilter = (f: SmartFilter) => {
+    persistFilters(savedFilters.filter(x => x.id !== f.id));
+    if (activeFilter?.id === f.id) clearAiFilter();
+  };
+
+  const clearAiFilter = () => { matchRunId.current++; setActiveFilter(null); setFilterKeys(null); setAiQuery(''); setAiError(null); setAiLoading(false); };
 
   const setSeenLocal = (row: MailRow, seen: boolean) =>
     setRows(prev => prev.map(r => (r.account === row.account && r.uid === row.uid ? { ...r, seen } : r)));
+
+  const setFlaggedLocal = (row: MailRow, flagged: boolean) =>
+    setRows(prev => prev.map(r => (r.account === row.account && r.uid === row.uid ? { ...r, flagged } : r)));
+
+  // Star / unstar ON THE SERVER (IMAP \Flagged) — optimistic with revert, like read state.
+  const toggleStar = async (row: MailRow) => {
+    const flagged = !row.flagged;
+    setFlaggedLocal(row, flagged);
+    if (selected && selected.account === row.account && selected.uid === row.uid) setSelected({ ...selected, flagged });
+    const pw = await getPassword(row.account);
+    if (!pw) { setFlaggedLocal(row, !flagged); setActionError('No saved password — re-add the account in Settings.'); return; }
+    try {
+      await invoke('mail_set_flagged', { provider: row.provider, email: row.account, password: pw, uid: row.uid, flagged });
+    } catch (e) {
+      setFlaggedLocal(row, !flagged); // revert — server didn't change
+      if (selected && selected.account === row.account && selected.uid === row.uid) setSelected({ ...selected, flagged: !flagged });
+      setActionError(`Couldn't update star on the server: ${String(e)}`);
+    }
+  };
 
   // Flip read state ON THE SERVER (optimistic, with revert + surfaced error) so the UI matches Gmail.
   const setSeen = async (row: MailRow, seen: boolean) => {
@@ -199,6 +280,7 @@ export function MailInboxPanel() {
     if (!pw) { setSeenLocal(row, !seen); setActionError('No saved password — re-add the account in Settings.'); return; }
     try {
       await invoke('mail_set_seen', { provider: row.provider, email: row.account, password: pw, uid: row.uid, seen });
+      invalidateUnreadCache(); // Home badge refetches next time it's shown
     } catch (e) {
       setSeenLocal(row, !seen); // revert — server didn't change
       setActionError(`Couldn't update read state on the server: ${String(e)}`);
@@ -362,6 +444,9 @@ export function MailInboxPanel() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="flex-1" />
+          <button onClick={() => toggleStar(selected)} className={clsx('p-1.5 rounded-lg transition-colors', selected.flagged ? 'text-warning bg-warning-soft' : 'text-ink-3 hover:bg-warning-soft hover:text-warning')} title={selected.flagged ? 'Unstar' : 'Star'}>
+            <Star className={clsx('w-4 h-4', selected.flagged && 'fill-current')} />
+          </button>
           <button onClick={() => startReply(false)} disabled={!body} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Reply">
             <Reply className="w-4 h-4" />
           </button>
@@ -418,10 +503,18 @@ export function MailInboxPanel() {
             <button onClick={startCompose} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity" title="Compose">
               <Pencil className="w-3.5 h-3.5" /> Compose
             </button>
+            <button
+              onClick={() => setStarredOnly(v => !v)}
+              className={clsx('p-1.5 rounded-lg transition-colors', starredOnly ? 'text-warning bg-warning-soft' : 'text-ink-3 hover:bg-wash hover:text-warning')}
+              title={starredOnly ? 'Show all' : 'Show starred only'}
+            >
+              <Star className={clsx('w-3.5 h-3.5', starredOnly && 'fill-current')} />
+            </button>
             <select value={sort} onChange={e => setSort(e.target.value as SortMode)} className="text-xs bg-transparent border border-edge-2 rounded-lg px-2 py-1 text-ink-2 outline-none" title="Sort">
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
               <option value="unread">Unread first</option>
+              <option value="starred">Starred first</option>
               <option value="sender">Sender A–Z</option>
             </select>
           </>
@@ -432,22 +525,61 @@ export function MailInboxPanel() {
       </div>
 
       {accounts.length > 0 && (
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-edge shrink-0">
-          <Wand2 className="w-3.5 h-3.5 text-accent shrink-0" />
-          <input
-            value={aiQuery}
-            onChange={e => setAiQuery(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') runAiFilter(); }}
-            placeholder="Describe what to show — e.g. “invoices & receipts”, “needs a reply”"
-            className="flex-1 bg-transparent text-xs text-ink-2 outline-none placeholder:text-ink-3"
-          />
-          {aiLoading && <RotateCw className="w-3.5 h-3.5 animate-spin text-ink-3" />}
-          {aiFilter ? (
-            <button onClick={clearAiFilter} className="flex items-center gap-1 text-[11px] font-medium text-accent hover:underline shrink-0">
-              {displayRows.length} match{displayRows.length === 1 ? '' : 'es'} · clear <X className="w-3 h-3" />
-            </button>
-          ) : (
-            <button onClick={runAiFilter} disabled={!aiQuery.trim() || aiLoading} className="text-[11px] font-semibold text-accent disabled:opacity-40 shrink-0">Filter</button>
+        <div className="border-b border-edge shrink-0">
+          <div className="flex items-center gap-2 px-4 py-2">
+            <Wand2 className="w-3.5 h-3.5 text-accent shrink-0" />
+            <input
+              value={aiQuery}
+              onChange={e => setAiQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') runAdhocFilter(); }}
+              placeholder="Describe a smart filter — e.g. “invoices & receipts”, “needs a reply”"
+              className="flex-1 bg-transparent text-xs text-ink-2 outline-none placeholder:text-ink-3"
+            />
+            {aiLoading && <RotateCw className="w-3.5 h-3.5 animate-spin text-ink-3" />}
+            {activeFilter && !aiLoading ? (
+              <span className="flex items-center gap-2 shrink-0">
+                <span className="text-[11px] text-ink-3">{displayRows.length} match{displayRows.length === 1 ? '' : 'es'}</span>
+                {!activeFilter.id && (
+                  <button onClick={saveActiveFilter} className="flex items-center gap-1 text-[11px] font-semibold text-accent hover:underline" title="Save as a reusable smart filter">
+                    <Plus className="w-3 h-3" /> Save filter
+                  </button>
+                )}
+                <button onClick={clearAiFilter} className="flex items-center gap-1 text-[11px] font-medium text-ink-3 hover:text-ink" title="Clear filter">
+                  clear <X className="w-3 h-3" />
+                </button>
+              </span>
+            ) : !aiLoading && (
+              <button onClick={runAdhocFilter} disabled={!aiQuery.trim()} className="text-[11px] font-semibold text-accent disabled:opacity-40 shrink-0">Filter</button>
+            )}
+          </div>
+          {savedFilters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 px-4 pb-2">
+              {savedFilters.map(f => (
+                <span key={f.id} className="group/chip relative inline-flex">
+                  <button
+                    onClick={() => toggleSavedFilter(f)}
+                    disabled={aiLoading}
+                    title={f.description}
+                    className={clsx(
+                      'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 pr-6 text-[11px] font-medium transition-all',
+                      activeFilter?.id === f.id
+                        ? 'border-accent bg-accent-soft text-accent-soft-ink'
+                        : 'border-edge-2 text-ink-2 hover:border-accent hover:text-accent',
+                    )}
+                  >
+                    <Wand2 className="w-3 h-3" aria-hidden="true" />
+                    {f.name}
+                  </button>
+                  <button
+                    onClick={() => deleteSavedFilter(f)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-ink-3 opacity-0 transition-opacity group-hover/chip:opacity-100 hover:text-danger"
+                    title={`Delete “${f.name}”`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -473,7 +605,7 @@ export function MailInboxPanel() {
         ) : loading && rows.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-3"><RotateCw className="w-5 h-5 animate-spin" /><span className="text-sm">Loading your inbox…</span></div>
         ) : displayRows.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-sm text-ink-3">{aiFilter ? 'No matches for that filter.' : 'No messages.'}</div>
+          <div className="h-full flex items-center justify-center text-sm text-ink-3">{activeFilter ? 'No matches for that filter.' : starredOnly ? 'No starred messages.' : 'No messages.'}</div>
         ) : (
           displayRows.map(r => (
             <div key={`${r.account}-${r.uid}`} className="group relative flex items-start gap-3 px-4 py-3 border-b border-edge hover:bg-wash transition-colors">
@@ -486,6 +618,7 @@ export function MailInboxPanel() {
                   <div className="flex items-center gap-2">
                     <span className={clsx('text-sm truncate', !r.seen ? 'font-bold text-ink' : 'text-ink-2')}>{r.fromName || r.fromEmail || '(unknown sender)'}</span>
                     {!r.seen && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
+                    {r.flagged && <Star className="w-3 h-3 text-warning fill-current shrink-0 group-hover:opacity-0 transition-opacity" />}
                     <div className="flex-1" />
                     <span className="text-xs text-ink-3 shrink-0 group-hover:opacity-0 transition-opacity">{formatDate(r.date)}</span>
                   </div>
@@ -493,13 +626,22 @@ export function MailInboxPanel() {
                   <div className="text-xs text-ink-3 truncate">{r.fromEmail}</div>
                 </div>
               </button>
-              <button
-                onClick={() => deleteMessage(r)}
-                className="absolute right-3 top-3 p-1.5 rounded-lg text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-danger-soft hover:text-danger transition-all"
-                title="Delete"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              <div className="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                <button
+                  onClick={() => toggleStar(r)}
+                  className={clsx('p-1.5 rounded-lg transition-colors', r.flagged ? 'text-warning' : 'text-ink-3 hover:text-warning hover:bg-warning-soft')}
+                  title={r.flagged ? 'Unstar' : 'Star'}
+                >
+                  <Star className={clsx('w-4 h-4', r.flagged && 'fill-current')} />
+                </button>
+                <button
+                  onClick={() => deleteMessage(r)}
+                  className="p-1.5 rounded-lg text-ink-3 hover:bg-danger-soft hover:text-danger transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))
         )}
