@@ -48,6 +48,7 @@ allow = [
   "imessage_check_access",
   "imessage_fetch_messages",
   "imessage_list_chats",
+  "imessage_open_fda_settings",
   "imessage_send",
   "imessage_unread_count",
   "init_file_watcher",

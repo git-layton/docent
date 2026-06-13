@@ -328,6 +328,19 @@ pub async fn imessage_check_access() -> Result<u32, String> {
     .map_err(|e| format!("imessage task failed: {e}"))?
 }
 
+/// Open System Settings → Privacy & Security → Full Disk Access.
+///
+/// Uses the macOS `open` CLI because it reliably handles the `x-apple.systempreferences:` URL
+/// scheme — the webview's opener plugin silently does nothing with it.
+#[tauri::command]
+pub fn imessage_open_fda_settings() -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not open System Settings: {e}"))
+}
+
 /// Count unread incoming messages — the badge number (mirrors what Messages.app shows).
 #[tauri::command]
 pub async fn imessage_unread_count() -> Result<u32, String> {

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { MessageCircle, RotateCw, ArrowLeft, Send, Search, X, ShieldAlert, Users, Paperclip } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { MessagesSetupWizard } from './MessagesSetupWizard';
 
@@ -68,8 +67,6 @@ function senderLabel(handle: string): string {
 function looksLikeNoAccess(err: string): boolean {
   return /Full Disk Access|could not open|Privacy/i.test(err);
 }
-
-const FDA_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';
 
 export function MessagesPanel() {
   const [chats, setChats] = useState<ImessageChat[]>([]);
@@ -156,7 +153,7 @@ export function MessagesPanel() {
     return chats.filter(c => c.name.toLowerCase().includes(q) || c.lastText.toLowerCase().includes(q) || c.identifier.toLowerCase().includes(q));
   }, [chats, search]);
 
-  const openSettings = () => { openUrl(FDA_SETTINGS_URL).catch(() => {}); };
+  const openSettings = () => { invoke('imessage_open_fda_settings').catch(() => {}); };
 
   const send = async () => {
     const chat = selected;

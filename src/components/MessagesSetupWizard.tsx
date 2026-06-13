@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   MessageCircle, ShieldCheck, Send, ArrowRight, ChevronLeft, Check, CheckCircle2,
   Loader2, ExternalLink, Users, Reply,
 } from 'lucide-react';
 
-// Deep-link to System Settings → Privacy & Security → Full Disk Access.
-const FDA_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';
 const TOTAL = 3;
 
 type AccessState = { state: 'idle' | 'checking' | 'ok' | 'error'; count?: number; msg?: string };
@@ -123,7 +120,7 @@ export function MessagesSetupWizard({ onComplete }: { onComplete: (accessOk: boo
               </ol>
 
               <button
-                onClick={() => openUrl(FDA_SETTINGS_URL).catch(() => {})}
+                onClick={() => invoke('imessage_open_fda_settings').catch(() => {})}
                 className="flex items-center justify-center gap-2 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
               >
                 <ExternalLink className="w-3.5 h-3.5" /> Open Full Disk Access

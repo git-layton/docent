@@ -14,8 +14,11 @@
     "windows": [
       {
         "title": "Agent Forge",
-        "width": 800,
-        "height": 600
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "center": true
       }
     ],
     "security": {
