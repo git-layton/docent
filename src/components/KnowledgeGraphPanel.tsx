@@ -90,7 +90,7 @@ function nodeColor(type: string): string {
 
 const NODE_TYPES = ['All', 'Page', 'File', 'Note', 'Entity', 'Concept'] as const;
 
-export function KnowledgeGraphPanel() {
+function KnowledgeGraphPanelInner() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
@@ -103,17 +103,19 @@ export function KnowledgeGraphPanel() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
+    // Normalize whatever the backend returns to guaranteed arrays. `get_graph_stats` can resolve
+    // with a stats-shaped payload that has no `nodes`/`edges` arrays — storing that raw left
+    // graphData.nodes undefined and crashed the filter memos during render. Only accept real graphs.
+    const asGraph = (g: any): GraphData | null =>
+      Array.isArray(g?.nodes) && Array.isArray(g?.edges) ? { nodes: g.nodes, edges: g.edges } : null;
     const load = async () => {
       try {
-        const stats = await invoke<{ nodes: GraphNode[]; edges: GraphEdge[] }>('get_graph_stats');
-        setGraphData(stats);
+        const stats = asGraph(await invoke('get_graph_stats').catch(() => null));
+        if (stats) { setGraphData(stats); return; }
+        const subgraph = asGraph(await invoke('get_graph_neighbors', { nodeId: 'root' }).catch(() => null));
+        setGraphData(subgraph ?? MOCK_GRAPH);
       } catch {
-        try {
-          const subgraph = await invoke<{ nodes: GraphNode[]; edges: GraphEdge[] }>('get_graph_neighbors', { nodeId: 'root' });
-          setGraphData(subgraph);
-        } catch {
-          setGraphData(MOCK_GRAPH);
-        }
+        setGraphData(MOCK_GRAPH);
       } finally {
         setLoading(false);
       }
@@ -137,7 +139,7 @@ export function KnowledgeGraphPanel() {
   }, []);
 
   const filteredNodes = useMemo(() =>
-    graphData.nodes.filter(n => {
+    (graphData.nodes ?? []).filter(n => {
       const matchesSearch = !search || n.label.toLowerCase().includes(search.toLowerCase());
       const matchesType = typeFilter === 'All' || n.node_type.toLowerCase() === typeFilter.toLowerCase();
       return matchesSearch && matchesType;
@@ -147,7 +149,7 @@ export function KnowledgeGraphPanel() {
 
   const filteredEdges = useMemo(() => {
     const ids = new Set(filteredNodes.map(n => n.id));
-    return graphData.edges.filter(
+    return (graphData.edges ?? []).filter(
       e => ids.has(String(e.source)) && ids.has(String(e.target))
     );
   }, [filteredNodes, graphData.edges]);
@@ -391,5 +393,15 @@ export function KnowledgeGraphPanel() {
         )}
       </div>
     </div>
+  );
+}
+
+export function KnowledgeGraphPanel() {
+  // Outer boundary so ANY throw in the panel (bad data shape, hooks, render) shows the fallback
+  // card instead of crashing the whole app — the inner boundary only covered the graph canvas.
+  return (
+    <GraphErrorBoundary>
+      <KnowledgeGraphPanelInner />
+    </GraphErrorBoundary>
   );
 }
