@@ -25,7 +25,8 @@ import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAgentStore } from '../store/useAgentStore';
-import { useTaskStore } from '../store/useTaskStore';
+import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
+import { useChatStore } from '../store/useChatStore';
 import type { OmniTab, OmniTabType, ToolTabId } from '../types/omniTab';
 
 // ---------------------------------------------------------------------------
@@ -274,7 +275,9 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const integrations = useSettingsStore((s) => s.integrations);
   const savedApps = useUIStore((s) => s.savedApps);
   const omniTabs = useSpaceStore((s) => s.omniTabs);
-  const openTaskCount = useTaskStore((s) => s.tasks.filter((t: any) => !t.completed).length);
+  const tasks = useTaskStore((s) => s.tasks);
+  const recurringEvents = useTaskStore((s) => s.recurringEvents);
+  const chats = useChatStore((s) => s.chats);
   const assistants = useAgentStore((s) => s.assistants);
   const activeSpace = useSpaceStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
 
@@ -315,6 +318,37 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const bookmarks = useMemo(
     () => omniTabs.filter((t) => t.isFavorite && t.type === 'web'),
     [omniTabs],
+  );
+
+  // ── Live card data: real local state only, no placeholders ──
+  const live = useMemo(() => {
+    const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const open = tasks.filter((t: any) => !t.completed);
+    const dueToday = open.filter((t: any) => taskCoversDate(t, iso));
+    const docsToday = (savedApps ?? []).filter((d: any) => (d.updatedAt ?? 0) >= dayStart && d.type !== 'code').length;
+    const drafts = (savedApps ?? []).filter((d: any) => d.type !== 'image' && d.type !== 'doc').length;
+    const mailCount = ((integrations as any)?.mailAccounts ?? []).length;
+    const todayEvents = (recurringEvents ?? []).filter((e: any) => e.month === now.getMonth() + 1 && e.day === now.getDate());
+    const sub: Record<string, string | undefined> = {
+      todo: open.length > 0 ? `${open.length} open task${open.length !== 1 ? 's' : ''}` : undefined,
+      doc: docsToday > 0 ? `${docsToday} edited today` : undefined,
+      canvas: drafts > 0 ? `${drafts} draft${drafts !== 1 ? 's' : ''}` : undefined,
+      browser: bookmarks.length > 0 ? `${bookmarks.length} saved tab${bookmarks.length !== 1 ? 's' : ''}` : undefined,
+      inbox: mailCount > 0 ? `${mailCount} account${mailCount !== 1 ? 's' : ''} connected` : undefined,
+      calendar: todayEvents.length > 0 ? `Today: ${todayEvents[0].name}` : dueToday.length > 0 ? `Due: ${dueToday[0].title}` : undefined,
+    };
+    const badge: Record<string, { text: string; tone: 'warning' | 'accent' } | undefined> = {
+      todo: dueToday.length > 0 ? { text: `${dueToday.length} due`, tone: 'warning' } : undefined,
+    };
+    return { sub, badge };
+  }, [now, tasks, savedApps, bookmarks, integrations, recurringEvents]);
+
+  // ── Pick up where you left off: most recent doc + most recent chat ──
+  const recentDoc = docs[0];
+  const lastChat = useMemo(
+    () => [...(chats ?? [])].sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0],
+    [chats],
   );
 
   // Integrations — connected accounts read straight from settings
@@ -399,30 +433,27 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
       >
         <Settings className="h-[18px] w-[18px]" />
       </button>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-8 py-12">
-        {/* ── Hero + omni-bar ── */}
-        <div className="flex flex-col items-center text-center">
-          {/* Apple-Weather-style time-of-day header */}
-          <div className="mb-2.5 flex items-end gap-2.5">
-            <span
-              aria-hidden="true"
-              className="mb-1 flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-edge"
-              style={{ color: tod.color, background: `${tod.color}1f` }}
-            >
-              <TodIcon className="h-[18px] w-[18px]" />
-            </span>
-            <span className="text-[44px] font-extralight leading-none tracking-tight text-ink tabular-nums">
-              {clock}
-            </span>
-            {meridiem && <span className="mb-1.5 text-sm font-medium text-ink-3">{meridiem}</span>}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-8 py-10">
+        {/* ── Compact header + omni-bar ── */}
+        <div className="flex flex-col">
+          <div className="flex items-baseline justify-between gap-4 pr-12">
+            <h1 className="font-serif text-2xl tracking-tight text-ink sm:text-[28px]">
+              {greeting}
+            </h1>
+            <p className="flex shrink-0 items-center gap-2 text-[12px] font-medium text-ink-3">
+              <span
+                aria-hidden="true"
+                className="flex h-6 w-6 items-center justify-center rounded-full"
+                style={{ color: tod.color, background: `${tod.color}1f` }}
+              >
+                <TodIcon className="h-3.5 w-3.5" />
+              </span>
+              {dateStr} · <span className="tabular-nums">{clock}{meridiem ? ` ${meridiem.toLowerCase()}` : ''}</span>
+            </p>
           </div>
-          <h1 className="font-serif text-2xl tracking-tight text-ink sm:text-[28px]">
-            {greeting}
-          </h1>
-          <p className="mt-1 text-[12px] font-medium text-ink-3">{dateStr}</p>
 
           {/* Omni-bar — search-as-you-type, chat is the default ↵ action */}
-          <div className="relative mt-7 w-full max-w-xl">
+          <div className="relative mt-5 w-full">
             <div className="flex items-center gap-3 rounded-full border border-edge-2 bg-panel-2 px-5 py-3 shadow-sm transition-colors focus-within:border-accent">
               <Search className="h-4 w-4 shrink-0 text-ink-3" />
               <input
@@ -492,7 +523,8 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             {APPS.map((app) => {
               const Icon = app.icon;
-              const badge = app.id === 'todo' && openTaskCount > 0 ? `${openTaskCount} open` : null;
+              const badge = live.badge[app.id];
+              const liveSub = app.id === 'chat' && agentName ? `Resume ${agentName}` : live.sub[app.id];
               return (
                 <Tile key={app.id} onClick={() => app.open(tabId)}>
                   <span
@@ -505,11 +537,16 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium text-ink">{app.label}</span>
-                    <span className="block truncate text-[11px] text-ink-3">{app.sub}</span>
+                    <span className={clsx('block truncate text-[11px]', liveSub ? 'text-ink-2' : 'text-ink-3')}>{liveSub ?? app.sub}</span>
                   </span>
                   {badge && (
-                    <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-soft-ink">
-                      {badge}
+                    <span
+                      className={clsx(
+                        'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold',
+                        badge.tone === 'warning' ? 'bg-warning-soft text-warning' : 'bg-accent-soft text-accent-soft-ink',
+                      )}
+                    >
+                      {badge.text}
                     </span>
                   )}
                 </Tile>
@@ -517,6 +554,42 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             })}
           </div>
         </Section>
+
+        {/* ── Pick up where you left off ── */}
+        {(recentDoc || lastChat) && (
+        <Section title="Pick up where you left off">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            {recentDoc && (
+              <Tile onClick={() => openDoc(recentDoc, tabId)}>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
+                  {recentDoc?.type === 'image'
+                    ? <ImageIcon className="h-[18px] w-[18px] text-accent-soft-ink" />
+                    : <FileText className="h-[18px] w-[18px] text-accent-soft-ink" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-ink">{recentDoc?.title || 'Untitled'}</span>
+                  <span className="block truncate text-[11px] text-ink-3">Edited {relativeTime(recentDoc?.updatedAt)}</span>
+                </span>
+              </Tile>
+            )}
+            {lastChat && (
+              <Tile onClick={() => APPS.find((a) => a.id === 'chat')?.open(tabId)}>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
+                  <MessageSquare className="h-[18px] w-[18px] text-accent-soft-ink" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-ink">
+                    {agentName ? `Chat with ${agentName}` : 'Last conversation'}
+                  </span>
+                  <span className="block truncate text-[11px] text-ink-3">
+                    {activeSpace?.name ? `# ${activeSpace.name}` : 'Chat'}{lastChat?.updatedAt ? ` · ${relativeTime(lastChat.updatedAt)}` : ''}
+                  </span>
+                </span>
+              </Tile>
+            )}
+          </div>
+        </Section>
+        )}
 
         {/* ── Docs ── */}
         <Section title="Docs" count={docs.length}>

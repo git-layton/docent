@@ -204,6 +204,7 @@ export function ChatPanel({
               messagesEndRef={p.messagesEndRef}
               onRenderMessage={p.onRenderMessage}
               onToast={p.onToast}
+              onSendPrompt={onSendPrompt}
             />
           )}
         </div>

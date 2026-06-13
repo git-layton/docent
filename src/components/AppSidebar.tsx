@@ -17,6 +17,7 @@ interface AppSidebarProps {
 export function AppSidebar(_: AppSidebarProps) {
   const [networkActive, setNetworkActive] = useState(false);
   const [networkPeers, setNetworkPeers] = useState<Array<{ id: string; name: string; ip: string }>>([]);
+  const [showNewMenu, setShowNewMenu] = useState(false);
 
   // Store reads
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
@@ -206,7 +207,9 @@ export function AppSidebar(_: AppSidebarProps) {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs truncate text-ink">{agent.name}</p>
-                        <p className="text-[9px] truncate text-ink-3">{agent.description || 'Persistent direct memory'}</p>
+                        <p className={`text-[9px] truncate ${isActive && !showPlanner ? 'text-accent' : 'text-ink-3'}`}>
+                          {isActive && !showPlanner ? 'Active now' : (agent.description || 'Persistent direct memory')}
+                        </p>
                       </div>
                     </div>
                     <button
@@ -235,7 +238,7 @@ export function AppSidebar(_: AppSidebarProps) {
               <div className="px-1 flex items-center justify-between">
                 <span className="text-[10px] font-bold text-ink-3 tracking-widest uppercase">Spaces</span>
                 <button
-                  onClick={() => useUIStore.getState().setShowNewSpace(true)}
+                  onClick={() => useUIStore.getState().openSpaceWizard()}
                   className="p-1 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
                   title="Create new space"
                 >
@@ -261,28 +264,41 @@ export function AppSidebar(_: AppSidebarProps) {
           </div>
         </div>
 
-        {/* Footer buttons */}
-        <div className="p-4 border-t border-edge shrink-0">
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={createAgent}
-              className="flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-strong text-on-accent font-semibold text-[11px] rounded-full px-2 py-3 shadow-sm transition-all active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" /> Agent
-            </button>
-            <button
-              onClick={() => useUIStore.getState().setShowNewSpace(true)}
-              className="flex items-center justify-center gap-1.5 bg-accent-soft hover:bg-wash text-accent-soft-ink font-semibold text-[11px] rounded-full px-2 py-3 shadow-sm transition-all active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" /> Space
-            </button>
-            <button
-              onClick={() => useSpaceStore.getState().openTab({ type: 'code-canvas', label: 'Untitled Canvas' })}
-              className="flex items-center justify-center gap-1.5 bg-wash hover:bg-inset text-ink-2 font-semibold text-[11px] rounded-full px-2 py-3 shadow-sm transition-all active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" /> Canvas
-            </button>
-          </div>
+        {/* Footer — single New button with Agent / Space / Canvas menu */}
+        <div className="p-4 border-t border-edge shrink-0 relative">
+          {showNewMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowNewMenu(false)} />
+              <div className="absolute bottom-full left-4 right-4 mb-2 z-50 overflow-hidden rounded-2xl border border-edge-2 bg-panel py-1.5 shadow-xl">
+                {[
+                  { id: 'agent', label: 'Agent', sub: 'Create a new specialist', run: () => { setShowNewMenu(false); createAgent(); } },
+                  { id: 'space', label: 'Space', sub: 'A shared context with its own tabs', run: () => { setShowNewMenu(false); useUIStore.getState().openSpaceWizard(); } },
+                  { id: 'canvas', label: 'Canvas', sub: 'Build or prototype something', run: () => { setShowNewMenu(false); useSpaceStore.getState().openTab({ type: 'code-canvas', label: 'Untitled Canvas' }); } },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={item.run}
+                    className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-wash"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-soft">
+                      <Plus className="w-3.5 h-3.5 text-accent-soft-ink" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-semibold text-ink">{item.label}</span>
+                      <span className="block truncate text-[10px] text-ink-3">{item.sub}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <button
+            onClick={() => setShowNewMenu(v => !v)}
+            className="flex w-full items-center justify-center gap-1.5 bg-accent hover:bg-accent-strong text-on-accent font-semibold text-[12px] rounded-full px-2 py-3 shadow-sm transition-all active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5" /> New
+          </button>
+          <p className="mt-1.5 text-center text-[9px] text-ink-3">Agent · Space · Canvas</p>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ import { useMemoryStore } from '../store/useMemoryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
+import { useGroundedSuggestions } from '../lib/useGroundedSuggestions';
 
 interface MessageListProps {
   activeMessages: any[];
@@ -23,6 +24,8 @@ interface MessageListProps {
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   onRenderMessage: (msg: any) => React.ReactNode;
   onToast: (msg: string) => void;
+  /** Send a prompt as the user — enables grounded quick-action chips under the opening reply. */
+  onSendPrompt?: (text: string) => void;
 }
 
 export function MessageList({
@@ -37,7 +40,20 @@ export function MessageList({
   messagesEndRef,
   onRenderMessage,
   onToast,
+  onSendPrompt,
 }: MessageListProps) {
+  // Chips appear only at the very start of a conversation (greeting + reply),
+  // once the agent has finished its opening message.
+  const groundedChips = useGroundedSuggestions().chips;
+  const lastMsg = activeMessages[activeMessages.length - 1];
+  const showOpeningChips =
+    !!onSendPrompt &&
+    groundedChips.length > 0 &&
+    !isGenerating &&
+    activeMessages.length > 0 &&
+    activeMessages.length <= 2 &&
+    lastMsg?.role === 'bot' &&
+    !lastMsg?.isStreaming;
   const editingMessageId = useChatStore(s => s.editingMessageId);
   const editingMessageContent = useChatStore(s => s.editingMessageContent);
   const activeChatId = useChatStore(s => s.activeChatId);
@@ -174,6 +190,26 @@ export function MessageList({
               return [divider, bubble].filter(Boolean);
             })}
             {isGenerating && !activeMessages[activeMessages.length - 1]?.isStreaming && <div className="flex justify-start"><TypingIndicator /></div>}
+
+            {/* Grounded quick actions under the agent's opening reply */}
+            {showOpeningChips && (
+              <div className="flex flex-wrap gap-2 pl-0 sm:pl-9 animate-in fade-in">
+                {groundedChips.map((chip) => {
+                  const ChipIcon = chip.icon;
+                  return (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => onSendPrompt?.(chip.prompt)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-panel px-3.5 py-1.5 text-[12px] font-medium text-accent transition-all hover:border-accent hover:bg-accent-soft active:scale-95"
+                    >
+                      {ChipIcon && <ChipIcon className="h-3.5 w-3.5" aria-hidden="true" />}
+                      {chip.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div ref={messagesEndRef} className="h-4" />
           </div>
         ) : (

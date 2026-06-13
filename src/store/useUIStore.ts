@@ -11,8 +11,9 @@ interface UIStore {
   showConsole: boolean;
   logs: any[];
 
-  // New Space wizard (name + goal + invite)
+  // Space wizard (name + goal + invite) — create when editId is null, else edit that space
   showNewSpace: boolean;
+  newSpaceEditId: string | null;
 
   // Toast notifications
   toastMessage: string | null;
@@ -69,6 +70,8 @@ interface UIStore {
   setIsModelDropdownOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
   setShowConsole: (v: boolean | ((prev: boolean) => boolean)) => void;
   setShowNewSpace: (v: boolean) => void;
+  /** Open the Space wizard — pass a spaceId to edit it, or nothing/null to create a new one. */
+  openSpaceWizard: (editId?: string | null) => void;
   addLog: (level: string, msg: string) => void;
   clearLogs: () => void;
   showToast: (msg: string, action?: { label: string; onClick: () => void }) => void;
@@ -112,6 +115,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   showConsole: false,
   logs: [],
   showNewSpace: false,
+  newSpaceEditId: null,
   toastMessage: null,
   toastAction: null,
   input: '',
@@ -149,7 +153,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set(s => ({ isModelDropdownOpen: typeof v === 'function' ? v(s.isModelDropdownOpen) : v })),
   setShowConsole: (v) =>
     set(s => ({ showConsole: typeof v === 'function' ? v(s.showConsole) : v })),
-  setShowNewSpace: (v) => set({ showNewSpace: v }),
+  setShowNewSpace: (v) => set(v ? { showNewSpace: true } : { showNewSpace: false, newSpaceEditId: null }),
+  openSpaceWizard: (editId = null) => set({ showNewSpace: true, newSpaceEditId: editId }),
   addLog: (level, msg) =>
     set(s => ({ logs: [...s.logs.slice(-499), { time: new Date().toLocaleTimeString([], { hour12: false }), level, msg }] })),
   clearLogs: () => set({ logs: [] }),

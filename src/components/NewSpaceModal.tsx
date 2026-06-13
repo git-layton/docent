@@ -9,13 +9,20 @@ import { useUIStore } from '../store/useUIStore';
 import { normalizeChatRecord } from '../services/channels';
 
 // ---------------------------------------------------------------------------
-// NewSpaceModal — the "wizard" for creating a Space: name it, give it a goal,
-// and invite the agents (and people) who belong in it. Replaces the old
-// one-click createSpace('New Space', []) that produced an empty, goal-less space.
+// NewSpaceModal — the one wizard for a Space: name it, give it a goal, and
+// invite the agents (and people) who belong in it. Opens in CREATE mode from
+// the "+ Space" buttons, or EDIT mode from a channel's Members button (so the
+// chat header and the sidebar share the same flow — no flaky inline popover).
 // ---------------------------------------------------------------------------
 export function NewSpaceModal() {
   const assistants = useAgentStore((s) => s.assistants);
   const appSettings = useSettingsStore((s) => s.appSettings);
+
+  // EDIT target (null = create). Resolve the space + its chat thread up front.
+  const editId = useUIStore((s) => s.newSpaceEditId);
+  const editSpace = useSpaceStore((s) => (editId ? s.spaces.find((sp) => sp.id === editId) ?? null : null));
+  const editChat = useChatStore((s) => (editSpace ? s.chats.find((c) => c.id === editSpace.chatId) ?? null : null));
+  const isEdit = !!editSpace;
 
   const selectableAgents = useMemo(
     () => assistants.filter((a: any) => a.id !== 'forge-guide' && a.id !== 'f-default'),
@@ -23,39 +30,52 @@ export function NewSpaceModal() {
   );
   const people = (appSettings?.people ?? []) as Array<{ id: string; label: string; role?: string }>;
 
-  const [name, setName] = useState('');
-  const [goal, setGoal] = useState('');
-  const [agentIds, setAgentIds] = useState<string[]>(() =>
-    selectableAgents[0] ? [selectableAgents[0].id] : [],
-  );
-  const [peopleIds, setPeopleIds] = useState<string[]>([]);
+  // Seed from the edited space (once, on mount) or sensible create-mode defaults.
+  const [name, setName] = useState(() => editSpace?.name ?? '');
+  const [goal, setGoal] = useState(() => (editChat ? normalizeChatRecord(editChat).goal ?? '' : ''));
+  const [agentIds, setAgentIds] = useState<string[]>(() => {
+    if (editSpace) {
+      const fromChat = editChat ? normalizeChatRecord(editChat).participantAgentIds ?? [] : [];
+      return fromChat.length ? fromChat : editSpace.agentIds;
+    }
+    return selectableAgents[0] ? [selectableAgents[0].id] : [];
+  });
+  const [peopleIds, setPeopleIds] = useState<string[]>(() => editSpace?.peopleIds ?? []);
 
   const toggle = (id: string, list: string[], set: (v: string[]) => void) =>
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
   const close = () => useUIStore.getState().setShowNewSpace(false);
 
-  const create = () => {
-    const finalName = name.trim() || 'New Space';
+  // Apply the goal + invited agents onto a space's own chat thread (shared by both modes).
+  const writeChat = (chatId: string, finalName: string, g: string, ids: string[]) => {
+    useChatStore.getState().setChats((prev: any[]) =>
+      prev.map((c: any) =>
+        c.id === chatId
+          ? normalizeChatRecord({ ...c, name: finalName, goal: g, participantAgentIds: ids }, ids[0] ?? 'alexis')
+          : c,
+      ),
+    );
+    useChatStore.getState().persist();
+  };
+
+  const submit = () => {
     // A space needs at least one agent; fall back to the first available.
     const ids = agentIds.length ? agentIds : selectableAgents[0] ? [selectableAgents[0].id] : [];
-    const space = useSpaceStore.getState().createSpace(finalName, ids);
-
-    // Goal + invited people live on the space's own chat / record.
     const g = goal.trim();
-    if (g) {
-      useChatStore.getState().setChats((prev: any[]) =>
-        prev.map((c: any) =>
-          c.id === space.chatId
-            ? normalizeChatRecord({ ...c, name: finalName, goal: g }, ids[0] ?? 'alexis')
-            : c,
-        ),
-      );
-      useChatStore.getState().persist();
-    }
-    if (peopleIds.length) useSpaceStore.getState().updateSpace(space.id, { peopleIds });
 
-    useSpaceStore.getState().setActiveSpaceId(space.id);
+    if (isEdit && editSpace) {
+      const finalName = name.trim() || editSpace.name;
+      useSpaceStore.getState().updateSpace(editSpace.id, { name: finalName, agentIds: ids, peopleIds });
+      writeChat(editSpace.chatId, finalName, g, ids);
+      useSpaceStore.getState().setActiveSpaceId(editSpace.id);
+    } else {
+      const finalName = name.trim() || 'New Space';
+      const space = useSpaceStore.getState().createSpace(finalName, ids);
+      if (g) writeChat(space.chatId, finalName, g, ids);
+      if (peopleIds.length) useSpaceStore.getState().updateSpace(space.id, { peopleIds });
+      useSpaceStore.getState().setActiveSpaceId(space.id);
+    }
     close();
   };
 
@@ -73,7 +93,7 @@ export function NewSpaceModal() {
             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent">
               <Hash className="h-4 w-4 text-on-accent" />
             </span>
-            <h2 className="text-base font-semibold tracking-tight text-ink">New Space</h2>
+            <h2 className="text-base font-semibold tracking-tight text-ink">{isEdit ? 'Edit Space' : 'New Space'}</h2>
           </div>
           <button
             onClick={close}
@@ -97,7 +117,7 @@ export function NewSpaceModal() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  create();
+                  submit();
                 }
               }}
               placeholder="e.g. Q3 Launch, Research, Trip planning…"
@@ -198,10 +218,10 @@ export function NewSpaceModal() {
             Cancel
           </button>
           <button
-            onClick={create}
+            onClick={submit}
             className="flex-[2] rounded-xl bg-accent py-2.5 text-xs font-bold uppercase tracking-widest text-on-accent hover:opacity-90 transition-opacity"
           >
-            Create Space
+            {isEdit ? 'Save Changes' : 'Create Space'}
           </button>
         </div>
       </div>
