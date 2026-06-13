@@ -5,12 +5,14 @@ import { knowledgeSearchCapability } from './builtins/knowledgeSearch';
 import { webSearchCapability } from './builtins/webSearch';
 import { browseCapability } from './builtins/browse';
 import { calendarCapability } from './builtins/calendar';
+import { filesCapability } from './builtins/files';
 
 // Register on first import. ES modules are singletons, so this runs exactly once.
 registerCapability(knowledgeSearchCapability);
 registerCapability(webSearchCapability);
 registerCapability(browseCapability);
 registerCapability(calendarCapability);
+registerCapability(filesCapability);
 
 export * from './types';
 export * from './registry';

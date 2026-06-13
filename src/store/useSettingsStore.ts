@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { db } from '../services/database';
 import { applyTheme, watchSystemTheme, DEFAULT_ACCENT, DEFAULT_THEME } from '../lib/theme';
 import type { ThemeMode } from '../lib/theme';
+import type { FileGrant, FileActivityEntry } from '../services/fileAccess/types';
 
 export const LOCAL_PROVIDERS = ['ollama', 'lmstudio', 'native'] as const;
 
@@ -49,6 +50,12 @@ interface SettingsStore {
     ttsVoiceURI?: string;
     ttsRate?: number;
     ttsPitch?: number;
+    // File access (Workshop model). developerMode gates agent shell/command execution (off by default).
+    // fileAccessGrants are remembered consent grants for real-filesystem paths (keyed by grantKey()).
+    // fileActivity is the receipts feed of file/command ops (newest first, capped).
+    developerMode?: boolean;
+    fileAccessGrants?: Record<string, FileGrant>;
+    fileActivity?: FileActivityEntry[];
   };
 
   // Profile settings modal
@@ -99,6 +106,9 @@ interface SettingsStore {
   setUserAvatar: (v: string) => void;
   setIntegrations: (fn: ((prev: any) => any) | any) => void;
   setAppSettings: (fn: ((prev: any) => any) | any) => void;
+  addFileGrant: (grant: FileGrant) => void;
+  revokeFileGrant: (key: string) => void;
+  logFileActivity: (entry: FileActivityEntry) => void;
   setProfileSettingsTab: (tab: string) => void;
   setShowProfileSettings: (v: boolean) => void;
   setImageTestState: (v: { loading: boolean; error: string | null; successUrl: string | null }) => void;
@@ -149,6 +159,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     imageEndpoint: '',
     dreamAutoEnabled: true,
     showContextWindowLine: false,
+    developerMode: false,
+    fileAccessGrants: {},
+    fileActivity: [],
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,
@@ -197,6 +210,29 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set(s => ({ integrations: typeof fn === 'function' ? fn(s.integrations) : fn })),
   setAppSettings: (fn) =>
     set(s => ({ appSettings: typeof fn === 'function' ? fn(s.appSettings) : fn })),
+  addFileGrant: (grant) =>
+    set(s => ({
+      appSettings: {
+        ...s.appSettings,
+        fileAccessGrants: {
+          ...(s.appSettings.fileAccessGrants ?? {}),
+          [`${grant.scope}:${grant.effect}:${grant.path}`]: grant,
+        },
+      },
+    })),
+  revokeFileGrant: (key) =>
+    set(s => {
+      const next = { ...(s.appSettings.fileAccessGrants ?? {}) };
+      delete next[key];
+      return { appSettings: { ...s.appSettings, fileAccessGrants: next } };
+    }),
+  logFileActivity: (entry) =>
+    set(s => ({
+      appSettings: {
+        ...s.appSettings,
+        fileActivity: [entry, ...(s.appSettings.fileActivity ?? [])].slice(0, 100),
+      },
+    })),
   setProfileSettingsTab: (tab) => set({ profileSettingsTab: tab }),
   setShowProfileSettings: (v) => set({ showProfileSettings: v }),
   setImageTestState: (v) => set({ imageTestState: v }),

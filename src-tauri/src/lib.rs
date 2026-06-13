@@ -127,6 +127,34 @@ fn knowledge_path_from_input(input: &str) -> Result<PathBuf, String> {
     Ok(normalized)
 }
 
+// ─── Agent workspace (the agent's own desk) ───────────────────────────────────
+// `~/AgentForge/workspace` is the agent's free read/write area. It lives *inside* the git-backed
+// Knowledge Core root, so every workspace write is versioned (an undo tape) for free — but it has its
+// OWN, narrower jail so the agent's scratch files can never clobber the curated `memory/`/`library/`.
+fn workspace_root() -> PathBuf {
+    let root = normalize_path_lexically(knowledge_core_path().join("workspace"));
+    let _ = std::fs::create_dir_all(&root);
+    root
+}
+
+fn workspace_path_from_input(input: &str) -> Result<PathBuf, String> {
+    let root = workspace_root();
+    let raw = PathBuf::from(input);
+    let joined = if raw.is_absolute() { raw } else { root.join(raw) };
+    let normalized = normalize_path_lexically(joined);
+    if !normalized.starts_with(&root) {
+        return Err("Path is outside the agent workspace".to_string());
+    }
+    Ok(normalized)
+}
+
+/// Path relative to the workspace root, for display / events.
+fn workspace_rel(path: &Path) -> String {
+    path.strip_prefix(workspace_root())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string_lossy().to_string())
+}
+
 fn git_rel_path(path: &Path, root: &Path) -> Result<String, String> {
     path.strip_prefix(root)
         .map_err(|_| "Path is outside the Knowledge Core".to_string())
@@ -1396,11 +1424,278 @@ fn read_knowledge_file(path: String) -> serde_json::Value {
     }
 }
 
+// ─── File Access (Workshop model) ─────────────────────────────────────────────
+// Phase 1 — the agent's workspace: full rwx, jailed to ~/AgentForge/workspace, git-backed undo.
+// Phase 2 — fs_import / fs_probe_context: bring the user's files in (consent in the frontend).
+// Phase 3 — fs_*_external: real-filesystem ops, gated by the frontend consent service + remembered
+//           grants, and denied to the browser-panel webview by the ACL (see the isolation test).
+// Phase 4 — run_command: opt-in (Developer Mode) shell execution behind the command-approval card.
+// SECURITY: every command here is on the remote-isolation DENIED list — a prompt-injected page in the
+// browser panel must never reach the filesystem or a shell. Untrusted page text is data, not a grant.
+
+fn entry_json(entry: &std::fs::DirEntry, root: &Path) -> serde_json::Value {
+    let meta = entry.metadata().ok();
+    let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let name = entry.file_name().to_string_lossy().to_string();
+    let rel = entry
+        .path()
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| name.clone());
+    serde_json::json!({ "name": name, "path": rel, "isDir": is_dir, "size": size })
+}
+
+fn read_dir_sorted(dir: &Path, rel_root: &Path) -> Result<Vec<serde_json::Value>, String> {
+    let mut entries: Vec<serde_json::Value> = std::fs::read_dir(dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .map(|e| entry_json(&e, rel_root))
+        .collect();
+    entries.sort_by(|a, b| {
+        let (ad, bd) = (a["isDir"].as_bool().unwrap_or(false), b["isDir"].as_bool().unwrap_or(false));
+        bd.cmp(&ad).then_with(|| {
+            a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
+        })
+    });
+    Ok(entries)
+}
+
+/// Commit the current state of the Knowledge Core repo with a message (workspace lives inside it).
+fn commit_workspace(message: &str) {
+    let root = knowledge_root();
+    let _ = run_git(&["add", "-A"], &root);
+    let _ = run_git(&["commit", "-m", message], &root);
+}
+
+#[tauri::command]
+fn fs_list(path: Option<String>) -> serde_json::Value {
+    let dir = match workspace_path_from_input(path.as_deref().unwrap_or("")) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e, "entries": [] }),
+    };
+    match read_dir_sorted(&dir, &workspace_root()) {
+        Ok(entries) => serde_json::json!({ "ok": true, "entries": entries, "root": workspace_root().to_string_lossy() }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e, "entries": [] }),
+    }
+}
+
+#[tauri::command]
+fn fs_read(path: String) -> serde_json::Value {
+    let file_path = match workspace_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e, "content": "" }),
+    };
+    match std::fs::read_to_string(&file_path) {
+        Ok(content) => serde_json::json!({ "ok": true, "content": content }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "content": "" }),
+    }
+}
+
+#[tauri::command]
+fn fs_write(path: String, content: String) -> serde_json::Value {
+    let file_path = match workspace_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    if let Some(parent) = file_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&file_path, &content) {
+        return serde_json::json!({ "ok": false, "error": e.to_string() });
+    }
+    let rel = workspace_rel(&file_path);
+    commit_workspace(&format!("workspace: write {}", rel));
+    serde_json::json!({ "ok": true, "path": rel })
+}
+
+#[tauri::command]
+fn fs_mkdir(path: String) -> serde_json::Value {
+    match workspace_path_from_input(&path) {
+        Ok(dir) => match std::fs::create_dir_all(&dir) {
+            Ok(_) => serde_json::json!({ "ok": true, "path": workspace_rel(&dir) }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+        },
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    }
+}
+
+#[tauri::command]
+fn fs_delete(path: String) -> serde_json::Value {
+    let file_path = match workspace_path_from_input(&path) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    let result = if file_path.is_dir() {
+        std::fs::remove_dir_all(&file_path)
+    } else {
+        std::fs::remove_file(&file_path)
+    };
+    match result {
+        Ok(_) => {
+            commit_workspace(&format!("workspace: delete {}", workspace_rel(&file_path)));
+            serde_json::json!({ "ok": true })
+        }
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+}
+
+#[tauri::command]
+fn fs_move(from: String, to: String) -> serde_json::Value {
+    let src = match workspace_path_from_input(&from) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    let dst = match workspace_path_from_input(&to) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    if let Some(parent) = dst.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::rename(&src, &dst) {
+        Ok(_) => {
+            commit_workspace(&format!("workspace: move {} -> {}", workspace_rel(&src), workspace_rel(&dst)));
+            serde_json::json!({ "ok": true, "path": workspace_rel(&dst) })
+        }
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+}
+
+/// Copy a user-picked external file INTO the workspace (import-by-copy). The source path is supplied
+/// by an explicit user gesture (OS picker / drag-drop), which is the consent for reading it.
+#[tauri::command]
+fn fs_import(source_path: String, dest_name: String) -> serde_json::Value {
+    let dst = match workspace_path_from_input(&dest_name) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+    };
+    if let Some(parent) = dst.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::copy(&source_path, &dst) {
+        Ok(_) => {
+            let rel = workspace_rel(&dst);
+            commit_workspace(&format!("workspace: import {}", rel));
+            serde_json::json!({ "ok": true, "path": rel, "source": source_path })
+        }
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+}
+
+/// Probe whether a path lives inside a git repo / project (walks up looking for markers). Used by the
+/// consent service to recommend "edit in place" for repo files vs "import a copy" for loose docs.
+#[tauri::command]
+fn fs_probe_context(path: String) -> serde_json::Value {
+    let p = PathBuf::from(&path);
+    let mut dir = if p.is_dir() {
+        p.clone()
+    } else {
+        p.parent().map(|x| x.to_path_buf()).unwrap_or_else(|| p.clone())
+    };
+    const MARKERS: [&str; 7] = [".git", "package.json", "Cargo.toml", "pyproject.toml", "go.mod", ".hg", ".svn"];
+    loop {
+        for marker in MARKERS.iter() {
+            if dir.join(marker).exists() {
+                let is_repo = matches!(*marker, ".git" | ".hg" | ".svn");
+                return serde_json::json!({
+                    "inProject": true,
+                    "isRepo": is_repo,
+                    "marker": marker,
+                    "root": dir.to_string_lossy(),
+                });
+            }
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent.to_path_buf(),
+            _ => break,
+        }
+    }
+    serde_json::json!({ "inProject": false })
+}
+
+// ── Phase 3: real-filesystem ops (consent enforced in the frontend; ACL keeps remote out) ──
+
+#[tauri::command]
+fn fs_read_external(path: String) -> serde_json::Value {
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::json!({ "ok": true, "content": content }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "content": "" }),
+    }
+}
+
+#[tauri::command]
+fn fs_list_external(path: String) -> serde_json::Value {
+    let dir = PathBuf::from(&path);
+    match read_dir_sorted(&dir, &dir) {
+        Ok(entries) => serde_json::json!({ "ok": true, "entries": entries, "root": path }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e, "entries": [] }),
+    }
+}
+
+#[tauri::command]
+fn fs_write_external(path: String, content: String) -> serde_json::Value {
+    if let Some(parent) = PathBuf::from(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(&path, content) {
+        Ok(_) => serde_json::json!({ "ok": true }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+}
+
+#[tauri::command]
+fn fs_delete_external(path: String) -> serde_json::Value {
+    let p = PathBuf::from(&path);
+    let result = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+    match result {
+        Ok(_) => serde_json::json!({ "ok": true }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+}
+
+// ── Phase 4: command execution (opt-in via Developer Mode; behind the command-approval card) ──
+// Runs through the user's login shell so PATH/aliases match their terminal. Git commands borrow the
+// OS's already-configured credentials (Keychain helper / SSH agent) — no separate auth to manage.
+#[tauri::command]
+fn run_command(command: String, cwd: String) -> serde_json::Value {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    match std::process::Command::new(&shell)
+        .arg("-lc")
+        .arg(&command)
+        .current_dir(&cwd)
+        .output()
+    {
+        Ok(out) => serde_json::json!({
+            "ok": out.status.success(),
+            "code": out.status.code(),
+            "stdout": String::from_utf8_lossy(&out.stdout),
+            "stderr": String::from_utf8_lossy(&out.stderr),
+        }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "stdout": "", "stderr": "" }),
+    }
+}
+
 // ─── Legacy ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+/// Open System Settings → Accessibility → Spoken Content, where the user downloads the
+/// high-quality Premium/Enhanced voices used for reading messages aloud.
+///
+/// Uses the macOS `open` CLI because the webview's opener plugin silently ignores the
+/// `x-apple.systempreferences:` URL scheme (same reason as `imessage_open_fda_settings`).
+#[tauri::command]
+fn open_spoken_content_settings() -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.universalaccess?Speech")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not open System Settings: {e}"))
 }
 
 // ─── Spotlight Commands ───────────────────────────────────────────────────────
@@ -3201,6 +3496,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            open_spoken_content_settings,
             get_ram_stats,
             get_hardware_summary,
             get_system_stats,
@@ -3229,6 +3525,19 @@ pub fn run() {
             list_agent_memory_files,
             list_library_files,
             read_knowledge_file,
+            fs_list,
+            fs_read,
+            fs_write,
+            fs_mkdir,
+            fs_delete,
+            fs_move,
+            fs_import,
+            fs_probe_context,
+            fs_read_external,
+            fs_list_external,
+            fs_write_external,
+            fs_delete_external,
+            run_command,
             get_active_tab,
             show_spotlight,
             hide_spotlight,
@@ -3408,6 +3717,11 @@ mod tests {
             "notes_list_folders", "notes_list", "notes_read", "notes_create", "notes_update", "notes_delete",
             "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
             "download_model", "upsert_graph_node", "get_graph_stats", "get_graph_full", "setup_relay",
+            // File access (Workshop model) — the filesystem and shell are NEVER reachable from a
+            // remote page in the browser panel, even read-only or workspace-scoped.
+            "fs_list", "fs_read", "fs_write", "fs_mkdir", "fs_delete", "fs_move", "fs_import",
+            "fs_probe_context", "fs_read_external", "fs_list_external", "fs_write_external",
+            "fs_delete_external", "run_command",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),

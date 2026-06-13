@@ -31,6 +31,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { NukeShieldModal } from './components/NukeShieldModal';
+import { FileActionCard } from './components/FileActionCard';
+import { CommandActionCard } from './components/CommandActionCard';
 import { MemmoPanel } from './components/MemmoPanel';
 import { InboxPanel } from './components/InboxPanel';
 import { MemoComposeModal } from './components/MemoComposeModal';
@@ -1917,6 +1919,19 @@ export default function App() {
              </div>
           );
         } catch { elements.push(<div key={`err-p-${match.index}`} className="p-2 text-xs text-danger">Failed to parse profile update.</div>); }
+      } else if (lang === 'file_op') {
+        try {
+          const fop = JSON.parse(code);
+          const opKey = `${msg.id}:${match.index}`;
+          elements.push(
+            fop.action === 'command'
+              ? <CommandActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} />
+              : <FileActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} />
+          );
+        } catch {
+          // Incomplete while streaming — render nothing until the block closes and parses.
+          if (!isStreaming) elements.push(<div key={`err-fop-${match.index}`} className="p-2 text-xs text-danger">Failed to parse file operation.</div>);
+        }
       } else if (lang === 'save') {
         try {
           const sd = JSON.parse(code);

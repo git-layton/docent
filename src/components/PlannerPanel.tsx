@@ -11,10 +11,12 @@ import type { RecurringEvent } from '../store/useTaskStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useUIStore } from '../store/useUIStore';
 import { useChatStore } from '../store/useChatStore';
+import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { getTasks } from '../services/connectors';
 import type { TaskItem } from '../services/connectors';
 import { getHolidaysForYear } from '../data/usHolidays';
+import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -105,6 +107,23 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
     try { setNativeItems(await getTasks().listTasks()); } catch { setNativeItems([]); }
   }, []);
   useEffect(() => { if (eventkitTasksActive) loadNativeTasks(); }, [eventkitTasksActive, loadNativeTasks]);
+
+  // Native (Reminders) access gate — guide first-run setup instead of showing an empty list.
+  const [taskAuth, setTaskAuth] = useState<string>('unknown');
+  const [grantingTasks, setGrantingTasks] = useState(false);
+  useEffect(() => {
+    if (!eventkitTasksActive) return;
+    invoke<string>('eventkit_authorization_status', { kind: 'reminder' }).then(setTaskAuth).catch(() => setTaskAuth('unknown'));
+  }, [eventkitTasksActive]);
+  const needsTaskAccess = eventkitTasksActive && taskAuth !== 'authorized' && taskAuth !== 'unknown';
+  const grantRemindersAccess = async () => {
+    setGrantingTasks(true);
+    try {
+      const ok = await invoke<boolean>('eventkit_request_access', { kind: 'reminder' });
+      if (ok) { setTaskAuth('authorized'); await loadNativeTasks(); } else setTaskAuth('denied');
+    } catch { setTaskAuth('denied'); }
+    finally { setGrantingTasks(false); }
+  };
 
   // Unified source + mutation wrappers — local uses the reactive store, native re-reads after writes.
   const displayTasks: any[] = eventkitTasksActive ? nativeItems : tasks;
@@ -203,6 +222,17 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
         </div>
       )}
 
+      {needsTaskAccess ? (
+        <ConnectorAccessGate
+          icon={ListTodo}
+          title="Connect Reminders"
+          body="Your to-dos can live in the macOS Reminders app and sync to your iPhone via iCloud. Grant access to see and add them here."
+          buttonLabel="Grant Reminders access"
+          onConnect={grantRemindersAccess}
+          busy={grantingTasks}
+          error={taskAuth === 'denied' ? 'Access was denied. Enable it in System Settings → Privacy & Security → Reminders (a rebuild/relaunch may be needed).' : null}
+        />
+      ) : (
       <div className="max-w-4xl mx-auto space-y-8">
         <div className="bg-panel-2 p-6 rounded-3xl border border-edge shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-6">
@@ -505,6 +535,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -36,11 +36,17 @@ describe('capability registry — route parity with the former App.tsx if-chain'
   });
 
   it('returns null for routes the if-chain never ran a tool for (and for none/null)', () => {
-    const unhandled: ToolRoute[] = ['integrations', 'files', 'another_agent', 'none'];
+    const unhandled: ToolRoute[] = ['integrations', 'another_agent', 'none'];
     for (const route of unhandled) {
       expect(capabilityForRoute(route, base)).toBeNull();
     }
     expect(capabilityForRoute(null, base)).toBeNull();
+  });
+
+  it('maps the files route to the Files capability (workspace read context)', () => {
+    const files = capabilityForRoute('files', base);
+    expect(files?.title).toBe('Files');
+    expect(files?.effect).toBe('read');
   });
 
   it('the four built-ins are always available (surface-* — preserves old behavior)', () => {

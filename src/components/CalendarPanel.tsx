@@ -4,12 +4,14 @@ import {
   ListTodo, Cake, CalendarPlus,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { invoke } from '@tauri-apps/api/core';
 import { useTaskStore } from '../store/useTaskStore';
 import type { RecurringEvent } from '../store/useTaskStore';
 import { getHolidaysForYear } from '../data/usHolidays';
 import { getCalendar } from '../services/connectors';
 import type { CalEvent } from '../services/connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -49,6 +51,16 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
   // user selected (local birthdays/anniversaries, or their real macOS/Google calendar).
   const calendarBackend: string = useSettingsStore(s => (s.integrations as any).calendar?.backend ?? 'local');
   const [events, setEvents] = useState<CalEvent[]>([]);
+
+  // Native (EventKit) access gate: probe TCC status so we can guide first-run setup instead of just
+  // showing an empty grid. Only relevant when the active backend is the native macOS calendar.
+  const [calAuth, setCalAuth] = useState<string>('unknown');
+  const [granting, setGranting] = useState(false);
+  useEffect(() => {
+    if (calendarBackend !== 'eventkit') return;
+    invoke<string>('eventkit_authorization_status', { kind: 'event' }).then(setCalAuth).catch(() => setCalAuth('unknown'));
+  }, [calendarBackend]);
+  const needsCalendarAccess = calendarBackend === 'eventkit' && calAuth !== 'authorized' && calAuth !== 'unknown';
 
   // Self-contained month navigation (local UI state, decoupled from the store).
   const [viewDate, setViewDate] = useState(() => {
@@ -114,6 +126,15 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
     }
   }, [monthStartISO, monthEndISO, calendarBackend]);
   useEffect(() => { loadEvents(); }, [loadEvents, recurringEvents]);
+
+  const grantCalendarAccess = async () => {
+    setGranting(true);
+    try {
+      const ok = await invoke<boolean>('eventkit_request_access', { kind: 'event' });
+      if (ok) { setCalAuth('authorized'); await loadEvents(); } else setCalAuth('denied');
+    } catch { setCalAuth('denied'); }
+    finally { setGranting(false); }
+  };
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalEvent[]>();
@@ -234,7 +255,18 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
         </div>
       </div>
 
-      {/* Grid */}
+      {/* Grid (or the native-access gate when the macOS Calendar backend isn't authorized yet) */}
+      {needsCalendarAccess ? (
+        <ConnectorAccessGate
+          icon={CalendarDays}
+          title="Connect your macOS Calendar"
+          body="Agent Forge can show and add events in your real calendar — and they sync to your iPhone via iCloud. Grant access to get started."
+          buttonLabel="Grant Calendar access"
+          onConnect={grantCalendarAccess}
+          busy={granting}
+          error={calAuth === 'denied' ? 'Access was denied. You can enable it in System Settings → Privacy & Security → Calendars (a rebuild/relaunch may be needed).' : null}
+        />
+      ) : (
       <div className="flex-1 overflow-y-auto no-scrollbar p-3">
         <div className="grid grid-cols-7 gap-1 mb-1">
           {WEEKDAYS.map(d => (
@@ -333,6 +365,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
           })}
         </div>
       </div>
+      )}
 
       {/* Inline add affordance for the selected day */}
       {selectedDay && (

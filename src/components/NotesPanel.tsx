@@ -5,6 +5,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getNotes } from '../services/connectors';
 import type { NoteItem } from '../services/connectors';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
 
 interface ImChat { guid: string; name: string }
 
@@ -31,6 +33,7 @@ function relativeTime(ts: number): string {
 
 export function NotesPanel() {
   const [folders, setFolders] = useState<string[]>([]);
+  const notesBackend: string = useSettingsStore(s => (s.integrations as any).notes?.backend ?? 'local');
   const [folder, setFolder] = useState<string>('Notes');
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,6 +78,13 @@ export function NotesPanel() {
 
   useEffect(() => { loadFolders(); }, [loadFolders]);
   useEffect(() => { if (folder) loadNotes(folder); }, [folder, loadNotes]);
+
+  // Retry after the Automation prompt (Apple Notes backend) — the first list call triggers it.
+  const reconnect = useCallback(async () => {
+    setError(null);
+    await loadFolders();
+    await loadNotes(folder);
+  }, [loadFolders, loadNotes, folder]);
 
   useEffect(() => {
     if (!actionMsg) return;
@@ -254,7 +264,19 @@ export function NotesPanel() {
 
       <div className="flex-1 overflow-y-auto">
         {error ? (
-          <div className="p-6 text-sm text-danger">Couldn't load notes: {error}</div>
+          notesBackend === 'applescript' ? (
+            <ConnectorAccessGate
+              icon={StickyNote}
+              title="Connect Apple Notes"
+              body="Agent Forge can read and create notes in the Apple Notes app — and they sync to your iPhone via iCloud. The first time, macOS asks to let Agent Forge control Notes."
+              buttonLabel="Connect Apple Notes"
+              onConnect={reconnect}
+              busy={loading}
+              error={error}
+            />
+          ) : (
+            <div className="p-6 text-sm text-danger">Couldn't load notes: {error}</div>
+          )
         ) : loading && notes.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-3"><RotateCw className="w-5 h-5 animate-spin" /><span className="text-sm">Loading notes…</span></div>
         ) : notes.length === 0 ? (

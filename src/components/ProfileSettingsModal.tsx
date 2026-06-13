@@ -5,7 +5,8 @@ import {
   Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { VoicePicker } from './ui/VoicePicker';
+import { VoiceSetupModal } from './VoiceSetupModal';
+import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { invoke } from '@tauri-apps/api/core';
@@ -56,6 +57,18 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
 
   const [guideStatus, setGuideStatus] = useState<'installed' | 'deleted' | 'checking'>('checking');
+  const [showVoiceSetup, setShowVoiceSetup] = useState(false);
+
+  // Label for the current default voice — the chosen one, or the auto-recommended pick.
+  const ttsVoiceLabel = (() => {
+    const list = getLoadedVoices();
+    if (appSettings.ttsVoiceURI) {
+      return list.find(v => v.voiceURI === appSettings.ttsVoiceURI)?.name ?? 'Selected voice';
+    }
+    const rec = suggestDefaultVoiceURI(list);
+    const v = rec ? list.find(x => x.voiceURI === rec) : undefined;
+    return v ? `Auto — ${v.name}` : 'Auto (recommended)';
+  })();
 
   // Mail (IMAP) connection probe — app-password login, no OAuth/web-login. Verifies we can read
   // the mailbox before we build the native inbox on top of it.
@@ -303,7 +316,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
           <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
         </div>
         <div className="flex gap-1 border-b border-edge mb-6 shrink-0">
-          {['profile', 'appearance', 'integrations'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-primary border-b-2 border-primary' : 'text-ink-3'}`}>{tab === 'profile' ? 'My Profile' : tab === 'appearance' ? 'Appearance' : 'Integrations'}</button>)}
+          {['profile', 'appearance', 'integrations', 'advanced'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-primary border-b-2 border-primary' : 'text-ink-3'}`}>{tab === 'profile' ? 'My Profile' : tab === 'appearance' ? 'Appearance' : tab === 'integrations' ? 'Integrations' : 'Advanced'}</button>)}
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
           {profileSettingsTab === 'profile' ? (
@@ -475,19 +488,22 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 <p className="text-tiny text-ink-3 mt-2 font-medium">Buttons, highlights, and your chat bubbles pick up this color everywhere.</p>
               </div>
 
-              {/* Voice — default for the "Read aloud" button */}
+              {/* Voice — guided setup for the "Read aloud" button */}
               <div>
                 <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 flex items-center gap-2"><Volume2 className="w-3.5 h-3.5" /> Voice</label>
-                <p className="text-tiny text-ink-3 mb-3 font-medium">The default voice for reading messages aloud. Each agent can pick its own in its settings. Download richer voices in System Settings → Accessibility → Spoken Content → Manage Voices.</p>
-                <VoicePicker
-                  voiceURI={appSettings.ttsVoiceURI}
-                  rate={appSettings.ttsRate ?? 1}
-                  pitch={appSettings.ttsPitch ?? 1}
-                  onChange={(next) => setAppSettings((prev: any) => ({ ...prev, ttsVoiceURI: next.voiceURI, ttsRate: next.rate, ttsPitch: next.pitch }))}
-                />
+                <p className="text-tiny text-ink-3 mb-3 font-medium">The voice used when reading messages aloud. Each agent can pick its own in its settings.</p>
+                <div className="flex items-center justify-between gap-3 p-4 rounded-2xl border border-edge bg-inset">
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-ink truncate">{ttsVoiceLabel}</div>
+                    <div className="text-tiny text-ink-3">Preview voices and get more natural ones.</div>
+                  </div>
+                  <button onClick={() => setShowVoiceSetup(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-accent text-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong transition-all shrink-0">
+                    <Volume2 className="w-3.5 h-3.5" /> Set up voice
+                  </button>
+                </div>
               </div>
             </div>
-          ) : (
+          ) : profileSettingsTab === 'integrations' ? (
             <div className="space-y-6">
 
               {/* Image Generation Tooling - Engineered UX */}
@@ -1140,10 +1156,67 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               </div>
 
             </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Developer Mode — gates agent shell/command execution */}
+              <div className="p-5 rounded-2xl border border-edge bg-panel">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest">Developer Mode</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Let agents propose shell &amp; git commands (you approve each one before it runs). Off by default.</span>
+                  </div>
+                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, developerMode: !prev.developerMode }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.developerMode ? 'bg-primary' : 'bg-inset'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.developerMode ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* File access grants */}
+              <div className="p-5 rounded-2xl border border-edge bg-panel">
+                <span className="text-sm font-black uppercase tracking-widest">File Access Grants</span>
+                <span className="block text-xs text-ink-3 font-medium mt-0.5 mb-3">Standing permissions agents have to files outside their workspace.</span>
+                {Object.keys(appSettings.fileAccessGrants ?? {}).length === 0 ? (
+                  <p className="text-xs text-ink-3 italic">No standing grants. Agents are confined to <code className="bg-wash px-1 rounded text-mini">~/AgentForge/workspace</code> unless you approve a path.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {Object.entries(appSettings.fileAccessGrants ?? {}).map(([key, g]: [string, any]) => (
+                      <div key={key} className="flex items-center gap-3 p-2.5 rounded-xl bg-inset">
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className="text-xs font-mono text-ink-2 truncate">{g.path}</span>
+                          <span className="text-[10px] text-ink-3 uppercase tracking-widest font-bold">{g.scope} · {g.effect}</span>
+                        </div>
+                        <button onClick={() => useSettingsStore.getState().revokeFileGrant(key)} className="px-2.5 py-1.5 rounded-lg border border-edge-2 text-[10px] font-bold text-ink-2 hover:bg-wash uppercase tracking-widest">Revoke</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* File activity log */}
+              <div className="p-5 rounded-2xl border border-edge bg-panel">
+                <span className="text-sm font-black uppercase tracking-widest">File Activity</span>
+                <span className="block text-xs text-ink-3 font-medium mt-0.5 mb-3">Recent file &amp; command operations.</span>
+                {(appSettings.fileActivity ?? []).length === 0 ? (
+                  <p className="text-xs text-ink-3 italic">No activity yet.</p>
+                ) : (
+                  <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto custom-scrollbar">
+                    {(appSettings.fileActivity ?? []).map((a: any) => (
+                      <div key={a.id} className="flex items-center gap-2 text-xs">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.ok ? 'bg-success' : 'bg-danger'}`} />
+                        <span className="font-bold uppercase text-[10px] tracking-widest text-ink-3 w-14 shrink-0">{a.action}</span>
+                        <span className="font-mono text-ink-2 truncate flex-1">{a.detail || a.path}</span>
+                        <span className="text-[10px] text-ink-3 shrink-0">{new Date(a.at).toLocaleTimeString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
         <button onClick={onClose} className="w-full py-5 bg-accent text-on-accent font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 shrink-0 active:scale-[0.98] transition-all">Done</button>
       </div>
+      {showVoiceSetup && <VoiceSetupModal onClose={() => setShowVoiceSetup(false)} />}
     </div>
   );
 }
