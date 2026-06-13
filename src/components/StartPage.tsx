@@ -18,6 +18,7 @@ import {
   Sunset,
   Moon,
   Activity,
+  Share2,
   Settings,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -147,6 +148,14 @@ const APPS: AppEntry[] = [
     icon: Activity,
     tint: 'bg-rose-500/12 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300',
     open: (tabId) => launch(tabId, { type: 'tool', toolId: 'activity' as ToolTabId, label: 'Activity' }),
+  },
+  {
+    id: 'knowledge-graph',
+    label: 'Knowledge Graph',
+    sub: 'Your connected memory',
+    icon: Share2,
+    tint: 'bg-amber-500/12 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'knowledge-graph' as ToolTabId, label: 'Knowledge Graph' }),
   },
 ];
 

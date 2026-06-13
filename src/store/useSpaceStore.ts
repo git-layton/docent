@@ -324,25 +324,12 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const isCompatible = version === STORE_VERSION && spaces !== null && omniTabs !== null;
 
     if (isCompatible) {
-      // Drop the retired Knowledge Graph tool — its panel was removed, so a restored tab would crash.
-      const allTabs = omniTabs as OmniTab[];
-      const cleanedTabs = allTabs.filter(t => !(t.type === 'tool' && (t.toolId as string) === 'knowledge-graph'));
-      const activeSpaceId = activeIds?.activeSpaceId ?? null;
-      let activeOmniTabId: string | null = activeIds?.activeOmniTabId ?? null;
-      if (!cleanedTabs.some(t => t.id === activeOmniTabId)) {
-        activeOmniTabId = cleanedTabs.find(t => t.spaceId === activeSpaceId)?.id ?? cleanedTabs[0]?.id ?? null;
-      }
       set({
         spaces: spaces as Space[],
-        omniTabs: cleanedTabs,
-        activeOmniTabId,
-        activeSpaceId,
+        omniTabs: omniTabs as OmniTab[],
+        activeOmniTabId: activeIds?.activeOmniTabId ?? null,
+        activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
-      // Persist the cleanup so the ghost tab doesn't return next launch.
-      if (cleanedTabs.length !== allTabs.length) {
-        await db.set('spaceStoreOmniTabs', cleanedTabs);
-        await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });
-      }
     } else {
       // First run or stale schema — reseed cleanly. v4 additionally wipes ALL conversation data
       // (chats + messages) so DM and Space threads start completely isolated (one-time clean reset).

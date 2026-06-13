@@ -50,6 +50,7 @@ import { AppSidebar } from './components/AppSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { PlannerPanel } from './components/PlannerPanel';
+import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
 import { ActivityPanel } from './components/ActivityMonitor';
 import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
@@ -2210,6 +2211,9 @@ export default function App() {
     }
     if (tab.type === 'web') {
       return <BrowserTabContent tabId={tab.id} initialUrl={tab.url} />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'knowledge-graph') {
+      return <KnowledgeGraphPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'planner') {
       return <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />;

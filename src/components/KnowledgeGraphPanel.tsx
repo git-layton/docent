@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState, useCallback, useMemo, Component } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
 import type { NodeObject, LinkObject } from 'react-force-graph-2d';
+
+// Lazy-load the force-graph renderer. Importing it eagerly evaluates a heavy canvas/d3 module at
+// module-load time; if that throws it takes down the whole app before any error boundary can catch
+// it (which is why this tab had to be pulled). Behind React.lazy the import only runs when the tab
+// is opened, and any import/mount failure is contained by the <Suspense> + <GraphErrorBoundary>.
+const ForceGraph2D: any = lazy(() => import('react-force-graph-2d') as any);
 
 // ---------------------------------------------------------------------------
 // Error boundary — keeps a ForceGraph2D crash from taking down the whole app
@@ -281,6 +286,7 @@ export function KnowledgeGraphPanel() {
             </div>
           ) : (
             <GraphErrorBoundary>
+            <Suspense fallback={<div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest">Loading graph…</div>}>
             <ForceGraph2D
               width={dimensions.width}
               height={dimensions.height}
@@ -302,6 +308,7 @@ export function KnowledgeGraphPanel() {
               enablePanInteraction
               cooldownTicks={80}
             />
+            </Suspense>
             </GraphErrorBoundary>
           )}
         </div>
