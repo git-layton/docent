@@ -123,47 +123,62 @@ interface TabPillProps {
   tab: OmniTab;
   isActive: boolean;
   isSplit: boolean;
-  index: number;
 }
 
-function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
+function TabPill({ tab, isActive, isSplit }: TabPillProps) {
   // Activity bubble: unread iMessage count on the Messages tab.
   const unread = useMessagesStore(s => s.unread);
   const showUnread = tab.type === 'tool' && tab.toolId === 'messages' && unread > 0;
 
-  const handleDragStart = useCallback(
-    (e: React.DragEvent<HTMLButtonElement>) => {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(index));
-    },
-    [index],
-  );
+  // Pointer-based reorder. WKWebView (Tauri's macOS webview) doesn't reliably fire HTML5
+  // drag-and-drop events, so we drive reordering with pointer events instead: drag a tab over
+  // another and they swap live (by their position in the global omniTabs array); the new order
+  // persists on release. `didDrag` swallows the click-to-activate that fires on pointer-up.
+  const didDrag = useRef(false);
 
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, []);
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (tab.isPinned || e.button !== 0) return;
+      // Don't start a reorder from the star/split/close controls (they're role="button" spans).
+      if ((e.target as HTMLElement).closest('[role="button"]')) return;
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      const fromIdx = Number(e.dataTransfer.getData('text/plain'));
-      if (!Number.isNaN(fromIdx) && fromIdx !== index) {
-        useSpaceStore.getState().moveTab(fromIdx, index);
-      }
+      const startX = e.clientX;
+      didDrag.current = false;
+
+      const onMove = (ev: PointerEvent) => {
+        if (!didDrag.current && Math.abs(ev.clientX - startX) < 5) return;
+        didDrag.current = true;
+        const overEl = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)
+          ?.closest('[data-tab-id]') as HTMLElement | null;
+        const overId = overEl?.getAttribute('data-tab-id');
+        if (!overId || overId === tab.id) return;
+        const tabs = useSpaceStore.getState().omniTabs;
+        const from = tabs.findIndex(t => t.id === tab.id);
+        const to = tabs.findIndex(t => t.id === overId);
+        if (from !== -1 && to !== -1 && from !== to) useSpaceStore.getState().moveTab(from, to);
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        if (didDrag.current) useSpaceStore.getState().persist();
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
     },
-    [index],
+    [tab.id, tab.isPinned],
   );
 
   return (
     <button
       type="button"
       data-active={isActive}
-      onClick={() => useSpaceStore.getState().setActiveTab(tab.id)}
-      draggable={!tab.isPinned}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
+      data-tab-id={tab.id}
+      onPointerDown={handlePointerDown}
+      onClick={() => {
+        // Swallow the click that follows a drag-reorder; otherwise activate the tab.
+        if (didDrag.current) { didDrag.current = false; return; }
+        useSpaceStore.getState().setActiveTab(tab.id);
+      }}
       className={clsx(
         // Chrome-style sizing: each tab prefers ~168px but will shrink down to a
         // favicon-only sliver (min-w) as more tabs crowd in; past that the strip scrolls.
@@ -332,19 +347,14 @@ export function OmniTabBar(): React.JSX.Element {
         onWheel={handleWheel}
         className="flex-1 min-w-0 flex items-end px-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {visibleTabs.map((tab) => {
-          // Pass the global index so moveTab operates on the full omniTabs array correctly
-          const globalIdx = allTabs.findIndex(t => t.id === tab.id);
-          return (
-            <TabPill
-              key={tab.id}
-              tab={tab}
-              isActive={tab.id === activeOmniTabId}
-              isSplit={tab.id === splitTabId}
-              index={globalIdx}
-            />
-          );
-        })}
+        {visibleTabs.map((tab) => (
+          <TabPill
+            key={tab.id}
+            tab={tab}
+            isActive={tab.id === activeOmniTabId}
+            isSplit={tab.id === splitTabId}
+          />
+        ))}
         <NewTabButton />
       </div>
       {/* Overflow dropdown is pinned outside the scrolling strip so its panel

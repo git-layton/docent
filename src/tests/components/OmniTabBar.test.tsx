@@ -256,38 +256,46 @@ describe('OmniTabBar — new tab button', () => {
 // Drag-to-reorder
 // ---------------------------------------------------------------------------
 
-describe('OmniTabBar — drag-to-reorder', () => {
-  it('draggable attribute is true on non-pinned tabs', () => {
+describe('OmniTabBar — pointer reorder', () => {
+  // We reorder with pointer events (WKWebView doesn't reliably fire HTML5 drag-and-drop),
+  // so tabs expose data-tab-id and no longer use the `draggable` attribute.
+  it('non-pinned tabs expose data-tab-id and do not use HTML5 draggable', () => {
     seedStore([makeTab({ id: 'x', label: 'Drag Me', isPinned: false })], 'x')
     render(<OmniTabBar />)
     const btn = screen.getByText('Drag Me').closest('button')!
-    expect(btn).toHaveAttribute('draggable', 'true')
+    expect(btn).toHaveAttribute('data-tab-id', 'x')
+    expect(btn).not.toHaveAttribute('draggable')
   })
 
-  it('draggable attribute is false on pinned tabs', () => {
-    seedStore([makeTab({ id: 'p', label: 'Pinned', isPinned: true })], 'p')
-    render(<OmniTabBar />)
-    const btn = screen.getByText('Pinned').closest('button')!
-    expect(btn).toHaveAttribute('draggable', 'false')
-  })
-
-  it('drop from index 0 to index 1 calls moveTab(0, 1)', () => {
+  it('dragging a tab over another reorders via moveTab(0, 1)', () => {
     seedStore([
       makeTab({ id: 'first',  label: 'First',  isPinned: false }),
       makeTab({ id: 'second', label: 'Second', isPinned: false }),
     ], 'first')
     const spy = vi.spyOn(useSpaceStore.getState(), 'moveTab')
     render(<OmniTabBar />)
+    const firstBtn  = screen.getByText('First').closest('button')!
+    const secondBtn = screen.getByText('Second').closest('button')!
 
-    const [firstBtn, secondBtn] = screen.getAllByRole('button').filter(
-      b => b.getAttribute('draggable') !== null,
-    )
+    // happy-dom can't hit-test, so make elementFromPoint "land" on the second tab.
+    const origEFP = document.elementFromPoint
+    ;(document as any).elementFromPoint = () => secondBtn
 
-    const dt = { effectAllowed: '', dropEffect: '', getData: () => '0', setData: vi.fn() }
-    fireEvent.dragStart(firstBtn, { dataTransfer: dt })
-    fireEvent.dragOver(secondBtn, { dataTransfer: { ...dt, dropEffect: '' } })
-    fireEvent.drop(secondBtn, { dataTransfer: { ...dt, getData: () => '0' } })
+    fireEvent.pointerDown(firstBtn, { button: 0, clientX: 0, clientY: 0 })
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 50, clientY: 0 }))
+    window.dispatchEvent(new MouseEvent('pointerup'))
 
+    ;(document as any).elementFromPoint = origEFP
     expect(spy).toHaveBeenCalledWith(0, 1)
+  })
+
+  it('pinned tabs do not start a reorder', () => {
+    seedStore([makeTab({ id: 'p', label: 'Pinned', isPinned: true })], 'p')
+    const spy = vi.spyOn(useSpaceStore.getState(), 'moveTab')
+    render(<OmniTabBar />)
+    const btn = screen.getByText('Pinned').closest('button')!
+    fireEvent.pointerDown(btn, { button: 0, clientX: 0, clientY: 0 })
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 50, clientY: 0 }))
+    expect(spy).not.toHaveBeenCalled()
   })
 })
