@@ -102,6 +102,7 @@ export function MailInboxPanel() {
   const [compose, setCompose] = useState<ComposeState | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (accounts.length === 0) { setRows([]); return; }
@@ -128,6 +129,12 @@ export function MailInboxPanel() {
   }, [accountsKey]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!actionError) return;
+    const t = setTimeout(() => setActionError(null), 6000);
+    return () => clearTimeout(t);
+  }, [actionError]);
 
   const sortedRows = useMemo(() => {
     const r = [...rows];
@@ -185,18 +192,25 @@ export function MailInboxPanel() {
   const setSeenLocal = (row: MailRow, seen: boolean) =>
     setRows(prev => prev.map(r => (r.account === row.account && r.uid === row.uid ? { ...r, seen } : r)));
 
+  // Flip read state ON THE SERVER (optimistic, with revert + surfaced error) so the UI matches Gmail.
+  const setSeen = async (row: MailRow, seen: boolean) => {
+    setSeenLocal(row, seen);
+    const pw = await getPassword(row.account);
+    if (!pw) { setSeenLocal(row, !seen); setActionError('No saved password — re-add the account in Settings.'); return; }
+    try {
+      await invoke('mail_set_seen', { provider: row.provider, email: row.account, password: pw, uid: row.uid, seen });
+    } catch (e) {
+      setSeenLocal(row, !seen); // revert — server didn't change
+      setActionError(`Couldn't update read state on the server: ${String(e)}`);
+    }
+  };
+
   const openMessage = useCallback(async (row: MailRow) => {
     setSelected(row);
     setBody(null);
     setBodyError(null);
     setBodyLoading(true);
-    // Auto mark-read (optimistic + backend), like Gmail.
-    if (!row.seen) {
-      setSeenLocal(row, true);
-      getPassword(row.account).then(pw => {
-        if (pw) invoke('mail_set_seen', { provider: row.provider, email: row.account, password: pw, uid: row.uid, seen: true }).catch(() => {});
-      });
-    }
+    if (!row.seen) void setSeen(row, true); // auto mark-read, persisted to the server
     try {
       const pw = await getPassword(row.account);
       if (!pw) throw new Error('No saved password for this account');
@@ -207,21 +221,30 @@ export function MailInboxPanel() {
     } finally {
       setBodyLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const markUnread = async (row: MailRow) => {
-    setSeenLocal(row, false);
-    const pw = await getPassword(row.account);
-    if (pw) invoke('mail_set_seen', { provider: row.provider, email: row.account, password: pw, uid: row.uid, seen: false }).catch(() => {});
     setSelected(null);
     setBody(null);
+    await setSeen(row, false);
   };
 
   const deleteMessage = async (row: MailRow) => {
     setRows(prev => prev.filter(r => !(r.account === row.account && r.uid === row.uid)));
     if (selected && selected.account === row.account && selected.uid === row.uid) { setSelected(null); setBody(null); }
     const pw = await getPassword(row.account);
-    if (pw) invoke('mail_delete', { provider: row.provider, email: row.account, password: pw, uid: row.uid }).catch(() => {});
+    if (!pw) {
+      setRows(prev => [...prev, row]); // revert (sort happens in the view)
+      setActionError('No saved password — re-add the account in Settings.');
+      return;
+    }
+    try {
+      await invoke('mail_delete', { provider: row.provider, email: row.account, password: pw, uid: row.uid });
+    } catch (e) {
+      setRows(prev => [...prev, row]); // revert — message still on the server
+      setActionError(`Delete failed on the server: ${String(e)}`);
+    }
   };
 
   const startReply = (all: boolean) => {
@@ -292,29 +315,29 @@ export function MailInboxPanel() {
   // ── Compose / reply view ──
   if (compose) {
     return (
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-neutral-900">
-        <div className="h-12 flex items-center gap-3 px-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-          <button onClick={() => setCompose(null)} className="p-1.5 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors" title="Discard">
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel">
+        <div className="h-12 flex items-center gap-3 px-4 border-b border-edge shrink-0">
+          <button onClick={() => setCompose(null)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Discard">
             <X className="w-4 h-4" />
           </button>
-          <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+          <span className="text-sm font-semibold text-ink">
             {compose.mode === 'new' ? 'New message' : compose.mode === 'replyAll' ? 'Reply all' : 'Reply'}
           </span>
-          <span className="text-xs text-neutral-400">from {compose.account}</span>
+          <span className="text-xs text-ink-3">from {compose.account}</span>
           <div className="flex-1" />
-          <button onClick={sendCompose} disabled={sending} className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#4A5D75] text-white hover:opacity-90 transition-opacity disabled:opacity-40">
+          <button onClick={sendCompose} disabled={sending} className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity disabled:opacity-40">
             {sending ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
           </button>
         </div>
         <div className="flex flex-col flex-1 overflow-y-auto">
           {([['To', 'to'], ['Cc', 'cc'], ['Subject', 'subject']] as const).map(([label, field]) => (
-            <div key={field} className="flex items-center gap-3 px-4 py-2.5 border-b border-neutral-100 dark:border-neutral-800">
-              <label className="text-xs font-medium text-neutral-400 w-12 shrink-0">{label}</label>
+            <div key={field} className="flex items-center gap-3 px-4 py-2.5 border-b border-edge">
+              <label className="text-xs font-medium text-ink-3 w-12 shrink-0">{label}</label>
               <input
                 value={(compose as any)[field]}
                 onChange={ev => setCompose(c => (c ? { ...c, [field]: ev.target.value } : c))}
                 placeholder={field === 'cc' ? 'optional, comma-separated' : field === 'to' ? 'comma-separated' : ''}
-                className="flex-1 bg-transparent text-sm text-neutral-800 dark:text-neutral-100 outline-none"
+                className="flex-1 bg-transparent text-sm text-ink outline-none"
               />
             </div>
           ))}
@@ -322,9 +345,9 @@ export function MailInboxPanel() {
             value={compose.body}
             onChange={ev => setCompose(c => (c ? { ...c, body: ev.target.value } : c))}
             placeholder="Write your message…"
-            className="flex-1 min-h-[240px] resize-none bg-transparent px-4 py-3 text-sm text-neutral-800 dark:text-neutral-200 outline-none leading-relaxed font-sans"
+            className="flex-1 min-h-[240px] resize-none bg-transparent px-4 py-3 text-sm text-ink outline-none leading-relaxed font-sans"
           />
-          {sendError && <div className="px-4 py-2 text-xs font-medium text-red-500 break-words">✗ {sendError}</div>}
+          {sendError && <div className="px-4 py-2 text-xs font-medium text-danger break-words">✗ {sendError}</div>}
         </div>
       </div>
     );
@@ -333,44 +356,44 @@ export function MailInboxPanel() {
   // ── Reading view ──
   if (selected) {
     return (
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-neutral-900">
-        <div className="h-12 flex items-center gap-1 px-3 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-          <button onClick={() => { setSelected(null); setBody(null); }} className="p-1.5 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors" title="Back">
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel">
+        <div className="h-12 flex items-center gap-1 px-3 border-b border-edge shrink-0">
+          <button onClick={() => { setSelected(null); setBody(null); }} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Back">
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="flex-1" />
-          <button onClick={() => startReply(false)} disabled={!body} className="p-1.5 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors disabled:opacity-40" title="Reply">
+          <button onClick={() => startReply(false)} disabled={!body} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Reply">
             <Reply className="w-4 h-4" />
           </button>
-          <button onClick={() => startReply(true)} disabled={!body} className="p-1.5 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors disabled:opacity-40" title="Reply all">
+          <button onClick={() => startReply(true)} disabled={!body} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Reply all">
             <ReplyAll className="w-4 h-4" />
           </button>
-          <button onClick={() => markUnread(selected)} className="p-1.5 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors" title="Mark as unread">
+          <button onClick={() => markUnread(selected)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Mark as unread">
             <Mail className="w-4 h-4" />
           </button>
-          <button onClick={() => deleteMessage(selected)} className="p-1.5 rounded-lg text-neutral-400 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-500 transition-colors" title="Delete">
+          <button onClick={() => deleteMessage(selected)} className="p-1.5 rounded-lg text-ink-3 hover:bg-danger-soft hover:text-danger transition-colors" title="Delete">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
-        <div className="px-6 py-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-          <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">{selected.subject || '(no subject)'}</h1>
+        <div className="px-6 py-4 border-b border-edge shrink-0">
+          <h1 className="text-lg font-semibold text-ink">{selected.subject || '(no subject)'}</h1>
           <div className="mt-2 flex items-center gap-2 text-sm">
-            <span className="font-medium text-neutral-700 dark:text-neutral-200">{selected.fromName || selected.fromEmail}</span>
-            {selected.fromName && <span className="text-neutral-400">&lt;{selected.fromEmail}&gt;</span>}
+            <span className="font-medium text-ink">{selected.fromName || selected.fromEmail}</span>
+            {selected.fromName && <span className="text-ink-3">&lt;{selected.fromEmail}&gt;</span>}
             <span className="w-2 h-2 rounded-full" style={{ background: DOT[selected.provider] }} title={selected.account} />
             <div className="flex-1" />
-            <span className="text-xs text-neutral-400">{new Date(Date.parse(selected.date) || Date.now()).toLocaleString()}</span>
+            <span className="text-xs text-ink-3">{new Date(Date.parse(selected.date) || Date.now()).toLocaleString()}</span>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {bodyLoading ? (
-            <div className="h-full flex items-center justify-center gap-2 text-neutral-400"><RotateCw className="w-5 h-5 animate-spin" /> <span className="text-sm">Loading message…</span></div>
+            <div className="h-full flex items-center justify-center gap-2 text-ink-3"><RotateCw className="w-5 h-5 animate-spin" /> <span className="text-sm">Loading message…</span></div>
           ) : bodyError ? (
-            <div className="p-6 text-sm text-red-500">Couldn't load message: {bodyError}</div>
+            <div className="p-6 text-sm text-danger">Couldn't load message: {bodyError}</div>
           ) : body?.html ? (
             <iframe title="email" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={body.html} onLoad={onIframeLoad} className="w-full h-full border-0 bg-white" />
           ) : (
-            <pre className="px-6 py-4 whitespace-pre-wrap break-words font-sans text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed">{body?.text || '(empty message)'}</pre>
+            <pre className="px-6 py-4 whitespace-pre-wrap break-words font-sans text-sm text-ink-2 leading-relaxed">{body?.text || '(empty message)'}</pre>
           )}
         </div>
       </div>
@@ -379,12 +402,12 @@ export function MailInboxPanel() {
 
   // ── List view ──
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-neutral-900">
-      <div className="h-12 flex items-center gap-3 px-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-        <Inbox className="w-4 h-4 text-neutral-400" />
-        <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Inbox</span>
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel">
+      <div className="h-12 flex items-center gap-3 px-4 border-b border-edge shrink-0">
+        <Inbox className="w-4 h-4 text-ink-3" />
+        <span className="text-sm font-semibold text-ink">Inbox</span>
         {accounts.length > 0 && (
-          <span className="flex items-center gap-1.5 text-xs text-neutral-400">
+          <span className="flex items-center gap-1.5 text-xs text-ink-3">
             {accounts.map(a => <span key={a.id} className="w-2 h-2 rounded-full" style={{ background: DOT[a.provider] }} title={a.email} />)}
             <span className="ml-1">{rows.length}</span>
           </span>
@@ -392,10 +415,10 @@ export function MailInboxPanel() {
         <div className="flex-1" />
         {accounts.length > 0 && (
           <>
-            <button onClick={startCompose} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#4A5D75] text-white hover:opacity-90 transition-opacity" title="Compose">
+            <button onClick={startCompose} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity" title="Compose">
               <Pencil className="w-3.5 h-3.5" /> Compose
             </button>
-            <select value={sort} onChange={e => setSort(e.target.value as SortMode)} className="text-xs bg-transparent border border-neutral-200 dark:border-neutral-700 rounded-lg px-2 py-1 text-neutral-600 dark:text-neutral-300 outline-none" title="Sort">
+            <select value={sort} onChange={e => setSort(e.target.value as SortMode)} className="text-xs bg-transparent border border-edge-2 rounded-lg px-2 py-1 text-ink-2 outline-none" title="Sort">
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
               <option value="unread">Unread first</option>
@@ -403,70 +426,76 @@ export function MailInboxPanel() {
             </select>
           </>
         )}
-        <button onClick={load} disabled={loading || accounts.length === 0} className="p-1.5 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors disabled:opacity-40" title="Refresh">
+        <button onClick={load} disabled={loading || accounts.length === 0} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Refresh">
           <RotateCw className={clsx('w-3.5 h-3.5', loading && 'animate-spin')} />
         </button>
       </div>
 
       {accounts.length > 0 && (
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-          <Wand2 className="w-3.5 h-3.5 text-[#4A5D75] shrink-0" />
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-edge shrink-0">
+          <Wand2 className="w-3.5 h-3.5 text-accent shrink-0" />
           <input
             value={aiQuery}
             onChange={e => setAiQuery(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') runAiFilter(); }}
             placeholder="Describe what to show — e.g. “invoices & receipts”, “needs a reply”"
-            className="flex-1 bg-transparent text-xs text-neutral-700 dark:text-neutral-300 outline-none placeholder:text-neutral-400"
+            className="flex-1 bg-transparent text-xs text-ink-2 outline-none placeholder:text-ink-3"
           />
-          {aiLoading && <RotateCw className="w-3.5 h-3.5 animate-spin text-neutral-400" />}
+          {aiLoading && <RotateCw className="w-3.5 h-3.5 animate-spin text-ink-3" />}
           {aiFilter ? (
-            <button onClick={clearAiFilter} className="flex items-center gap-1 text-[11px] font-medium text-[#4A5D75] hover:underline shrink-0">
+            <button onClick={clearAiFilter} className="flex items-center gap-1 text-[11px] font-medium text-accent hover:underline shrink-0">
               {displayRows.length} match{displayRows.length === 1 ? '' : 'es'} · clear <X className="w-3 h-3" />
             </button>
           ) : (
-            <button onClick={runAiFilter} disabled={!aiQuery.trim() || aiLoading} className="text-[11px] font-semibold text-[#4A5D75] disabled:opacity-40 shrink-0">Filter</button>
+            <button onClick={runAiFilter} disabled={!aiQuery.trim() || aiLoading} className="text-[11px] font-semibold text-accent disabled:opacity-40 shrink-0">Filter</button>
           )}
         </div>
       )}
-      {aiError && <div className="px-4 py-1.5 text-[11px] text-red-500 border-b border-neutral-100 dark:border-neutral-800 shrink-0">✗ {aiError}</div>}
+      {aiError && <div className="px-4 py-1.5 text-[11px] text-danger border-b border-edge shrink-0">✗ {aiError}</div>}
+      {actionError && (
+        <div className="px-4 py-1.5 text-[11px] text-danger border-b border-edge shrink-0 flex items-center gap-2">
+          <span className="flex-1">✗ {actionError}</span>
+          <button onClick={() => setActionError(null)}><X className="w-3 h-3" /></button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {accounts.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8">
-            <Mail className="w-8 h-8 text-neutral-300 dark:text-neutral-600" />
-            <p className="text-sm text-neutral-500 dark:text-neutral-400 max-w-xs">No mail accounts connected yet. Add Gmail or iCloud with an app password to bring your inbox in.</p>
-            <button onClick={openMailSettings} className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-[#4A5D75] text-white hover:opacity-90 transition-opacity">
+            <Mail className="w-8 h-8 text-ink-3" />
+            <p className="text-sm text-ink-2 max-w-xs">No mail accounts connected yet. Add Gmail or iCloud with an app password to bring your inbox in.</p>
+            <button onClick={openMailSettings} className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity">
               <SettingsIcon className="w-3.5 h-3.5" /> Connect an account
             </button>
           </div>
         ) : error ? (
-          <div className="p-6 text-sm text-red-500">Couldn't load mail: {error}</div>
+          <div className="p-6 text-sm text-danger">Couldn't load mail: {error}</div>
         ) : loading && rows.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-2 text-neutral-400"><RotateCw className="w-5 h-5 animate-spin" /><span className="text-sm">Loading your inbox…</span></div>
+          <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-3"><RotateCw className="w-5 h-5 animate-spin" /><span className="text-sm">Loading your inbox…</span></div>
         ) : displayRows.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-sm text-neutral-400">{aiFilter ? 'No matches for that filter.' : 'No messages.'}</div>
+          <div className="h-full flex items-center justify-center text-sm text-ink-3">{aiFilter ? 'No matches for that filter.' : 'No messages.'}</div>
         ) : (
           displayRows.map(r => (
-            <div key={`${r.account}-${r.uid}`} className="group relative flex items-start gap-3 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
+            <div key={`${r.account}-${r.uid}`} className="group relative flex items-start gap-3 px-4 py-3 border-b border-edge hover:bg-wash transition-colors">
               <button onClick={() => openMessage(r)} className="flex items-start gap-3 flex-1 min-w-0 text-left">
                 <div className="relative shrink-0">
-                  <div className="w-9 h-9 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-xs font-semibold text-neutral-500 dark:text-neutral-300">{initials(r.fromName, r.fromEmail)}</div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-neutral-900" style={{ background: DOT[r.provider] }} title={r.account} />
+                  <div className="w-9 h-9 rounded-full bg-inset flex items-center justify-center text-xs font-semibold text-ink-2">{initials(r.fromName, r.fromEmail)}</div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-panel" style={{ background: DOT[r.provider] }} title={r.account} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={clsx('text-sm truncate', !r.seen ? 'font-bold text-neutral-900 dark:text-neutral-50' : 'text-neutral-700 dark:text-neutral-300')}>{r.fromName || r.fromEmail || '(unknown sender)'}</span>
-                    {!r.seen && <span className="w-1.5 h-1.5 rounded-full bg-[#4A5D75] shrink-0" />}
+                    <span className={clsx('text-sm truncate', !r.seen ? 'font-bold text-ink' : 'text-ink-2')}>{r.fromName || r.fromEmail || '(unknown sender)'}</span>
+                    {!r.seen && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
                     <div className="flex-1" />
-                    <span className="text-xs text-neutral-400 shrink-0 group-hover:opacity-0 transition-opacity">{formatDate(r.date)}</span>
+                    <span className="text-xs text-ink-3 shrink-0 group-hover:opacity-0 transition-opacity">{formatDate(r.date)}</span>
                   </div>
-                  <div className={clsx('text-sm truncate', !r.seen ? 'font-medium text-neutral-800 dark:text-neutral-200' : 'text-neutral-500 dark:text-neutral-400')}>{r.subject || '(no subject)'}</div>
-                  <div className="text-xs text-neutral-400 dark:text-neutral-500 truncate">{r.fromEmail}</div>
+                  <div className={clsx('text-sm truncate', !r.seen ? 'font-medium text-ink' : 'text-ink-2')}>{r.subject || '(no subject)'}</div>
+                  <div className="text-xs text-ink-3 truncate">{r.fromEmail}</div>
                 </div>
               </button>
               <button
                 onClick={() => deleteMessage(r)}
-                className="absolute right-3 top-3 p-1.5 rounded-lg text-neutral-400 opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-500 transition-all"
+                className="absolute right-3 top-3 p-1.5 rounded-lg text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-danger-soft hover:text-danger transition-all"
                 title="Delete"
               >
                 <Trash2 className="w-4 h-4" />

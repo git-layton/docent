@@ -35,18 +35,18 @@ function AgentMemosSection({ forgePath, agentId, onCompose }: { forgePath: strin
   return (
     <div>
       {memos.length === 0 ? (
-        <p className="text-tiny text-neutral-400 text-center py-4">No memos yet for this agent.</p>
+        <p className="text-tiny text-ink-3 text-center py-4">No memos yet for this agent.</p>
       ) : (
         <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar mb-3">
           {memos.map(f => (
-            <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700">
+            <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-panel rounded-lg border border-edge">
               <FileText className="w-3.5 h-3.5 text-accent shrink-0" />
-              <span className="text-mini font-bold text-neutral-600 dark:text-neutral-300 truncate">{f}</span>
+              <span className="text-mini font-bold text-ink-2 truncate">{f}</span>
             </div>
           ))}
         </div>
       )}
-      <button onClick={onCompose} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 text-tiny font-bold text-neutral-500 hover:border-primary hover:text-primary transition-all">
+      <button onClick={onCompose} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-edge-2 text-tiny font-bold text-ink-3 hover:border-accent hover:text-accent transition-all">
         + New Memo
       </button>
     </div>
@@ -62,16 +62,16 @@ function LibraryFileList({ path }: { path: string }) {
       .catch(() => setFiles([]));
   }, [path]);
   if (files.length === 0) return (
-    <p className="text-tiny text-neutral-400 text-center py-4">
+    <p className="text-tiny text-ink-3 text-center py-4">
       No library files yet. Drop files in the Memmo Panel Library tab.
     </p>
   );
   return (
     <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar">
       {files.map(f => (
-        <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700">
+        <div key={f} className="flex items-center gap-2 px-2.5 py-1.5 bg-panel rounded-lg border border-edge">
           <FileText className="w-3.5 h-3.5 text-secondary shrink-0" />
-          <span className="text-mini font-bold text-neutral-600 dark:text-neutral-300 truncate">{f}</span>
+          <span className="text-mini font-bold text-ink-2 truncate">{f}</span>
         </div>
       ))}
     </div>
@@ -105,15 +105,15 @@ export function AssistantSettingsModal({
   const onClose = () => setShowAssistantSettings(false);
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-neutral-900 w-full max-w-3xl rounded-[2rem] p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 max-h-[90vh] overflow-y-auto custom-scrollbar text-neutral-900 dark:text-white flex flex-col">
+      <div className="bg-panel-2 w-full max-w-3xl rounded-[2rem] p-8 shadow-2xl border border-edge max-h-[90vh] overflow-y-auto custom-scrollbar text-ink flex flex-col">
         <div className="flex justify-between items-center mb-6 shrink-0">
-          <div className="flex items-center gap-3"><div className="p-2 bg-primary rounded-xl"><UserCog className="w-6 h-6 text-white" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Agent Settings</h3></div>
-          <button onClick={onClose} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><UserCog className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Agent Settings</h3></div>
+          <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 mb-6 shrink-0">
+        <div className="flex gap-1 border-b border-edge mb-6 shrink-0">
           {['config', 'memory'].map(tab => (
-             <button key={tab} onClick={() => setAssistantSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${assistantSettingsTab === tab ? 'text-primary border-b-2 border-primary' : 'text-neutral-400'}`}>
+             <button key={tab} onClick={() => setAssistantSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${assistantSettingsTab === tab ? 'text-accent border-b-2 border-accent' : 'text-ink-3'}`}>
                 {tab === 'config' ? 'Configuration' : 'Knowledge & Memory'}
              </button>
           ))}
@@ -123,17 +123,17 @@ export function AssistantSettingsModal({
            {assistantSettingsTab === 'config' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                  <div className="space-y-6">
-                    <div><label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Name</label><input type="text" value={editingAssistant.name} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, name: e.target.value }))} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:border-secondary dark:text-neutral-100" /></div>
+                    <div><label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Name</label><input type="text" value={editingAssistant.name} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, name: e.target.value }))} className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:border-accent text-ink" /></div>
 
-                    <div><label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Description</label><textarea value={editingAssistant.description ?? ''} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, description: e.target.value }))} rows={2} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-secondary dark:text-neutral-100 custom-scrollbar" placeholder="What does this assistant do?" /></div>
+                    <div><label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Description</label><textarea value={editingAssistant.description ?? ''} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, description: e.target.value }))} rows={2} className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-accent text-ink custom-scrollbar" placeholder="What does this assistant do?" /></div>
 
                     <div>
                        <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Default Output Mode</label>
-                       <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-2xl">
+                       <div className="flex bg-inset p-1.5 rounded-2xl">
                          {[{id:'text', lbl:'Chat'}, {id:'code',lbl:'Code Canvas'}, {id:'doc',lbl:'Doc Draft'}, {id:'image',lbl:'Image Gen'}]
                            .filter(m => m.id !== 'image' || appSettings?.imageProvider !== 'none')
                            .map(m => (
-                           <button key={m.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, defaultMode: m.id }))} className={`flex-1 py-2.5 text-micro font-black uppercase tracking-widest rounded-xl transition-all ${editingAssistant.defaultMode === m.id || (!editingAssistant.defaultMode && m.id === 'text') ? 'bg-white dark:bg-neutral-700 shadow-sm text-primary dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>
+                           <button key={m.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, defaultMode: m.id }))} className={`flex-1 py-2.5 text-micro font-black uppercase tracking-widest rounded-xl transition-all ${editingAssistant.defaultMode === m.id || (!editingAssistant.defaultMode && m.id === 'text') ? 'bg-panel shadow-sm text-accent' : 'text-ink-3 hover:text-ink-2'}`}>
                              {m.lbl}
                            </button>
                          ))}
@@ -143,9 +143,9 @@ export function AssistantSettingsModal({
                     <div>
                     <div className="flex items-center justify-between mb-2">
                        <label className="text-tiny font-black uppercase opacity-50 block tracking-widest">System Prompt</label>
-                       <button onClick={handleEnhanceSystemPrompt} disabled={isEnhancingPrompt || !editingAssistant.prompt || models.length === 0} className="flex items-center gap-1 text-tiny font-black uppercase text-accent hover:text-[#C29462] disabled:opacity-40"><Wand2 className={`w-3.5 h-3.5 ${isEnhancingPrompt ? 'animate-spin' : ''}`} /> Polish</button>
+                       <button onClick={handleEnhanceSystemPrompt} disabled={isEnhancingPrompt || !editingAssistant.prompt || models.length === 0} className="flex items-center gap-1 text-tiny font-black uppercase text-accent hover:text-accent-strong disabled:opacity-40"><Wand2 className={`w-3.5 h-3.5 ${isEnhancingPrompt ? 'animate-spin' : ''}`} /> Polish</button>
                     </div>
-                    <textarea value={editingAssistant.prompt} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, prompt: e.target.value }))} rows={8} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-secondary dark:text-neutral-100 custom-scrollbar" placeholder="You are a helpful assistant..." />
+                    <textarea value={editingAssistant.prompt} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, prompt: e.target.value }))} rows={8} className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-accent text-ink custom-scrollbar" placeholder="You are a helpful assistant..." />
                     </div>
 
                     {/* Core Drive */}
@@ -154,18 +154,18 @@ export function AssistantSettingsModal({
                         <label className="text-tiny font-black uppercase opacity-50 block tracking-widest">Core Drive</label>
                         <button
                           onClick={() => setEditingAssistant((prev: any) => ({ ...prev, driveEnabled: !prev.driveEnabled }))}
-                          className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${editingAssistant.driveEnabled !== false ? 'bg-primary' : 'bg-neutral-300 dark:bg-neutral-700'}`}
+                          className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${editingAssistant.driveEnabled !== false ? 'bg-accent' : 'bg-edge-2'}`}
                         >
-                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${editingAssistant.driveEnabled !== false ? 'right-0.5' : 'left-0.5'}`} />
+                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-panel transition-all ${editingAssistant.driveEnabled !== false ? 'right-0.5' : 'left-0.5'}`} />
                         </button>
                       </div>
-                      <p className="text-tiny text-neutral-400 mb-2">A persistent motivation injected into every prompt — the agent's underlying goal beyond the task at hand.</p>
+                      <p className="text-tiny text-ink-3 mb-2">A persistent motivation injected into every prompt — the agent's underlying goal beyond the task at hand.</p>
                       <textarea
                         value={editingAssistant.drive ?? ''}
                         onChange={e => setEditingAssistant((prev: any) => ({ ...prev, drive: e.target.value }))}
                         disabled={editingAssistant.driveEnabled === false}
                         rows={2}
-                        className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-3 text-sm font-medium resize-none outline-none focus:border-secondary dark:text-neutral-100 disabled:opacity-40"
+                        className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-3 text-sm font-medium resize-none outline-none focus:border-accent text-ink disabled:opacity-40"
                         placeholder="e.g. Always push toward clarity and the simplest correct solution."
                       />
                     </div>
@@ -175,8 +175,8 @@ export function AssistantSettingsModal({
                        <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Avatar</label>
                        <div className="flex gap-2 items-center flex-wrap">
                           <input type="file" accept="image/*" ref={avatarUploadRef} onChange={onAvatarUpload} className="hidden" />
-                          <button onClick={() => avatarUploadRef.current?.click()} className="w-12 h-12 rounded-2xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 flex items-center justify-center hover:bg-neutral-50 dark:hover:bg-neutral-800"><ImageIcon className="w-5 h-5 text-neutral-400" /></button>
-                          {BOT_COLORS.map(c => <button key={c.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, avatar: { type: 'color', color: c.id } }))} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all border-2 ${c.bg} ${editingAssistant?.avatar?.color === c.id && editingAssistant?.avatar?.type === 'color' ? 'ring-4 ring-secondary/30 scale-105 border-white dark:border-neutral-900' : 'border-transparent opacity-80 hover:opacity-100'}`}><Bot className="w-6 h-6 text-white" /></button>)}
+                          <button onClick={() => avatarUploadRef.current?.click()} className="w-12 h-12 rounded-2xl border-2 border-dashed border-edge-2 flex items-center justify-center hover:bg-wash"><ImageIcon className="w-5 h-5 text-ink-3" /></button>
+                          {BOT_COLORS.map(c => <button key={c.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, avatar: { type: 'color', color: c.id } }))} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all border-2 ${c.bg} ${editingAssistant?.avatar?.color === c.id && editingAssistant?.avatar?.type === 'color' ? 'ring-4 ring-accent/30 scale-105 border-panel' : 'border-transparent opacity-80 hover:opacity-100'}`}><Bot className="w-6 h-6 text-white" /></button>)}
                        </div>
                     </div>
 
@@ -214,27 +214,27 @@ export function AssistantSettingsModal({
                             setEditingAssistant((prev: any) => ({ ...prev, toolAccounts: { ...(prev.toolAccounts ?? {}), [tool.id]: next } }));
                           };
                           return (
-                          <div key={tool.id} className="flex flex-col bg-neutral-50 dark:bg-neutral-800/20 rounded-xl overflow-hidden border border-neutral-100 dark:border-neutral-800">
-                             <div className={`flex items-center justify-between p-4 transition-all ${enabled ? 'bg-surface dark:bg-[#1E2B38]/30' : ''}`}>
+                          <div key={tool.id} className="flex flex-col bg-inset rounded-xl overflow-hidden border border-edge">
+                             <div className={`flex items-center justify-between p-4 transition-all ${enabled ? 'bg-accent-soft/40' : ''}`}>
                                 <div className="flex items-center gap-3">
-                                <div className={`p-1.5 rounded-lg ${enabled ? 'bg-primary text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500'}`}><Icon className="w-4 h-4" /></div>
+                                <div className={`p-1.5 rounded-lg ${enabled ? 'bg-accent text-on-accent' : 'bg-wash text-ink-3'}`}><Icon className="w-4 h-4" /></div>
                                 <div className="flex flex-col">
-                                  <span className="text-xs font-bold dark:text-neutral-200">{tool.name}</span>
-                                  <span className="text-micro text-neutral-500">{tool.desc}</span>
+                                  <span className="text-xs font-bold text-ink">{tool.name}</span>
+                                  <span className="text-micro text-ink-3">{tool.desc}</span>
                                   {needsSetup && (
-                                    <span className="text-micro font-bold text-amber-500 flex items-center gap-1 mt-0.5">
+                                    <span className="text-micro font-bold text-warning flex items-center gap-1 mt-0.5">
                                       <AlertTriangle className="w-2.5 h-2.5" /> Setup required in System Settings → Integrations
                                     </span>
                                   )}
                                 </div>
                                 </div>
-                                <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), [tool.id]: !enabled } }))} className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${enabled ? 'bg-primary' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
-                                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'right-0.5' : 'left-0.5'}`} />
+                                <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, tools: { ...(prev.tools ?? {}), [tool.id]: !enabled } }))} className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${enabled ? 'bg-accent' : 'bg-edge-2'}`}>
+                                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-panel transition-all ${enabled ? 'right-0.5' : 'left-0.5'}`} />
                                 </button>
                              </div>
                              {enabled && relevantAccounts.length > 1 && (
                                <div className="px-4 pb-4 pt-1 flex flex-col gap-1.5">
-                                 <span className="text-micro font-black uppercase tracking-widest text-neutral-400">Allowed Accounts <span className="normal-case font-normal">(leave all off = access all)</span></span>
+                                 <span className="text-micro font-black uppercase tracking-widest text-ink-3">Allowed Accounts <span className="normal-case font-normal">(leave all off = access all)</span></span>
                                  <div className="flex flex-wrap gap-1.5">
                                    {relevantAccounts.map((acct: any) => {
                                      const active = allowedIds.length === 0 || allowedIds.includes(acct.id);
@@ -243,7 +243,7 @@ export function AssistantSettingsModal({
                                        <button
                                          key={acct.id}
                                          onClick={() => toggleAccount(acct.id)}
-                                         className={`px-2.5 py-1 rounded-xl text-tiny font-bold border transition-all ${pinned ? 'bg-primary text-white border-primary' : active ? 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500' : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-300 line-through'}`}
+                                         className={`px-2.5 py-1 rounded-xl text-tiny font-bold border transition-all ${pinned ? 'bg-accent text-on-accent border-accent' : active ? 'bg-panel border-edge text-ink-2' : 'bg-panel border-edge text-ink-3 line-through'}`}
                                        >
                                          {acct.label || acct.id}
                                        </button>
@@ -262,35 +262,35 @@ export function AssistantSettingsModal({
            ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                  {/* Knowledge Base List */}
-                 <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
+                 <div className="p-5 bg-inset rounded-2xl border border-edge">
                     <div className="flex items-center justify-between mb-4">
                        <div>
                          <label className="text-tiny font-black uppercase tracking-widest text-secondary dark:text-secondary-muted flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Always-On Docs</label>
-                         <p className="text-micro text-neutral-400 mt-0.5">📌 Always injected into every message · max 25K chars</p>
+                         <p className="text-micro text-ink-3 mt-0.5">📌 Always injected into every message · max 25K chars</p>
                        </div>
-                       <span className="text-micro font-bold text-neutral-400 uppercase tracking-widest">{editingAssistant.trainingDocs?.length ?? 0} Docs</span>
+                       <span className="text-micro font-bold text-ink-3 uppercase tracking-widest">{editingAssistant.trainingDocs?.length ?? 0} Docs</span>
                     </div>
                     <div className="space-y-2 mb-4 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
                        {editingAssistant.trainingDocs?.map((doc: any) => (
-                          <div key={doc.id} className="flex items-center justify-between p-2.5 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700">
-                             <div className="flex items-center gap-2 truncate"><FileText className="w-4 h-4 text-secondary shrink-0" /><span className="text-xs font-bold truncate">{doc.name}</span><span className="text-tiny text-neutral-400 shrink-0">{(doc.content?.length ?? 0).toLocaleString()} chars</span></div>
-                             <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: prev.trainingDocs.filter((d: any) => d.id !== doc.id) }))} className="p-1 text-neutral-400 hover:text-error"><X className="w-4 h-4" /></button>
+                          <div key={doc.id} className="flex items-center justify-between p-2.5 bg-panel rounded-xl border border-edge">
+                             <div className="flex items-center gap-2 truncate"><FileText className="w-4 h-4 text-secondary shrink-0" /><span className="text-xs font-bold truncate">{doc.name}</span><span className="text-tiny text-ink-3 shrink-0">{(doc.content?.length ?? 0).toLocaleString()} chars</span></div>
+                             <button onClick={() => setEditingAssistant((prev: any) => ({ ...prev, trainingDocs: prev.trainingDocs.filter((d: any) => d.id !== doc.id) }))} className="p-1 text-ink-3 hover:text-error"><X className="w-4 h-4" /></button>
                           </div>
                        ))}
                        {(!editingAssistant.trainingDocs || editingAssistant.trainingDocs.length === 0) && (
-                          <div className="text-center p-4 py-8 border-2 border-dashed border-neutral-200 dark:border-neutral-700 rounded-xl text-neutral-400 text-xs font-bold">No documents uploaded.</div>
+                          <div className="text-center p-4 py-8 border-2 border-dashed border-edge-2 rounded-xl text-ink-3 text-xs font-bold">No documents uploaded.</div>
                        )}
                     </div>
                     <input type="file" accept="text/*,.pdf,.doc,.docx" ref={trainingDocUploadRef} onChange={onTrainingDocUpload} className="hidden" />
-                    <button onClick={() => trainingDocUploadRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 border-2 border-[#D6E0EA] dark:border-[#1E2B38] text-primary dark:text-secondary-muted rounded-xl hover:bg-surface dark:hover:bg-[#1E2B38]/20 transition-all text-tiny font-black uppercase tracking-widest bg-white dark:bg-neutral-900 shadow-sm"><Paperclip className="w-4 h-4" /> Upload Document</button>
+                    <button onClick={() => trainingDocUploadRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 border-2 border-accent/25 text-accent rounded-xl hover:bg-accent-soft/40 transition-all text-tiny font-black uppercase tracking-widest bg-panel shadow-sm"><Paperclip className="w-4 h-4" /> Upload Document</button>
                  </div>
 
                  {/* Agent Memos */}
-                 <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
+                 <div className="p-5 bg-inset rounded-2xl border border-edge">
                    <div className="flex items-center justify-between mb-3">
                      <div>
                        <label className="text-tiny font-black uppercase tracking-widest text-accent flex items-center gap-2"><BookOpen className="w-3.5 h-3.5" /> Agent Memos</label>
-                       <p className="text-micro text-neutral-400 mt-0.5">🔍 Searched when relevant — not always injected</p>
+                       <p className="text-micro text-ink-3 mt-0.5">🔍 Searched when relevant — not always injected</p>
                      </div>
                      <button onClick={() => useMemoryStore.getState().setShowMemmoPanel(true)} className="text-micro font-bold text-primary underline">View →</button>
                    </div>
@@ -308,11 +308,11 @@ export function AssistantSettingsModal({
                  </div>
 
                  {/* Knowledge Library */}
-                 <div className="p-5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
+                 <div className="p-5 bg-inset rounded-2xl border border-edge">
                    <div className="flex items-center justify-between mb-3">
                      <div>
                        <label className="text-tiny font-black uppercase tracking-widest text-secondary dark:text-secondary-muted flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Knowledge Library</label>
-                       <p className="text-micro text-neutral-400 mt-0.5">🔍 Searched when relevant — shared across all agents</p>
+                       <p className="text-micro text-ink-3 mt-0.5">🔍 Searched when relevant — shared across all agents</p>
                      </div>
                      <button onClick={() => useMemoryStore.getState().setShowMemmoPanel(true)} className="text-micro font-bold text-primary underline">Manage →</button>
                    </div>
@@ -320,22 +320,22 @@ export function AssistantSettingsModal({
                  </div>
 
                  {/* Pinned Memories List */}
-                 <div className="p-5 bg-[#F9F4EE] dark:bg-[#5C452E]/10 rounded-2xl border border-[#EEDCC4] dark:border-[#5C452E]/30">
+                 <div className="p-5 bg-warning-soft/50 rounded-2xl border border-warning/25">
                     <div className="flex items-center justify-between mb-4">
                        <div>
                          <label className="text-tiny font-black uppercase tracking-widest text-accent flex items-center gap-2"><Pin className="w-3.5 h-3.5" /> Pinned Memories</label>
-                         <p className="text-micro text-neutral-400 mt-0.5">📌 Always in context — injected into every message</p>
+                         <p className="text-micro text-ink-3 mt-0.5">📌 Always in context — injected into every message</p>
                        </div>
-                       <span className="text-micro font-bold text-neutral-400 uppercase tracking-widest">{editingAgentPins.length} Facts</span>
+                       <span className="text-micro font-bold text-ink-3 uppercase tracking-widest">{editingAgentPins.length} Facts</span>
                     </div>
                     <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-1">
                        {editingAgentPins.length === 0 ? (
-                          <div className="text-center p-4 py-8 border-2 border-dashed border-[#EEDCC4] dark:border-[#5C452E]/40 rounded-xl text-neutral-400 text-xs font-bold">No memories pinned yet. Use the pin icon on chat messages to save facts here forever.</div>
+                          <div className="text-center p-4 py-8 border-2 border-dashed border-warning/30 rounded-xl text-ink-3 text-xs font-bold">No memories pinned yet. Use the pin icon on chat messages to save facts here forever.</div>
                        ) : (
                           editingAgentPins.map((pin: any, i: number) => (
-                             <div key={i} className="flex items-start justify-between p-4 rounded-xl border border-white dark:border-neutral-700 bg-white/50 dark:bg-neutral-800/50 group hover:border-accent transition-all shadow-sm">
-                                <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300 pr-4 break-words">{pin.content}</p>
-                                <button onClick={async () => { await onUnpin(pin.chatId, pin.msgId); }} className="p-1 text-neutral-400 hover:text-error hover:bg-white dark:hover:bg-neutral-800 rounded-md opacity-0 group-hover:opacity-100 transition-all shrink-0" title="Delete Memory"><Trash2 className="w-4 h-4" /></button>
+                             <div key={i} className="flex items-start justify-between p-4 rounded-xl border border-edge bg-panel/60 group hover:border-accent transition-all shadow-sm">
+                                <p className="text-xs font-medium text-ink-2 pr-4 break-words">{pin.content}</p>
+                                <button onClick={async () => { await onUnpin(pin.chatId, pin.msgId); }} className="p-1 text-ink-3 hover:text-danger hover:bg-wash rounded-md opacity-0 group-hover:opacity-100 transition-all shrink-0" title="Delete Memory"><Trash2 className="w-4 h-4" /></button>
                              </div>
                           ))
                        )}
@@ -360,12 +360,12 @@ export function AssistantSettingsModal({
               setActiveFolderId(cloned.id);
               setShowAssistantSettings(false);
             }}
-            className="flex items-center gap-2 px-5 py-4 border-2 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800 active:scale-[0.98] transition-all"
+            className="flex items-center gap-2 px-5 py-4 border-2 border-edge-2 text-ink-2 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-wash active:scale-[0.98] transition-all"
             title="Clone this bot as a new starting point"
           >
             <Copy className="w-4 h-4" /> Clone
           </button>
-          <button onClick={onSave} className="flex-1 py-4 bg-primary text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl active:scale-[0.98] hover:bg-primary-hover transition-all">Save Configuration</button>
+          <button onClick={onSave} className="flex-1 py-4 bg-accent text-on-accent font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl active:scale-[0.98] hover:bg-accent-strong transition-all">Save Configuration</button>
         </div>
       </div>
     </div>

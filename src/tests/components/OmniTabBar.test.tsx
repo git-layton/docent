@@ -65,7 +65,7 @@ describe('OmniTabBar — rendering', () => {
     expect(screen.getByText('My Doc')).toBeInTheDocument()
   })
 
-  it('active tab gets the bg-[#12141a] class', () => {
+  it('active tab gets the active panel background class', () => {
     seedStore([
       makeTab({ id: 'a', label: 'Active Tab', type: 'space-log' }),
       makeTab({ id: 'b', label: 'Idle Tab', type: 'doc' }),
@@ -73,8 +73,8 @@ describe('OmniTabBar — rendering', () => {
     render(<OmniTabBar />)
     const activeBtn = screen.getByText('Active Tab').closest('button')!
     const idleBtn   = screen.getByText('Idle Tab').closest('button')!
-    expect(activeBtn.className).toContain('bg-[#12141a]')
-    expect(idleBtn.className).not.toContain('bg-[#12141a]')
+    expect(activeBtn.className).toContain('bg-panel')
+    expect(idleBtn.className).not.toContain('bg-panel')
   })
 
   it('inactive tab gets the hover text class, not active bg', () => {
@@ -84,7 +84,7 @@ describe('OmniTabBar — rendering', () => {
     ], 'a')
     render(<OmniTabBar />)
     const idle = screen.getByText('Other').closest('button')!
-    expect(idle.className).toContain('hover:text-[rgba(255,255,255,0.7)]')
+    expect(idle.className).toContain('hover:text-ink-2')
   })
 })
 

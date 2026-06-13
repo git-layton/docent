@@ -112,12 +112,12 @@ export function ChatInputBar({
   const modelValidation = useSettingsStore(s => s.modelValidation);
   const { setSelectedModelId, setModels, setShowModelWizard, setWizardStep } = useSettingsStore.getState();
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white dark:from-neutral-900 pt-6 pb-3 px-3 lg:px-4 z-10">
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-panel pt-6 pb-3 px-3 lg:px-4 z-10">
       <div className="max-w-3xl mx-auto">
 
         {/* Error Display */}
         {uploadError && (
-            <div className="mb-2 flex items-center gap-2 text-error text-tiny font-black uppercase tracking-widest bg-error/10 p-2 rounded-xl border border-error/20 animate-in slide-in-from-bottom-2">
+            <div className="mb-2 flex items-center gap-2 text-danger text-tiny font-black uppercase tracking-widest bg-danger-soft p-2 rounded-xl border border-danger/20 animate-in slide-in-from-bottom-2">
                 <AlertTriangle size={14} /> {uploadError}
             </div>
         )}
@@ -125,28 +125,28 @@ export function ChatInputBar({
         {attachedDocs.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2 px-2">
             {attachedDocs.map((doc, idx) => (
-              <div key={idx} className="relative group flex items-center gap-2 px-3 py-1.5 bg-white border border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 rounded-xl text-tiny font-black shadow-sm animate-in slide-in-from-bottom-2">
-                {doc.isImage ? <img src={doc.content} alt={doc.name} className="w-6 h-6 object-cover rounded-md" /> : <FileText className="w-4 h-4 text-secondary" />}
+              <div key={idx} className="relative group flex items-center gap-2 px-3 py-1.5 bg-panel-2 border border-edge rounded-xl text-tiny font-black text-ink shadow-sm animate-in slide-in-from-bottom-2">
+                {doc.isImage ? <img src={doc.content} alt={doc.name} className="w-6 h-6 object-cover rounded-md" /> : <FileText className="w-4 h-4 text-accent" />}
                 <span className="max-w-[100px] truncate">{doc.name}</span>
-                <button onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))} className="opacity-50 hover:opacity-100 hover:text-error"><X className="w-3 h-3" /></button>
+                <button onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))} className="opacity-50 hover:opacity-100 hover:text-danger"><X className="w-3 h-3" /></button>
               </div>
             ))}
           </div>
         )}
 
         {llamaServerPid !== null && llamaPaused && (
-          <div className="px-4 py-2 mb-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between">
+          <div className="px-4 py-2 mb-2 bg-warning-soft border border-warning/30 rounded-xl text-warning text-xs flex items-center justify-between">
             <span>🛑 LLaMA hibernating — waiting for RAM to recover</span>
             <button onClick={() => { invoke('sigcont_llama_server').catch(() => {}); setLlamaPaused(false); }} className="text-xs underline ml-3 shrink-0">Resume manually</button>
           </div>
         )}
         {llamaServerPid !== null && llamaCoolingDown && !llamaPaused && (
-          <div className="px-4 py-2 mb-2 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-800 rounded-xl text-yellow-800 dark:text-yellow-300 text-xs">
+          <div className="px-4 py-2 mb-2 bg-warning-soft border border-warning/30 rounded-xl text-warning text-xs">
             ⚠️ RAM pressure — LLaMA will pause after this response
           </div>
         )}
         {selectedModel && modelValidation[selectedModel.id] === 'fail' && (
-          <div className="px-4 py-2 mb-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs flex items-center gap-2">
+          <div className="px-4 py-2 mb-2 bg-danger-soft border border-danger/30 rounded-xl text-danger text-xs flex items-center gap-2">
             <span title="Model unreachable"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /></span>
             <span>
               {selectedModel.isLocal
@@ -168,11 +168,11 @@ export function ChatInputBar({
           )}
           {/* @mention palette for channels */}
           {showMentionPalette && (
-            <div className="absolute bottom-full left-0 mb-2 w-56 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
-              <div className="px-3 pt-2 pb-1 text-micro font-black uppercase tracking-widest text-neutral-400">Mention</div>
+            <div className="absolute bottom-full left-0 mb-2 w-56 rounded-2xl bg-panel-2 border border-edge shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+              <div className="px-3 pt-2 pb-1 text-micro font-black uppercase tracking-widest text-ink-3">Mention</div>
               <div className="p-1 space-y-0.5">
                 {filteredMentions.map((p, i) => (
-                  <button key={p.id} onMouseDown={e => { e.preventDefault(); completeMention(p.name); }} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all ${i === mentionHighlight ? 'bg-primary text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200'}`}>
+                  <button key={p.id} onMouseDown={e => { e.preventDefault(); completeMention(p.name); }} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all ${i === mentionHighlight ? 'bg-accent text-on-accent' : 'hover:bg-wash text-ink'}`}>
                     <span className="text-xs font-bold">{p.name}</span>
                   </button>
                 ))}
@@ -180,7 +180,7 @@ export function ChatInputBar({
             </div>
           )}
         {/* Textarea */}
-        <div className={`bg-white dark:bg-neutral-950 border-2 shadow-2xl rounded-2xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-neutral-200 dark:border-neutral-800' : 'border-neutral-200 dark:border-neutral-800 focus-within:border-secondary-light'}`}>
+        <div className={`bg-panel border shadow-sm rounded-3xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-edge-2' : 'border-edge-2 focus-within:border-accent'}`}>
           <textarea
             value={input}
             onChange={e => { setInput(e.target.value); setSlashHighlight(0); }}
@@ -204,52 +204,52 @@ export function ChatInputBar({
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
             }}
             placeholder={models.length === 0 ? 'Connect an LLM to start...' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
-            className="w-full bg-transparent p-3 min-h-[52px] max-h-40 resize-none outline-none dark:text-neutral-100 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
+            className="w-full bg-transparent p-3 min-h-[52px] max-h-40 resize-none outline-none text-ink placeholder-ink-3 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
         </div>
 
         {/* Mode bar + model selector + actions — single row */}
         <div className="flex items-center gap-0.5 px-0.5 pt-1" ref={modelDropdownRef}>
           {/* Reasoning modes */}
-          <button onClick={() => setIsDeepThinking(v => !v)} className={`p-1.5 rounded-lg transition-all ${isDeepThinking ? 'bg-primary-dark text-secondary-light' : 'text-neutral-400 hover:text-secondary-light hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Think — extended chain-of-thought reasoning"><Brain className="w-3.5 h-3.5" /></button>
-          <button onClick={() => setIsPlanMode(v => !v)} className={`p-1.5 rounded-lg transition-all ${isPlanMode ? 'bg-success text-white' : 'text-neutral-400 hover:text-success hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Plan — structured step-by-step response"><ListTodo className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setIsDeepThinking(v => !v)} className={`p-1.5 rounded-full transition-all ${isDeepThinking ? 'bg-accent-soft text-accent-soft-ink' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Think — extended chain-of-thought reasoning"><Brain className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setIsPlanMode(v => !v)} className={`p-1.5 rounded-full transition-all ${isPlanMode ? 'bg-success-soft text-success' : 'text-ink-3 hover:text-success hover:bg-wash'}`} title="Plan — structured step-by-step response"><ListTodo className="w-3.5 h-3.5" /></button>
           {/* Output modes */}
-          <button onClick={() => setGenerationMode(generationMode === 'code' ? 'text' : 'code')} className={`p-1.5 rounded-lg transition-all ${generationMode === 'code' ? 'bg-[#4A5D75] text-white' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Canvas — generate a code app"><Code2 className="w-3.5 h-3.5" /></button>
-          <button onClick={() => setGenerationMode(generationMode === 'doc' ? 'text' : 'doc')} className={`p-1.5 rounded-lg transition-all ${generationMode === 'doc' ? 'bg-[#7A9E8D] text-white' : 'text-neutral-400 hover:text-[#7A9E8D] hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Doc — generate a rich document"><ScrollText className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setGenerationMode(generationMode === 'code' ? 'text' : 'code')} className={`p-1.5 rounded-full transition-all ${generationMode === 'code' ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title="Canvas — generate a code app"><Code2 className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setGenerationMode(generationMode === 'doc' ? 'text' : 'doc')} className={`p-1.5 rounded-full transition-all ${generationMode === 'doc' ? 'bg-success-soft text-success' : 'text-ink-3 hover:text-success hover:bg-wash'}`} title="Doc — generate a rich document"><ScrollText className="w-3.5 h-3.5" /></button>
           {/* Pinned tools — dynamic, only shows if enabled on current agent */}
           {AVAILABLE_TOOLS.filter(t => pinnedTools.includes(t.id) && activeAssistant?.tools?.[t.id]).map(tool => {
             const Icon = tool.icon;
             const isActive = forcedTool === tool.id;
             return (
-              <button key={tool.id} onClick={() => setForcedTool(f => f === tool.id ? null : tool.id)} className={`p-1.5 rounded-lg transition-all ${isActive ? 'bg-secondary text-white' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title={tool.name}>
+              <button key={tool.id} onClick={() => setForcedTool(f => f === tool.id ? null : tool.id)} className={`p-1.5 rounded-full transition-all ${isActive ? 'bg-accent-soft text-accent-soft-ink' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title={tool.name}>
                 <Icon className="w-3.5 h-3.5" />
               </button>
             );
           })}
           {/* + Tools popover */}
           <div className="relative" ref={toolPopoverRef}>
-            <button onClick={() => setShowToolPopover(v => !v)} className={`p-1.5 rounded-lg transition-all ${showToolPopover ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-neutral-500 dark:hover:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Add tools"><Plus className="w-3 h-3" /></button>
+            <button onClick={() => setShowToolPopover(v => !v)} className={`p-1.5 rounded-full transition-all ${showToolPopover ? 'bg-wash text-ink-2' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Add tools"><Plus className="w-3 h-3" /></button>
             {showToolPopover && (
-              <div className="absolute bottom-full left-0 mb-2 w-52 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] p-1.5 animate-in slide-in-from-bottom-2 duration-150">
-                <div className="px-2 py-1 text-[9px] font-medium text-neutral-400 uppercase tracking-wider">Pin tools to toolbar</div>
+              <div className="absolute bottom-full left-0 mb-2 w-52 bg-panel-2 border border-edge rounded-2xl shadow-2xl z-[100] p-1.5 animate-in slide-in-from-bottom-2 duration-150">
+                <div className="px-2 py-1 text-[9px] font-medium text-ink-3 uppercase tracking-wider">Pin tools to toolbar</div>
                 <div className="space-y-0.5">
                   {AVAILABLE_TOOLS.map(tool => {
                     const Icon = tool.icon;
                     const enabled = !!activeAssistant?.tools?.[tool.id];
                     const pinned = pinnedTools.includes(tool.id);
                     return (
-                      <button key={tool.id} onClick={() => { if (!enabled) return; setPinnedTools(p => pinned ? p.filter(id => id !== tool.id) : [...p, tool.id]); }} className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-all ${enabled ? 'hover:bg-neutral-50 dark:hover:bg-neutral-800' : 'opacity-40 cursor-default'}`}>
-                        <Icon className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
-                        <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex-1">{tool.name}</span>
-                        {pinned && enabled && <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                        {!enabled && <span className="text-[9px] text-neutral-400">off</span>}
+                      <button key={tool.id} onClick={() => { if (!enabled) return; setPinnedTools(p => pinned ? p.filter(id => id !== tool.id) : [...p, tool.id]); }} className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-all ${enabled ? 'hover:bg-wash' : 'opacity-40 cursor-default'}`}>
+                        <Icon className="w-3.5 h-3.5 shrink-0 text-ink-3" />
+                        <span className="text-xs font-medium text-ink-2 flex-1">{tool.name}</span>
+                        {pinned && enabled && <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
+                        {!enabled && <span className="text-[9px] text-ink-3">off</span>}
                       </button>
                     );
                   })}
-                  <div className="border-t border-neutral-100 dark:border-neutral-800 my-1" />
+                  <div className="border-t border-edge my-1" />
                   <button disabled className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl opacity-40 cursor-default">
-                    <Telescope className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
-                    <span className="text-xs font-medium text-neutral-500 flex-1">Deep Research</span>
-                    <span className="text-[9px] text-neutral-400">soon</span>
+                    <Telescope className="w-3.5 h-3.5 shrink-0 text-ink-3" />
+                    <span className="text-xs font-medium text-ink-3 flex-1">Deep Research</span>
+                    <span className="text-[9px] text-ink-3">soon</span>
                   </button>
                 </div>
               </div>
@@ -258,27 +258,27 @@ export function ChatInputBar({
           <div className="flex items-center gap-1 ml-auto">
             {/* Model selector — moved here from its own row */}
             <div className="relative">
-              <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:border-secondary-light transition-all">
-                <Zap className="w-3 h-3 text-secondary-light" />
-                {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-error" /></span>}
-                {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-[#9FBBAF]" /></span>}
-                <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 max-w-[120px] truncate">{selectedModel?.name ?? 'Model'}</span>
-                <ChevronDown className="w-3 h-3 text-neutral-400 shrink-0" />
+              <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-edge hover:border-edge-2 hover:bg-wash transition-all">
+                <Zap className="w-3 h-3 text-accent" />
+                {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-danger" /></span>}
+                {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-success" /></span>}
+                <span className="text-[11px] font-medium text-ink-2 max-w-[120px] truncate">{selectedModel?.name ?? 'Model'}</span>
+                <ChevronDown className="w-3 h-3 text-ink-3 shrink-0" />
               </button>
               {isModelDropdownOpen && (
-                <div className="absolute bottom-full right-0 mb-2 w-64 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+                <div className="absolute bottom-full right-0 mb-2 w-64 bg-panel-2 border border-edge rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
                   <div className="p-1.5 space-y-1">
                     {(() => {
                       const localModels = models.filter(m => m.isLocal);
                       const cloudModels = models.filter(m => !m.isLocal);
                       const renderModel = (m: any) => (
-                        <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-primary text-white' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}>
-                          <div className="flex flex-col"><span className="text-xs font-medium">{m.name}</span><span className={`text-[9px] font-medium opacity-50 ${selectedModelId === m.id ? 'text-white' : 'text-neutral-500'}`}>{m.provider}</span></div>
+                        <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-accent text-on-accent' : 'text-ink hover:bg-wash'}`}>
+                          <div className="flex flex-col"><span className="text-xs font-medium">{m.name}</span><span className={`text-[9px] font-medium opacity-50 ${selectedModelId === m.id ? 'text-on-accent' : 'text-ink-3'}`}>{m.provider}</span></div>
                           <div className="flex items-center gap-1">
-                            {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-[#D9A098]" />}
-                            {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-[#B5CDBF]" />}
-                            {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-secondary-muted" />}
-                            <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-neutral-400 hover:text-error hover:bg-error-light dark:hover:bg-[#4A2E2E]/30 rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
+                            {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-danger" />}
+                            {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-success" />}
+                            {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-ink-3" />}
+                            <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-ink-3 hover:text-danger hover:bg-danger-soft rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
                           </div>
                         </button>
                       );
@@ -286,35 +286,35 @@ export function ChatInputBar({
                         <>
                           {localModels.length > 0 && (
                             <>
-                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-medium text-neutral-400 flex items-center gap-1.5"><Brain className="w-2.5 h-2.5" /> Local</div>
+                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-medium text-ink-3 flex items-center gap-1.5"><Brain className="w-2.5 h-2.5" /> Local</div>
                               {localModels.map(renderModel)}
                             </>
                           )}
                           {cloudModels.length > 0 && (
                             <>
-                              {localModels.length > 0 && <div className="border-t border-neutral-100 dark:border-neutral-800 my-1" />}
-                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-medium text-neutral-400 flex items-center gap-1.5"><Globe className="w-2.5 h-2.5" /> Cloud</div>
+                              {localModels.length > 0 && <div className="border-t border-edge my-1" />}
+                              <div className="px-3 pt-1 pb-0.5 text-[9px] font-medium text-ink-3 flex items-center gap-1.5"><Globe className="w-2.5 h-2.5" /> Cloud</div>
                               {cloudModels.map(renderModel)}
                             </>
                           )}
                         </>
                       );
                     })()}
-                    <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-primary hover:bg-surface dark:hover:bg-[#1E2B38]/20 transition-all border-t border-neutral-100 dark:border-neutral-800 mt-1"><Plus className="w-3 h-3" /><span className="text-xs font-medium">Connect model</span></button>
+                    <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-accent hover:bg-wash transition-all border-t border-edge mt-1"><Plus className="w-3 h-3" /><span className="text-xs font-medium">Connect model</span></button>
                   </div>
                 </div>
               )}
             </div>
-            <div className="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
-            {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-lg transition-all ${isListening ? 'text-error bg-error-light dark:bg-[#4A2E2E]/30' : 'text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-400 hover:text-secondary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
+            <div className="w-px h-4 bg-edge mx-0.5" />
+            {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-full transition-all ${isListening ? 'text-danger bg-danger-soft' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
+            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
             <input type="file" ref={fileInputRef} onChange={onChatFileUpload} className="hidden" />
             {/* Emoji picker */}
             {models.length > 0 && (
               <div className="relative" ref={emojiPickerRef}>
                 <button
                   onClick={() => setShowEmojiPicker(v => !v)}
-                  className={`p-2 rounded-lg transition-all ${showEmojiPicker ? 'text-accent bg-accent-light dark:bg-[#5C452E]/20' : 'text-neutral-400 hover:text-accent hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
+                  className={`p-2 rounded-full transition-all ${showEmojiPicker ? 'text-accent-soft-ink bg-accent-soft' : 'text-ink-3 hover:text-ink hover:bg-wash'}`}
                   title="Emoji"
                 >
                   <Smile className="w-3.5 h-3.5" />
@@ -336,12 +336,12 @@ export function ChatInputBar({
                 )}
               </div>
             )}
-            {!isGenerating && models.length > 0 && <button onClick={onEnhancePrompt} disabled={isEnhancing || !input.trim()} className={`p-2 rounded-lg transition-all ${input.trim() ? 'text-accent hover:bg-accent-light dark:hover:bg-[#5C452E]/20' : 'text-neutral-300 dark:text-neutral-600 cursor-default'} ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-3.5 h-3.5" /></button>}
+            {!isGenerating && models.length > 0 && <button onClick={onEnhancePrompt} disabled={isEnhancing || !input.trim()} className={`p-2 rounded-full transition-all ${input.trim() ? 'text-accent hover:bg-accent-soft' : 'text-ink-3 opacity-50 cursor-default'} ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-3.5 h-3.5" /></button>}
             <button
               onClick={isGenerating ? onStop : onSend}
               disabled={(llamaServerPid !== null && llamaPaused) || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0)) || (!isGenerating && !!selectedModel && modelValidation[selectedModel.id] === 'fail')}
-              className={`p-2 rounded-lg transition-all ${isGenerating ? 'bg-error text-white shadow-sm animate-pulse hover:bg-error-dark' : 'bg-secondary-light text-primary-dark shadow-sm hover:bg-secondary-muted active:scale-90 disabled:opacity-50'}`}>
-              {isGenerating ? <Square className="w-3.5 h-3.5 fill-primary-dark" /> : <Send className="w-3.5 h-3.5" />}
+              className={`p-2 rounded-full transition-all ${isGenerating ? 'bg-danger text-on-accent shadow-sm animate-pulse' : 'bg-accent text-on-accent shadow-sm hover:bg-accent-strong active:scale-90 disabled:opacity-50'}`}>
+              {isGenerating ? <Square className="w-3.5 h-3.5 fill-current" /> : <Send className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>

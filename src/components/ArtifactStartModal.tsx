@@ -16,12 +16,12 @@ export function ArtifactStartModal({ type, onConfirm, onCancel }: ArtifactStartM
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-150" onClick={onCancel}>
-      <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden animate-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+      <div className="bg-panel-2 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden animate-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <h2 className="text-sm font-black tracking-tight">
             {type === 'code' ? 'New App' : 'New Doc'} — work on it with…
           </h2>
-          <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400">
+          <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-wash text-ink-3">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -33,8 +33,8 @@ export function ArtifactStartModal({ type, onConfirm, onCancel }: ArtifactStartM
               onClick={() => setSelectedId(agent.id)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all text-sm font-bold ${
                 selectedId === agent.id
-                  ? 'border-[#4A5D75] bg-[#F0F4F8] dark:bg-[#1E2B38]/30 text-[#4A5D75] dark:text-[#9EADC8]'
-                  : 'border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:border-neutral-300 dark:hover:border-neutral-600'
+                  ? 'border-accent bg-accent-soft/40 text-accent'
+                  : 'border-edge text-ink-2 hover:border-edge-2'
               }`}
             >
               <AgentIcon agent={agent} sizeClass="w-3.5 h-3.5" containerClass="p-1 rounded-md" />
@@ -47,7 +47,7 @@ export function ArtifactStartModal({ type, onConfirm, onCancel }: ArtifactStartM
           <button
             onClick={() => selectedId && onConfirm(selectedId)}
             disabled={!selectedId}
-            className="w-full py-3 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-black text-[11px] uppercase tracking-widest rounded-xl transition-all active:scale-95 disabled:opacity-50 shadow-lg"
+            className="w-full py-3 bg-accent hover:bg-accent-strong text-on-accent font-black text-[11px] uppercase tracking-widest rounded-xl transition-all active:scale-95 disabled:opacity-50 shadow-lg"
           >
             Create
           </button>

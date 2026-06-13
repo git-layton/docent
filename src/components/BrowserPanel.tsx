@@ -38,21 +38,21 @@ function ProactiveChip({ comment, onDismiss }: ProactiveChipProps) {
       className={clsx(
         'absolute bottom-4 right-4 z-30',
         'flex items-start gap-2.5 max-w-xs',
-        'bg-white dark:bg-neutral-900',
-        'border border-neutral-200 dark:border-neutral-700',
+        'bg-panel',
+        'border border-edge',
         'rounded-xl shadow-lg px-3.5 py-3',
         'animate-in slide-in-from-bottom-3 fade-in duration-300',
       )}
       role="status"
       aria-live="polite"
     >
-      <div className="shrink-0 mt-0.5 w-6 h-6 rounded-md bg-[#4A5D75] flex items-center justify-center">
-        <Bot className="w-3.5 h-3.5 text-white" />
+      <div className="shrink-0 mt-0.5 w-6 h-6 rounded-md bg-accent flex items-center justify-center">
+        <Bot className="w-3.5 h-3.5 text-on-accent" />
       </div>
-      <p className="flex-1 text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed">{comment}</p>
+      <p className="flex-1 text-xs text-ink-2 leading-relaxed">{comment}</p>
       <button
         onClick={onDismiss}
-        className="shrink-0 mt-0.5 p-0.5 rounded-md text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+        className="shrink-0 mt-0.5 p-0.5 rounded-md text-ink-3 hover:text-ink-2 hover:bg-wash transition-colors"
         aria-label="Dismiss"
       >
         <X className="w-3.5 h-3.5" />
@@ -340,9 +340,9 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
   };
 
   return (
-    <div className="relative flex flex-col h-full w-full bg-white dark:bg-neutral-900">
+    <div className="relative flex flex-col h-full w-full bg-panel">
       {/* Tab bar */}
-      <div className="h-9 flex items-end gap-0 px-2 bg-neutral-100 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700 shrink-0 overflow-x-auto no-scrollbar">
+      <div className="h-9 flex items-end gap-0 px-2 bg-inset border-b border-edge shrink-0 overflow-x-auto no-scrollbar">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -350,8 +350,8 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
             className={clsx(
               'flex items-center gap-1.5 px-3 h-7 rounded-t-lg text-[10px] font-medium shrink-0 max-w-[160px] transition-colors group',
               tab.id === activeTabId
-                ? 'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 border border-b-0 border-neutral-200 dark:border-neutral-700'
-                : 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
+                ? 'bg-panel text-ink border border-b-0 border-edge'
+                : 'text-ink-2 hover:bg-wash hover:text-ink',
             )}
           >
             <Globe className="w-2.5 h-2.5 shrink-0 opacity-60" />
@@ -359,7 +359,7 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
             {tabs.length > 1 && (
               <span
                 onClick={e => closeTab(tab.id, e)}
-                className="ml-1 p-0.5 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="ml-1 p-0.5 rounded hover:bg-wash opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X className="w-2.5 h-2.5" />
               </span>
@@ -368,7 +368,7 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
         ))}
         <button
           onClick={openNewTab}
-          className="ml-1 p-1 rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors shrink-0 self-center"
+          className="ml-1 p-1 rounded text-ink-3 hover:text-ink hover:bg-wash transition-colors shrink-0 self-center"
           title="New tab"
         >
           <span className="text-sm leading-none">+</span>
@@ -376,17 +376,17 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
       </div>
 
       {/* Nav bar — rendered ABOVE the native webview overlay */}
-      <div className="h-11 flex items-center gap-1.5 px-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0 z-10 bg-white dark:bg-neutral-900">
+      <div className="h-11 flex items-center gap-1.5 px-3 border-b border-edge shrink-0 z-10 bg-panel">
         <button
           onClick={handleBack}
-          className="p-1.5 rounded-lg transition-colors text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+          className="p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink"
           title="Back"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <button
           onClick={handleForward}
-          className="p-1.5 rounded-lg transition-colors text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+          className="p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink"
           title="Forward"
         >
           <ArrowRight className="w-4 h-4" />
@@ -394,7 +394,7 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
         <button
           onClick={handleReload}
           className={clsx(
-            'p-1.5 rounded-lg transition-colors text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200',
+            'p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink',
             isLoading && 'animate-spin',
           )}
           title="Reload"
@@ -404,7 +404,7 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
 
         <div className="relative flex-1 min-w-0">
           {url.startsWith('https://') && (
-            <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-emerald-500 pointer-events-none" />
+            <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-success pointer-events-none" />
           )}
           <input
             type="text"
@@ -416,10 +416,10 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
             className={clsx(
               'w-full h-8 pr-3 rounded-lg text-xs font-medium outline-none',
               url.startsWith('https://') ? 'pl-7' : 'pl-3',
-              'bg-neutral-100 dark:bg-neutral-800',
-              'text-neutral-900 dark:text-neutral-100',
-              'placeholder:text-neutral-400',
-              'focus:ring-1 ring-[#6A829E]/30',
+              'bg-inset',
+              'text-ink',
+              'placeholder:text-ink-3',
+              'focus:ring-1 ring-accent/30',
             )}
           />
         </div>
@@ -435,8 +435,8 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             isFavorited
-              ? 'text-amber-400 hover:text-amber-500'
-              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-amber-400',
+              ? 'text-warning'
+              : 'text-ink-3 hover:bg-wash hover:text-warning',
           )}
           title={isFavorited ? 'Remove bookmark' : 'Bookmark this page'}
         >
@@ -448,8 +448,8 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             proactiveEnabled
-              ? 'bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#6A829E]'
-              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600',
+              ? 'bg-accent-soft/50 text-accent'
+              : 'text-ink-3 hover:bg-wash hover:text-ink-2',
           )}
           title={proactiveEnabled ? 'AI commentary on' : 'Enable AI commentary'}
         >
@@ -462,8 +462,8 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
           className={clsx(
             'flex items-center gap-1.5 px-3 h-8 rounded-lg transition-colors shrink-0 text-[10px] font-black uppercase tracking-widest',
             kbSaved
-              ? 'bg-emerald-500 text-white'
-              : 'bg-[#4A5D75] hover:bg-[#3D4D61] text-white',
+              ? 'bg-success-soft text-success'
+              : 'bg-accent hover:bg-accent-strong text-on-accent',
             isSavingToKB && 'opacity-60 cursor-not-allowed',
           )}
           title="Save page to Knowledge Base"
@@ -475,13 +475,13 @@ export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: Br
 
       {/* Favorites bar */}
       {favorites.length > 0 && (
-        <div className="h-8 flex items-center gap-0.5 px-2 border-b border-neutral-200 dark:border-neutral-800 shrink-0 overflow-x-auto no-scrollbar">
+        <div className="h-8 flex items-center gap-0.5 px-2 border-b border-edge shrink-0 overflow-x-auto no-scrollbar">
           {favorites.map(fav => (
             <button
               key={fav.id}
               onClick={() => navigate(fav.url)}
               onContextMenu={e => { e.preventDefault(); useBrowserStore.getState().removeFavorite(fav.url); }}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-ink-2 hover:bg-wash hover:text-ink transition-colors whitespace-nowrap shrink-0"
               title={`${fav.url}\nRight-click to remove`}
             >
               <Globe className="w-2.5 h-2.5 shrink-0 opacity-60" />

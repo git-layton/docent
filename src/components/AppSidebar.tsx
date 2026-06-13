@@ -99,12 +99,12 @@ export function AppSidebar(_: AppSidebarProps) {
     .filter((agent: any) => `${agent.name} ${agent.description ?? ''}`.toLowerCase().includes(query));
 
   return (
-    <div className={`shrink-0 transition-all duration-300 border-r border-[rgba(255,255,255,0.05)] z-[60] bg-[#0a0b0e] overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
+    <div className={`shrink-0 transition-all duration-300 border-r border-edge z-[60] bg-base overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
       <div className="w-72 h-full flex flex-col">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-[rgba(255,255,255,0.05)] flex items-center gap-2.5 bg-[#2C3E50]">
-          <div className="p-1.5 bg-[#9EADC8]/30 rounded-lg shrink-0"><Bot className="w-3.5 h-3.5 text-[#9EADC8]" /></div>
-          <span className="text-xs font-semibold text-white/80 tracking-tight">Agent Forge</span>
+        <div className="px-4 py-3 border-b border-edge flex items-center gap-2.5">
+          <div className="p-1.5 bg-accent rounded-lg shrink-0"><Bot className="w-3.5 h-3.5 text-on-accent" /></div>
+          <span className="text-xs font-semibold text-ink tracking-tight">Agent Forge</span>
         </div>
 
         {/* Scrollable nav */}
@@ -112,9 +112,9 @@ export function AppSidebar(_: AppSidebarProps) {
           <div className="space-y-3">
             {/* Search bar */}
             <div className="px-1 mb-2 relative mt-2">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-3" />
               <input
-                className="w-full bg-[rgba(255,255,255,0.06)] rounded-lg pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30 text-neutral-200 placeholder:text-neutral-500"
+                className="w-full bg-inset border border-edge rounded-full pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-accent text-ink placeholder:text-ink-3"
                 placeholder="Search people, agents, spaces..."
                 value={chatSearchQuery}
                 onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)}
@@ -124,10 +124,10 @@ export function AppSidebar(_: AppSidebarProps) {
             {/* PEOPLE section */}
             <div className="space-y-1">
               <div className="px-1 flex items-center justify-between">
-                <span className="text-[10px] font-bold text-neutral-400 tracking-widest uppercase">People</span>
+                <span className="text-[10px] font-bold text-ink-3 tracking-widest uppercase">People</span>
                 <button
                   onClick={toggleNetwork}
-                  className={`p-1 rounded-lg transition-colors ${networkActive ? 'text-emerald-500 bg-emerald-500/10' : 'text-neutral-400 hover:text-[#4A5D75] hover:bg-[rgba(255,255,255,0.04)]'}`}
+                  className={`p-1 rounded-lg transition-colors ${networkActive ? 'text-success bg-success-soft' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'}`}
                   title={networkActive ? 'Active on network — click to go offline' : 'Go active on your network'}
                 >
                   {networkActive ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
@@ -137,57 +137,57 @@ export function AppSidebar(_: AppSidebarProps) {
               {/* You — always visible */}
               <button
                 onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
-                className="group w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-[rgba(255,255,255,0.04)] transition-all"
+                className="group w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-wash transition-all"
               >
                 <div className="shrink-0">
                   {userAvatar ? (
                     <img src={userAvatar} alt="You" className="w-6 h-6 rounded-lg object-cover" />
                   ) : (
-                    <div className="w-6 h-6 rounded-lg bg-[#9EADC8] flex items-center justify-center">
-                      <span className="text-[10px] font-bold text-white uppercase">{displayName.charAt(0)}</span>
+                    <div className="w-6 h-6 rounded-lg bg-accent-soft flex items-center justify-center">
+                      <span className="text-[10px] font-bold text-accent-soft-ink uppercase">{displayName.charAt(0)}</span>
                     </div>
                   )}
                 </div>
                 <div className="min-w-0 flex-1 text-left">
-                  <p className="text-xs truncate text-neutral-200">{displayName}</p>
-                  <p className="text-[9px] text-neutral-500">you</p>
+                  <p className="text-xs truncate text-ink">{displayName}</p>
+                  <p className="text-[9px] text-ink-3">you</p>
                 </div>
-                <Settings className="w-3 h-3 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                <Settings className="w-3 h-3 text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
               </button>
 
               {/* Local people from settings */}
               {(appSettings.people ?? []).filter((p: any) => `${p.label} ${p.role ?? ''}`.toLowerCase().includes(query)).map((person: any) => (
-                <div key={person.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-neutral-500">
-                  <div className="p-1.5 rounded-lg bg-[rgba(255,255,255,0.06)] shrink-0">
-                    <User className="w-3.5 h-3.5 text-neutral-400" />
+                <div key={person.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl">
+                  <div className="p-1.5 rounded-lg bg-wash shrink-0">
+                    <User className="w-3.5 h-3.5 text-ink-3" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs truncate text-neutral-200">{person.label}</p>
-                    {person.role && <p className="text-[9px] truncate text-neutral-500">{person.role}</p>}
+                    <p className="text-xs truncate text-ink">{person.label}</p>
+                    {person.role && <p className="text-[9px] truncate text-ink-3">{person.role}</p>}
                   </div>
                 </div>
               ))}
 
               {/* Network peers (when active) */}
               {networkActive && networkPeers.map(peer => (
-                <div key={peer.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-neutral-500">
-                  <div className="p-1.5 rounded-lg bg-[#2C3E35]/30 shrink-0">
-                    <User className="w-3.5 h-3.5 text-[#7A9E8D]" />
+                <div key={peer.id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl">
+                  <div className="p-1.5 rounded-lg bg-success-soft shrink-0">
+                    <User className="w-3.5 h-3.5 text-success" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs truncate text-neutral-200">{peer.name}</p>
-                    <p className="text-[9px] truncate text-neutral-500">{peer.ip}</p>
+                    <p className="text-xs truncate text-ink">{peer.name}</p>
+                    <p className="text-[9px] truncate text-ink-3">{peer.ip}</p>
                   </div>
                 </div>
               ))}
               {networkActive && networkPeers.length === 0 && (
-                <p className="text-[10px] text-neutral-500 text-center px-3 py-1.5">No one else on network yet.</p>
+                <p className="text-[10px] text-ink-3 text-center px-3 py-1.5">No one else on network yet.</p>
               )}
             </div>
 
             {/* AGENTS section */}
             <div className="space-y-1 pt-3">
-              <div className="px-1 text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Agents</div>
+              <div className="px-1 text-[10px] font-bold text-ink-3 tracking-widest uppercase">Agents</div>
               {visibleAgents.map((agent: any) => {
                 // A DM container has the stable id `dm-<agentId>`.
                 const isActive = activeSpaceId === `dm-${agent.id}`;
@@ -195,13 +195,18 @@ export function AppSidebar(_: AppSidebarProps) {
                   <div
                     key={agent.id}
                     onClick={() => openDirect(agent)}
-                    className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${isActive && !showPlanner ? 'bg-[rgba(255,255,255,0.07)] border-l-2 border-[#4A5D75] font-bold' : 'hover:bg-[rgba(255,255,255,0.04)] text-neutral-400'}`}
+                    className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${isActive && !showPlanner ? 'bg-panel border border-edge shadow-sm font-bold' : 'border border-transparent hover:bg-wash'}`}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <AgentIcon agent={agent} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm shrink-0" />
+                      <div className="relative shrink-0">
+                        <AgentIcon agent={agent} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm shrink-0" />
+                        {isActive && !showPlanner && (
+                          <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-accent border-2 border-panel" />
+                        )}
+                      </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs truncate text-neutral-200">{agent.name}</p>
-                        <p className="text-[9px] truncate text-neutral-500">{agent.description || 'Persistent direct memory'}</p>
+                        <p className="text-xs truncate text-ink">{agent.name}</p>
+                        <p className="text-[9px] truncate text-ink-3">{agent.description || 'Persistent direct memory'}</p>
                       </div>
                     </div>
                     <button
@@ -211,14 +216,14 @@ export function AppSidebar(_: AppSidebarProps) {
                         useAgentStore.getState().setAssistantSettingsTab('config');
                         useAgentStore.getState().setShowAssistantSettings(true);
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-[#6A829E] transition-all p-1"
+                      className="opacity-0 group-hover:opacity-100 text-ink-3 hover:text-accent transition-all p-1"
                     >
                       <Edit2 className="w-3 h-3" />
                     </button>
                   </div>
                 );
               })}
-              {visibleAgents.length === 0 && <div className="text-center text-xs text-neutral-500 font-bold mt-4">No agents match this search.</div>}
+              {visibleAgents.length === 0 && <div className="text-center text-xs text-ink-3 font-bold mt-4">No agents match this search.</div>}
             </div>
 
             {/* Tools & Favorites now live on the Home start page (opened via the
@@ -228,13 +233,10 @@ export function AppSidebar(_: AppSidebarProps) {
             {/* SPACES section — each Space is a context container with its own tabs */}
             <div className="space-y-1 pt-3">
               <div className="px-1 flex items-center justify-between">
-                <span className="text-[10px] font-bold text-neutral-400 tracking-widest uppercase">Spaces</span>
+                <span className="text-[10px] font-bold text-ink-3 tracking-widest uppercase">Spaces</span>
                 <button
-                  onClick={() => {
-                    const space = useSpaceStore.getState().createSpace('New Space', []);
-                    useSpaceStore.getState().setActiveSpaceId(space.id);
-                  }}
-                  className="p-1 rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+                  onClick={() => useUIStore.getState().setShowNewSpace(true)}
+                  className="p-1 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
                   title="Create new space"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -244,42 +246,39 @@ export function AppSidebar(_: AppSidebarProps) {
                 <div
                   key={space.id}
                   onClick={() => useSpaceStore.getState().setActiveSpaceId(space.id)}
-                  className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${activeSpaceId === space.id ? 'bg-[rgba(255,255,255,0.07)] border-l-2 border-[#4A5D75]' : 'hover:bg-[rgba(255,255,255,0.04)] text-neutral-400'}`}
+                  className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${activeSpaceId === space.id ? 'bg-panel border border-edge shadow-sm' : 'border border-transparent hover:bg-wash'}`}
                 >
-                  <span className="text-xs truncate text-neutral-200">{space.name}</span>
-                  <span className="ml-2 shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[rgba(255,255,255,0.06)] text-neutral-400">
+                  <span className="text-xs truncate text-ink">{space.name}</span>
+                  <span className={`ml-2 shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${space.agentIds.length > 0 ? 'bg-accent-soft text-accent-soft-ink' : 'bg-wash text-ink-3'}`}>
                     {space.agentIds.length > 0 ? `${space.agentIds.length} agent${space.agentIds.length !== 1 ? 's' : ''}` : 'no agents'}
                   </span>
                 </div>
               ))}
               {spaces.filter(s => s.kind === 'space').length === 0 && (
-                <div className="text-center text-xs text-neutral-500 font-bold mt-3">No spaces yet.</div>
+                <div className="text-center text-xs text-ink-3 font-bold mt-3">No spaces yet.</div>
               )}
             </div>
           </div>
         </div>
 
         {/* Footer buttons */}
-        <div className="p-4 border-t border-[rgba(255,255,255,0.05)] shrink-0">
+        <div className="p-4 border-t border-edge shrink-0">
           <div className="grid grid-cols-3 gap-2">
             <button
               onClick={createAgent}
-              className="flex items-center justify-center gap-1.5 bg-[#9EADC8] hover:bg-[#899AB5] text-[#2C3E50] font-semibold text-[11px] rounded-xl px-2 py-3 shadow-sm transition-all active:scale-95"
+              className="flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-strong text-on-accent font-semibold text-[11px] rounded-full px-2 py-3 shadow-sm transition-all active:scale-95"
             >
               <Plus className="w-3.5 h-3.5" /> Agent
             </button>
             <button
-              onClick={() => {
-                const space = useSpaceStore.getState().createSpace('New Space', []);
-                useSpaceStore.getState().setActiveSpaceId(space.id);
-              }}
-              className="flex items-center justify-center gap-1.5 bg-[#4A5D75] hover:bg-[#3D4D61] text-white font-semibold text-[11px] rounded-xl px-2 py-3 shadow-sm transition-all active:scale-95"
+              onClick={() => useUIStore.getState().setShowNewSpace(true)}
+              className="flex items-center justify-center gap-1.5 bg-accent-soft hover:bg-wash text-accent-soft-ink font-semibold text-[11px] rounded-full px-2 py-3 shadow-sm transition-all active:scale-95"
             >
               <Plus className="w-3.5 h-3.5" /> Space
             </button>
             <button
               onClick={() => useSpaceStore.getState().openTab({ type: 'code-canvas', label: 'Untitled Canvas' })}
-              className="flex items-center justify-center gap-1.5 bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.10)] text-neutral-300 font-semibold text-[11px] rounded-xl px-2 py-3 shadow-sm transition-all active:scale-95"
+              className="flex items-center justify-center gap-1.5 bg-wash hover:bg-inset text-ink-2 font-semibold text-[11px] rounded-full px-2 py-3 shadow-sm transition-all active:scale-95"
             >
               <Plus className="w-3.5 h-3.5" /> Canvas
             </button>

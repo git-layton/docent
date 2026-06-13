@@ -140,8 +140,8 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
 
   if (ramMb < 6144) {
     return (
-      <div className="text-center py-8 text-sm text-neutral-500">
-        <p className="font-bold text-neutral-700 dark:text-neutral-300 mb-1">Local models need at least 8GB RAM</p>
+      <div className="text-center py-8 text-sm text-ink-2">
+        <p className="font-bold text-ink mb-1">Local models need at least 8GB RAM</p>
         <p className="text-xs">Your device has {ramGb}GB — use cloud models instead.</p>
       </div>
     );
@@ -177,23 +177,23 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
     <div className="space-y-2">
       {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3 pointer-events-none" />
         <input
           type="text"
           placeholder="Search models by name, role…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full pl-8 pr-3 py-2 text-xs bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-xl outline-none focus:border-[#4A5D75] dark:focus:border-[#6A829E] transition-colors"
+          className="w-full pl-8 pr-3 py-2 text-xs bg-inset border border-edge rounded-xl outline-none focus:border-accent transition-colors"
         />
       </div>
 
       {!hasResults && (
-        <p className="text-xs text-neutral-400 text-center py-4">No models match "{search}"</p>
+        <p className="text-xs text-ink-3 text-center py-4">No models match "{search}"</p>
       )}
 
       {recommended.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pt-1">
+          <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-1">
             Recommended for your {ramGb}GB Mac
           </p>
           {recommended.map(m => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
@@ -201,7 +201,7 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
       )}
       {others.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pt-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-3">
             Also available
           </p>
           {others.map(m => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
@@ -209,14 +209,14 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
       )}
       {tooLarge.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-300 dark:text-neutral-600 pt-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-3">
             Needs more RAM
           </p>
           {tooLarge.map(m => (
-            <div key={m.id} className="border border-neutral-100 dark:border-neutral-800 rounded-2xl p-4 opacity-50">
+            <div key={m.id} className="border border-edge rounded-2xl p-4 opacity-50">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-neutral-500">{m.name}</span>
-                <span className="text-[10px] text-neutral-400">Needs {m.ramGb}GB</span>
+                <span className="text-sm font-bold text-ink-2">{m.name}</span>
+                <span className="text-[10px] text-ink-3">Needs {m.ramGb}GB</span>
               </div>
             </div>
           ))}
@@ -241,11 +241,11 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
   return (
     <div className={`border rounded-2xl p-4 transition-all ${
       status === 'ready'
-        ? 'border-[#7A9E8D]/40 bg-[#F0F7F4] dark:bg-[#1A2B24]/30'
-        : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900'
+        ? 'border-success/40 bg-success-soft/40'
+        : 'border-edge bg-panel'
     }`}>
       {model.tag && (
-        <div className="text-[9px] font-black uppercase tracking-widest text-[#7A9E8D] mb-2">{model.tag}</div>
+        <div className="text-[9px] font-black uppercase tracking-widest text-success mb-2">{model.tag}</div>
       )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -260,15 +260,15 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
             }`}>{model.role}</span>
           </div>
           <div className="mt-1.5 space-y-0.5">
-            <p className="text-[11px] text-neutral-500">
-              <span className="text-[#7A9E8D] font-bold">+</span> {model.bestFor}
+            <p className="text-[11px] text-ink-2">
+              <span className="text-success font-bold">+</span> {model.bestFor}
             </p>
-            <p className="text-[11px] text-neutral-400">
+            <p className="text-[11px] text-ink-3">
               <span className="font-bold">–</span> {model.notGreatFor}
             </p>
           </div>
         </div>
-        <div className="text-[10px] text-neutral-400 shrink-0 text-right">
+        <div className="text-[10px] text-ink-3 shrink-0 text-right">
           {(model.sizeMb / 1024).toFixed(1)} GB
         </div>
       </div>
@@ -277,7 +277,7 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
         {status === 'idle' && !model.gated && (
           <button
             onClick={() => onDownload(model)}
-            className="flex items-center gap-2 px-3 py-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-[11px] font-black rounded-xl transition-all"
+            className="flex items-center gap-2 px-3 py-2 bg-accent hover:bg-accent-strong text-on-accent text-[11px] font-black rounded-xl transition-all"
           >
             <Download className="w-3.5 h-3.5" />
             Download {(model.sizeMb / 1024).toFixed(1)} GB
@@ -288,7 +288,7 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
             href={model.gatedUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3 py-2 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 text-[11px] font-black rounded-xl hover:border-[#4A5D75] hover:text-[#4A5D75] transition-all"
+            className="flex items-center gap-2 px-3 py-2 border border-edge-2 text-ink-2 text-[11px] font-black rounded-xl hover:border-accent hover:text-accent transition-all"
           >
             <ExternalLink className="w-3.5 h-3.5" />
             View on HuggingFace
@@ -297,7 +297,7 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
         {status === 'downloaded' && (
           <button
             onClick={() => onLoad(model)}
-            className="flex items-center gap-2 px-3 py-2 border border-[#4A5D75] text-[#4A5D75] text-[11px] font-black rounded-xl hover:bg-[#4A5D75] hover:text-white transition-all"
+            className="flex items-center gap-2 px-3 py-2 border border-accent text-accent text-[11px] font-black rounded-xl hover:bg-accent hover:text-on-accent transition-all"
           >
             <Zap className="w-3.5 h-3.5" />
             Load model
@@ -305,19 +305,19 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
         )}
         {status === 'downloading' && (
           <div className="space-y-2">
-            <div className="h-2 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+            <div className="h-2 bg-inset rounded-full overflow-hidden">
               <div
-                className="h-full bg-[#4A5D75] rounded-full transition-all duration-300"
+                className="h-full bg-accent rounded-full transition-all duration-300"
                 style={{ width: `${state?.pct ?? 0}%` }}
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-neutral-500 font-mono">
+              <span className="text-[10px] text-ink-2 font-mono">
                 {state?.pct?.toFixed(0)}% · {state?.downloadedMb?.toFixed(1)} / {state?.totalMb?.toFixed(1)} GB
               </span>
               <button
                 onClick={() => onCancel(model)}
-                className="text-[10px] text-neutral-400 hover:text-[#C98A8A] transition-colors"
+                className="text-[10px] text-ink-3 hover:text-danger transition-colors"
               >
                 Cancel
               </button>
@@ -325,20 +325,20 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
           </div>
         )}
         {status === 'installing' && (
-          <div className="flex items-center gap-2 text-[11px] text-neutral-500">
+          <div className="flex items-center gap-2 text-[11px] text-ink-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             Starting engine…
           </div>
         )}
         {status === 'ready' && (
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-[11px] text-[#7A9E8D] font-bold">
+            <div className="flex items-center gap-1.5 text-[11px] text-success font-bold">
               <CheckCircle className="w-3.5 h-3.5" />
               Ready
             </div>
             <button
               onClick={() => onUse(model)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-[#7A9E8D] hover:bg-[#6A8E7D] text-white text-[11px] font-black rounded-xl transition-all"
+              className="flex items-center gap-1.5 px-3 py-2 bg-success hover:opacity-90 text-success-soft text-[11px] font-black rounded-xl transition-all"
             >
               Use this model
             </button>
@@ -346,13 +346,13 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
         )}
         {status === 'error' && (
           <div className="space-y-2">
-            <div className="flex items-start gap-1.5 text-[11px] text-[#C98A8A]">
+            <div className="flex items-start gap-1.5 text-[11px] text-danger">
               <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <span className="break-all">{state?.error ?? 'Download failed'}</span>
             </div>
             <button
               onClick={() => onDownload(model)}
-              className="text-[11px] text-[#4A5D75] hover:underline"
+              className="text-[11px] text-accent hover:underline"
             >
               Try again
             </button>

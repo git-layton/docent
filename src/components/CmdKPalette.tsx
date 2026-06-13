@@ -97,11 +97,11 @@ export function CmdKPalette(): React.ReactElement | null {
       onClick={() => setOpen(false)}
     >
       <div
-        className="w-[min(560px,calc(100%-2rem))] bg-[#12141a] border border-[rgba(255,255,255,0.1)] rounded-2xl shadow-[0_20px_70px_rgba(0,0,0,0.6)] overflow-hidden"
+        className="w-[min(560px,calc(100%-2rem))] bg-panel-2 border border-edge-2 rounded-2xl shadow-[0_20px_70px_rgba(0,0,0,0.6)] overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 px-4 border-b border-[rgba(255,255,255,0.06)]">
-          <Search className="w-4 h-4 text-neutral-500 shrink-0" />
+        <div className="flex items-center gap-2 px-4 border-b border-edge">
+          <Search className="w-4 h-4 text-ink-3 shrink-0" />
           <input
             ref={inputRef}
             value={query}
@@ -112,12 +112,12 @@ export function CmdKPalette(): React.ReactElement | null {
               else if (e.key === 'Enter' && results[highlight]) { e.preventDefault(); choose(results[highlight]); }
             }}
             placeholder="Search spaces, tabs, agents…"
-            className="flex-1 bg-transparent py-3.5 text-sm text-neutral-200 placeholder:text-neutral-600 outline-none"
+            className="flex-1 bg-transparent py-3.5 text-sm text-ink placeholder:text-ink-3 outline-none"
           />
         </div>
         <div className="max-h-[50vh] overflow-y-auto py-1">
           {results.length === 0 ? (
-            <div className="px-4 py-8 text-center text-xs text-neutral-500">No matches</div>
+            <div className="px-4 py-8 text-center text-xs text-ink-3">No matches</div>
           ) : (
             results.map((r, i) => {
               const Icon = r.icon;
@@ -127,18 +127,18 @@ export function CmdKPalette(): React.ReactElement | null {
               return (
                 <div key={`${r.kind}-${r.id}`}>
                   {showHeader && (
-                    <div className="px-4 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600">
+                    <div className="px-4 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-ink-3">
                       {sectionLabel}
                     </div>
                   )}
                   <button
                     onClick={() => choose(r)}
                     onMouseEnter={() => setHighlight(i)}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === highlight ? 'bg-[rgba(255,255,255,0.07)]' : 'hover:bg-[rgba(255,255,255,0.04)]'}`}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === highlight ? 'bg-inset' : 'hover:bg-wash'}`}
                   >
-                    <Icon className="w-4 h-4 text-neutral-400 shrink-0" />
-                    <span className="text-sm text-neutral-200 truncate flex-1">{r.label}</span>
-                    {r.sublabel && <span className="text-[10px] text-neutral-500 truncate max-w-[180px]">{r.sublabel}</span>}
+                    <Icon className="w-4 h-4 text-ink-3 shrink-0" />
+                    <span className="text-sm text-ink truncate flex-1">{r.label}</span>
+                    {r.sublabel && <span className="text-[10px] text-ink-3 truncate max-w-[180px]">{r.sublabel}</span>}
                   </button>
                 </div>
               );
@@ -146,7 +146,7 @@ export function CmdKPalette(): React.ReactElement | null {
           )}
         </div>
         {/* Footer hint */}
-        <div className="flex items-center gap-3 px-4 py-2 border-t border-[rgba(255,255,255,0.06)] text-[10px] text-neutral-600">
+        <div className="flex items-center gap-3 px-4 py-2 border-t border-edge text-[10px] text-ink-3">
           <span>↑↓ navigate</span>
           <span>↵ open</span>
           <span>esc close</span>

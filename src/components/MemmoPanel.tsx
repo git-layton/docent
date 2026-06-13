@@ -180,37 +180,37 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
       )}
 
       {/* Panel */}
-      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-white dark:bg-neutral-950 border-l border-neutral-200 dark:border-neutral-800 shadow-2xl flex flex-col transition-transform duration-300 ${
+      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-panel-2 border-l border-edge shadow-2xl flex flex-col transition-transform duration-300 ${
         isOpen ? 'translate-x-0' : 'translate-x-full'
       }`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-edge shrink-0">
           <div>
-            <span className="text-xs font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">
+            <span className="text-xs font-black uppercase tracking-widest text-accent">
               Your Library
             </span>
-            <p className="text-[9px] text-neutral-400 mt-0.5">Saved to ~/AgentForge/ · searched by your agents</p>
+            <p className="text-[9px] text-ink-3 mt-0.5">Saved to ~/AgentForge/ · searched by your agents</p>
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+          <button onClick={onClose} className="text-ink-3 hover:text-ink-2">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-neutral-200 dark:border-neutral-800 shrink-0">
+        <div className="flex border-b border-edge shrink-0">
           {tabs.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`flex-1 py-2.5 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
                 tab === t.id
-                  ? 'border-b-2 border-[#4A5D75] text-[#4A5D75] dark:text-[#899AB5]'
-                  : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'
+                  ? 'border-b-2 border-accent text-accent'
+                  : 'text-ink-3 hover:text-ink-2'
               }`}
             >
               {t.label}
               {t.count !== undefined && t.count > 0 && (
-                <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#D4AA7D] text-white text-[9px] font-black">
+                <span className="flex items-center justify-center w-4 h-4 rounded-full bg-accent text-on-accent text-[9px] font-black">
                   {t.count}
                 </span>
               )}
@@ -224,18 +224,18 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Pins tab ── */}
           {tab === 'pins' && (
             <div className="p-4 space-y-2">
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#D4AA7D]/10 dark:bg-[#D4AA7D]/5 border border-[#D4AA7D]/30 rounded-xl">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-warning-soft/60 border border-warning/30 rounded-xl">
                 <span className="text-[10px]">📌</span>
-                <span className="text-[10px] font-bold text-[#9C7A3C] dark:text-[#D4AA7D]">Active Context — injected into every message you send</span>
+                <span className="text-[10px] font-bold text-warning">Active Context — injected into every message you send</span>
               </div>
               {pinnedTokenEstimate !== undefined && pinnedTokenEstimate > 1500 && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#C98A8A]/10 border border-[#C98A8A]/30 rounded-xl">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-danger-soft/60 border border-danger/30 rounded-xl">
                   <span className="text-[10px]">⚠️</span>
-                  <span className="text-[10px] font-bold text-[#C98A8A]">Context Bloat — ~{pinnedTokenEstimate.toLocaleString()} tokens pinned. Unpin some to reduce RAM pressure.</span>
+                  <span className="text-[10px] font-bold text-danger">Context Bloat — ~{pinnedTokenEstimate.toLocaleString()} tokens pinned. Unpin some to reduce RAM pressure.</span>
                 </div>
               )}
               {pinnedMessages.length === 0 ? (
-                <div className="text-center py-12 text-neutral-400">
+                <div className="text-center py-12 text-ink-3">
                   <Pin className="w-8 h-8 mx-auto mb-3 opacity-30" />
                   <p className="text-xs">No pinned messages yet.</p>
                   <p className="text-xs mt-1 opacity-70">Pin any message to save it here.</p>
@@ -244,15 +244,15 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                 pinnedMessages.map(p => (
                   <div
                     key={p.msgId}
-                    className="flex items-start gap-2 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800"
+                    className="flex items-start gap-2 p-3 rounded-xl bg-inset border border-edge"
                   >
-                    <Pin className="w-3.5 h-3.5 text-[#D4AA7D] shrink-0 mt-0.5" />
-                    <p className="flex-1 text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed line-clamp-4">
+                    <Pin className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
+                    <p className="flex-1 text-xs text-ink-2 leading-relaxed line-clamp-4">
                       {p.content}
                     </p>
                     <button
                       onClick={() => onUnpin(p.chatId, p.msgId)}
-                      className="text-neutral-300 hover:text-red-400 transition-colors shrink-0"
+                      className="text-ink-3 hover:text-danger transition-colors shrink-0"
                       title="Unpin"
                     >
                       <PinOff className="w-3.5 h-3.5" />
@@ -266,69 +266,69 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Notes tab ── */}
           {tab === 'notes' && (
             <div className="p-4 space-y-2">
-              <div className="flex flex-col gap-0.5 px-2.5 py-1.5 mb-2 bg-[#4A5D75]/8 dark:bg-[#4A5D75]/10 border border-[#4A5D75]/20 rounded-xl">
+              <div className="flex flex-col gap-0.5 px-2.5 py-1.5 mb-2 bg-accent-soft/40 border border-accent/20 rounded-xl">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px]">🔍</span>
-                  <span className="text-[10px] font-bold text-[#4A5D75] dark:text-[#899AB5]">Searched when relevant — retrieved by Knowledge Search</span>
+                  <span className="text-[10px] font-bold text-accent">Searched when relevant — retrieved by Knowledge Search</span>
                 </div>
-                <p className="text-[9px] text-neutral-400 pl-4">Deleting a memo removes it permanently from disk and from your agent's memory.</p>
+                <p className="text-[9px] text-ink-3 pl-4">Deleting a memo removes it permanently from disk and from your agent's memory.</p>
               </div>
               <button
                 onClick={onCompose}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 text-xs font-bold text-neutral-500 dark:text-neutral-400 hover:border-[#4A5D75] hover:text-[#4A5D75] transition-all mb-4"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-edge-2 text-xs font-bold text-ink-2 hover:border-accent hover:text-accent transition-all mb-4"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 New Note
               </button>
 
               {loadingFiles ? (
-                <div className="text-center py-8 text-neutral-400 text-xs">Loading...</div>
+                <div className="text-center py-8 text-ink-3 text-xs">Loading...</div>
               ) : memos.length === 0 ? (
-                <div className="text-center py-8 text-neutral-400 space-y-2">
+                <div className="text-center py-8 text-ink-3 space-y-2">
                   <FileText className="w-8 h-8 mx-auto opacity-30" />
                   <p className="text-xs font-bold">No notes yet.</p>
                   <p className="text-[10px] leading-relaxed opacity-80 px-2">
-                    Notes are markdown files saved to your Knowledge Core (<code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded">~/AgentForge/memory/</code>). Your agent can search them when Knowledge Search is enabled.
+                    Notes are markdown files saved to your Knowledge Core (<code className="bg-inset px-1 rounded">~/AgentForge/memory/</code>). Your agent can search them when Knowledge Search is enabled.
                   </p>
                   <p className="text-[10px] opacity-60">Use ⌘⇧M or type /memo in chat to write one.</p>
                 </div>
               ) : (
                 memos.map(f => (
-                  <div key={f.path} className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+                  <div key={f.path} className="rounded-xl border border-edge overflow-hidden">
                     <div className="flex items-center">
                       <button
                         onClick={() => toggleFile(f.path)}
-                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors min-w-0"
+                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-wash transition-colors min-w-0"
                       >
                         {expandedFile === f.path
-                          ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                          : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                          ? <ChevronDown className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-ink-3 shrink-0" />
                         }
-                        <span className="flex-1 text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate">
+                        <span className="flex-1 text-xs font-bold text-ink-2 truncate">
                           {f.name}
                         </span>
                       </button>
                       {onDeleteFile && (
                         pendingDelete === f.path ? (
                           <div className="flex items-center gap-1 mr-2 shrink-0">
-                            <span className="text-[10px] font-bold text-red-400">Delete?</span>
+                            <span className="text-[10px] font-bold text-danger">Delete?</span>
                             <button
                               onClick={async () => {
                                 setPendingDelete(null);
                                 setMemos(prev => prev.filter(m => m.path !== f.path));
                                 try { await onDeleteFile(f.path); } catch { loadMemos(); }
                               }}
-                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors"
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-danger text-danger-soft hover:opacity-90 transition-colors"
                             >Yes</button>
                             <button
                               onClick={() => setPendingDelete(null)}
-                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors"
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-inset text-ink-2 hover:bg-wash transition-colors"
                             >No</button>
                           </div>
                         ) : (
                           <button
                             onClick={() => setPendingDelete(f.path)}
-                            className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
+                            className="p-2 mr-2 text-ink-3 hover:text-danger transition-colors shrink-0"
                             title="Delete memo"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -338,7 +338,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                     </div>
                     {expandedFile === f.path && (
                       <div className="px-4 pb-3 pt-0">
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed whitespace-pre-wrap font-mono">
+                        <p className="text-xs text-ink-2 leading-relaxed whitespace-pre-wrap font-mono">
                           {fileContent[f.path]
                             ? previewText(fileContent[f.path])
                             : 'Loading...'}
@@ -356,7 +356,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
             <div className="p-4 space-y-3">
               <button
                 onClick={onCompose}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 text-xs font-bold text-neutral-500 dark:text-neutral-400 hover:border-[#D4AA7D] hover:text-[#9C7A3C] dark:hover:text-[#D4AA7D] transition-all mb-1"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-edge-2 text-xs font-bold text-ink-2 hover:border-accent hover:text-accent transition-all mb-1"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 New Note
@@ -368,9 +368,9 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
               />
 
               {loadingFiles ? (
-                <div className="text-center py-8 text-neutral-400 text-xs">Loading...</div>
+                <div className="text-center py-8 text-ink-3 text-xs">Loading...</div>
               ) : library.length === 0 ? (
-                <div className="text-center py-12 text-neutral-400 space-y-3">
+                <div className="text-center py-12 text-ink-3 space-y-3">
                   <Bookmark className="w-10 h-10 mx-auto opacity-20" />
                   <p className="text-xs font-bold">Your Library is empty.</p>
                   <p className="text-[10px] leading-relaxed opacity-80 px-4">
@@ -380,42 +380,42 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                 </div>
               ) : (
                 library.map(f => (
-                  <div key={f.path} className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+                  <div key={f.path} className="rounded-xl border border-edge overflow-hidden">
                     <div className="flex items-center">
                       <button
                         onClick={() => toggleFile(f.path)}
-                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors min-w-0"
+                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-wash transition-colors min-w-0"
                       >
                         {expandedFile === f.path
-                          ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                          : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                          ? <ChevronDown className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-ink-3 shrink-0" />
                         }
-                        <FileText className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                        <span className="flex-1 text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate">
+                        <FileText className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+                        <span className="flex-1 text-xs font-bold text-ink-2 truncate">
                           {f.name}
                         </span>
                       </button>
                       {onDeleteFile && (
                         pendingDelete === f.path ? (
                           <div className="flex items-center gap-1 mr-2 shrink-0">
-                            <span className="text-[10px] font-bold text-red-400">Delete?</span>
+                            <span className="text-[10px] font-bold text-danger">Delete?</span>
                             <button
                               onClick={async () => {
                                 setPendingDelete(null);
                                 setLibrary(prev => prev.filter(l => l.path !== f.path));
                                 try { await onDeleteFile(f.path); } catch { loadLibrary(); }
                               }}
-                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors"
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-danger text-danger-soft hover:opacity-90 transition-colors"
                             >Yes</button>
                             <button
                               onClick={() => setPendingDelete(null)}
-                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors"
+                              className="px-2 py-0.5 text-[10px] font-black rounded-md bg-inset text-ink-2 hover:bg-wash transition-colors"
                             >No</button>
                           </div>
                         ) : (
                           <button
                             onClick={() => setPendingDelete(f.path)}
-                            className="p-2 mr-2 text-neutral-300 hover:text-red-400 transition-colors shrink-0"
+                            className="p-2 mr-2 text-ink-3 hover:text-danger transition-colors shrink-0"
                             title="Delete file"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -425,7 +425,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                     </div>
                     {expandedFile === f.path && (
                       <div className="px-4 pb-3 pt-0">
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed whitespace-pre-wrap font-mono">
+                        <p className="text-xs text-ink-2 leading-relaxed whitespace-pre-wrap font-mono">
                           {fileContent[f.path]
                             ? previewText(fileContent[f.path])
                             : 'Loading...'}
@@ -444,10 +444,10 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
               {/* Header */}
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-[#4A5D75] dark:text-[#899AB5]" />
-                  <span className="text-xs font-black text-neutral-700 dark:text-neutral-300">Web Log</span>
+                  <Globe className="w-3.5 h-3.5 text-accent" />
+                  <span className="text-xs font-black text-ink-2">Web Log</span>
                   {visitLog.length > 0 && (
-                    <span className="flex items-center justify-center min-w-[1rem] h-4 px-1 rounded-full bg-[#D4AA7D] text-white text-[9px] font-black">
+                    <span className="flex items-center justify-center min-w-[1rem] h-4 px-1 rounded-full bg-accent text-on-accent text-[9px] font-black">
                       {visitLog.length}
                     </span>
                   )}
@@ -456,7 +456,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
 
               {visitLog.length === 0 ? (
                 /* Browser store active but no entries */
-                <div className="text-center py-12 text-neutral-400 space-y-3">
+                <div className="text-center py-12 text-ink-3 space-y-3">
                   <Globe className="w-10 h-10 mx-auto opacity-20" />
                   <p className="text-xs font-bold">No pages visited yet.</p>
                   <p className="text-[10px] opacity-60">Open the browser to start logging visits.</p>
@@ -469,7 +469,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                   return (
                     <div
                       key={entry.id}
-                      className="flex items-start gap-2.5 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800"
+                      className="flex items-start gap-2.5 p-3 rounded-xl bg-inset border border-edge"
                     >
                       {/* Favicon */}
                       <div className="shrink-0 w-4 h-4 mt-0.5">
@@ -481,22 +481,22 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                             onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                           />
                         ) : (
-                          <Globe className="w-4 h-4 text-neutral-300" />
+                          <Globe className="w-4 h-4 text-ink-3" />
                         )}
                       </div>
 
                       {/* Content */}
                       <div className="flex-1 min-w-0 space-y-0.5">
-                        <p className="text-xs font-bold text-neutral-700 dark:text-neutral-300 truncate leading-tight">
+                        <p className="text-xs font-bold text-ink-2 truncate leading-tight">
                           {entry.title || domain || entry.url}
                         </p>
-                        <p className="text-[10px] text-neutral-400 truncate leading-tight">
+                        <p className="text-[10px] text-ink-3 truncate leading-tight">
                           {entry.url}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
-                          <span className="text-[9px] text-neutral-400">{timeAgo(entry.timestamp)}</span>
+                          <span className="text-[9px] text-ink-3">{timeAgo(entry.timestamp)}</span>
                           {entry.wasDigested && (
-                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 text-[9px] font-black">
+                            <span className="px-1.5 py-0.5 rounded-full bg-success-soft text-success text-[9px] font-black">
                               Digest saved
                             </span>
                           )}
@@ -517,7 +517,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                 <button
                   onClick={clearVisitLog}
                   disabled={visitLog.length === 0}
-                  className="w-full py-1.5 text-[10px] font-bold text-neutral-400 hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-neutral-200 dark:border-neutral-800 rounded-xl hover:border-red-300 dark:hover:border-red-900 disabled:hover:border-neutral-200 disabled:hover:text-neutral-400"
+                  className="w-full py-1.5 text-[10px] font-bold text-ink-3 hover:text-danger disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-edge rounded-xl hover:border-danger/40 disabled:hover:border-edge disabled:hover:text-ink-3"
                 >
                   Clear history
                 </button>
@@ -528,37 +528,37 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
           {/* ── Archive tab ── */}
           {tab === 'archive' && (
             <div className="p-4 space-y-2">
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-[#C98A8A]/10 border border-[#C98A8A]/30 rounded-xl">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 bg-danger-soft/60 border border-danger/30 rounded-xl">
                 <span className="text-[10px]">🗂️</span>
-                <span className="text-[10px] font-bold text-[#C98A8A]">
+                <span className="text-[10px] font-bold text-danger">
                   Soft-deleted by Dream Cycle — purged after 7 days
                 </span>
               </div>
 
               {loadingFiles ? (
-                <div className="text-center py-8 text-neutral-400 text-xs">Loading...</div>
+                <div className="text-center py-8 text-ink-3 text-xs">Loading...</div>
               ) : archiveFiles.length === 0 ? (
-                <div className="text-center py-12 text-neutral-400">
+                <div className="text-center py-12 text-ink-3">
                   <Archive className="w-8 h-8 mx-auto mb-3 opacity-30" />
                   <p className="text-xs">Archive is empty.</p>
                   <p className="text-xs mt-1 opacity-70">Files archived by Dream Cycle appear here.</p>
                 </div>
               ) : (
                 archiveFiles.map(f => (
-                  <div key={f.path} className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+                  <div key={f.path} className="rounded-xl border border-edge overflow-hidden">
                     <div className="flex items-center">
                       <button
                         onClick={() => toggleFile(f.path)}
-                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors min-w-0"
+                        className="flex-1 flex items-center gap-2 p-3 text-left hover:bg-wash transition-colors min-w-0"
                       >
                         {expandedFile === f.path
-                          ? <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                          : <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                          ? <ChevronDown className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-ink-3 shrink-0" />
                         }
-                        <span className="flex-1 text-xs font-bold text-neutral-500 dark:text-neutral-400 truncate">
+                        <span className="flex-1 text-xs font-bold text-ink-2 truncate">
                           {f.name}
                         </span>
-                        <span className="text-[9px] text-neutral-400 shrink-0 ml-1">
+                        <span className="text-[9px] text-ink-3 shrink-0 ml-1">
                           {formatAge(f.modified_secs)}
                         </span>
                       </button>
@@ -566,7 +566,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                         <button
                           onClick={() => handleRestoreArchive(f.path)}
                           disabled={restoringPath === f.path}
-                          className="p-2 mr-2 text-neutral-300 hover:text-emerald-500 transition-colors shrink-0 disabled:opacity-50"
+                          className="p-2 mr-2 text-ink-3 hover:text-success transition-colors shrink-0 disabled:opacity-50"
                           title="Restore file"
                         >
                           <RotateCcw className={`w-3.5 h-3.5 ${restoringPath === f.path ? 'animate-spin' : ''}`} />
@@ -575,7 +575,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                     </div>
                     {expandedFile === f.path && (
                       <div className="px-4 pb-3 pt-0">
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed whitespace-pre-wrap font-mono">
+                        <p className="text-xs text-ink-2 leading-relaxed whitespace-pre-wrap font-mono">
                           {fileContent[f.path]
                             ? previewText(fileContent[f.path])
                             : 'Loading...'}

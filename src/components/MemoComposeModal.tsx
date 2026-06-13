@@ -104,21 +104,21 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
-      <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-[2rem] shadow-2xl w-full max-w-lg">
+      <div className="bg-panel-2 border border-edge rounded-[2rem] shadow-2xl w-full max-w-lg">
         <div className="p-8">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-sm font-black uppercase tracking-widest text-[#4A5D75] dark:text-[#899AB5]">
+            <h2 className="text-sm font-black uppercase tracking-widest text-accent">
               New Note
             </h2>
-            <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+            <button onClick={onClose} className="text-ink-3 hover:text-ink-2">
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Category */}
           <div className="mb-4">
-            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-400 mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-ink-3 mb-2">
               Category
             </label>
             <div className="flex flex-wrap gap-2">
@@ -128,15 +128,15 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
                   onClick={() => setCategory(c.value)}
                   className={`flex flex-col items-start px-3 py-2 rounded-lg text-xs font-bold transition-all ${
                     category === c.value
-                      ? 'bg-[#2C3E50] text-white'
-                      : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                      ? 'bg-accent text-on-accent'
+                      : 'bg-inset text-ink-2 hover:bg-wash'
                   }`}
                 >
                   <span className="flex items-center gap-1.5">
                     {c.value === 'todo' && <CheckSquare className="w-3 h-3" />}
                     {c.label}
                   </span>
-                  <span className={`text-[9px] font-normal mt-0.5 ${category === c.value ? 'text-white/60' : 'text-neutral-400'}`}>
+                  <span className={`text-[9px] font-normal mt-0.5 ${category === c.value ? 'text-on-accent/70' : 'text-ink-3'}`}>
                     {c.hint}
                   </span>
                 </button>
@@ -146,7 +146,7 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
 
           {/* Title */}
           <div className="mb-4">
-            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-400 mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-ink-3 mb-2">
               {isTodo ? 'Task' : 'Title'}
             </label>
             <input
@@ -154,7 +154,7 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder={isTodo ? 'What needs to be done?' : 'Memo title...'}
-              className="w-full px-4 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#4A5D75]/30"
+              className="w-full px-4 py-2.5 rounded-xl border border-edge-2 bg-transparent text-sm font-medium focus:outline-none focus:ring-2 focus:ring-accent/30"
               onKeyDown={e => { if (e.key === 'Enter' && isTodo) handleSave(); }}
               autoFocus
             />
@@ -162,7 +162,7 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
 
           {/* Body — hidden for todo when title is filled, but shown */}
           <div className="mb-5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-neutral-400 mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-ink-3 mb-2">
               {isTodo ? 'Details (optional)' : 'Content'}
             </label>
             <textarea
@@ -170,31 +170,31 @@ export function MemoComposeModal({ onSave, onClose, agentForgePath, agentId }: P
               onChange={e => setBody(e.target.value)}
               placeholder={isTodo ? 'Add details...' : 'Write your memo in markdown...'}
               rows={isTodo ? 2 : 6}
-              className="w-full px-4 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-[#4A5D75]/30"
+              className="w-full px-4 py-2.5 rounded-xl border border-edge-2 bg-transparent text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
             {isTodo && (
-              <p className="text-xs text-neutral-400 mt-1.5">
-                Will append <code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded">- [ ]</code> to <code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded">tasks.md</code>
+              <p className="text-xs text-ink-3 mt-1.5">
+                Will append <code className="bg-inset px-1 rounded">- [ ]</code> to <code className="bg-inset px-1 rounded">tasks.md</code>
               </p>
             )}
           </div>
 
           {error && (
-            <p className="text-xs text-red-500 mb-4 font-medium">{error}</p>
+            <p className="text-xs text-danger mb-4 font-medium">{error}</p>
           )}
 
           {/* Actions */}
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 text-sm font-bold text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all"
+              className="flex-1 px-4 py-2.5 rounded-xl border border-edge-2 text-sm font-bold text-ink-2 hover:bg-wash transition-all"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={isSaving || !title.trim()}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#2C3E50] text-white text-sm font-bold hover:bg-[#3A506B] transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-on-accent text-sm font-bold hover:bg-accent-strong transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
               {isSaving ? 'Saving...' : isTodo ? 'Add Task' : 'Save Note'}

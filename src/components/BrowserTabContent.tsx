@@ -126,21 +126,21 @@ function ProactiveChip({ comment, onDismiss }: ProactiveChipProps) {
       className={clsx(
         'absolute bottom-4 right-4 z-30',
         'flex items-start gap-2.5 max-w-xs',
-        'bg-white dark:bg-neutral-900',
-        'border border-neutral-200 dark:border-neutral-700',
+        'bg-panel',
+        'border border-edge',
         'rounded-xl shadow-lg px-3.5 py-3',
         'animate-in slide-in-from-bottom-3 fade-in duration-300',
       )}
       role="status"
       aria-live="polite"
     >
-      <div className="shrink-0 mt-0.5 w-6 h-6 rounded-md bg-[#4A5D75] flex items-center justify-center">
-        <Bot className="w-3.5 h-3.5 text-white" />
+      <div className="shrink-0 mt-0.5 w-6 h-6 rounded-md bg-accent flex items-center justify-center">
+        <Bot className="w-3.5 h-3.5 text-on-accent" />
       </div>
-      <p className="flex-1 text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed">{comment}</p>
+      <p className="flex-1 text-xs text-ink-2 leading-relaxed">{comment}</p>
       <button
         onClick={onDismiss}
-        className="shrink-0 mt-0.5 p-0.5 rounded-md text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+        className="shrink-0 mt-0.5 p-0.5 rounded-md text-ink-3 hover:text-ink-2 hover:bg-wash transition-colors"
         aria-label="Dismiss"
       >
         <X className="w-3.5 h-3.5" />
@@ -817,7 +817,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   const isGoogleAuth = tryHostname(url) === 'accounts.google.com';
 
   return (
-    <div className="flex flex-col h-full w-full bg-white dark:bg-neutral-900 overflow-hidden select-none">
+    <div className="flex flex-col h-full w-full bg-panel overflow-hidden select-none">
       <style>{`
         @keyframes browser-progress {
           0%   { width: 0% }
@@ -830,7 +830,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       `}</style>
 
       {/* Tab bar */}
-      <div className="h-9 flex items-center gap-0.5 px-1.5 bg-neutral-100 dark:bg-neutral-800 shrink-0 overflow-x-auto no-scrollbar">
+      <div className="h-9 flex items-center gap-0.5 px-1.5 bg-inset shrink-0 overflow-x-auto no-scrollbar">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -839,15 +839,15 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
             className={clsx(
               'flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[11px] font-medium shrink-0 max-w-[180px] min-w-[80px] transition-all group',
               tab.id === activeTabId
-                ? 'bg-white dark:bg-neutral-700 text-neutral-800 dark:text-neutral-100 shadow-sm'
-                : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200/80 dark:hover:bg-neutral-700/80 hover:text-neutral-700 dark:hover:text-neutral-200',
+                ? 'bg-panel text-ink shadow-sm'
+                : 'text-ink-2 hover:bg-wash hover:text-ink',
             )}
           >
             <TabFavicon url={tab.url} />
             <span className="truncate flex-1 min-w-0 text-left">{tab.title || tryHostname(tab.url)}</span>
             <span
               onClick={e => closeTab(tab.id, e)}
-              className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-600 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
+              className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-md hover:bg-wash opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
               title="Close tab"
             >
               <X className="w-2.5 h-2.5" />
@@ -856,7 +856,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         ))}
         <button
           onClick={openNewTab}
-          className="w-7 h-7 flex items-center justify-center ml-0.5 rounded-lg text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors shrink-0"
+          className="w-7 h-7 flex items-center justify-center ml-0.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors shrink-0"
           title="New tab (Cmd+T)"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -865,39 +865,39 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
       {/* Loading progress bar */}
       {isLoading && (
-        <div className="h-[2px] bg-neutral-200 dark:bg-neutral-700 shrink-0 overflow-hidden">
-          <div className="h-full bg-[#4A5D75] browser-progress-bar" />
+        <div className="h-[2px] bg-inset shrink-0 overflow-hidden">
+          <div className="h-full bg-accent browser-progress-bar" />
         </div>
       )}
 
       {/* Nav bar */}
-      <div className="h-10 flex items-center gap-1 px-2 border-b border-neutral-100 dark:border-neutral-800 shrink-0 z-10 bg-white dark:bg-neutral-900">
+      <div className="h-10 flex items-center gap-1 px-2 border-b border-edge shrink-0 z-10 bg-panel">
         {/* Navigation buttons */}
         <div className="flex items-center gap-0.5 mr-0.5">
           <button
             onClick={handleBack}
-            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            className="p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink"
             title="Back"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={handleForward}
-            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            className="p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink"
             title="Forward"
           >
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={handleReload}
-            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            className="p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink"
             title="Reload (Cmd+R)"
           >
             <RotateCw className={clsx('w-3.5 h-3.5', isLoading && 'animate-spin')} />
           </button>
           <button
             onClick={openInSystemBrowser}
-            className="p-1.5 rounded-lg transition-colors text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-200"
+            className="p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink"
             title="Open in your default browser"
           >
             <ExternalLink className="w-3.5 h-3.5" />
@@ -908,8 +908,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         <div className="relative flex-1 min-w-0">
           <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
             {url.startsWith('https://')
-              ? <Lock className="w-3 h-3 text-emerald-500" />
-              : <Globe className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+              ? <Lock className="w-3 h-3 text-success" />
+              : <Globe className="w-3 h-3 text-ink-3" />
             }
           </div>
           <input
@@ -920,7 +920,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
             onFocus={e => e.target.select()}
             onContextMenu={showUrlContextMenu}
             placeholder="Search or enter address"
-            className="w-full h-7 rounded-full bg-neutral-100 dark:bg-neutral-800 pl-8 pr-3 text-[11px] font-medium outline-none focus:ring-1 ring-[#6A829E]/40 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 transition-shadow"
+            className="w-full h-7 rounded-full bg-inset pl-8 pr-3 text-[11px] font-medium outline-none focus:ring-1 ring-accent/40 text-ink placeholder:text-ink-3 transition-shadow"
           />
         </div>
 
@@ -928,7 +928,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         {zoom !== 1.0 && (
           <button
             onClick={() => { setZoom(1.0); invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: 1.0 }).catch(() => {}); }}
-            className="text-[10px] font-semibold text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 px-1.5 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 shrink-0 transition-colors"
+            className="text-[10px] font-semibold text-ink-2 hover:text-ink px-1.5 py-0.5 rounded-md bg-inset hover:bg-wash shrink-0 transition-colors"
             title="Reset zoom"
           >
             {Math.round(zoom * 100)}%
@@ -945,8 +945,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             isFavorited
-              ? 'text-amber-400'
-              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-amber-400',
+              ? 'text-warning'
+              : 'text-ink-3 hover:bg-wash hover:text-warning',
           )}
           title={isFavorited ? 'Remove from favorites' : 'Add to favorites (Cmd+D)'}
         >
@@ -957,8 +957,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             proactiveEnabled
-              ? 'bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#6A829E]'
-              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-300',
+              ? 'bg-accent-soft/50 text-accent'
+              : 'text-ink-3 hover:bg-wash hover:text-ink-2',
           )}
           title={proactiveEnabled ? 'AI commentary on' : 'AI commentary off'}
         >
@@ -969,8 +969,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             passwordBarOpen
-              ? 'bg-[#4A5D75]/10 text-[#4A5D75] dark:text-[#6A829E]'
-              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-300',
+              ? 'bg-accent-soft/50 text-accent'
+              : 'text-ink-3 hover:bg-wash hover:text-ink-2',
           )}
           title="Passwords"
         >
@@ -982,8 +982,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           className={clsx(
             'p-1.5 rounded-lg transition-colors shrink-0',
             kbSaved
-              ? 'text-emerald-500'
-              : 'text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-[#4A5D75] dark:hover:text-[#6A829E]',
+              ? 'text-success'
+              : 'text-ink-3 hover:bg-wash hover:text-accent',
             isSavingToKB && 'opacity-50 cursor-not-allowed',
           )}
           title={kbSaved ? 'Saved to Knowledge Base' : 'Save to Knowledge Base'}
@@ -1010,13 +1010,13 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
       {/* Favorites bar */}
       {favorites.length > 0 && (
-        <div className="h-8 flex items-center gap-0.5 px-3 bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 shrink-0 overflow-x-auto no-scrollbar">
+        <div className="h-8 flex items-center gap-0.5 px-3 bg-panel-2 border-b border-edge shrink-0 overflow-x-auto no-scrollbar">
           {favorites.map(fav => (
             <button
               key={fav.id}
               onClick={() => navigate(fav.url)}
               onContextMenu={e => { e.preventDefault(); useBrowserStore.getState().removeFavorite(fav.url); }}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors whitespace-nowrap shrink-0"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-ink-2 hover:bg-wash hover:text-ink transition-colors whitespace-nowrap shrink-0"
               title={`${fav.url}\nRight-click to remove`}
             >
               <TabFavicon url={fav.url} />
@@ -1028,7 +1028,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
       {/* Find bar */}
       {findOpen && (
-        <div className="h-9 flex items-center gap-2 px-3 border-b border-neutral-100 dark:border-neutral-800 shrink-0 bg-white dark:bg-neutral-900 z-10">
+        <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0 bg-panel z-10">
           <input
             autoFocus
             type="text"
@@ -1039,11 +1039,11 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
               if (e.key === 'Escape') { setFindOpen(false); setFindQuery(''); }
             }}
             placeholder="Find in page…"
-            className="flex-1 text-xs bg-neutral-100 dark:bg-neutral-800 rounded-full px-3 h-6 outline-none focus:ring-1 ring-[#6A829E]/30 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400"
+            className="flex-1 text-xs bg-inset rounded-full px-3 h-6 outline-none focus:ring-1 ring-accent/30 text-ink placeholder:text-ink-3"
           />
-          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: false }).catch(() => {})} className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Previous">↑</button>
-          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: true }).catch(() => {})} className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 px-1.5 py-0.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Next">↓</button>
-          <button onClick={() => { setFindOpen(false); setFindQuery(''); }} className="p-1 rounded text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800">
+          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: false }).catch(() => {})} className="text-[10px] text-ink-2 hover:text-ink px-1.5 py-0.5 rounded hover:bg-wash" title="Previous">↑</button>
+          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: true }).catch(() => {})} className="text-[10px] text-ink-2 hover:text-ink px-1.5 py-0.5 rounded hover:bg-wash" title="Next">↓</button>
+          <button onClick={() => { setFindOpen(false); setFindQuery(''); }} className="p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-wash">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -1052,14 +1052,14 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       {/* Google blocks sign-in inside embedded webviews — offer the system-browser escape hatch.
           Lives in the flex-column flow (not an overlay) so it stays above the native webview. */}
       {isGoogleAuth && (
-        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 text-xs text-amber-800 dark:text-amber-200">
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-warning-soft border-b border-warning/30 text-xs text-warning">
           <ShieldAlert className="w-4 h-4 shrink-0" />
           <span className="flex-1 min-w-0">
             Google blocks sign-in inside embedded browsers. Open this page in your default browser to sign in.
           </span>
           <button
             onClick={openInSystemBrowser}
-            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors"
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warning hover:opacity-90 text-warning-soft font-medium transition-colors"
           >
             <ExternalLink className="w-3 h-3" />
             Open in default browser
@@ -1075,24 +1075,24 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           <div className={clsx(
             'absolute bottom-4 left-4 z-30',
             'flex items-center gap-2.5',
-            'bg-white dark:bg-neutral-900',
-            'border border-neutral-200 dark:border-neutral-700',
+            'bg-panel',
+            'border border-edge',
             'rounded-xl shadow-lg px-3.5 py-2.5',
             'animate-in slide-in-from-bottom-3 fade-in duration-300',
             'text-xs',
           )}>
             {downloadToast.success ? (
               <>
-                <span className="text-emerald-500 font-bold">↓</span>
-                <span className="text-neutral-700 dark:text-neutral-300">Downloaded: <strong>{downloadToast.filename}</strong></span>
+                <span className="text-success font-bold">↓</span>
+                <span className="text-ink-2">Downloaded: <strong>{downloadToast.filename}</strong></span>
               </>
             ) : (
               <>
-                <span className="text-red-500 font-bold">✕</span>
-                <span className="text-neutral-700 dark:text-neutral-300">Download failed: {downloadToast.filename}</span>
+                <span className="text-danger font-bold">✕</span>
+                <span className="text-ink-2">Download failed: {downloadToast.filename}</span>
               </>
             )}
-            <button onClick={() => setDownloadToast(null)} className="ml-1 p-0.5 rounded text-neutral-400 hover:text-neutral-600">
+            <button onClick={() => setDownloadToast(null)} className="ml-1 p-0.5 rounded text-ink-3 hover:text-ink-2">
               <X className="w-3 h-3" />
             </button>
           </div>

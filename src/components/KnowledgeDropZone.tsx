@@ -135,8 +135,8 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
       onClick={() => !status && fileInputRef.current?.click()}
       className={`relative flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-6 cursor-pointer transition-all ${
         isDragOver
-          ? 'border-[#4A5D75] bg-[#4A5D75]/10'
-          : 'border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-600'
+          ? 'border-accent bg-accent-soft/40'
+          : 'border-edge-2 hover:border-accent/50'
       } ${status ? 'cursor-default' : ''}`}
     >
       <input
@@ -149,20 +149,20 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
 
       {status ? (
         <>
-          <Loader2 className="w-6 h-6 text-[#4A5D75] animate-spin" />
-          <p className="text-xs font-bold text-[#4A5D75]">{status}</p>
+          <Loader2 className="w-6 h-6 text-accent animate-spin" />
+          <p className="text-xs font-bold text-accent">{status}</p>
         </>
       ) : (
         <>
-          <Upload className="w-6 h-6 text-neutral-400" />
-          <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400 text-center">
+          <Upload className="w-6 h-6 text-ink-3" />
+          <p className="text-xs font-bold text-ink-2 text-center">
             Drop a document to add to your library
           </p>
-          <p className="text-[10px] text-neutral-400 text-center">Saved to ~/AgentForge/library/ · retrieved by agent on demand</p>
-          <p className="text-[10px] text-neutral-400 text-center">click to browse · 10MB max · text content only (no images)</p>
+          <p className="text-[10px] text-ink-3 text-center">Saved to ~/AgentForge/library/ · retrieved by agent on demand</p>
+          <p className="text-[10px] text-ink-3 text-center">click to browse · 10MB max · text content only (no images)</p>
           <div className="flex flex-wrap gap-1.5 mt-1 justify-center">
             {['PDF', 'TXT', 'MD', 'DOCX', 'CSV', 'JSON', 'HTML', 'XML'].map(t => (
-              <span key={t} className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 rounded-full">
+              <span key={t} className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-inset text-ink-2 rounded-full">
                 <FileText className="w-2.5 h-2.5" />{t}
               </span>
             ))}

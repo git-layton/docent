@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
+import { applyTheme, watchSystemTheme, DEFAULT_ACCENT, DEFAULT_THEME } from '../lib/theme';
+import type { ThemeMode } from '../lib/theme';
 
 export const LOCAL_PROVIDERS = ['ollama', 'lmstudio', 'native'] as const;
 
@@ -69,6 +71,12 @@ interface SettingsStore {
   fetchModelsError: string | null;
   pendingModelSelections: Array<{ id: string; context: number }>;
   modelTab: 'cloud' | 'local';
+
+  // Appearance
+  theme: ThemeMode;
+  accentColor: string;
+  setTheme: (mode: ThemeMode) => void;
+  setAccentColor: (accent: string) => void;
 
   // Onboarding
   onboardingComplete: boolean;
@@ -150,6 +158,19 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   showOnboarding: false,
   onboardingInitialStep: 1,
 
+  theme: DEFAULT_THEME,
+  accentColor: DEFAULT_ACCENT,
+  setTheme: (mode) => {
+    set({ theme: mode });
+    applyTheme(mode, get().accentColor);
+    void db.set('theme', mode);
+  },
+  setAccentColor: (accent) => {
+    set({ accentColor: accent });
+    applyTheme(get().theme, accent);
+    void db.set('accentColor', accent);
+  },
+
   setOnboardingComplete: (v) => set({ onboardingComplete: v }),
   setShowOnboarding: (v) => set({ showOnboarding: v }),
   setOnboardingInitialStep: (step) => set({ onboardingInitialStep: step }),
@@ -213,7 +234,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       delete savedIntegrations.googleWorkspace;
     }
     const onboardingComplete = await db.get('onboardingComplete', false);
+    const theme: ThemeMode = await db.get('theme', DEFAULT_THEME);
+    const accentColor: string = await db.get('accentColor', DEFAULT_ACCENT);
+    applyTheme(theme, accentColor);
+    watchSystemTheme(() => get().theme, () => get().accentColor);
     set(s => ({
+      theme,
+      accentColor,
       models,
       userName,
       userProfile,
@@ -226,7 +253,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   persist: async () => {
-    const { models, userName, userProfile, userAvatar, integrations, appSettings, selectedModelId, onboardingComplete } = get();
+    const { models, userName, userProfile, userAvatar, integrations, appSettings, selectedModelId, onboardingComplete, theme, accentColor } = get();
+    await db.set('theme', theme);
+    await db.set('accentColor', accentColor);
     await db.set('models', models);
     await db.set('userName', userName);
     await db.set('userProfile', userProfile);

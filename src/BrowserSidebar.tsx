@@ -175,14 +175,14 @@ function BrowserSidebar({ url, pageTitle, pageContent }: BrowserSidebarProps) {
   return (
     <div
       className={clsx(
-        'flex flex-col h-full border-l border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 transition-all duration-200',
+        'flex flex-col h-full border-l border-edge bg-panel transition-all duration-200',
         isOpen ? 'w-72' : 'w-10',
       )}
     >
       {/* Toggle button — always visible */}
       <button
         onClick={() => setIsOpen(v => !v)}
-        className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 shrink-0"
+        className="p-2 text-ink-3 hover:text-ink-2 shrink-0"
         title={isOpen ? 'Collapse sidebar' : 'Open AI assistant'}
       >
         {isOpen ? (
@@ -195,20 +195,20 @@ function BrowserSidebar({ url, pageTitle, pageContent }: BrowserSidebarProps) {
       {isOpen && (
         <>
           {/* 1. Page context strip */}
-          <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
+          <div className="px-3 py-2 border-b border-edge shrink-0">
             <div className="flex items-center gap-1.5 min-w-0">
-              <ExternalLink className="w-3 h-3 shrink-0 text-neutral-400" />
-              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
+              <ExternalLink className="w-3 h-3 shrink-0 text-ink-3" />
+              <span className="text-[10px] text-ink-2 truncate">
                 {pageTitle || getHostname(url)}
               </span>
             </div>
-            <p className="text-[9px] text-neutral-400 truncate mt-0.5">{url}</p>
+            <p className="text-[9px] text-ink-3 truncate mt-0.5">{url}</p>
           </div>
 
           {/* 2. Conversation area */}
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {messages.length === 0 && (
-              <p className="text-[11px] text-neutral-400 text-center mt-4">
+              <p className="text-[11px] text-ink-3 text-center mt-4">
                 Ask me anything about this page.
               </p>
             )}
@@ -224,8 +224,8 @@ function BrowserSidebar({ url, pageTitle, pageContent }: BrowserSidebarProps) {
                   className={clsx(
                     'max-w-[85%] px-3 py-2 rounded-xl text-[11px] leading-relaxed',
                     msg.role === 'user'
-                      ? 'bg-[#4A5D75] text-white rounded-br-sm'
-                      : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 rounded-bl-sm',
+                      ? 'bg-accent text-on-accent rounded-br-sm'
+                      : 'bg-inset text-ink rounded-bl-sm',
                   )}
                 >
                   <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -237,7 +237,7 @@ function BrowserSidebar({ url, pageTitle, pageContent }: BrowserSidebarProps) {
                           url,
                         }).catch(() => {})
                       }
-                      className="mt-1.5 text-[9px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 flex items-center gap-1"
+                      className="mt-1.5 text-[9px] text-ink-3 hover:text-ink-2 flex items-center gap-1"
                     >
                       <ExternalLink className="w-2.5 h-2.5" /> Send to chat
                     </button>
@@ -247,8 +247,8 @@ function BrowserSidebar({ url, pageTitle, pageContent }: BrowserSidebarProps) {
             ))}
             {isStreaming && messages[messages.length - 1]?.content === '' && (
               <div className="flex justify-start">
-                <div className="bg-neutral-100 dark:bg-neutral-800 px-3 py-2 rounded-xl">
-                  <Loader2 className="w-3 h-3 animate-spin text-neutral-400" />
+                <div className="bg-inset px-3 py-2 rounded-xl">
+                  <Loader2 className="w-3 h-3 animate-spin text-ink-3" />
                 </div>
               </div>
             )}
@@ -256,7 +256,7 @@ function BrowserSidebar({ url, pageTitle, pageContent }: BrowserSidebarProps) {
           </div>
 
           {/* 3. Input area */}
-          <div className="p-2 border-t border-neutral-100 dark:border-neutral-800 shrink-0">
+          <div className="p-2 border-t border-edge shrink-0">
             <div className="flex items-end gap-1.5">
               <textarea
                 value={input}
@@ -265,13 +265,13 @@ function BrowserSidebar({ url, pageTitle, pageContent }: BrowserSidebarProps) {
                 disabled={isStreaming}
                 placeholder="Ask about this page..."
                 rows={1}
-                className="flex-1 resize-none text-[11px] bg-neutral-100 dark:bg-neutral-800 rounded-lg px-2.5 py-2 outline-none focus:ring-1 ring-[#6A829E]/30 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 disabled:opacity-50"
+                className="flex-1 resize-none text-[11px] bg-inset rounded-lg px-2.5 py-2 outline-none focus:ring-1 ring-accent/30 text-ink placeholder:text-ink-3 disabled:opacity-50"
                 style={{ maxHeight: '80px', overflowY: 'auto' }}
               />
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || isStreaming}
-                className="p-2 rounded-lg bg-[#4A5D75] hover:bg-[#3D4D61] text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+                className="p-2 rounded-lg bg-accent hover:bg-accent-strong text-on-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
               >
                 <Send className="w-3.5 h-3.5" />
               </button>

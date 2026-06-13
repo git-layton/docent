@@ -11,6 +11,9 @@ interface UIStore {
   showConsole: boolean;
   logs: any[];
 
+  // New Space wizard (name + goal + invite)
+  showNewSpace: boolean;
+
   // Toast notifications
   toastMessage: string | null;
   toastAction: { label: string; onClick: () => void } | null;
@@ -65,6 +68,7 @@ interface UIStore {
   setIsAgentDropdownOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
   setIsModelDropdownOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
   setShowConsole: (v: boolean | ((prev: boolean) => boolean)) => void;
+  setShowNewSpace: (v: boolean) => void;
   addLog: (level: string, msg: string) => void;
   clearLogs: () => void;
   showToast: (msg: string, action?: { label: string; onClick: () => void }) => void;
@@ -107,6 +111,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isModelDropdownOpen: false,
   showConsole: false,
   logs: [],
+  showNewSpace: false,
   toastMessage: null,
   toastAction: null,
   input: '',
@@ -144,6 +149,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set(s => ({ isModelDropdownOpen: typeof v === 'function' ? v(s.isModelDropdownOpen) : v })),
   setShowConsole: (v) =>
     set(s => ({ showConsole: typeof v === 'function' ? v(s.showConsole) : v })),
+  setShowNewSpace: (v) => set({ showNewSpace: v }),
   addLog: (level, msg) =>
     set(s => ({ logs: [...s.logs.slice(-499), { time: new Date().toLocaleTimeString([], { hour12: false }), level, msg }] })),
   clearLogs: () => set({ logs: [] }),

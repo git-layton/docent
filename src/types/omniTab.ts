@@ -1,5 +1,5 @@
 export type OmniTabType = 'home' | 'space-log' | 'web' | 'doc' | 'code-canvas' | 'tool';
-export type ToolTabId = 'knowledge-graph' | 'planner' | 'inbox' | 'model-store' | 'calendar';
+export type ToolTabId = 'knowledge-graph' | 'planner' | 'inbox' | 'model-store' | 'calendar' | 'activity';
 
 export interface OmniTab {
   id: string;

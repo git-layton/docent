@@ -35,6 +35,6 @@ export const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 
   if (agent?.avatar?.type === 'image' && agent?.avatar?.value) {
     return <img src={agent.avatar.value} alt={agent.name} className={`${containerClass} p-0 object-cover`} style={{ width: '2.25rem', height: '2.25rem' }} />;
   }
-  const bg = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.bg ?? 'bg-[#4A5D75]';
+  const bg = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.bg ?? 'bg-accent';
   return <div className={`${containerClass} ${bg} flex items-center justify-center shrink-0`}><Bot className={`${sizeClass} text-white`} /></div>;
 };

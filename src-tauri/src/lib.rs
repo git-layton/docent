@@ -3302,6 +3302,60 @@ mod tests {
         );
     }
 
+    // Flexibility guard: build.rs auto-generates `allow-app-local` from `generate_handler!`, so
+    // every registered command (incl. anything newly built) is callable by the local UI/agents
+    // without hand-editing the ACL. This test fails loudly if that sync ever drifts — e.g. a
+    // command got registered but the generated allow-list wasn't refreshed.
+    #[test]
+    fn allow_app_local_covers_every_registered_command() {
+        // Commands registered in the single generate_handler![ ... ] block.
+        let src = include_str!("lib.rs");
+        const ANCHOR: &str = "generate_handler![";
+        let start = src.find(ANCHOR).expect("generate_handler![ present") + ANCHOR.len();
+        let len = src[start..].find(']').expect("handler closes");
+        let registered: std::collections::BTreeSet<String> = src[start..start + len]
+            .split(',')
+            .filter_map(|raw| {
+                let token = raw.split("//").next().unwrap_or("").trim();
+                let name = token.rsplit("::").next().unwrap_or("").trim();
+                let mut b = name.bytes();
+                let ok = match b.next() {
+                    Some(c) => {
+                        (c.is_ascii_alphabetic() || c == b'_')
+                            && b.all(|c| c.is_ascii_alphanumeric() || c == b'_')
+                    }
+                    None => false,
+                };
+                ok.then(|| name.to_string())
+            })
+            .collect();
+        assert!(registered.len() > 50, "parsed too few commands ({})", registered.len());
+
+        // Commands the generated `allow-app-local` permission grants (read from the built manifest).
+        let acl: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/gen/schemas/acl-manifests.json"
+            ))
+            .expect("read acl-manifests.json"),
+        )
+        .expect("parse acl-manifests.json");
+        let allowed: std::collections::BTreeSet<String> = acl["__app-acl__"]["permissions"]
+            ["allow-app-local"]["commands"]["allow"]
+            .as_array()
+            .expect("allow-app-local.commands.allow is an array")
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+
+        let missing: Vec<&String> = registered.difference(&allowed).collect();
+        assert!(
+            missing.is_empty(),
+            "these registered commands are not in allow-app-local — rebuild to regenerate \
+             permissions/app_local.gen.toml (build.rs codegen): {missing:?}"
+        );
+    }
+
     // ── normalize_path_lexically ──────────────────────────────────────────────
 
     #[test]

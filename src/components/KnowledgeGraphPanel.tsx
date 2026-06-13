@@ -15,13 +15,13 @@ class GraphErrorBoundary extends Component<{ children: ReactNode }, { error: Err
   render() {
     if (this.state.error) {
       return (
-        <div className="flex flex-col items-center justify-center h-full gap-3 text-neutral-400">
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-ink-3">
           <span className="text-2xl">📊</span>
           <p className="text-xs font-bold uppercase tracking-widest">Graph renderer unavailable</p>
-          <p className="text-[10px] text-neutral-500 max-w-xs text-center">{this.state.error.message}</p>
+          <p className="text-[10px] text-ink-3 max-w-xs text-center">{this.state.error.message}</p>
           <button
             onClick={() => this.setState({ error: null })}
-            className="text-[10px] px-3 py-1.5 rounded-lg bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.1)] transition-colors"
+            className="text-[10px] px-3 py-1.5 rounded-lg bg-wash hover:bg-inset transition-colors"
           >
             Try again
           </button>
@@ -230,17 +230,17 @@ export function KnowledgeGraphPanel() {
   );
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-neutral-900 overflow-hidden">
+    <div className="flex flex-col h-full bg-panel overflow-hidden">
       {/* Toolbar */}
-      <div className="shrink-0 px-4 py-2.5 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3 flex-wrap">
-        <span className="text-xs font-black uppercase tracking-widest text-neutral-800 dark:text-neutral-200 shrink-0">
+      <div className="shrink-0 px-4 py-2.5 border-b border-edge flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-black uppercase tracking-widest text-ink shrink-0">
           Knowledge Graph
         </span>
 
         <div className="relative flex-1 min-w-32 max-w-56">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-3" />
           <input
-            className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-lg pl-7 pr-3 py-1.5 text-[10px] font-bold outline-none focus:ring-1 ring-[#6A829E]/30"
+            className="w-full bg-inset rounded-lg pl-7 pr-3 py-1.5 text-[10px] font-bold outline-none focus:ring-1 ring-accent/30"
             placeholder="Search nodes..."
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -254,8 +254,8 @@ export function KnowledgeGraphPanel() {
               onClick={() => setTypeFilter(t)}
               className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
                 typeFilter === t
-                  ? 'bg-[#4A5D75] text-white'
-                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'
+                  ? 'bg-accent text-on-accent'
+                  : 'bg-inset text-ink-3 hover:text-ink-2'
               }`}
             >
               {t}
@@ -263,7 +263,7 @@ export function KnowledgeGraphPanel() {
           ))}
         </div>
 
-        <span className="ml-auto shrink-0 text-[9px] font-black uppercase tracking-widest text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded-lg">
+        <span className="ml-auto shrink-0 text-[9px] font-black uppercase tracking-widest text-ink-3 bg-inset px-2 py-1 rounded-lg">
           {filteredNodes.length} nodes · {filteredEdges.length} edges
         </span>
       </div>
@@ -272,11 +272,11 @@ export function KnowledgeGraphPanel() {
       <div className="flex flex-1 overflow-hidden relative">
         <div ref={containerRef} className="flex-1 overflow-hidden">
           {loading ? (
-            <div className="flex items-center justify-center h-full text-xs text-neutral-400 font-bold uppercase tracking-widest">
+            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest">
               Loading...
             </div>
           ) : filteredNodes.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-xs text-neutral-400 font-bold uppercase tracking-widest">
+            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest">
               No nodes match filter
             </div>
           ) : (
@@ -308,12 +308,12 @@ export function KnowledgeGraphPanel() {
 
         {/* Detail sidebar */}
         {sidebarOpen && selectedNode && (
-          <div className="w-[280px] shrink-0 border-l border-neutral-200 dark:border-neutral-800 flex flex-col overflow-hidden bg-white dark:bg-neutral-900">
-            <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between shrink-0">
-              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Node Detail</span>
+          <div className="w-[280px] shrink-0 border-l border-edge flex flex-col overflow-hidden bg-panel">
+            <div className="px-4 py-3 border-b border-edge flex items-center justify-between shrink-0">
+              <span className="text-[10px] font-black uppercase tracking-widest text-ink-3">Node Detail</span>
               <button
                 onClick={() => { setSidebarOpen(false); setSelectedNode(null); setHighlightIds(new Set()); }}
-                className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                className="p-1 rounded-lg text-ink-3 hover:text-ink-2 hover:bg-wash transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -321,8 +321,8 @@ export function KnowledgeGraphPanel() {
 
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 no-scrollbar">
               <div className="space-y-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Label</p>
-                <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{selectedNode.label}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">Label</p>
+                <p className="text-sm font-bold text-ink">{selectedNode.label}</p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -337,20 +337,20 @@ export function KnowledgeGraphPanel() {
 
               {selectedNode.source_url && (
                 <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">URL</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">URL</p>
                   <p className="text-[10px] text-[#38bdf8] break-all">{selectedNode.source_url}</p>
                 </div>
               )}
               {selectedNode.source_path && (
                 <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Path</p>
-                  <p className="text-[10px] text-neutral-500 dark:text-neutral-400 break-all">{selectedNode.source_path}</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">Path</p>
+                  <p className="text-[10px] text-ink-2 break-all">{selectedNode.source_path}</p>
                 </div>
               )}
 
               {selectedNodeEdges.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">
                     Edges ({selectedNodeEdges.length})
                   </p>
                   <div className="space-y-1.5">
@@ -363,14 +363,14 @@ export function KnowledgeGraphPanel() {
                       return (
                         <div
                           key={i}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-neutral-50 dark:bg-neutral-800 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-inset cursor-pointer hover:bg-wash transition-colors"
                           onClick={() => {
                             if (otherNode) handleNodeClick(otherNode as any);
                           }}
                         >
-                          <span className="text-[9px] text-neutral-400 font-bold shrink-0">{isOut ? '→' : '←'}</span>
-                          <span className="text-[9px] text-neutral-500 dark:text-neutral-400 font-bold italic shrink-0">{e.relation}</span>
-                          <span className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 truncate">
+                          <span className="text-[9px] text-ink-3 font-bold shrink-0">{isOut ? '→' : '←'}</span>
+                          <span className="text-[9px] text-ink-2 font-bold italic shrink-0">{e.relation}</span>
+                          <span className="text-[10px] font-bold text-ink-2 truncate">
                             {otherNode?.label ?? otherId}
                           </span>
                         </div>

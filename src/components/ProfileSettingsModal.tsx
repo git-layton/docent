@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
-  MessageSquare, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink
+  MessageSquare, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
+  Sun, Moon, Monitor, Check
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -27,8 +29,10 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const imageEngineModels = useSettingsStore(s => s.imageEngineModels);
   const isFetchingImageModels = useSettingsStore(s => s.isFetchingImageModels);
   const models = useSettingsStore(s => s.models);
+  const theme = useSettingsStore(s => s.theme);
+  const accentColor = useSettingsStore(s => s.accentColor);
   const { setUserName, setUserProfile, setUserAvatar, setIntegrations, setAppSettings, setProfileSettingsTab,
-    setImageTestState, setImageEngineModels, setShowProfileSettings } = useSettingsStore.getState();
+    setImageTestState, setImageEngineModels, setShowProfileSettings, setTheme, setAccentColor } = useSettingsStore.getState();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -138,13 +142,13 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); };
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-      <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white flex flex-col max-h-[90vh]">
+      <div className="bg-panel w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center mb-6 shrink-0">
-          <div className="flex items-center gap-3"><div className="p-2 bg-neutral-900 dark:bg-white rounded-xl"><Settings className="w-6 h-6 text-white dark:text-neutral-900" /></div><h3 className="text-xl font-black tracking-tighter uppercase">System Settings</h3></div>
-          <button onClick={onClose} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><Settings className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">System Settings</h3></div>
+          <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
         </div>
-        <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 mb-6 shrink-0">
-          {['profile', 'integrations'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-primary border-b-2 border-primary' : 'text-neutral-400'}`}>{tab === 'profile' ? 'My Profile' : 'Integrations'}</button>)}
+        <div className="flex gap-1 border-b border-edge mb-6 shrink-0">
+          {['profile', 'appearance', 'integrations'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-primary border-b-2 border-primary' : 'text-ink-3'}`}>{tab === 'profile' ? 'My Profile' : tab === 'appearance' ? 'Appearance' : 'Integrations'}</button>)}
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
           {profileSettingsTab === 'profile' ? (
@@ -153,7 +157,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               <div className="mb-6 flex items-center gap-5">
                 <div className="relative shrink-0">
                   {userAvatar ? (
-                    <img src={userAvatar} alt="Avatar" className="w-20 h-20 rounded-2xl object-cover border-2 border-neutral-200 dark:border-neutral-700 shadow-md" />
+                    <img src={userAvatar} alt="Avatar" className="w-20 h-20 rounded-2xl object-cover border-2 border-edge-2 shadow-md" />
                   ) : (
                     <div className="w-20 h-20 rounded-2xl bg-[#9EADC8] flex items-center justify-center shadow-md">
                       <span className="text-3xl font-black text-white uppercase select-none">
@@ -172,11 +176,11 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   )}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <p className="text-xs font-bold text-neutral-700 dark:text-neutral-300">Profile Photo</p>
+                  <p className="text-xs font-bold text-ink-2">Profile Photo</p>
                   <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-xl text-xs font-bold transition-all"
+                    className="flex items-center gap-2 px-4 py-2 bg-wash hover:bg-inset rounded-xl text-xs font-bold transition-all"
                   >
                     <Upload className="w-3.5 h-3.5" /> Upload Photo
                   </button>
@@ -193,58 +197,58 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   value={userName}
                   onChange={e => setUserName(e.target.value)}
                   placeholder="What should we call you?"
-                  className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-3 text-sm font-medium outline-none focus:border-secondary dark:text-neutral-100"
+                  className="w-full bg-inset border-2 border-edge-2 rounded-2xl px-5 py-3 text-sm font-medium outline-none focus:border-secondary "
                 />
-                <p className="text-tiny text-neutral-400 mt-1.5 font-medium">All agents will address you by this name.</p>
+                <p className="text-tiny text-ink-3 mt-1.5 font-medium">All agents will address you by this name.</p>
               </div>
               <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">About Me (Global Context)</label>
-              <textarea value={userProfile} onChange={e => setUserProfile(e.target.value)} rows={8} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-secondary dark:text-neutral-100" placeholder="" />
+              <textarea value={userProfile} onChange={e => setUserProfile(e.target.value)} rows={8} className="w-full bg-inset border-2 border-edge-2 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-secondary " placeholder="" />
 
               {/* Automated Profile Update Toggle */}
-              <div className="mt-6 flex items-center justify-between p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
+              <div className="mt-6 flex items-center justify-between p-4 rounded-2xl border border-edge bg-inset ">
                  <div className="flex flex-col">
-                    <span className="text-sm font-bold dark:text-neutral-200 block">Allow Profile Updates</span>
-                    <span className="text-tiny text-neutral-500 font-medium tracking-wide">AI can autonomously propose updates to your profile from chat conversations.</span>
+                    <span className="text-sm font-bold block">Allow Profile Updates</span>
+                    <span className="text-tiny text-ink-3 font-medium tracking-wide">AI can autonomously propose updates to your profile from chat conversations.</span>
                  </div>
-                 <button onClick={() => setAppSettings((prev: any) => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-primary' : 'bg-neutral-300 dark:bg-neutral-700'}`}>
+                 <button onClick={() => setAppSettings((prev: any) => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-primary' : 'bg-inset '}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.allowProfileUpdates ? 'right-0.5' : 'left-0.5'}`} />
                  </button>
               </div>
 
               {/* User Guide section */}
-              <div className="border-t border-neutral-200 dark:border-neutral-800 pt-4 mt-4">
+              <div className="border-t border-edge pt-4 mt-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <BookOpen className="w-4 h-4 text-secondary shrink-0" />
                     <div>
-                      <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">User Guide</p>
-                      <p className="text-xs text-neutral-500 mt-0.5">Agent Forge 2.0 help docs in your Knowledge Core</p>
+                      <p className="text-sm font-bold text-ink">User Guide</p>
+                      <p className="text-xs text-ink-3 mt-0.5">Agent Forge 2.0 help docs in your Knowledge Core</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {guideStatus === 'installed' ? (
                       <>
                         <span className="text-tiny font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Installed</span>
-                        <button onClick={handleDeleteGuide} className="text-xs text-neutral-400 hover:text-rose-500 transition-colors">Remove</button>
+                        <button onClick={handleDeleteGuide} className="text-xs text-ink-3 hover:text-rose-500 transition-colors">Remove</button>
                       </>
                     ) : guideStatus === 'deleted' ? (
                       <>
-                        <span className="text-tiny font-black uppercase tracking-widest text-neutral-400">Not installed</span>
+                        <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Not installed</span>
                         <button onClick={handleRestoreGuide} className="text-xs font-bold text-primary hover:text-primary-hover transition-colors">Restore</button>
                       </>
                     ) : (
-                      <span className="text-tiny text-neutral-400">...</span>
+                      <span className="text-tiny text-ink-3">...</span>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Setup Wizard */}
-              <div className="border-t border-neutral-200 dark:border-neutral-800 pt-4 mt-4">
+              <div className="border-t border-edge pt-4 mt-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">Setup Wizard</p>
-                    <p className="text-xs text-neutral-500 mt-0.5">Re-run the model setup and recommendations</p>
+                    <p className="text-sm font-bold text-ink">Setup Wizard</p>
+                    <p className="text-xs text-ink-3 mt-0.5">Re-run the model setup and recommendations</p>
                   </div>
                   <button
                     onClick={async () => {
@@ -261,19 +265,74 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
             </div>
+          ) : profileSettingsTab === 'appearance' ? (
+            <div className="space-y-6">
+              {/* Theme mode */}
+              <div>
+                <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Theme</label>
+                <div className="inline-flex rounded-full border border-edge-2 p-1 gap-1">
+                  {([
+                    { id: 'light', label: 'Light', icon: Sun },
+                    { id: 'dark', label: 'Dark', icon: Moon },
+                    { id: 'system', label: 'System', icon: Monitor },
+                  ] as const).map(({ id, label, icon: Icon }) => (
+                    <button
+                      key={id}
+                      onClick={() => setTheme(id)}
+                      className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                        theme === id
+                          ? 'bg-accent text-on-accent'
+                          : 'text-ink-3 hover:bg-wash'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" /> {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-tiny text-ink-3 mt-1.5 font-medium">System follows your OS light/dark preference.</p>
+              </div>
+
+              {/* Accent color */}
+              <div>
+                <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Accent Color</label>
+                <div className="flex gap-3 flex-wrap">
+                  {ACCENT_OPTIONS.map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setAccentColor(opt.id)}
+                      title={opt.label}
+                      className={`flex flex-col items-center gap-1.5 group`}
+                    >
+                      <span
+                        className={`w-9 h-9 rounded-full transition-all flex items-center justify-center ${
+                          accentColor === opt.id
+                            ? 'ring-2 ring-offset-2 ring-accent ring-offset-panel scale-105'
+                            : 'group-hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: opt.swatch }}
+                      >
+                        {accentColor === opt.id && <Check className="w-4 h-4 text-white drop-shadow" />}
+                      </span>
+                      <span className={`text-tiny font-bold ${accentColor === opt.id ? 'text-accent' : 'text-ink-3'}`}>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-tiny text-ink-3 mt-2 font-medium">Buttons, highlights, and your chat bubbles pick up this color everywhere.</p>
+              </div>
+            </div>
           ) : (
             <div className="space-y-6">
 
               {/* Image Generation Tooling - Engineered UX */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-6">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
                  <div>
                     <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><ImageIcon className="w-4 h-4 text-accent" /> Image Engine</h4>
-                    <p className="text-xs text-neutral-500 font-medium">Configure your preferred AI image generator API. Keys are stored locally.</p>
+                    <p className="text-xs text-ink-3 font-medium">Configure your preferred AI image generator API. Keys are stored locally.</p>
                  </div>
 
                  <div>
                     <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Provider</label>
-                    <select value={appSettings.imageProvider} onChange={e => { setAppSettings((prev: any) => ({ ...prev, imageProvider: e.target.value, imageModelId: '', imageEndpoint: '' })); setImageTestState({loading:false, error:null, successUrl:null}); setImageEngineModels([]); }} className="w-full bg-neutral-50 dark:bg-neutral-800 border-2 border-neutral-100 dark:border-neutral-700 rounded-xl px-4 py-3 text-xs outline-none focus:border-secondary font-bold">
+                    <select value={appSettings.imageProvider} onChange={e => { setAppSettings((prev: any) => ({ ...prev, imageProvider: e.target.value, imageModelId: '', imageEndpoint: '' })); setImageTestState({loading:false, error:null, successUrl:null}); setImageEngineModels([]); }} className="w-full bg-inset border-2 border-edge-2 rounded-xl px-4 py-3 text-xs outline-none focus:border-secondary font-bold">
                        <option value="none">Disabled</option>
                        <option value="openai">OpenAI (DALL-E & Compatible)</option>
                        <option value="google">Google (Imagen)</option>
@@ -283,7 +342,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
                  {/* Dynamic API Key Reveal & Testing */}
                  {appSettings.imageProvider !== 'none' && (
-                    <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-neutral-50 dark:bg-neutral-950 p-4 rounded-2xl border border-neutral-100 dark:border-neutral-800 flex flex-col gap-4">
+                    <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
                        {/* Key Handling */}
                        {appSettings.imageProvider === 'google' && hasImplicitGoogleKey ? (
@@ -296,7 +355,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                           </div>
                        ) : (
                           <div className="flex flex-col gap-2">
-                             <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">API Key</label>
+                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
                              <input
                                 type="password"
                                 value={
@@ -311,7 +370,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                                    else setIntegrations((prev: any) => ({ ...prev, customImage: { apiKey: val } }));
                                 }}
                                 placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
-                                className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
                              />
                           </div>
                        )}
@@ -319,28 +378,28 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                        {/* Custom Endpoint Field */}
                        {appSettings.imageProvider === 'custom' && (
                           <div className="flex flex-col gap-2">
-                             <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">Custom Base URL</label>
+                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Custom Base URL</label>
                              <input
                                 type="text"
                                 value={appSettings.imageEndpoint || ''}
                                 onChange={e => setAppSettings((prev: any) => ({ ...prev, imageEndpoint: e.target.value }))}
                                 placeholder="https://your-custom-endpoint.com/v1"
-                                className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
                              />
                           </div>
                        )}
 
                        {/* Fetch Models & Model Selection */}
-                       <div className="flex flex-col gap-2 border-t border-neutral-200 dark:border-neutral-800 pt-4">
+                       <div className="flex flex-col gap-2 border-t border-edge pt-4">
                            <div className="flex items-center justify-between">
-                              <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">Target Model ID</label>
+                              <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Target Model ID</label>
                               <button onClick={fetchImageModels} disabled={isFetchingImageModels || !activeImageKey} className="text-tiny font-black uppercase tracking-widest text-primary hover:text-primary-dark dark:text-secondary-light dark:hover:text-white disabled:opacity-50 transition-all flex items-center gap-1">
                                   {isFetchingImageModels ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />} Fetch Models
                               </button>
                            </div>
 
                            {imageEngineModels.length > 0 ? (
-                               <select value={appSettings.imageModelId || ''} onChange={e => setAppSettings((prev: any) => ({ ...prev, imageModelId: e.target.value }))} className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-bold transition-all">
+                               <select value={appSettings.imageModelId || ''} onChange={e => setAppSettings((prev: any) => ({ ...prev, imageModelId: e.target.value }))} className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-bold transition-all">
                                    <option value="" disabled>Select a model...</option>
                                    {imageEngineModels.map(m => <option key={m} value={m}>{m}</option>)}
                                </select>
@@ -350,17 +409,17 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                                   value={appSettings.imageModelId || ''}
                                   onChange={e => setAppSettings((prev: any) => ({ ...prev, imageModelId: e.target.value }))}
                                   placeholder={appSettings.imageProvider === 'google' ? "e.g. imagen-3.0-generate-001" : "e.g. dall-e-3"}
-                                  className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                                  className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
                                />
                            )}
                        </div>
 
                        {/* TEST INTEGRATION BLOCK */}
-                       <div className="pt-4 border-t border-neutral-200 dark:border-neutral-800 flex flex-col gap-3">
+                       <div className="pt-4 border-t border-edge flex flex-col gap-3">
                           <button
                              onClick={testImageEngine}
                              disabled={imageTestState.loading || !activeImageKey || !appSettings.imageModelId}
-                             className="flex items-center justify-center gap-2 w-full py-3 bg-surface hover:bg-[#D6E0EA] text-primary dark:bg-[#1E2B38]/30 dark:hover:bg-[#1E2B38]/50 dark:text-secondary-light rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                             className="flex items-center justify-center gap-2 w-full py-3 bg-accent-soft hover:bg-wash text-accent-soft-ink rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
                           >
                              {imageTestState.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                              {imageTestState.loading ? 'Testing...' : 'Test Connection (Cat in Banana Costume)'}
@@ -378,7 +437,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                               </div>
                           )}
                           {imageTestState.successUrl && (
-                              <div className="p-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm text-center animate-in fade-in zoom-in-95">
+                              <div className="p-2 bg-panel rounded-xl border border-edge-2 shadow-sm text-center animate-in fade-in zoom-in-95">
                                   <img src={imageTestState.successUrl} alt="Test Success" className="w-full max-w-[200px] h-auto rounded-lg mx-auto mb-2 cursor-pointer" onClick={() => viewImageInCanvas(imageTestState.successUrl as string)} title="View full size in Canvas" />
                                   <span className="text-tiny font-black uppercase tracking-widest text-success-light flex items-center justify-center gap-1 mt-2"><ShieldCheck className="w-3 h-3" /> Connection Successful</span>
                               </div>
@@ -389,65 +448,65 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
                  {/* Output Preference */}
                  {appSettings.imageProvider !== 'none' && (
-                     <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800">
+                     <div className="pt-2 border-t border-edge ">
                         <span className="text-tiny font-black uppercase opacity-50 mb-3 block tracking-widest">Image Delivery Method</span>
-                        <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1.5 rounded-xl">
-                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'canvas' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'canvas' ? 'bg-white dark:bg-neutral-700 shadow-sm text-primary dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>Canvas Artifact</button>
-                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white dark:bg-neutral-700 shadow-sm text-primary dark:text-white' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}`}>In-Chat Message</button>
+                        <div className="flex bg-wash p-1.5 rounded-xl">
+                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'canvas' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'canvas' ? 'bg-white  shadow-sm text-primary dark:text-white' : 'text-ink-3 hover:text-ink-2 dark:hover:text-ink-2'}`}>Canvas Artifact</button>
+                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white  shadow-sm text-primary dark:text-white' : 'text-ink-3 hover:text-ink-2 dark:hover:text-ink-2'}`}>In-Chat Message</button>
                         </div>
                      </div>
                  )}
               </div>
 
               {/* Brave Search Integration */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                      <div className="flex items-center gap-3">
                          <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl shadow-sm border border-orange-100 dark:border-orange-800"><Globe className="w-5 h-5 text-orange-500" /></div>
                          <div className="flex flex-col">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Brave Search</span>
+                              <span className="text-sm font-black uppercase tracking-widest block">Brave Search</span>
                               <span className="text-micro font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400">2,000 free/mo</span>
                             </div>
-                            <span className="text-xs text-neutral-500 font-medium mt-0.5">Privacy-focused web search. Free tier included. <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" className="text-secondary hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
+                            <span className="text-xs text-ink-3 font-medium mt-0.5">Privacy-focused web search. Free tier included. <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" className="text-secondary hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
                          </div>
                      </div>
                      <button onClick={() => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, enabled: !prev.brave?.enabled } }))} className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${integrations.brave?.enabled ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-primary text-white hover:bg-primary-hover'}`}>{integrations.brave?.enabled ? 'Enabled' : 'Enable'}</button>
                  </div>
                  {integrations.brave?.enabled && (
-                    <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
-                       <input type="password" value={integrations.brave?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, apiKey: e.target.value } }))} placeholder="Paste your BSA... API key here" className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all" />
+                    <div className="animate-in slide-in-from-top-2 pt-4 border-t border-edge ">
+                       <input type="password" value={integrations.brave?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, apiKey: e.target.value } }))} placeholder="Paste your BSA... API key here" className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all" />
                     </div>
                  )}
               </div>
 
               {/* Tavily Web Search Integration */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                      <div className="flex items-center gap-3">
-                         <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Globe className="w-5 h-5 text-secondary" /></div>
+                         <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2"><Globe className="w-5 h-5 text-secondary" /></div>
                          <div className="flex flex-col">
-                            <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Tavily Web Search</span>
-                            <span className="text-xs text-neutral-500 font-medium mt-0.5">1,000 free AI searches/month. <a href="https://tavily.com" target="_blank" rel="noreferrer" className="text-secondary hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
+                            <span className="text-sm font-black uppercase tracking-widest block">Tavily Web Search</span>
+                            <span className="text-xs text-ink-3 font-medium mt-0.5">1,000 free AI searches/month. <a href="https://tavily.com" target="_blank" rel="noreferrer" className="text-secondary hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
                          </div>
                      </div>
                      <button onClick={() => setIntegrations((prev: any) => ({ ...prev, tavily: { ...prev.tavily, enabled: !prev.tavily?.enabled } }))} className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${integrations.tavily?.enabled ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-primary text-white hover:bg-primary-hover'}`}>{integrations.tavily?.enabled ? 'Enabled' : 'Enable'}</button>
                  </div>
                  {integrations.tavily?.enabled && (
-                    <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800">
-                       <input type="password" value={integrations.tavily?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, tavily: { ...prev.tavily, apiKey: e.target.value } }))} placeholder="Paste your tvly-... API key here" className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all" />
+                    <div className="animate-in slide-in-from-top-2 pt-4 border-t border-edge ">
+                       <input type="password" value={integrations.tavily?.apiKey || ''} onChange={e => setIntegrations((prev: any) => ({ ...prev, tavily: { ...prev.tavily, apiKey: e.target.value } }))} placeholder="Paste your tvly-... API key here" className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all" />
                     </div>
                  )}
               </div>
 
               {/* Slack Integration */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><MessageSquare className="w-5 h-5 text-secondary" /></div>
+                    <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2"><MessageSquare className="w-5 h-5 text-secondary" /></div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Slack</span>
-                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Let agents search messages and post to channels. Requires a Slack bot token.</span>
+                      <span className="text-sm font-black uppercase tracking-widest block">Slack</span>
+                      <span className="text-xs text-ink-3 font-medium mt-0.5">Let agents search messages and post to channels. Requires a Slack bot token.</span>
                     </div>
                   </div>
                   <button
@@ -456,17 +515,17 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   >{integrations.slack?.enabled ? 'Enabled' : 'Enable'}</button>
                 </div>
                 {integrations.slack?.enabled && (
-                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
-                    <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">Bot Token</label>
+                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-edge flex flex-col gap-3">
+                    <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Bot Token</label>
                     <input
                       type="password"
                       value={integrations.slack?.botToken || ''}
                       onChange={e => setIntegrations((prev: any) => ({ ...prev, slack: { ...prev.slack, botToken: e.target.value } }))}
                       placeholder="xoxb-..."
-                      className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
+                      className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
                     />
-                    <p className="text-tiny text-neutral-400 leading-relaxed">
-                      Create a Slack app at <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">api.slack.com/apps</span> → OAuth &amp; Permissions → add scopes: <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">channels:history, channels:read, chat:write, search:read</span> → install to workspace → copy Bot User OAuth Token.
+                    <p className="text-tiny text-ink-3 leading-relaxed">
+                      Create a Slack app at <span className="font-mono bg-wash px-1 rounded">api.slack.com/apps</span> → OAuth &amp; Permissions → add scopes: <span className="font-mono bg-wash px-1 rounded">channels:history, channels:read, chat:write, search:read</span> → install to workspace → copy Bot User OAuth Token.
                     </p>
                     {integrations.slack?.botToken && (
                       <div className="flex items-center gap-2 text-tiny font-black uppercase tracking-widest text-success-light">
@@ -479,15 +538,15 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
               {/* Mail accounts (IMAP) — multi-account, app-password, no web login.
                   Replaces the old Google Workspace OAuth card. */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700">
+                    <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2">
                       <Mail className="w-5 h-5 text-secondary" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">Mail accounts</span>
-                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Gmail &amp; iCloud over IMAP — app password, no web login. Add as many as you like.</span>
+                      <span className="text-sm font-black uppercase tracking-widest block">Mail accounts</span>
+                      <span className="text-xs text-ink-3 font-medium mt-0.5">Gmail &amp; iCloud over IMAP — app password, no web login. Add as many as you like.</span>
                     </div>
                   </div>
                   {!addingMail && (
@@ -500,37 +559,37 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
                 {/* Connected accounts */}
                 {mailAccounts.length === 0 && !addingMail && (
-                  <p className="text-tiny text-neutral-400 text-center py-2">No mail accounts yet. Click "Add account" to connect Gmail or iCloud.</p>
+                  <p className="text-tiny text-ink-3 text-center py-2">No mail accounts yet. Click "Add account" to connect Gmail or iCloud.</p>
                 )}
                 {mailAccounts.map(acct => (
-                  <div key={acct.id} className="flex items-center gap-3 pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                  <div key={acct.id} className="flex items-center gap-3 pt-4 border-t border-edge ">
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: acct.provider === 'gmail' ? '#D85A30' : '#378ADD' }} />
                     <div className="flex flex-col min-w-0 flex-1">
-                      <span className="text-sm font-bold truncate dark:text-neutral-200">{acct.email}</span>
-                      <span className="text-tiny font-medium text-neutral-400">{acct.provider === 'gmail' ? 'Gmail' : 'iCloud'} · IMAP connected</span>
+                      <span className="text-sm font-bold truncate ">{acct.email}</span>
+                      <span className="text-tiny font-medium text-ink-3">{acct.provider === 'gmail' ? 'Gmail' : 'iCloud'} · IMAP connected</span>
                     </div>
                     <CheckCircle2 className="w-4 h-4 text-success-light shrink-0" />
-                    <button onClick={() => handleMailRemove(acct.email)} className="p-2 text-neutral-400 hover:text-error transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => handleMailRemove(acct.email)} className="p-2 text-ink-3 hover:text-error transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 ))}
 
                 {/* Add-account flow */}
                 {addingMail && (
-                  <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-4 animate-in slide-in-from-top-2">
+                  <div className="pt-4 border-t border-edge flex flex-col gap-4 animate-in slide-in-from-top-2">
                     <div className="flex gap-2">
                       {(['gmail', 'icloud'] as const).map(p => (
                         <button
                           key={p}
                           onClick={() => { setMailProvider(p); setMailStatus({ state: 'idle' }); }}
-                          className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${mailProvider === p ? 'bg-surface dark:bg-[#1E2B38]/40 border-primary/30 text-primary dark:text-secondary-light' : 'border-neutral-200 dark:border-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'}`}
+                          className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${mailProvider === p ? 'bg-accent-soft border-accent/30 text-accent-soft-ink' : 'border-edge-2 text-ink-3 hover:text-ink-2'}`}
                         >{p === 'gmail' ? 'Gmail' : 'iCloud'}</button>
                       ))}
                     </div>
 
                     {/* Step 1 — generate the app password in the real browser (the in-app login is what's blocked) */}
-                    <div className="rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40 p-4 flex flex-col gap-3">
-                      <span className="text-tiny font-black uppercase tracking-widest text-neutral-500">Step 1 · Get your app password</span>
-                      <ol className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
+                    <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
+                      <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Step 1 · Get your app password</span>
+                      <ol className="text-xs text-ink-3 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
                         {mailProvider === 'gmail' ? (
                           <>
                             <li>Open the page below — it signs in with your real browser.</li>
@@ -552,26 +611,26 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                         className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
                       ><ExternalLink className="w-3.5 h-3.5" /> {mailProvider === 'gmail' ? 'Open Gmail app passwords' : 'Open Apple ID page'}</button>
                       {mailProvider === 'gmail' && (
-                        <p className="text-tiny text-neutral-400 leading-relaxed">Page says it's unavailable? Switch on 2-Step Verification in your Google account first, then reopen it.</p>
+                        <p className="text-tiny text-ink-3 leading-relaxed">Page says it's unavailable? Switch on 2-Step Verification in your Google account first, then reopen it.</p>
                       )}
                     </div>
 
                     {/* Step 2 — paste it back and connect */}
-                    <div className="rounded-2xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40 p-4 flex flex-col gap-3">
-                      <span className="text-tiny font-black uppercase tracking-widest text-neutral-500">Step 2 · Connect</span>
+                    <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
+                      <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Step 2 · Connect</span>
                       <input
                         type="email"
                         value={mailEmail}
                         onChange={e => setMailEmail(e.target.value)}
                         placeholder={mailProvider === 'gmail' ? 'you@gmail.com' : 'you@icloud.com'}
-                        className="w-full bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
+                        className="w-full bg-white border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
                       />
                       <input
                         type="password"
                         value={mailPassword}
                         onChange={e => setMailPassword(e.target.value)}
                         placeholder="Paste the app password (spaces ok)"
-                        className="w-full bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
+                        className="w-full bg-white border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
                       />
                       <div className="flex items-center gap-3 flex-wrap">
                         <button
@@ -584,14 +643,14 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                         </button>
                         <button
                           onClick={() => { setAddingMail(false); setMailStatus({ state: 'idle' }); }}
-                          className="px-4 py-2.5 rounded-xl text-xs font-bold text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-all"
+                          className="px-4 py-2.5 rounded-xl text-xs font-bold text-ink-3 hover:text-ink-2 transition-all"
                         >Cancel</button>
                       </div>
                       {mailStatus.state === 'error' && (
                         <div className="text-tiny font-bold text-error break-words flex flex-col gap-1">
                           <span>✗ {mailStatus.msg}</span>
                           {/application-specific|app password|app-specific|185833/i.test(mailStatus.msg ?? '') && (
-                            <span className="text-neutral-400 font-medium">↑ That looks like your normal password. Use the app password from Step 1.</span>
+                            <span className="text-ink-3 font-medium">↑ That looks like your normal password. Use the app password from Step 1.</span>
                           )}
                         </div>
                       )}
@@ -601,13 +660,13 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               </div>
 
               {/* GUS — Salesforce Agile Accelerator */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col gap-4">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="p-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-100 dark:border-neutral-700"><Layers className="w-5 h-5 text-secondary" /></div>
+                    <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2"><Layers className="w-5 h-5 text-secondary" /></div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200 block">GUS</span>
-                      <span className="text-xs text-neutral-500 font-medium mt-0.5">Salesforce Agile Accelerator — query work items, stories, and sprints.</span>
+                      <span className="text-sm font-black uppercase tracking-widest block">GUS</span>
+                      <span className="text-xs text-ink-3 font-medium mt-0.5">Salesforce Agile Accelerator — query work items, stories, and sprints.</span>
                     </div>
                   </div>
                   <button
@@ -616,29 +675,29 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   >{integrations.gus?.enabled ? 'Enabled' : 'Enable'}</button>
                 </div>
                 {integrations.gus?.enabled && (
-                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-neutral-100 dark:border-neutral-800 flex flex-col gap-3">
+                  <div className="animate-in slide-in-from-top-2 pt-4 border-t border-edge flex flex-col gap-3">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">Salesforce Instance URL</label>
+                      <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Salesforce Instance URL</label>
                       <input
                         type="text"
                         value={integrations.gus?.instanceUrl || ''}
                         onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, instanceUrl: e.target.value } }))}
                         placeholder="https://yourorg.my.salesforce.com"
-                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
+                        className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-tiny font-black uppercase tracking-widest text-neutral-500">Access Token / Session ID</label>
+                      <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Access Token / Session ID</label>
                       <input
                         type="password"
                         value={integrations.gus?.accessToken || ''}
                         onChange={e => setIntegrations((prev: any) => ({ ...prev, gus: { ...prev.gus, accessToken: e.target.value } }))}
                         placeholder="00Dxx0000..."
-                        className="w-full bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
+                        className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
                       />
                     </div>
-                    <p className="text-tiny text-neutral-400 leading-relaxed">
-                      Get a session token via Salesforce CLI: <span className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 rounded">sf org display --target-org &lt;alias&gt;</span> and copy the Access Token. Or create a Connected App with OAuth to get a long-lived token.
+                    <p className="text-tiny text-ink-3 leading-relaxed">
+                      Get a session token via Salesforce CLI: <span className="font-mono bg-wash px-1 rounded">sf org display --target-org &lt;alias&gt;</span> and copy the Access Token. Or create a Connected App with OAuth to get a long-lived token.
                     </p>
                     {integrations.gus?.instanceUrl && integrations.gus?.accessToken && (
                       <div className="flex items-center gap-2 text-tiny font-black uppercase tracking-widest text-success-light">
@@ -650,28 +709,28 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               </div>
 
               {/* Context Window Line */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-neutral-100 dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700"><Eye className="w-5 h-5 text-neutral-400" /></div>
+                  <div className="p-3 bg-wash rounded-xl shadow-sm border border-edge-2"><Eye className="w-5 h-5 text-ink-3" /></div>
                   <div className="flex flex-col">
-                    <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Context Window Line</span>
-                    <span className="text-xs text-neutral-500 font-medium mt-0.5">Show a subtle divider in chat where the agent's memory begins — older messages are no longer in context.</span>
+                    <span className="text-sm font-black uppercase tracking-widest ">Context Window Line</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5">Show a subtle divider in chat where the agent's memory begins — older messages are no longer in context.</span>
                   </div>
                 </div>
                 <button
                   onClick={() => setAppSettings((prev: any) => ({ ...prev, showContextWindowLine: !prev.showContextWindowLine }))}
-                  className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${appSettings?.showContextWindowLine ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                  className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${appSettings?.showContextWindowLine ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-wash text-ink-3 hover:bg-inset'}`}
                 >{appSettings?.showContextWindowLine ? 'On' : 'Off'}</button>
               </div>
 
               {/* Local Planner */}
-              <div className="p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-[#F9F4EE] dark:bg-[#5C452E]/20 rounded-xl shadow-sm border border-[#EEDCC4] dark:border-[#5C452E]/30"><CalendarDays className="w-5 h-5 text-accent" /></div>
                   <div className="flex flex-col">
-                    <span className="text-sm font-black uppercase tracking-widest dark:text-neutral-200">Local Planner</span>
-                    <span className="text-xs text-neutral-500 font-medium mt-0.5">Events & reminders saved to <code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded text-mini">~/AgentForge/memory/tasks.md</code></span>
-                    <span className="text-tiny text-neutral-400 mt-0.5">Enable the "Local Planner" tool on an agent to let it add tasks.</span>
+                    <span className="text-sm font-black uppercase tracking-widest ">Local Planner</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5">Events & reminders saved to <code className="bg-wash px-1 rounded text-mini">~/AgentForge/memory/tasks.md</code></span>
+                    <span className="text-tiny text-ink-3 mt-0.5">Enable the "Local Planner" tool on an agent to let it add tasks.</span>
                   </div>
                 </div>
                 <span className="px-4 py-2 rounded-xl text-tiny font-black uppercase tracking-widest bg-success-light/20 text-success border border-success-light/30">Active</span>
@@ -680,7 +739,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
             </div>
           )}
         </div>
-        <button onClick={onClose} className="w-full py-5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 shrink-0 active:scale-[0.98] transition-all">Done</button>
+        <button onClick={onClose} className="w-full py-5 bg-accent text-on-accent font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 shrink-0 active:scale-[0.98] transition-all">Done</button>
       </div>
     </div>
   );

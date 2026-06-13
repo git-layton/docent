@@ -395,7 +395,7 @@ describe('hydrate — restore from DB', () => {
     const savedActiveIds = { activeOmniTabId: 'tab-test', activeSpaceId: 'space-test' }
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
-      if (key === 'spaceStoreVersion') return '3'
+      if (key === 'spaceStoreVersion') return '4'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return savedActiveIds
@@ -421,7 +421,7 @@ describe('hydrate — restore from DB', () => {
     ]
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
-      if (key === 'spaceStoreVersion') return '3'
+      if (key === 'spaceStoreVersion') return '4'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return { activeOmniTabId: 'tab-a', activeSpaceId: 'space-a' }

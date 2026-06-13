@@ -17,12 +17,15 @@ import {
   Sun,
   Sunset,
   Moon,
+  Activity,
+  Settings,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAgentStore } from '../store/useAgentStore';
+import { useTaskStore } from '../store/useTaskStore';
 import type { OmniTab, OmniTabType, ToolTabId } from '../types/omniTab';
 
 // ---------------------------------------------------------------------------
@@ -40,12 +43,23 @@ interface AppEntry {
   label: string;
   sub: string;
   icon: React.ElementType;
-  tint: string; // icon tile background tint
-  open: () => void;
+  tint: string; // icon chip tint classes (soft fill + readable icon, both themes)
+  open: (tabId?: string) => void;
 }
 
-function openTab(tab: Omit<OmniTab, 'id'>) {
-  useSpaceStore.getState().openTab(tab);
+// Opening something from Home reuses the Home tab in place (like a browser's
+// new-tab page becoming the page you navigate to) so Home tabs don't pile up.
+function launch(tabId: string | undefined, tab: Omit<OmniTab, 'id'>) {
+  const st = useSpaceStore.getState();
+  if (tabId) st.replaceTab(tabId, tab);
+  else st.openTab(tab);
+}
+
+// Focus an already-open tab (chat / bookmark) and consume the Home tab we came from.
+function focusExisting(tabId: string | undefined, targetId: string) {
+  const st = useSpaceStore.getState();
+  st.setActiveTab(targetId);
+  if (tabId && tabId !== targetId) st.closeTab(tabId);
 }
 
 const APPS: AppEntry[] = [
@@ -54,15 +68,15 @@ const APPS: AppEntry[] = [
     label: 'Chat',
     sub: 'Talk to your agent',
     icon: MessageSquare,
-    tint: 'from-[#4A5D75]/45 to-[#2C3E50]/30',
-    open: () => {
+    tint: 'bg-pink-500/12 text-pink-700 dark:bg-pink-400/15 dark:text-pink-300',
+    open: (tabId) => {
       // Focus the current Space's chat (the pinned space-log tab).
-      const { omniTabs, activeSpaceId, setActiveTab } = useSpaceStore.getState();
+      const { omniTabs, activeSpaceId } = useSpaceStore.getState();
       const sid = activeSpaceId ?? undefined;
       const log =
         omniTabs.find((t) => t.type === 'space-log' && t.spaceId === sid) ??
         omniTabs.find((t) => t.type === 'space-log');
-      if (log) setActiveTab(log.id);
+      if (log) focusExisting(tabId, log.id);
     },
   },
   {
@@ -70,56 +84,64 @@ const APPS: AppEntry[] = [
     label: 'Web Browser',
     sub: 'Browse the web',
     icon: Globe,
-    tint: 'from-[#3D6E8C]/40 to-[#2C3E50]/30',
-    open: () => openTab({ type: 'web', label: 'New Tab', url: 'https://duckduckgo.com' }),
+    tint: 'bg-blue-500/12 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300',
+    open: (tabId) => launch(tabId, { type: 'web', label: 'New Tab', url: 'https://duckduckgo.com' }),
   },
   {
     id: 'inbox',
     label: 'Inbox',
     sub: 'Gmail & iCloud mail',
     icon: Mail,
-    tint: 'from-[#B5654A]/40 to-[#2C3E50]/30',
-    open: () => openTab({ type: 'tool', toolId: 'inbox' as ToolTabId, label: 'Inbox' }),
+    tint: 'bg-orange-500/12 text-orange-700 dark:bg-orange-400/15 dark:text-orange-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'inbox' as ToolTabId, label: 'Inbox' }),
   },
   {
     id: 'doc',
     label: 'Document',
     sub: 'Write & edit',
     icon: FileText,
-    tint: 'from-[#6A829E]/40 to-[#2C3E50]/30',
-    open: () => openTab({ type: 'doc', label: 'Untitled Doc' }),
+    tint: 'bg-sky-500/12 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300',
+    open: (tabId) => launch(tabId, { type: 'doc', label: 'Untitled Doc' }),
   },
   {
     id: 'canvas',
     label: 'Code Canvas',
     sub: 'Build & prototype',
     icon: Code2,
-    tint: 'from-[#4A5D75]/45 to-[#2C3E50]/30',
-    open: () => openTab({ type: 'code-canvas', label: 'Untitled Canvas' }),
+    tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
+    open: (tabId) => launch(tabId, { type: 'code-canvas', label: 'Untitled Canvas' }),
   },
   {
     id: 'todo',
     label: 'To-Do',
     sub: 'Tasks & planning',
     icon: CheckSquare,
-    tint: 'from-[#5B8A72]/40 to-[#2C3E50]/30',
-    open: () => openTab({ type: 'tool', toolId: 'planner' as ToolTabId, label: 'To-Do' }),
+    tint: 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'planner' as ToolTabId, label: 'To-Do' }),
   },
   {
     id: 'calendar',
     label: 'Calendar',
     sub: 'Your schedule',
     icon: CalendarDays,
-    tint: 'from-[#8A6A9E]/40 to-[#2C3E50]/30',
-    open: () => openTab({ type: 'tool', toolId: 'calendar' as ToolTabId, label: 'Calendar' }),
+    tint: 'bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'calendar' as ToolTabId, label: 'Calendar' }),
   },
   {
     id: 'graph',
     label: 'Knowledge Graph',
     sub: 'Connected memory',
     icon: Share2,
-    tint: 'from-[#9E8A6A]/40 to-[#2C3E50]/30',
-    open: () => openTab({ type: 'tool', toolId: 'knowledge-graph' as ToolTabId, label: 'Knowledge Graph' }),
+    tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'knowledge-graph' as ToolTabId, label: 'Knowledge Graph' }),
+  },
+  {
+    id: 'activity',
+    label: 'Activity',
+    sub: 'Logs, performance & context',
+    icon: Activity,
+    tint: 'bg-rose-500/12 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'activity' as ToolTabId, label: 'Activity' }),
   },
 ];
 
@@ -167,9 +189,9 @@ function Section({
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2 px-1">
-        <h2 className="text-[11px] font-bold uppercase tracking-widest text-neutral-400">{title}</h2>
+        <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink-3">{title}</h2>
         {count !== undefined && count > 0 && (
-          <span className="text-[10px] font-bold text-neutral-600">{count}</span>
+          <span className="text-[10px] font-bold text-accent-soft-ink bg-accent-soft px-1.5 py-0.5 rounded-full">{count}</span>
         )}
       </div>
       {children}
@@ -192,10 +214,10 @@ function Tile({
       type="button"
       onClick={onClick}
       className={clsx(
-        'group flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-[#12141a] px-3.5 py-3 text-left',
+        'group flex items-center gap-3 rounded-2xl border border-edge bg-panel-2 px-3.5 py-3 text-left',
         'shadow-sm transition-all duration-150',
-        'hover:-translate-y-0.5 hover:border-white/[0.14] hover:bg-[#171922]',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6A829E]/60',
+        'hover:-translate-y-0.5 hover:border-edge-2',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
         'active:translate-y-0',
         className,
       )}
@@ -207,7 +229,7 @@ function Tile({
 
 function EmptyHint({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/[0.06] px-4 py-5 text-center text-[11px] leading-relaxed text-neutral-600">
+    <div className="rounded-2xl border border-dashed border-edge-2 px-4 py-5 text-center text-[11px] leading-relaxed text-ink-3">
       {children}
     </div>
   );
@@ -232,7 +254,7 @@ function ResultRow({
       onMouseEnter={onMouseEnter}
       className={clsx(
         'flex w-full items-center gap-3 px-3.5 py-2 text-left transition-colors',
-        active ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]',
+        active ? 'bg-accent-soft' : 'hover:bg-wash',
       )}
     >
       {children}
@@ -243,13 +265,16 @@ function ResultRow({
 interface StartPageProps {
   /** Send a message to the active conversation — wired from App's handleSendPrompt. */
   onAsk?: (text: string) => void;
+  /** The id of the Home tab this page is rendered in — opening an app reuses it. */
+  tabId?: string;
 }
 
-export function StartPage({ onAsk }: StartPageProps) {
+export function StartPage({ onAsk, tabId }: StartPageProps) {
   const userName = useSettingsStore((s) => s.userName);
   const integrations = useSettingsStore((s) => s.integrations);
   const savedApps = useUIStore((s) => s.savedApps);
   const omniTabs = useSpaceStore((s) => s.omniTabs);
+  const openTaskCount = useTaskStore((s) => s.tasks.filter((t: any) => !t.completed).length);
   const assistants = useAgentStore((s) => s.assistants);
   const activeSpace = useSpaceStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
 
@@ -303,9 +328,9 @@ export function StartPage({ onAsk }: StartPageProps) {
     return out;
   }, [integrations]);
 
-  const openDoc = (item: any) => {
+  const openDoc = (item: any, fromTabId?: string) => {
     useUIStore.getState().setCanvasContent(item);
-    openTab({
+    launch(fromTabId, {
       type: (item?.type === 'image' ? 'doc' : 'code-canvas') as OmniTabType,
       label: item?.title || 'Untitled',
       canvasContentId: item?.id,
@@ -321,9 +346,9 @@ export function StartPage({ onAsk }: StartPageProps) {
   // Flattened, searchable index of everything the launcher can open.
   const searchItems = useMemo(() => {
     type Item = { kind: 'App' | 'Doc' | 'Bookmark'; id: string; label: string; sub?: string; icon: React.ElementType; run: () => void };
-    const apps: Item[] = APPS.map((a) => ({ kind: 'App', id: `app-${a.id}`, label: a.label, sub: a.sub, icon: a.icon, run: a.open }));
-    const docItems: Item[] = docs.map((d: any) => ({ kind: 'Doc', id: `doc-${d.id}`, label: d.title || 'Untitled', sub: relativeTime(d.updatedAt), icon: d?.type === 'image' ? ImageIcon : Code2, run: () => openDoc(d) }));
-    const bms: Item[] = bookmarks.map((t) => ({ kind: 'Bookmark', id: `bm-${t.id}`, label: t.label, sub: domainOf(t.url), icon: Globe, run: () => useSpaceStore.getState().setActiveTab(t.id) }));
+    const apps: Item[] = APPS.map((a) => ({ kind: 'App', id: `app-${a.id}`, label: a.label, sub: a.sub, icon: a.icon, run: () => a.open(tabId) }));
+    const docItems: Item[] = docs.map((d: any) => ({ kind: 'Doc', id: `doc-${d.id}`, label: d.title || 'Untitled', sub: relativeTime(d.updatedAt), icon: d?.type === 'image' ? ImageIcon : Code2, run: () => openDoc(d, tabId) }));
+    const bms: Item[] = bookmarks.map((t) => ({ kind: 'Bookmark', id: `bm-${t.id}`, label: t.label, sub: domainOf(t.url), icon: Globe, run: () => focusExisting(tabId, t.id) }));
     return [...apps, ...docItems, ...bms];
     // openDoc is closure-stable (reads from getState); safe to omit from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -343,11 +368,11 @@ export function StartPage({ onAsk }: StartPageProps) {
   const ask = (text: string) => {
     const t = text.trim();
     if (!t) return;
-    // Surface the conversation (the pinned space-log tab), then send.
-    const { omniTabs: tabs, activeSpaceId, setActiveTab } = useSpaceStore.getState();
+    // Surface the conversation (the pinned space-log tab), consuming the Home tab, then send.
+    const { omniTabs: tabs, activeSpaceId } = useSpaceStore.getState();
     const sid = activeSpaceId ?? undefined;
     const log = tabs.find((x) => x.type === 'space-log' && x.spaceId === sid) ?? tabs.find((x) => x.type === 'space-log');
-    if (log) setActiveTab(log.id);
+    if (log) focusExisting(tabId, log.id);
     onAsk?.(t);
   };
 
@@ -364,7 +389,16 @@ export function StartPage({ onAsk }: StartPageProps) {
   };
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#0a0b0e] no-scrollbar">
+    <div className="relative h-full w-full overflow-y-auto bg-panel no-scrollbar">
+      {/* Global settings — profile, models, integrations live here (per-chat settings stay in chat). */}
+      <button
+        type="button"
+        onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
+        title="Settings"
+        className="absolute right-5 top-5 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-edge bg-panel-2 text-ink-3 shadow-sm transition-colors hover:border-edge-2 hover:text-ink"
+      >
+        <Settings className="h-[18px] w-[18px]" />
+      </button>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-8 py-12">
         {/* ── Hero + omni-bar ── */}
         <div className="flex flex-col items-center text-center">
@@ -372,77 +406,80 @@ export function StartPage({ onAsk }: StartPageProps) {
           <div className="mb-2.5 flex items-end gap-2.5">
             <span
               aria-hidden="true"
-              className="mb-1 flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-white/10"
+              className="mb-1 flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-edge"
               style={{ color: tod.color, background: `${tod.color}1f` }}
             >
               <TodIcon className="h-[18px] w-[18px]" />
             </span>
-            <span className="text-[44px] font-extralight leading-none tracking-tight text-white tabular-nums">
+            <span className="text-[44px] font-extralight leading-none tracking-tight text-ink tabular-nums">
               {clock}
             </span>
-            {meridiem && <span className="mb-1.5 text-sm font-medium text-neutral-400">{meridiem}</span>}
+            {meridiem && <span className="mb-1.5 text-sm font-medium text-ink-3">{meridiem}</span>}
           </div>
-          <h1 className="bg-gradient-to-b from-white to-white/55 bg-clip-text text-2xl font-semibold tracking-tight text-transparent sm:text-3xl">
+          <h1 className="font-serif text-2xl tracking-tight text-ink sm:text-[28px]">
             {greeting}
           </h1>
-          <p className="mt-1 text-[12px] font-medium text-neutral-500">{dateStr}</p>
+          <p className="mt-1 text-[12px] font-medium text-ink-3">{dateStr}</p>
 
           {/* Omni-bar — search-as-you-type, chat is the default ↵ action */}
           <div className="relative mt-7 w-full max-w-xl">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-[#12141a] px-4 py-3 shadow-lg shadow-black/30 transition-colors focus-within:border-[#6A829E]/50">
-              <Search className="h-4 w-4 shrink-0 text-neutral-500" />
+            <div className="flex items-center gap-3 rounded-full border border-edge-2 bg-panel-2 px-5 py-3 shadow-sm transition-colors focus-within:border-accent">
+              <Search className="h-4 w-4 shrink-0 text-ink-3" />
               <input
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder="Search apps & docs, or ask your agent…"
-                className="flex-1 bg-transparent text-sm text-neutral-100 placeholder:text-neutral-500 outline-none"
+                placeholder={agentName ? `Search apps & docs, or ask ${agentName} anything…` : 'Search apps & docs, or ask your agent…'}
+                className="flex-1 bg-transparent text-sm text-ink placeholder:text-ink-3 outline-none"
               />
-              <kbd className="hidden items-center gap-1 rounded-md border border-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 sm:flex">
+              <kbd className="hidden items-center gap-1 rounded-md border border-edge px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:flex">
                 <CornerDownLeft className="h-3 w-3" /> {activeIndex === 0 ? 'ask' : 'open'}
               </kbd>
+              <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[11px] font-bold text-on-accent">
+                Ask
+              </span>
             </div>
 
             {q ? (
-              <div className="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#12141a] py-1.5 text-left shadow-2xl shadow-black/50">
+              <div className="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-2xl border border-edge-2 bg-panel py-1.5 text-left shadow-2xl shadow-black/20">
                 {/* Ask row — always index 0, the default action */}
                 <ResultRow active={activeIndex === 0} onMouseEnter={() => setActiveIndex(0)} onClick={() => runIndex(0)}>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#4A5D75]/40 ring-1 ring-white/10">
-                    <MessageSquare className="h-3.5 w-3.5 text-white/90" />
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent">
+                    <MessageSquare className="h-3.5 w-3.5 text-on-accent" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-neutral-100">{agentName ? `Ask ${agentName}` : 'Ask your agent'}</span>
-                    <span className="block truncate text-[11px] text-neutral-500">“{query.trim()}”</span>
+                    <span className="block truncate text-[13px] font-medium text-ink">{agentName ? `Ask ${agentName}` : 'Ask your agent'}</span>
+                    <span className="block truncate text-[11px] text-ink-3">“{query.trim()}”</span>
                   </span>
-                  <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
+                  <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-ink-3" />
                 </ResultRow>
 
-                {matches.length > 0 && <div className="my-1 border-t border-white/[0.05]" />}
+                {matches.length > 0 && <div className="my-1 border-t border-edge" />}
 
                 {matches.map((it, i) => {
                   const Icon = it.icon;
                   return (
                     <ResultRow key={it.id} active={activeIndex === i + 1} onMouseEnter={() => setActiveIndex(i + 1)} onClick={() => runIndex(i + 1)}>
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.05] ring-1 ring-white/10">
-                        <Icon className="h-3.5 w-3.5 text-neutral-300" />
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-wash ring-1 ring-edge">
+                        <Icon className="h-3.5 w-3.5 text-ink-2" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-neutral-100">{it.label}</span>
-                        {it.sub && <span className="block truncate text-[11px] text-neutral-500">{it.sub}</span>}
+                        <span className="block truncate text-[13px] font-medium text-ink">{it.label}</span>
+                        {it.sub && <span className="block truncate text-[11px] text-ink-3">{it.sub}</span>}
                       </span>
-                      <span className="shrink-0 rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] font-medium text-neutral-500">{it.kind}</span>
+                      <span className="shrink-0 rounded-full bg-wash px-2 py-0.5 text-[10px] font-medium text-ink-3">{it.kind}</span>
                     </ResultRow>
                   );
                 })}
 
                 {matches.length === 0 && (
-                  <div className="px-3.5 py-2 text-[11px] text-neutral-600">No matches — press ↵ to ask {agentName ?? 'your agent'}.</div>
+                  <div className="px-3.5 py-2 text-[11px] text-ink-3">No matches — press ↵ to ask {agentName ?? 'your agent'}.</div>
                 )}
               </div>
             ) : (
-              <p className="mt-2 text-[11px] text-neutral-600">
-                Type to filter your apps &amp; docs · press <span className="text-neutral-500">↵</span> to ask your agent
+              <p className="mt-2 text-[11px] text-ink-3">
+                Type to filter your apps &amp; docs · press <span className="text-ink-2">↵</span> to ask your agent
               </p>
             )}
           </div>
@@ -455,20 +492,26 @@ export function StartPage({ onAsk }: StartPageProps) {
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             {APPS.map((app) => {
               const Icon = app.icon;
+              const badge = app.id === 'todo' && openTaskCount > 0 ? `${openTaskCount} open` : null;
               return (
-                <Tile key={app.id} onClick={app.open}>
+                <Tile key={app.id} onClick={() => app.open(tabId)}>
                   <span
                     className={clsx(
-                      'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ring-1 ring-white/10',
+                      'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
                       app.tint,
                     )}
                   >
-                    <Icon className="h-[18px] w-[18px] text-white/90" />
+                    <Icon className="h-[18px] w-[18px]" />
                   </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-neutral-100">{app.label}</span>
-                    <span className="block truncate text-[11px] text-neutral-500">{app.sub}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-ink">{app.label}</span>
+                    <span className="block truncate text-[11px] text-ink-3">{app.sub}</span>
                   </span>
+                  {badge && (
+                    <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-soft-ink">
+                      {badge}
+                    </span>
+                  )}
                 </Tile>
               );
             })}
@@ -484,15 +527,15 @@ export function StartPage({ onAsk }: StartPageProps) {
               {docs.map((doc: any) => {
                 const Icon = doc?.type === 'image' ? ImageIcon : doc?.type === 'doc' ? FileText : Code2;
                 return (
-                  <Tile key={doc.id} onClick={() => openDoc(doc)}>
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] ring-1 ring-white/10">
-                      <Icon className="h-[18px] w-[18px] text-neutral-300" />
+                  <Tile key={doc.id} onClick={() => openDoc(doc, tabId)}>
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-wash ring-1 ring-edge">
+                      <Icon className="h-[18px] w-[18px] text-ink-2" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-medium text-neutral-100">
+                      <span className="block truncate text-[13px] font-medium text-ink">
                         {doc?.title || 'Untitled'}
                       </span>
-                      <span className="block truncate text-[11px] text-neutral-500">{relativeTime(doc?.updatedAt)}</span>
+                      <span className="block truncate text-[11px] text-ink-3">{relativeTime(doc?.updatedAt)}</span>
                     </span>
                   </Tile>
                 );
@@ -506,19 +549,19 @@ export function StartPage({ onAsk }: StartPageProps) {
           {bookmarks.length === 0 ? (
             <EmptyHint>
               <span className="inline-flex items-center gap-1.5">
-                Star a web page <Star className="h-3 w-3 text-[#C9A227]" /> to pin it here for quick access.
+                Star a web page <Star className="h-3 w-3 text-warning" /> to pin it here for quick access.
               </span>
             </EmptyHint>
           ) : (
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
               {bookmarks.map((tab) => (
-                <Tile key={tab.id} onClick={() => useSpaceStore.getState().setActiveTab(tab.id)}>
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] ring-1 ring-white/10">
-                    <Globe className="h-[18px] w-[18px] text-neutral-300" />
+                <Tile key={tab.id} onClick={() => focusExisting(tabId, tab.id)}>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-wash ring-1 ring-edge">
+                    <Globe className="h-[18px] w-[18px] text-ink-2" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-neutral-100">{tab.label}</span>
-                    <span className="block truncate text-[11px] text-neutral-500">{domainOf(tab.url)}</span>
+                    <span className="block truncate text-[13px] font-medium text-ink">{tab.label}</span>
+                    <span className="block truncate text-[11px] text-ink-3">{domainOf(tab.url)}</span>
                   </span>
                 </Tile>
               ))}
@@ -537,11 +580,11 @@ export function StartPage({ onAsk }: StartPageProps) {
                 return (
                   <div
                     key={it.id}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-[#12141a] px-3 py-1.5"
+                    className="inline-flex items-center gap-2 rounded-full border border-edge bg-panel-2 px-3 py-1.5"
                   >
-                    <Icon className="h-3.5 w-3.5 text-neutral-300" />
-                    <span className="text-[12px] font-medium text-neutral-200">{it.label}</span>
-                    <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400/80" title="Connected" />
+                    <Icon className="h-3.5 w-3.5 text-ink-2" />
+                    <span className="text-[12px] font-medium text-ink">{it.label}</span>
+                    <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-success" title="Connected" />
                   </div>
                 );
               })}

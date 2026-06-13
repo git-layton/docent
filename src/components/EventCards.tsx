@@ -30,9 +30,9 @@ function toDatetimeLocal(s?: string): string {
 }
 
 const fieldCls =
-  'w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 outline-none focus:border-[#6A829E] px-3 py-2 rounded-lg text-sm font-medium text-neutral-800 dark:text-neutral-100 placeholder:text-neutral-400 transition-colors';
+  'w-full bg-panel border border-edge outline-none focus:border-accent px-3 py-2 rounded-lg text-sm font-medium text-ink placeholder:text-ink-3 transition-colors';
 const labelCls =
-  'font-black text-neutral-500 uppercase tracking-widest text-[10px] block mb-1';
+  'font-black text-ink-3 uppercase tracking-widest text-[10px] block mb-1';
 
 const EVENT_TYPE_OPTS: { value: RecurringEvent['type']; label: string }[] = [
   { value: 'birthday', label: '🎂 Birthday' },
@@ -88,8 +88,8 @@ export function EventCard({ data, onToast }: { data: any; onToast: (m: string) =
   };
 
   return (
-    <div className="my-3 p-4 rounded-xl border-2 border-[#D6E0EA] dark:border-[#2C3E50]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 flex flex-col gap-3 shadow-sm">
-      <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest">
+    <div className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
+      <div className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest">
         <CalendarDays className="w-4 h-4" /> Add to Calendar
       </div>
 
@@ -121,7 +121,7 @@ export function EventCard({ data, onToast }: { data: any; onToast: (m: string) =
             <input aria-label="Start date" type="date" className={fieldCls} value={start} onChange={e => setStart(e.target.value)} />
           </div>
           <div>
-            <label className={labelCls}>End date <span className="normal-case text-neutral-400">(optional)</span></label>
+            <label className={labelCls}>End date <span className="normal-case text-ink-3">(optional)</span></label>
             <input aria-label="End date" type="date" className={fieldCls} value={end} min={start} onChange={e => setEnd(e.target.value)} />
           </div>
           <div className="col-span-2">
@@ -134,7 +134,7 @@ export function EventCard({ data, onToast }: { data: any; onToast: (m: string) =
       <button
         onClick={submit}
         disabled={added}
-        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] disabled:bg-[#9FBBAF] disabled:cursor-default text-white shadow-md transition-all active:scale-95"
+        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-accent hover:bg-accent-strong disabled:bg-success disabled:cursor-default text-on-accent shadow-md transition-all active:scale-95"
       >
         {added ? <><Check className="w-3.5 h-3.5" /> Added to Planner</> : <><CalendarPlus className="w-3.5 h-3.5" /> Add Event</>}
       </button>
@@ -214,13 +214,13 @@ export function GcalEventCard({ data, onToast }: { data: any; onToast: (m: strin
   };
 
   return (
-    <div className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
+    <div className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest">
+        <span className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest">
           <CalendarClock className="w-4 h-4" /> Create Google Calendar Event
         </span>
-        <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-neutral-500 cursor-pointer select-none">
-          <input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} className="accent-[#4A5D75]" />
+        <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-ink-3 cursor-pointer select-none">
+          <input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} className="accent-accent" />
           All-day
         </label>
       </div>
@@ -256,11 +256,11 @@ export function GcalEventCard({ data, onToast }: { data: any; onToast: (m: strin
         )}
 
         <div className="col-span-2">
-          <label className={labelCls}>Location <span className="normal-case text-neutral-400">(optional)</span></label>
+          <label className={labelCls}>Location <span className="normal-case text-ink-3">(optional)</span></label>
           <input aria-label="Location" className={fieldCls} value={location} onChange={e => setLocation(e.target.value)} placeholder="Address or video link…" />
         </div>
         <div className="col-span-2">
-          <label className={labelCls}>Description <span className="normal-case text-neutral-400">(optional)</span></label>
+          <label className={labelCls}>Description <span className="normal-case text-ink-3">(optional)</span></label>
           <textarea aria-label="Description" className={`${fieldCls} resize-y min-h-[60px]`} value={description} onChange={e => setDescription(e.target.value)} placeholder="Agenda, notes…" />
         </div>
         {calendarAccounts.length > 1 && (
@@ -276,7 +276,7 @@ export function GcalEventCard({ data, onToast }: { data: any; onToast: (m: strin
       <button
         onClick={submit}
         disabled={busy || done}
-        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] disabled:bg-[#9FBBAF] disabled:cursor-default text-white shadow-md transition-all active:scale-95"
+        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-accent hover:bg-accent-strong disabled:bg-success disabled:cursor-default text-on-accent shadow-md transition-all active:scale-95"
       >
         {done ? <><Check className="w-3.5 h-3.5" /> Event Created</>
           : busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
@@ -316,8 +316,8 @@ function resolveLocalTarget(data: any): LocalTarget {
 
 function NotFoundCard({ tone, what }: { tone: 'amber' | 'rose'; what: string }) {
   return (
-    <div className={`my-3 p-4 rounded-xl border-2 ${tone === 'rose' ? 'border-[#C98A8A]/40 bg-[#FFF8F8] dark:bg-[#3E2929]/20' : 'border-[#D4AA7D]/40 bg-[#FFF9F2] dark:bg-[#5C452E]/10'} flex items-center gap-2 text-xs font-bold text-neutral-600 dark:text-neutral-300 shadow-sm`}>
-      <AlertTriangle className="w-4 h-4 shrink-0 text-[#C98A8A]" />
+    <div className={`my-3 p-4 rounded-xl border-2 ${tone === 'rose' ? 'border-danger/40 bg-danger-soft/40' : 'border-warning/40 bg-warning-soft/40'} flex items-center gap-2 text-xs font-bold text-ink-2 shadow-sm`}>
+      <AlertTriangle className={`w-4 h-4 shrink-0 ${tone === 'rose' ? 'text-danger' : 'text-warning'}`} />
       Couldn't find “{what}” on your calendar — it may have already been changed or removed.
     </div>
   );
@@ -369,12 +369,12 @@ export function EventUpdateCard({ data, onToast }: { data: any; onToast: (m: str
     : `${String(item.month).padStart(2, '0')}-${String(item.day).padStart(2, '0')}`;
 
   return (
-    <div className="my-3 p-4 rounded-xl border-2 border-[#D6E0EA] dark:border-[#2C3E50]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 flex flex-col gap-3 shadow-sm">
-      <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest">
+    <div className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
+      <div className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest">
         <Pencil className="w-4 h-4" /> Update Calendar Item
       </div>
-      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-        Currently: <span className="font-bold text-neutral-700 dark:text-neutral-300">{kind === 'task' ? item.title : item.name}</span> · {oldDateLabel}
+      <p className="text-[11px] text-ink-2 flex items-center gap-1.5">
+        Currently: <span className="font-bold text-ink">{kind === 'task' ? item.title : item.name}</span> · {oldDateLabel}
       </p>
 
       {kind === 'task' ? (
@@ -388,7 +388,7 @@ export function EventUpdateCard({ data, onToast }: { data: any; onToast: (m: str
             <input aria-label="Start date" type="date" className={fieldCls} value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
           <div>
-            <label className={labelCls}>End date <span className="normal-case text-neutral-400">(optional)</span></label>
+            <label className={labelCls}>End date <span className="normal-case text-ink-3">(optional)</span></label>
             <input aria-label="End date" type="date" className={fieldCls} value={endDate} min={dueDate} onChange={e => setEndDate(e.target.value)} />
           </div>
           <div className="col-span-2">
@@ -418,7 +418,7 @@ export function EventUpdateCard({ data, onToast }: { data: any; onToast: (m: str
       <button
         onClick={submit}
         disabled={done}
-        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] disabled:bg-[#9FBBAF] disabled:cursor-default text-white shadow-md transition-all active:scale-95"
+        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-accent hover:bg-accent-strong disabled:bg-success disabled:cursor-default text-on-accent shadow-md transition-all active:scale-95"
       >
         {done ? <><Check className="w-3.5 h-3.5" /> Updated</> : <><ArrowRight className="w-3.5 h-3.5" /> Save Changes</>}
       </button>
@@ -445,18 +445,18 @@ export function EventDeleteCard({ data, onToast }: { data: any; onToast: (m: str
   };
 
   return (
-    <div className="my-3 p-4 rounded-xl border-2 border-[#C98A8A]/40 dark:border-[#C98A8A]/30 bg-[#FFF8F8] dark:bg-[#3E2929]/20 flex flex-col gap-3 shadow-sm">
-      <div className="flex items-center gap-2 text-[#C98A8A] font-bold text-xs uppercase tracking-widest">
+    <div className="my-3 p-4 rounded-xl border-2 border-danger/40 bg-danger-soft/40 flex flex-col gap-3 shadow-sm">
+      <div className="flex items-center gap-2 text-danger font-bold text-xs uppercase tracking-widest">
         <Trash2 className="w-4 h-4" /> Remove from Calendar
       </div>
-      <p className="text-sm text-neutral-700 dark:text-neutral-300">
+      <p className="text-sm text-ink-2">
         Remove <span className="font-bold">{label}</span>
-        <span className="text-neutral-500"> · {kind === 'task' ? (item.dueDate ?? 'no date') : `${String(item.month).padStart(2, '0')}-${String(item.day).padStart(2, '0')}`}</span>?
+        <span className="text-ink-3"> · {kind === 'task' ? (item.dueDate ?? 'no date') : `${String(item.month).padStart(2, '0')}-${String(item.day).padStart(2, '0')}`}</span>?
       </p>
       <button
         onClick={onDelete}
         disabled={done}
-        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#C98A8A] hover:bg-[#b57070] disabled:bg-[#9FBBAF] disabled:cursor-default text-white shadow-md transition-all active:scale-95"
+        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-danger hover:opacity-90 disabled:bg-success disabled:cursor-default text-danger-soft shadow-md transition-all active:scale-95"
       >
         {done ? <><Check className="w-3.5 h-3.5" /> Removed</> : <><Trash2 className="w-3.5 h-3.5" /> Delete</>}
       </button>
@@ -541,20 +541,20 @@ export function GcalUpdateCard({ data, onToast }: { data: any; onToast: (m: stri
   };
 
   return (
-    <div className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
+    <div className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest">
+        <span className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest">
           <CalendarClock className="w-4 h-4" /> Reschedule Google Calendar Event
         </span>
-        <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-neutral-500 cursor-pointer select-none">
-          <input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} className="accent-[#4A5D75]" />
+        <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-ink-3 cursor-pointer select-none">
+          <input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} className="accent-accent" />
           All-day
         </label>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div className="col-span-2">
-          <label className={labelCls}>Title <span className="normal-case text-neutral-400">(leave blank to keep)</span></label>
+          <label className={labelCls}>Title <span className="normal-case text-ink-3">(leave blank to keep)</span></label>
           <input aria-label="Event title" className={fieldCls} value={title} onChange={e => setTitle(e.target.value)} placeholder="Keep current title…" />
         </div>
         {allDay ? (
@@ -581,11 +581,11 @@ export function GcalUpdateCard({ data, onToast }: { data: any; onToast: (m: stri
           </>
         )}
         <div className="col-span-2">
-          <label className={labelCls}>Location <span className="normal-case text-neutral-400">(optional)</span></label>
+          <label className={labelCls}>Location <span className="normal-case text-ink-3">(optional)</span></label>
           <input aria-label="Location" className={fieldCls} value={location} onChange={e => setLocation(e.target.value)} />
         </div>
         <div className="col-span-2">
-          <label className={labelCls}>Description <span className="normal-case text-neutral-400">(optional)</span></label>
+          <label className={labelCls}>Description <span className="normal-case text-ink-3">(optional)</span></label>
           <textarea aria-label="Description" className={`${fieldCls} resize-y min-h-[60px]`} value={description} onChange={e => setDescription(e.target.value)} />
         </div>
       </div>
@@ -593,7 +593,7 @@ export function GcalUpdateCard({ data, onToast }: { data: any; onToast: (m: stri
       <button
         onClick={submit}
         disabled={busy || done}
-        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] disabled:bg-[#9FBBAF] disabled:cursor-default text-white shadow-md transition-all active:scale-95"
+        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-accent hover:bg-accent-strong disabled:bg-success disabled:cursor-default text-on-accent shadow-md transition-all active:scale-95"
       >
         {done ? <><Check className="w-3.5 h-3.5" /> Event Updated</>
           : busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Updating…</>
@@ -635,17 +635,17 @@ export function GcalDeleteCard({ data, onToast }: { data: any; onToast: (m: stri
   };
 
   return (
-    <div className="my-3 p-4 rounded-xl border-2 border-[#C98A8A]/40 dark:border-[#C98A8A]/30 bg-[#FFF8F8] dark:bg-[#3E2929]/20 flex flex-col gap-3 shadow-sm">
-      <div className="flex items-center gap-2 text-[#C98A8A] font-bold text-xs uppercase tracking-widest">
+    <div className="my-3 p-4 rounded-xl border-2 border-danger/40 bg-danger-soft/40 flex flex-col gap-3 shadow-sm">
+      <div className="flex items-center gap-2 text-danger font-bold text-xs uppercase tracking-widest">
         <Trash2 className="w-4 h-4" /> Delete Google Calendar Event
       </div>
-      <p className="text-sm text-neutral-700 dark:text-neutral-300">
+      <p className="text-sm text-ink-2">
         Delete <span className="font-bold">{data?.title ?? 'this event'}</span> from your calendar?
       </p>
       <button
         onClick={submit}
         disabled={busy || done}
-        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#C98A8A] hover:bg-[#b57070] disabled:bg-[#9FBBAF] disabled:cursor-default text-white shadow-md transition-all active:scale-95"
+        className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-danger hover:opacity-90 disabled:bg-success disabled:cursor-default text-danger-soft shadow-md transition-all active:scale-95"
       >
         {done ? <><Check className="w-3.5 h-3.5" /> Deleted</>
           : busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting…</>

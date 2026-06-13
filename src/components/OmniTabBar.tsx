@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal } from 'lucide-react';
+import { Globe, MessageSquare, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, Activity } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
@@ -45,7 +45,20 @@ function TypeIcon({ tab }: { tab: OmniTab }) {
     case 'code-canvas':
       return <Code className={cls} />;
     case 'tool':
-      return <Cpu className={cls} />;
+      switch (tab.toolId) {
+        case 'knowledge-graph':
+          return <Share2 className={cls} />;
+        case 'planner':
+          return <CheckSquare className={cls} />;
+        case 'inbox':
+          return <Mail className={cls} />;
+        case 'calendar':
+          return <CalendarDays className={cls} />;
+        case 'activity':
+          return <Activity className={cls} />;
+        default:
+          return <Cpu className={cls} />;
+      }
     default:
       return <Globe className={cls} />;
   }
@@ -100,8 +113,8 @@ function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
         // favicon-only sliver (min-w) as more tabs crowd in; past that the strip scrolls.
         'group h-8 rounded-t-lg px-3 text-[11px] font-medium grow-0 shrink basis-[168px] max-w-[220px] min-w-[44px] flex items-center gap-1.5 overflow-hidden transition-colors',
         isActive
-          ? 'bg-[#12141a] border border-b-0 border-[rgba(255,255,255,0.08)] text-white'
-          : 'text-[rgba(255,255,255,0.45)] hover:text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.04)]',
+          ? 'bg-panel border border-b-0 border-edge-2 text-ink shadow-[inset_0_2px_0_0_var(--af-accent)]'
+          : 'text-ink-3 hover:text-ink-2 hover:bg-wash',
       )}
     >
       <TypeIcon tab={tab} />
@@ -123,8 +136,8 @@ function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
         className={clsx(
           'transition-opacity shrink-0',
           tab.isFavorite
-            ? 'opacity-100 text-[#C9A227] hover:text-[#E0B530]'
-            : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[rgba(255,255,255,0.6)]',
+            ? 'opacity-100 text-warning'
+            : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 text-ink-2',
         )}
         title={tab.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
       >
@@ -143,8 +156,8 @@ function TabPill({ tab, isActive, isSplit, index }: TabPillProps) {
           className={clsx(
             'transition-opacity shrink-0',
             isSplit
-              ? 'opacity-100 text-[#9EADC8] hover:text-white'
-              : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[rgba(255,255,255,0.6)]',
+              ? 'opacity-100 text-accent hover:text-accent-strong'
+              : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 text-ink-2',
           )}
           title={isSplit ? 'Close split' : 'Open beside current tab'}
         >
@@ -195,7 +208,7 @@ function NewTabButton() {
     <button
       type="button"
       onClick={openHome}
-      className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-[rgba(255,255,255,0.4)] hover:text-white hover:bg-[rgba(255,255,255,0.08)] transition-colors mb-1"
+      className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-wash transition-colors mb-1"
       title="New tab — Home"
     >
       <Plus className="w-3.5 h-3.5" />
@@ -233,7 +246,7 @@ export function OmniTabBar(): React.JSX.Element {
   }, []);
 
   return (
-    <div className="h-10 flex items-end bg-[#0a0b0e] border-b border-[rgba(255,255,255,0.05)] shrink-0 relative z-20">
+    <div className="h-10 flex items-end bg-base border-b border-edge shrink-0 relative z-20">
       <div
         ref={stripRef}
         onWheel={handleWheel}

@@ -45,8 +45,8 @@ export function MarginaliaLayer({
             data-agent-id={ann.agentId}
             style={{ borderLeftColor: accent }}
             className={clsx(
-              'pointer-events-auto rounded-lg border border-l-4 border-neutral-800',
-              'bg-neutral-900/95 p-3 shadow-lg backdrop-blur-sm',
+              'pointer-events-auto rounded-lg border border-l-4 border-edge',
+              'bg-panel-2/95 p-3 shadow-lg backdrop-blur-sm',
               'animate-[marginalia-in_180ms_ease-out]',
             )}
           >
@@ -64,14 +64,14 @@ export function MarginaliaLayer({
               </span>
             </div>
 
-            <p className="whitespace-pre-wrap text-[12px] leading-snug text-neutral-200">
+            <p className="whitespace-pre-wrap text-[12px] leading-snug text-ink">
               {ann.body}
             </p>
 
             {hasFix && (
               <pre
                 data-testid="marginalia-suggestion"
-                className="mt-2 max-h-40 overflow-auto rounded-md border border-neutral-800 bg-neutral-950/80 p-2 font-mono text-[11px] leading-snug text-neutral-300"
+                className="mt-2 max-h-40 overflow-auto rounded-md border border-edge bg-inset p-2 font-mono text-[11px] leading-snug text-ink-2"
               >
                 {ann.suggestedText}
               </pre>
@@ -82,7 +82,7 @@ export function MarginaliaLayer({
                 <button
                   type="button"
                   onClick={() => onAccept(ann.id)}
-                  className="inline-flex items-center gap-1 rounded-md bg-[#1E2B38] px-2 py-1 text-[11px] font-semibold text-[#8FB5DA] transition-colors hover:bg-[#27384a]"
+                  className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-soft-ink transition-colors hover:bg-accent-soft/70"
                 >
                   <Check className="h-3 w-3" />
                   Apply Fix
@@ -91,7 +91,7 @@ export function MarginaliaLayer({
               <button
                 type="button"
                 onClick={() => onDismiss(ann.id)}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-ink-3 transition-colors hover:bg-wash hover:text-ink"
               >
                 <X className="h-3 w-3" />
                 Dismiss

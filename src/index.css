@@ -1,11 +1,190 @@
 @import "tailwindcss";
-/* Design tokens: primary/secondary/accent/error/success/surface + micro/tiny/mini font sizes
-   See tailwind.config.js for values. Use token names instead of raw hex going forward. */
 
+/* Make Tailwind's dark: variant follow our [data-theme] toggle instead of the OS */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Agent Forge theme system
+   Semantic tokens as CSS variables, flipped by [data-theme] on <html>,
+   accent ramp swapped by [data-accent]. Utilities (bg-panel, text-ink,
+   border-edge, bg-accent, …) are generated via @theme inline below.
+   Use token utilities — never raw hex — in components.
+   ──────────────────────────────────────────────────────────────────────── */
+
+:root,
+[data-theme='light'] {
+  --af-base: #f3f2ee;          /* app chrome: tab strip, sidebar       */
+  --af-panel: #ffffff;         /* primary content surface              */
+  --af-panel-2: #faf9f6;       /* raised / nested surface              */
+  --af-inset: #edece7;         /* wells, inputs on panel               */
+  --af-wash: rgba(0, 0, 0, 0.045);   /* hover wash                     */
+  --af-edge: rgba(0, 0, 0, 0.08);    /* hairline border                */
+  --af-edge-2: rgba(0, 0, 0, 0.14);  /* emphasized border              */
+  --af-ink: #1c1b17;           /* primary text                         */
+  --af-ink-2: #5d5c55;         /* secondary text                       */
+  --af-ink-3: #929086;         /* tertiary text / hints                */
+
+  --af-danger: #c43d3d;
+  --af-danger-soft: #fcebeb;
+  --af-success: #1d9e75;
+  --af-success-soft: #e1f5ee;
+  --af-warning: #ba7517;
+  --af-warning-soft: #faeeda;
+}
+
+[data-theme='dark'] {
+  --af-base: #0a0b0e;
+  --af-panel: #12141a;
+  --af-panel-2: #171920;
+  --af-inset: #0e1014;
+  --af-wash: rgba(255, 255, 255, 0.05);
+  --af-edge: rgba(255, 255, 255, 0.06);
+  --af-edge-2: rgba(255, 255, 255, 0.11);
+  --af-ink: #f1f0ec;
+  --af-ink-2: rgba(255, 255, 255, 0.64);
+  --af-ink-3: rgba(255, 255, 255, 0.40);
+
+  --af-danger: #f09595;
+  --af-danger-soft: #3a1a1a;
+  --af-success: #5dcaa5;
+  --af-success-soft: #0c2e23;
+  --af-warning: #ef9f27;
+  --af-warning-soft: #332406;
+}
+
+/* ── Accent ramps ─────────────────────────────────────────────────────────
+   accent        interactive fill (buttons, active states)
+   accent-strong hover / pressed / high-emphasis text on light surfaces
+   accent-soft   tinted fill (badges, selected rows, user chat bubble)
+   accent-soft-ink  text on accent-soft
+   on-accent     text/icon on solid accent fill                          */
+
+:root,
+[data-accent='lavender'] {
+  --af-accent: #534ab7;
+  --af-accent-strong: #3c3489;
+  --af-accent-soft: #eeedfe;
+  --af-accent-soft-ink: #3c3489;
+  --af-on-accent: #eeedfe;
+}
+[data-theme='dark'][data-accent='lavender'], [data-theme='dark']:not([data-accent]) {
+  --af-accent: #7f77dd;
+  --af-accent-strong: #afa9ec;
+  --af-accent-soft: #26215c;
+  --af-accent-soft-ink: #cecbf6;
+  --af-on-accent: #16133a;
+}
+
+[data-accent='jade'] {
+  --af-accent: #0f6e56; --af-accent-strong: #085041;
+  --af-accent-soft: #e1f5ee; --af-accent-soft-ink: #085041; --af-on-accent: #e1f5ee;
+}
+[data-theme='dark'][data-accent='jade'] {
+  --af-accent: #5dcaa5; --af-accent-strong: #9fe1cb;
+  --af-accent-soft: #04342c; --af-accent-soft-ink: #9fe1cb; --af-on-accent: #04241c;
+}
+
+[data-accent='coral'] {
+  --af-accent: #d85a30; --af-accent-strong: #993c1d;
+  --af-accent-soft: #faece7; --af-accent-soft-ink: #712b13; --af-on-accent: #faece7;
+}
+[data-theme='dark'][data-accent='coral'] {
+  --af-accent: #f0997b; --af-accent-strong: #f5c4b3;
+  --af-accent-soft: #4a1b0c; --af-accent-soft-ink: #f5c4b3; --af-on-accent: #2e1006;
+}
+
+[data-accent='blue'] {
+  --af-accent: #185fa5; --af-accent-strong: #0c447c;
+  --af-accent-soft: #e6f1fb; --af-accent-soft-ink: #0c447c; --af-on-accent: #e6f1fb;
+}
+[data-theme='dark'][data-accent='blue'] {
+  --af-accent: #85b7eb; --af-accent-strong: #b5d4f4;
+  --af-accent-soft: #042c53; --af-accent-soft-ink: #b5d4f4; --af-on-accent: #021c36;
+}
+
+[data-accent='pink'] {
+  --af-accent: #993556; --af-accent-strong: #72243e;
+  --af-accent-soft: #fbeaf0; --af-accent-soft-ink: #72243e; --af-on-accent: #fbeaf0;
+}
+[data-theme='dark'][data-accent='pink'] {
+  --af-accent: #ed93b1; --af-accent-strong: #f4c0d1;
+  --af-accent-soft: #4b1528; --af-accent-soft-ink: #f4c0d1; --af-on-accent: #310c19;
+}
+
+[data-accent='amber'] {
+  --af-accent: #854f0b; --af-accent-strong: #633806;
+  --af-accent-soft: #faeeda; --af-accent-soft-ink: #633806; --af-on-accent: #faeeda;
+}
+[data-theme='dark'][data-accent='amber'] {
+  --af-accent: #ef9f27; --af-accent-strong: #fac775;
+  --af-accent-soft: #412402; --af-accent-soft-ink: #fac775; --af-on-accent: #2a1700;
+}
+
+/* Legacy aliases kept so older code & App.css keep working */
 :root {
-  --os-base: #0a0b0e;
-  --os-panel: #12141a;
-  --os-panel-2: #171920;
-  --os-border: rgba(255, 255, 255, 0.05);
-  --os-border-2: rgba(255, 255, 255, 0.08);
+  --os-base: var(--af-base);
+  --os-panel: var(--af-panel);
+  --os-panel-2: var(--af-panel-2);
+  --os-border: var(--af-edge);
+  --os-border-2: var(--af-edge-2);
+}
+
+@theme inline {
+  /* surfaces */
+  --color-base: var(--af-base);
+  --color-panel: var(--af-panel);
+  --color-panel-2: var(--af-panel-2);
+  --color-inset: var(--af-inset);
+  --color-wash: var(--af-wash);
+  /* borders */
+  --color-edge: var(--af-edge);
+  --color-edge-2: var(--af-edge-2);
+  /* text */
+  --color-ink: var(--af-ink);
+  --color-ink-2: var(--af-ink-2);
+  --color-ink-3: var(--af-ink-3);
+  /* accent */
+  --color-accent: var(--af-accent);
+  --color-accent-strong: var(--af-accent-strong);
+  --color-accent-soft: var(--af-accent-soft);
+  --color-accent-soft-ink: var(--af-accent-soft-ink);
+  --color-on-accent: var(--af-on-accent);
+  /* semantic */
+  --color-danger: var(--af-danger);
+  --color-danger-soft: var(--af-danger-soft);
+  --color-success: var(--af-success);
+  --color-success-soft: var(--af-success-soft);
+  --color-warning: var(--af-warning);
+  --color-warning-soft: var(--af-warning-soft);
+
+  /* legacy token names used across existing components (previously dead —
+     tailwind.config.js was never loaded under Tailwind v4) */
+  --color-primary: var(--af-accent);
+  --color-primary-dark: var(--af-accent-strong);
+  --color-primary-hover: var(--af-accent-strong);
+  --color-secondary: var(--af-ink-2);
+  --color-secondary-light: var(--af-ink-3);
+  --color-secondary-muted: var(--af-ink-3);
+  --color-accent-light: var(--af-accent-soft);
+  --color-error: var(--af-danger);
+  --color-error-dark: var(--af-danger);
+  --color-error-light: var(--af-danger-soft);
+  --color-surface: var(--af-panel-2);
+  --color-surface-dark: var(--af-panel);
+  --color-os-base: var(--af-base);
+  --color-os-panel: var(--af-panel);
+  --color-os-panel-2: var(--af-panel-2);
+  --color-os-border: var(--af-edge);
+  --color-os-border-2: var(--af-edge-2);
+  --color-os-text-dim: var(--af-ink-3);
+  --color-os-text-muted: var(--af-ink-2);
+
+  /* typography */
+  --font-serif: 'Iowan Old Style', 'Palatino', Georgia, 'Times New Roman', serif;
+  --text-micro: 9px;
+  --text-micro--line-height: 1.2;
+  --text-tiny: 10px;
+  --text-tiny--line-height: 1.2;
+  --text-mini: 11px;
+  --text-mini--line-height: 1.4;
 }

@@ -22,8 +22,8 @@ export function AgentVisionToggle({ on, onToggle }: AgentVisionToggleProps) {
       className={clsx(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide transition-colors select-none',
         on
-          ? 'border-[#2A3B4D] bg-[#1E2B38]/70 text-[#8FB5DA] hover:bg-[#1E2B38]'
-          : 'border-neutral-700 bg-neutral-800/60 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-300',
+          ? 'border-accent/30 bg-accent-soft/70 text-accent-soft-ink hover:bg-accent-soft'
+          : 'border-edge-2 bg-inset text-ink-3 hover:bg-wash hover:text-ink-2',
       )}
     >
       {on ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}

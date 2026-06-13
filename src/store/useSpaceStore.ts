@@ -10,7 +10,8 @@ const generateId = (prefix: string) =>
 
 // Bump when the persisted schema changes in a breaking way — forces a clean reseed.
 // v3: Spaces are unified containers — each carries `kind` + its own `chatId`.
-const STORE_VERSION = '3';
+// v4: one-time full reset — also wipes all conversations so DM/Space threads start fully isolated.
+const STORE_VERSION = '4';
 
 const HOME_CHAT_ID = 'chat-home';
 
@@ -64,15 +65,6 @@ function ensureChatThread(
   cs.setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId] ?? [] }));
 }
 
-/** Find an existing DM chat for an agent (preserves history across the migration). */
-function findExistingDmChatId(agentId: string): string | null {
-  const { chats } = useChatStore.getState();
-  const dm = chats.find(
-    (c: any) => c.kind === 'dm' && (c.primaryAgentId === agentId || c.folderId === agentId),
-  );
-  return dm?.id ?? null;
-}
-
 interface SpaceStore {
   spaces: Space[];
   activeSpaceId: string | null;
@@ -81,6 +73,9 @@ interface SpaceStore {
 
   setActiveTab(id: string): void;
   openTab(tab: Omit<OmniTab, 'id'>): string;
+  /** Re-point an existing tab to new content in place (same id/position) — used so
+   *  opening an app from the Home/new-tab page reuses that tab instead of stacking up. */
+  replaceTab(id: string, patch: Partial<Omit<OmniTab, 'id' | 'spaceId'>>): void;
   closeTab(id: string): void;
   moveTab(fromIdx: number, toIdx: number): void;
   updateTabLabel(id: string, url: string, title: string): void;
@@ -116,6 +111,30 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     set(s => ({ omniTabs: [...s.omniTabs, newTab], activeOmniTabId: id, spaces: updatedSpaces }));
     get().persist();
     return id;
+  },
+
+  replaceTab: (id, patch) => {
+    set(s => ({
+      omniTabs: s.omniTabs.map(t =>
+        t.id === id
+          ? {
+              // Preserve identity + placement; swap the content fields wholesale so
+              // stale ones (url/toolId/canvasContentId) don't leak across a re-point.
+              id: t.id,
+              spaceId: t.spaceId,
+              isPinned: t.isPinned,
+              isFavorite: t.isFavorite,
+              type: patch.type ?? t.type,
+              label: patch.label ?? t.label,
+              url: patch.url,
+              toolId: patch.toolId,
+              canvasContentId: patch.canvasContentId,
+            }
+          : t,
+      ),
+      activeOmniTabId: id,
+    }));
+    get().persist();
   },
 
   closeTab: (id) => {
@@ -217,8 +236,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const containerId = `dm-${agent.id}`;
     const existing = get().spaces.find(s => s.id === containerId);
     if (!existing) {
-      // Reuse an existing DM chat (preserves history) or start a fresh one.
-      const chatId = findExistingDmChatId(agent.id) ?? generateId('chat');
+      // Deterministic, container-scoped thread id: a DM is ALWAYS its own isolated
+      // conversation, never reused from (or shared with) a Space or any other chat.
+      const chatId = `chat-${containerId}`;
       ensureChatThread(chatId, {
         kind: 'dm',
         name: agent.name ?? 'Agent',
@@ -298,10 +318,18 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
     } else {
-      // First run or stale schema (pre-v3 had no kind/chatId) — reseed cleanly.
+      // First run or stale schema — reseed cleanly. v4 additionally wipes ALL conversation data
+      // (chats + messages) so DM and Space threads start completely isolated (one-time clean reset).
       if (version !== null) {
-        console.info(`[SpaceStore] schema v${version} → v${STORE_VERSION}, reseeding`);
+        console.info(`[SpaceStore] schema v${version} → v${STORE_VERSION}, reseeding + clearing chats`);
       }
+      const cs = useChatStore.getState();
+      cs.setChats([]);
+      cs.setMessages({});
+      cs.setActiveChatId(null);
+      await db.set('chats', []);
+      await db.set('messages', {});
+      await db.set('activeChatId', null);
       set({
         spaces: [{ ...defaultSpace, createdAt: Date.now(), updatedAt: Date.now() }],
         omniTabs: [defaultTab],

@@ -1,4 +1,5 @@
 import './index.css';
+import { applyTheme, DEFAULT_ACCENT, DEFAULT_THEME } from './lib/theme';
 import React, { Component } from "react";
 import type { ReactNode } from "react";
 import ReactDOM from "react-dom/client";
@@ -35,6 +36,9 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
     return this.props.children;
   }
 }
+
+// Stamp theme attributes before first paint; settings hydrate() re-applies saved prefs.
+applyTheme(DEFAULT_THEME, DEFAULT_ACCENT);
 
 const windowParam = new URLSearchParams(window.location.search).get('window');
 

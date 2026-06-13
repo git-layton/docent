@@ -94,7 +94,7 @@ function ContextPill(): React.ReactElement | null {
   }
 
   return (
-    <div className="text-[10px] text-[rgba(255,255,255,0.5)] bg-[#12141a] border border-[rgba(255,255,255,0.06)] rounded px-2 py-0.5 flex items-center gap-1 w-fit mb-1.5">
+    <div className="text-[10px] text-ink-3 bg-panel border border-edge rounded px-2 py-0.5 flex items-center gap-1 w-fit mb-1.5">
       <Icon className="w-3 h-3 shrink-0" />
       <span className="truncate max-w-[220px]">{label}</span>
     </div>
@@ -123,13 +123,13 @@ export function ChatPanel({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0b0e] min-h-0">
+    <div className="flex flex-col h-full bg-base min-h-0">
       {/* Header */}
       <div className="flex items-center">
         {docked && onCollapse && (
           <button
             onClick={onCollapse}
-            className="shrink-0 px-2 h-full text-[rgba(255,255,255,0.4)] hover:text-white transition-colors"
+            className="shrink-0 px-2 h-full text-ink-3 hover:text-ink transition-colors"
             title="Collapse chat"
           >
             <PanelRightClose className="w-4 h-4" />
@@ -161,7 +161,7 @@ export function ChatPanel({
         <div
           className={clsx(
             'flex-1 flex flex-col relative overflow-hidden min-h-0 transition-colors',
-            p.isDragging && 'bg-[#9EADC8]/10'
+            p.isDragging && 'bg-accent-soft'
           )}
           onDragOver={p.onDragOver}
           onDragLeave={p.onDragLeave}
@@ -169,19 +169,19 @@ export function ChatPanel({
         >
           {/* First-time agent intro card */}
           {p.showAgentIntro && (
-            <div className="absolute top-4 right-4 z-50 w-80 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[#12141a] shadow-xl p-4 animate-in slide-in-from-top-4 duration-300">
+            <div className="absolute top-4 right-4 z-50 w-80 rounded-2xl border border-edge-2 bg-panel shadow-xl p-4 animate-in slide-in-from-top-4 duration-300">
               <div className="flex items-start justify-between mb-2">
-                <p className="text-sm font-black text-neutral-200">Take your agents with you</p>
-                <button onClick={handleDismissIntro} className="text-neutral-400 hover:text-neutral-200 ml-2 shrink-0">
+                <p className="text-sm font-black text-ink">Take your agents with you</p>
+                <button onClick={handleDismissIntro} className="text-ink-3 hover:text-ink ml-2 shrink-0">
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
-                Press <kbd className="px-1.5 py-0.5 bg-neutral-800 rounded text-[10px] font-bold text-neutral-300">⌘⇧F</kbd> from any Chrome or Safari tab to open your agent with that page&apos;s context automatically attached.
+              <p className="text-xs text-ink-2 mb-3 leading-relaxed">
+                Press <kbd className="px-1.5 py-0.5 bg-inset border border-edge rounded text-[10px] font-bold text-ink-2">⌘⇧F</kbd> from any Chrome or Safari tab to open your agent with that page&apos;s context automatically attached.
               </p>
               <button
                 onClick={handleDismissIntro}
-                className="mt-1 w-full py-2 bg-[#4A5D75] hover:bg-[#3D4D61] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all"
+                className="mt-1 w-full py-2 bg-accent hover:bg-accent-strong text-on-accent text-xs font-black uppercase tracking-widest rounded-xl transition-all"
               >
                 Got it
               </button>
@@ -211,13 +211,13 @@ export function ChatPanel({
 
       {/* Chat input footer */}
       {docked ? (
-        <div className="shrink-0 p-2 border-t border-[rgba(255,255,255,0.07)]">
+        <div className="shrink-0 p-2 border-t border-edge">
           <ContextPill />
           <ChatInputBar {...chatInputBarProps} />
         </div>
       ) : (
         <div className="shrink-0 px-4 pb-4 flex justify-center">
-          <div className="w-[min(720px,calc(100%-1rem))] bg-[#0a0b0e]/90 backdrop-blur-xl rounded-2xl border border-[rgba(255,255,255,0.07)] shadow-[0_10px_50px_rgba(0,0,0,0.5)] p-1">
+          <div className="w-[min(720px,calc(100%-1rem))] bg-panel/90 backdrop-blur-xl rounded-3xl border border-edge-2 shadow-xl p-1">
             <ChatInputBar {...chatInputBarProps} />
           </div>
         </div>

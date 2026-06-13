@@ -151,11 +151,11 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
   }, [selectedDay]);
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0b0e] text-neutral-200 overflow-hidden">
+    <div className="flex flex-col h-full bg-base text-ink overflow-hidden">
       {/* Header / month navigation */}
-      <div className="shrink-0 px-4 py-3 border-b border-white/[0.06] flex items-center gap-3">
-        <span className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-neutral-300 shrink-0">
-          <CalendarDays className="w-4 h-4 text-[#6A829E]" />
+      <div className="shrink-0 px-4 py-3 border-b border-edge flex items-center gap-3">
+        <span className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-ink-2 shrink-0">
+          <CalendarDays className="w-4 h-4 text-accent" />
           Calendar
         </span>
 
@@ -163,23 +163,23 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
           <button
             aria-label="Previous month"
             onClick={() => goToMonth(-1)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/[0.06] transition-colors"
+            className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <h2 className="min-w-[160px] text-center text-sm font-black tracking-tight text-neutral-100">
+          <h2 className="min-w-[160px] text-center text-sm font-black tracking-tight text-ink">
             {MONTHS[month]} {year}
           </h2>
           <button
             aria-label="Next month"
             onClick={() => goToMonth(1)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/[0.06] transition-colors"
+            className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
           <button
             onClick={goToToday}
-            className="ml-2 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-white/[0.05] text-neutral-300 hover:bg-white/[0.1] transition-colors"
+            className="ml-2 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-wash text-ink-2 hover:bg-inset transition-colors"
           >
             Today
           </button>
@@ -192,7 +192,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
           {WEEKDAYS.map(d => (
             <div
               key={d}
-              className="text-center text-[9px] font-black uppercase tracking-widest text-neutral-500 py-1.5"
+              className="text-center text-[9px] font-black uppercase tracking-widest text-ink-3 py-1.5"
             >
               {d}
             </div>
@@ -205,7 +205,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
               return (
                 <div
                   key={`blank-${i}`}
-                  className="min-h-[88px] rounded-xl bg-[#0d0e12]/40"
+                  className="min-h-[88px] rounded-xl bg-wash"
                   aria-hidden="true"
                 />
               );
@@ -230,18 +230,18 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                 className={clsx(
                   'group min-h-[88px] p-1.5 rounded-xl border text-left flex flex-col gap-1 transition-all',
                   isSelected
-                    ? 'border-[#6A829E] bg-[#6A829E]/10'
+                    ? 'border-accent bg-accent-soft/40'
                     : isToday
-                      ? 'border-[#6A829E]/50 bg-[#12141a]'
-                      : 'border-white/[0.05] bg-[#12141a] hover:border-white/[0.12]',
+                      ? 'border-accent/50 bg-panel'
+                      : 'border-edge bg-panel hover:border-edge-2',
                 )}
               >
                 <span
                   className={clsx(
                     'inline-flex items-center justify-center w-5 h-5 text-[11px] font-bold shrink-0',
                     isToday
-                      ? 'rounded-full bg-[#6A829E] text-white'
-                      : 'text-neutral-400',
+                      ? 'rounded-full bg-accent text-on-accent'
+                      : 'text-ink-3',
                   )}
                 >
                   {dayNum}
@@ -255,8 +255,8 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                         key={t.id}
                         title={isSpan ? `${t.title} (${t.dueDate} → ${t.endDate})` : t.title}
                         className={clsx(
-                          'text-[9px] font-bold truncate px-1.5 py-0.5 rounded text-[#C5D3E0]',
-                          isSpan ? 'bg-[#6A829E]/40 border-l-2 border-[#9EADC8]' : 'bg-[#6A829E]/25',
+                          'text-[9px] font-bold truncate px-1.5 py-0.5 rounded text-accent-soft-ink',
+                          isSpan ? 'bg-accent-soft border-l-2 border-accent' : 'bg-accent-soft/60',
                         )}
                       >
                         {t.title}
@@ -267,7 +267,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                     <span
                       key={ev.id}
                       title={ev.name}
-                      className="text-[9px] font-bold truncate px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300"
+                      className="text-[9px] font-bold truncate px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300"
                     >
                       {EVENT_EMOJI[ev.type]} {ev.name.split(' ')[0]}
                     </span>
@@ -276,7 +276,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                     <span
                       key={h.name}
                       title={h.name}
-                      className="text-[9px] font-bold truncate px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300"
+                      className="text-[9px] font-bold truncate px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300"
                     >
                       {h.emoji} {h.name}
                     </span>
@@ -290,15 +290,15 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
 
       {/* Inline add affordance for the selected day */}
       {selectedDay && (
-        <div className="shrink-0 border-t border-white/[0.06] bg-[#0d0e12] px-4 py-3 animate-in slide-in-from-bottom-2 duration-150">
+        <div className="shrink-0 border-t border-edge bg-inset px-4 py-3 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-black tracking-tight text-neutral-100">
+            <span className="text-xs font-black tracking-tight text-ink">
               {selectedLabel}
             </span>
             <button
               aria-label="Close"
               onClick={closeForm}
-              className="p-1 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/[0.06] transition-colors"
+              className="p-1 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -312,8 +312,8 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors',
                 formMode === 'task'
-                  ? 'bg-[#6A829E] text-white'
-                  : 'bg-white/[0.05] text-neutral-400 hover:text-neutral-200',
+                  ? 'bg-accent text-on-accent'
+                  : 'bg-wash text-ink-3 hover:text-ink-2',
               )}
             >
               <ListTodo className="w-3.5 h-3.5" /> Task
@@ -325,7 +325,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors',
                 formMode === 'event'
                   ? 'bg-indigo-500 text-white'
-                  : 'bg-white/[0.05] text-neutral-400 hover:text-neutral-200',
+                  : 'bg-wash text-ink-3 hover:text-ink-2',
               )}
             >
               <Cake className="w-3.5 h-3.5" /> Event
@@ -344,12 +344,12 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                 onChange={e => setTaskTitle(e.target.value)}
                 placeholder="Add a task…"
                 aria-label="Task title"
-                className="flex-1 bg-[#12141a] border border-white/[0.08] outline-none focus:border-[#6A829E] px-3 py-2 rounded-xl text-sm font-medium text-neutral-100 placeholder:text-neutral-500 transition-colors"
+                className="flex-1 bg-panel border border-edge-2 outline-none focus:border-accent px-3 py-2 rounded-xl text-sm font-medium text-ink placeholder:text-ink-3 transition-colors"
               />
               <button
                 type="submit"
                 disabled={!taskTitle.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#6A829E] disabled:opacity-40 text-white font-black text-[9px] uppercase tracking-widest rounded-xl hover:bg-[#5a708a] transition-colors"
+                className="flex items-center gap-1.5 px-4 py-2 bg-accent disabled:opacity-40 text-on-accent font-black text-[9px] uppercase tracking-widest rounded-xl hover:bg-accent-strong transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" /> Add
               </button>
@@ -366,13 +366,13 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                 onChange={e => setEvName(e.target.value)}
                 placeholder="Name…"
                 aria-label="Event name"
-                className="flex-1 bg-[#12141a] border border-white/[0.08] outline-none focus:border-indigo-500 px-3 py-2 rounded-xl text-sm font-medium text-neutral-100 placeholder:text-neutral-500 transition-colors"
+                className="flex-1 bg-panel border border-edge-2 outline-none focus:border-indigo-500 px-3 py-2 rounded-xl text-sm font-medium text-ink placeholder:text-ink-3 transition-colors"
               />
               <select
                 value={evType}
                 onChange={e => setEvType(e.target.value as RecurringEvent['type'])}
                 aria-label="Event type"
-                className="bg-[#12141a] border border-white/[0.08] outline-none focus:border-indigo-500 px-3 py-2 rounded-xl text-xs font-bold text-neutral-300 transition-colors"
+                className="bg-panel border border-edge-2 outline-none focus:border-indigo-500 px-3 py-2 rounded-xl text-xs font-bold text-ink-2 transition-colors"
               >
                 <option value="birthday">🎂 Birthday</option>
                 <option value="anniversary">💍 Anniversary</option>

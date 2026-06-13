@@ -42,6 +42,7 @@ import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agentForgeUserDocs';
 import { AssistantSettingsModal } from './components/AssistantSettingsModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
+import { NewSpaceModal } from './components/NewSpaceModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { AppSidebar } from './components/AppSidebar';
@@ -49,6 +50,7 @@ import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
 import { PlannerPanel } from './components/PlannerPanel';
+import { ActivityPanel } from './components/ActivityMonitor';
 import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
@@ -97,6 +99,7 @@ export default function App() {
   const userProfile = useSettingsStore(s => s.userProfile);
   const userName = useSettingsStore(s => s.userName);
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);
+  const showNewSpace = useUIStore(s => s.showNewSpace);
   const showModelWizard = useSettingsStore(s => s.showModelWizard);
   const showOnboarding = useSettingsStore(s => s.showOnboarding);
   const onboardingInitialStep = useSettingsStore(s => s.onboardingInitialStep);
@@ -1568,18 +1571,30 @@ export default function App() {
             }
         } else if (toolUsed === 'Browse') {
             try {
-                if (!(await isBrowserPanelReady())) {
-                    browseSummary = '🌐 Browse · open the browser panel first';
-                    useUIStore.getState().showToast('Open the browser panel to let me browse the web for you.');
-                    toolData += `\n\n[SYSTEM NOTE: BROWSE UNAVAILABLE]\nThe embedded browser panel is not open, so agentic browsing could not run. Ask the user to open the Browser view, then try again.\n[END BROWSE]`;
-                } else {
-                    // Start from an explicit URL in the message if present, otherwise a DuckDuckGo HTML
-                    // results page the agent can click through. (DDG's html endpoint renders plain
-                    // result links and doesn't gate the embedded webview the way Google sign-in does.)
-                    const urlMatch = userMsg.content.match(/https?:\/\/[^\s)]+/i);
-                    const query = userMsg.content.replace(/^\s*(browse|open|go to|navigate to|visit|look on|check)\s+/i, '').trim() || userMsg.content;
-                    const startUrl = urlMatch ? urlMatch[0] : `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+                // Start from an explicit URL in the message if present, otherwise a DuckDuckGo HTML
+                // results page the agent can click through. (DDG's html endpoint renders plain
+                // result links and doesn't gate the embedded webview the way Google sign-in does.)
+                const urlMatch = userMsg.content.match(/https?:\/\/[^\s)]+/i);
+                const query = userMsg.content.replace(/^\s*(browse|open|go to|navigate to|visit|look on|check)\s+/i, '').trim() || userMsg.content;
+                const startUrl = urlMatch ? urlMatch[0] : `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
 
+                // If no browser is live in the current Space/DM, open a real, visible 'web' tab there
+                // (which mounts BrowserTabContent → the browser-panel webview) and wait for it to
+                // register. The agent always drives this visible tab — never a hidden browser.
+                let panelReady = await isBrowserPanelReady();
+                if (!panelReady) {
+                    useSpaceStore.getState().openTab({ type: 'web', label: 'Browsing…', url: startUrl });
+                    for (let i = 0; i < 40 && !panelReady; i++) {
+                        await new Promise(r => setTimeout(r, 150));
+                        panelReady = await isBrowserPanelReady();
+                    }
+                }
+
+                if (!panelReady) {
+                    browseSummary = '🌐 Browse · could not open a browser tab';
+                    useUIStore.getState().showToast('Could not open a browser tab to browse with.');
+                    toolData += `\n\n[SYSTEM NOTE: BROWSE UNAVAILABLE]\nA browser tab could not be opened in time, so agentic browsing did not run.\n[END BROWSE]`;
+                } else {
                     const result = await runBrowserAgent({
                         task: userMsg.content,
                         startUrl,
@@ -1975,14 +1990,14 @@ export default function App() {
 
   const renderMessageWithWidgets = useCallback((msg: any) => {
     const { content: rawText, isStreaming, isToolCall, attachedFiles, sources } = msg;
-    if (isToolCall) return <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-neutral-500 animate-pulse"><Workflow className="w-3.5 h-3.5" /> {rawText}</div>;
+    if (isToolCall) return <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-ink-3 animate-pulse"><Workflow className="w-3.5 h-3.5" /> {rawText}</div>;
     if (isStreaming && !rawText) return <TypingIndicator />;
     
     const elements = [];
-    if (attachedFiles?.length > 0) elements.push(<div key="files" className="flex flex-wrap gap-2 mb-3">{attachedFiles.map((f: any, i: number) => f.isImage ? <img key={i} src={f.content} alt={f.name} className="h-32 object-cover rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700" /> : <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-white/20 rounded-xl border border-white/30 text-[10px] font-bold text-white shadow-sm"><FileText className="w-3.5 h-3.5" />{f.name}</div>)}</div>);
+    if (attachedFiles?.length > 0) elements.push(<div key="files" className="flex flex-wrap gap-2 mb-3">{attachedFiles.map((f: any, i: number) => f.isImage ? <img key={i} src={f.content} alt={f.name} className="h-32 object-cover rounded-xl shadow-sm border border-edge" /> : <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-on-accent/15 rounded-xl border border-on-accent/30 text-[10px] font-bold text-on-accent shadow-sm"><FileText className="w-3.5 h-3.5" />{f.name}</div>)}</div>);
     if (typeof rawText !== 'string') return elements;
     const openFileInPanel = (path?: string) => { useMemoryStore.getState().setShowMemmoPanel(true); useMemoryStore.getState().setMemmoPanelTab(path?.includes('/library/') ? 'library' : path ? 'notes' : 'pins'); };
-    if (rawText.startsWith('### ⚠️')) return <div className="text-[#C98A8A] font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} /></div>;
+    if (rawText.startsWith('### ⚠️')) return <div className="text-danger font-medium"><FormattedText text={rawText} sources={sources} onViewImage={viewImageInCanvas} onOpenFile={openFileInPanel} /></div>;
 
     // --- Deep Thinking Parser ---
     let displayContent = rawText;
@@ -2017,15 +2032,15 @@ export default function App() {
         try {
           const td = JSON.parse(code);
           elements.push(
-            <div key={`task-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#D6E0EA] dark:border-[#2C3E50]/50 bg-[#F0F4F8] dark:bg-[#4A5D75]/20 flex flex-col gap-3 shadow-sm">
+            <div key={`task-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
               <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3"><div className="p-2 bg-[#4A5D75] rounded-lg shrink-0"><ListTodo className="w-5 h-5 text-white" /></div><div className="flex flex-col"><span className="text-xs font-black text-[#1E2B38] dark:text-[#D6E0EA] uppercase tracking-widest">Proposed Action</span><span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">{td.title}</span><div className="flex items-center gap-3 mt-1 flex-wrap">{td.dueDate && <span className="text-[10px] text-neutral-600 dark:text-[#899AB5] flex items-center gap-1 font-bold"><Clock className="w-3 h-3 text-[#6A829E]" /> Due: {td.dueDate}</span>}{td.location && <span className="text-[10px] text-neutral-600 dark:text-[#899AB5] flex items-center gap-1 font-bold"><MapPin className="w-3 h-3 text-[#9FBBAF]" /> {td.location}</span>}</div></div></div>
-                <button onClick={() => { addTask(td.title, td.dueDate, td.details, td.location); useTaskStore.getState().setShowPlanner(true); }} className="px-3 py-2 bg-[#4A5D75] text-white rounded-lg text-xs font-bold hover:bg-[#3D4D61] shadow-md transition-all active:scale-95 shrink-0">Add to Planner</button>
+                <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-lg shrink-0"><ListTodo className="w-5 h-5 text-on-accent" /></div><div className="flex flex-col"><span className="text-xs font-black text-accent-soft-ink uppercase tracking-widest">Proposed Action</span><span className="text-sm font-bold text-ink">{td.title}</span><div className="flex items-center gap-3 mt-1 flex-wrap">{td.dueDate && <span className="text-[10px] text-ink-2 flex items-center gap-1 font-bold"><Clock className="w-3 h-3 text-accent" /> Due: {td.dueDate}</span>}{td.location && <span className="text-[10px] text-ink-2 flex items-center gap-1 font-bold"><MapPin className="w-3 h-3 text-success" /> {td.location}</span>}</div></div></div>
+                <button onClick={() => { addTask(td.title, td.dueDate, td.details, td.location); useTaskStore.getState().setShowPlanner(true); }} className="px-3 py-2 bg-accent text-on-accent rounded-lg text-xs font-bold hover:bg-accent-strong shadow-md transition-all active:scale-95 shrink-0">Add to Planner</button>
               </div>
-              {td.details && <div className="text-xs bg-white dark:bg-[#1E2B38] p-2 rounded-lg border border-[#D6E0EA] dark:border-[#4A5D75]/50 text-neutral-600 dark:text-[#C5D3E0]"><span className="font-bold flex items-center gap-1 mb-1"><AlignLeft className="w-3 h-3" /> Details</span>{td.details}</div>}
+              {td.details && <div className="text-xs bg-panel p-2 rounded-lg border border-accent/25 text-ink-2"><span className="font-bold flex items-center gap-1 mb-1"><AlignLeft className="w-3 h-3" /> Details</span>{td.details}</div>}
             </div>
           );
-        } catch { elements.push(<div key={`err-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse task.</div>); }
+        } catch { elements.push(<div key={`err-${match.index}`} className="p-2 text-xs text-danger">Failed to parse task.</div>); }
       } else if (lang === 'profile') {
         try {
           const pData = JSON.parse(code);
@@ -2039,27 +2054,27 @@ export default function App() {
             if (toAdd.length) useSettingsStore.getState().setUserProfile(base + (base ? '\n' : '') + toAdd.join('\n'));
           };
           elements.push(
-             <div key={`prof-${match.index}`} className="my-3 p-4 rounded-xl border border-[#9EADC8] dark:border-[#6A829E]/50 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-2">
-               <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><UserPlus className="w-4 h-4"/> Profile Knowledge Update</div>
-               <p className="text-sm text-neutral-700 dark:text-neutral-300">"{pData.fact}"</p>
+             <div key={`prof-${match.index}`} className="my-3 p-4 rounded-xl border border-accent/40 bg-accent-soft/30 flex flex-col gap-2">
+               <div className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest"><UserPlus className="w-4 h-4"/> Profile Knowledge Update</div>
+               <p className="text-sm text-ink-2">"{pData.fact}"</p>
                <div className="flex gap-2 mt-2">
-                 <button disabled={isApproved} onClick={() => useSettingsStore.getState().setUserProfile(useSettingsStore.getState().userProfile + (useSettingsStore.getState().userProfile ? '\n' : '') + pData.fact)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${isApproved ? 'bg-[#9FBBAF] text-white opacity-50 cursor-default' : 'bg-[#6A829E] hover:bg-[#4A5D75] text-white active:scale-95'}`}>
+                 <button disabled={isApproved} onClick={() => useSettingsStore.getState().setUserProfile(useSettingsStore.getState().userProfile + (useSettingsStore.getState().userProfile ? '\n' : '') + pData.fact)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${isApproved ? 'bg-success text-success-soft opacity-50 cursor-default' : 'bg-accent hover:bg-accent-strong text-on-accent active:scale-95'}`}>
                    {isApproved ? 'Saved to Profile' : 'Approve'}
                  </button>
-                 {isLastPendingBlock && <button onClick={approveAll} className="flex-1 py-2 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#2C3E50] text-white active:scale-95 transition-all">Approve All ({pendingProfileFacts.length})</button>}
+                 {isLastPendingBlock && <button onClick={approveAll} className="flex-1 py-2 rounded-lg text-xs font-bold bg-accent hover:bg-accent-strong text-on-accent active:scale-95 transition-all">Approve All ({pendingProfileFacts.length})</button>}
                </div>
              </div>
           );
-        } catch { elements.push(<div key={`err-p-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse profile update.</div>); }
+        } catch { elements.push(<div key={`err-p-${match.index}`} className="p-2 text-xs text-danger">Failed to parse profile update.</div>); }
       } else if (lang === 'save') {
         try {
           const sd = JSON.parse(code);
           const saveTitle = sd.title || 'Saved Note';
           const saveContent = sd.content || code;
           elements.push(
-            <div key={`save-${match.index}`} className="my-3 p-4 rounded-xl border border-[#D4AA7D]/50 dark:border-[#D4AA7D]/30 bg-[#FFF9F2] dark:bg-[#5C452E]/10 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-[#9C7A3C] dark:text-[#D4AA7D] font-bold text-xs uppercase tracking-widest"><Bookmark className="w-4 h-4" /> Save to Library</div>
-              <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">"{saveTitle}"</p>
+            <div key={`save-${match.index}`} className="my-3 p-4 rounded-xl border border-warning/40 bg-warning-soft/40 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-warning font-bold text-xs uppercase tracking-widest"><Bookmark className="w-4 h-4" /> Save to Library</div>
+              <p className="text-sm font-bold text-ink">"{saveTitle}"</p>
               <button onClick={async () => {
                 const { agentForgePath: _afp } = useMemoryStore.getState();
                 if (!_afp) { showToast('Knowledge Core not ready.'); return; }
@@ -2075,39 +2090,39 @@ export default function App() {
                   });
                   showToast('🔖 Saved to Library');
                 } catch (e: any) { showToast(`Save failed: ${e?.message ?? e}`); }
-              }} className="mt-1 py-2 rounded-lg text-xs font-bold bg-[#D4AA7D] hover:bg-[#c09060] text-white active:scale-95 transition-all">
+              }} className="mt-1 py-2 rounded-lg text-xs font-bold bg-warning hover:opacity-90 text-warning-soft active:scale-95 transition-all">
                 Save to Library
               </button>
             </div>
           );
-        } catch { elements.push(<div key={`err-save-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse save block.</div>); }
+        } catch { elements.push(<div key={`err-save-${match.index}`} className="p-2 text-xs text-danger">Failed to parse save block.</div>); }
       } else if (lang === 'event') {
         try {
           const ev = JSON.parse(code);
           elements.push(<EventCard key={`ev-${match.index}`} data={ev} onToast={showToast} />);
-        } catch { elements.push(<div key={`err-ev-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event block.</div>); }
+        } catch { elements.push(<div key={`err-ev-${match.index}`} className="p-2 text-xs text-danger">Failed to parse event block.</div>); }
       } else if (lang === 'event_update') {
         try {
           const ev = JSON.parse(code);
           elements.push(<EventUpdateCard key={`evu-${match.index}`} data={ev} onToast={showToast} />);
-        } catch { elements.push(<div key={`err-evu-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event update.</div>); }
+        } catch { elements.push(<div key={`err-evu-${match.index}`} className="p-2 text-xs text-danger">Failed to parse event update.</div>); }
       } else if (lang === 'event_delete') {
         try {
           const ev = JSON.parse(code);
           elements.push(<EventDeleteCard key={`evd-${match.index}`} data={ev} onToast={showToast} />);
-        } catch { elements.push(<div key={`err-evd-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse event delete.</div>); }
+        } catch { elements.push(<div key={`err-evd-${match.index}`} className="p-2 text-xs text-danger">Failed to parse event delete.</div>); }
       } else if (lang === 'slack_post') {
         try {
           const sd = JSON.parse(code);
           const _integrations = useSettingsStore.getState().integrations;
           elements.push(
-            <div key={`slack-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
-              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><MessageSquare className="w-4 h-4" /> Post to Slack</div>
+            <div key={`slack-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest"><MessageSquare className="w-4 h-4" /> Post to Slack</div>
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Channel</span>
-                <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">#{sd.channel}</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-ink-3">Channel</span>
+                <span className="text-sm font-bold text-ink">#{sd.channel}</span>
               </div>
-              <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">{sd.text}</div>
+              <div className="text-xs bg-panel p-3 rounded-lg border border-edge text-ink-2 whitespace-pre-wrap">{sd.text}</div>
               <button onClick={async () => {
                 const token = _integrations.slack?.botToken;
                 if (!token) { showToast('Slack not configured.'); return; }
@@ -2120,25 +2135,25 @@ export default function App() {
                   }, 1);
                   if (res.ok) { showToast('✅ Posted to Slack'); } else { showToast(`Slack error: ${res.error}`); }
                 } catch (e: any) { showToast(`Slack error: ${e.message}`); }
-              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
+              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-accent hover:bg-accent-strong text-on-accent active:scale-95 transition-all">
                 <Send className="w-3.5 h-3.5" /> Post Message
               </button>
             </div>
           );
-        } catch { elements.push(<div key={`err-sl-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse Slack post.</div>); }
+        } catch { elements.push(<div key={`err-sl-${match.index}`} className="p-2 text-xs text-danger">Failed to parse Slack post.</div>); }
       } else if (lang === 'gmail_draft') {
         try {
           const gd = JSON.parse(code);
           const _integrations = useSettingsStore.getState().integrations;
           elements.push(
-            <div key={`gmail-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#C98A8A]/30 dark:border-[#C98A8A]/20 bg-[#FFF8F8] dark:bg-[#3E2929]/20 flex flex-col gap-3 shadow-sm">
-              <div className="flex items-center gap-2 text-[#C98A8A] font-bold text-xs uppercase tracking-widest"><Mail className="w-4 h-4" /> Send Gmail Draft</div>
+            <div key={`gmail-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-danger/30 bg-danger-soft/40 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-danger font-bold text-xs uppercase tracking-widest"><Mail className="w-4 h-4" /> Send Gmail Draft</div>
               <div className="grid grid-cols-1 gap-1.5 text-xs">
-                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">To</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.to}</span></div>
-                {gd.cc && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">CC</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.cc}</span></div>}
-                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px]">Subject</span> <span className="text-neutral-800 dark:text-neutral-200 font-bold ml-1">{gd.subject}</span></div>
+                <div><span className="font-black text-ink-3 uppercase tracking-widest text-[10px]">To</span> <span className="text-ink font-bold ml-1">{gd.to}</span></div>
+                {gd.cc && <div><span className="font-black text-ink-3 uppercase tracking-widest text-[10px]">CC</span> <span className="text-ink font-bold ml-1">{gd.cc}</span></div>}
+                <div><span className="font-black text-ink-3 uppercase tracking-widest text-[10px]">Subject</span> <span className="text-ink font-bold ml-1">{gd.subject}</span></div>
               </div>
-              <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">{gd.body}</div>
+              <div className="text-xs bg-panel p-3 rounded-lg border border-edge text-ink-2 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">{gd.body}</div>
               <button onClick={async () => {
                 const gw = _integrations.googleWorkspace;
                 if (!gw?.connected || !gw.clientId || !gw.clientSecret || !gw.refreshToken) { showToast('Google Workspace not configured.'); return; }
@@ -2157,26 +2172,26 @@ export default function App() {
                   }, 1);
                   if (res.id) { showToast('✅ Email sent'); } else { showToast('Gmail send failed'); }
                 } catch (e: any) { showToast(`Gmail error: ${e.message}`); }
-              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#C98A8A] hover:bg-[#b57070] text-white active:scale-95 transition-all">
+              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-danger hover:opacity-90 text-danger-soft active:scale-95 transition-all">
                 <Send className="w-3.5 h-3.5" /> Send Email
               </button>
             </div>
           );
-        } catch { elements.push(<div key={`err-gm-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse Gmail draft.</div>); }
+        } catch { elements.push(<div key={`err-gm-${match.index}`} className="p-2 text-xs text-danger">Failed to parse Gmail draft.</div>); }
       } else if (lang === 'gus_create') {
         try {
           const gc = JSON.parse(code);
           const _integrations = useSettingsStore.getState().integrations;
           elements.push(
-            <div key={`gus-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-[#6A829E]/30 dark:border-[#6A829E]/20 bg-[#F0F4F8] dark:bg-[#1E2B38]/30 flex flex-col gap-3 shadow-sm">
-              <div className="flex items-center gap-2 text-[#4A5D75] dark:text-[#9EADC8] font-bold text-xs uppercase tracking-widest"><Layers className="w-4 h-4" /> Create GUS Work Item</div>
+            <div key={`gus-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
+              <div className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest"><Layers className="w-4 h-4" /> Create GUS Work Item</div>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Subject</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.subject}</span></div>
-                <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Type</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.type ?? 'Story'}</span></div>
-                {gc.priority && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Priority</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.priority}</span></div>}
-                {gc.assignee && <div><span className="font-black text-neutral-500 uppercase tracking-widest text-[10px] block">Assignee</span><span className="text-neutral-800 dark:text-neutral-200 font-bold">{gc.assignee}</span></div>}
+                <div><span className="font-black text-ink-3 uppercase tracking-widest text-[10px] block">Subject</span><span className="text-ink font-bold">{gc.subject}</span></div>
+                <div><span className="font-black text-ink-3 uppercase tracking-widest text-[10px] block">Type</span><span className="text-ink font-bold">{gc.type ?? 'Story'}</span></div>
+                {gc.priority && <div><span className="font-black text-ink-3 uppercase tracking-widest text-[10px] block">Priority</span><span className="text-ink font-bold">{gc.priority}</span></div>}
+                {gc.assignee && <div><span className="font-black text-ink-3 uppercase tracking-widest text-[10px] block">Assignee</span><span className="text-ink font-bold">{gc.assignee}</span></div>}
               </div>
-              {gc.details && <div className="text-xs bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">{gc.details}</div>}
+              {gc.details && <div className="text-xs bg-panel p-3 rounded-lg border border-edge text-ink-2">{gc.details}</div>}
               <button onClick={async () => {
                 const { instanceUrl, accessToken } = _integrations.gus ?? {};
                 if (!instanceUrl || !accessToken) { showToast('GUS not configured.'); return; }
@@ -2193,36 +2208,36 @@ export default function App() {
                   }, 1);
                   if (res.id) { showToast(`✅ Created ${res.id}`); } else { showToast('GUS create failed'); }
                 } catch (e: any) { showToast(`GUS error: ${e.message}`); }
-              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-[#4A5D75] hover:bg-[#3D4D61] text-white active:scale-95 transition-all">
+              }} className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold bg-accent hover:bg-accent-strong text-on-accent active:scale-95 transition-all">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Create Work Item
               </button>
             </div>
           );
-        } catch { elements.push(<div key={`err-gus-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse GUS work item.</div>); }
+        } catch { elements.push(<div key={`err-gus-${match.index}`} className="p-2 text-xs text-danger">Failed to parse GUS work item.</div>); }
       } else if (lang === 'gcal_event') {
         try {
           const ge = JSON.parse(code);
           elements.push(<GcalEventCard key={`gcal-${match.index}`} data={ge} onToast={showToast} />);
-        } catch { elements.push(<div key={`err-gcal-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar event.</div>); }
+        } catch { elements.push(<div key={`err-gcal-${match.index}`} className="p-2 text-xs text-danger">Failed to parse calendar event.</div>); }
       } else if (lang === 'gcal_update') {
         try {
           const ge = JSON.parse(code);
           elements.push(<GcalUpdateCard key={`gcalu-${match.index}`} data={ge} onToast={showToast} />);
-        } catch { elements.push(<div key={`err-gcalu-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar update.</div>); }
+        } catch { elements.push(<div key={`err-gcalu-${match.index}`} className="p-2 text-xs text-danger">Failed to parse calendar update.</div>); }
       } else if (lang === 'gcal_delete') {
         try {
           const ge = JSON.parse(code);
           elements.push(<GcalDeleteCard key={`gcald-${match.index}`} data={ge} onToast={showToast} />);
-        } catch { elements.push(<div key={`err-gcald-${match.index}`} className="p-2 text-xs text-[#C98A8A]">Failed to parse calendar delete.</div>); }
+        } catch { elements.push(<div key={`err-gcald-${match.index}`} className="p-2 text-xs text-danger">Failed to parse calendar delete.</div>); }
       } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'event') {
         const codePreview = code.split('\n').slice(0, 4).join('\n') + (code.split('\n').length > 4 ? '\n...' : '');
         elements.push(
-          <div key={`art-${match.index}`} className="my-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 overflow-hidden flex flex-col group/art shadow-sm transition-all hover:border-[#899AB5]">
-            <div className="flex items-center justify-between p-3 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/50">
-              <div className="flex items-center gap-2"><Code className="w-4 h-4 text-[#6A829E]" /><span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">{(lang || 'CODE').toUpperCase()} Snippet</span></div>
-              <button onClick={() => { useUIStore.getState().setCanvasContent({ id: generateId('art'), language: lang, content: code, title: 'Extracted Artifact', type: 'code', isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 }); useUIStore.getState().setGenerationMode('code'); useUIStore.getState().setCanvasTab('code'); useTaskStore.getState().setShowPlanner(false); }} className="px-3 py-1.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg text-[10px] font-black uppercase tracking-widest text-[#4A5D75] hover:bg-[#F0F4F8] transition-all shadow-sm">Open in Canvas</button>
+          <div key={`art-${match.index}`} className="my-4 rounded-2xl border border-edge bg-inset overflow-hidden flex flex-col group/art shadow-sm transition-all hover:border-accent/50">
+            <div className="flex items-center justify-between p-3 border-b border-edge bg-wash">
+              <div className="flex items-center gap-2"><Code className="w-4 h-4 text-accent" /><span className="text-xs font-bold text-ink-2">{(lang || 'CODE').toUpperCase()} Snippet</span></div>
+              <button onClick={() => { useUIStore.getState().setCanvasContent({ id: generateId('art'), language: lang, content: code, title: 'Extracted Artifact', type: 'code', isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 }); useUIStore.getState().setGenerationMode('code'); useUIStore.getState().setCanvasTab('code'); useTaskStore.getState().setShowPlanner(false); }} className="px-3 py-1.5 bg-panel border border-edge rounded-lg text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent-soft/40 transition-all shadow-sm">Open in Canvas</button>
             </div>
-            <div className="p-4 bg-neutral-900 text-neutral-300 text-xs font-mono overflow-hidden"><pre><code>{codePreview}</code></pre></div>
+            <div className="p-4 bg-inset text-ink-2 text-xs font-mono overflow-hidden"><pre><code>{codePreview}</code></pre></div>
           </div>
         );
       }
@@ -2243,10 +2258,10 @@ export default function App() {
 
   if (!isDbLoaded) {
     return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white font-sans animate-in fade-in duration-500">
-        <div className="p-4 bg-[#4A5D75] rounded-2xl shadow-2xl mb-6 shadow-[#6A829E]/20"><Bot className="w-8 h-8 text-white animate-pulse" /></div>
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-base text-ink font-sans animate-in fade-in duration-500">
+        <div className="p-4 bg-accent rounded-2xl shadow-2xl mb-6 shadow-accent/20"><Bot className="w-8 h-8 text-on-accent animate-pulse" /></div>
         <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">Agent Forge</h1>
-        <div className="flex items-center gap-2 text-neutral-500 font-bold text-xs uppercase tracking-widest"><Loader2 className="w-4 h-4 animate-spin" /> Secure Storage Linking...</div>
+        <div className="flex items-center gap-2 text-ink-3 font-bold text-xs uppercase tracking-widest"><Loader2 className="w-4 h-4 animate-spin" /> Secure Storage Linking...</div>
       </div>
     );
   }
@@ -2334,7 +2349,7 @@ export default function App() {
   // shown full-width by default and splittable beside another.
   const renderTabContent = (tab: typeof activeOmniTab) => {
     if (tab?.type === 'home') {
-      return <StartPage onAsk={handleSendPrompt} />;
+      return <StartPage onAsk={handleSendPrompt} tabId={tab.id} />;
     }
     if (!tab || tab.type === 'space-log') {
       return (
@@ -2362,6 +2377,17 @@ export default function App() {
     if (tab.type === 'tool' && tab.toolId === 'inbox') {
       return <MailInboxPanel />;
     }
+    if (tab.type === 'tool' && tab.toolId === 'activity') {
+      return (
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <ActivityPanel
+            messages={activeMessages}
+            systemPromptLen={systemPromptLen}
+            limit={selectedModel?.contextLimit ?? 32000}
+          />
+        </div>
+      );
+    }
     if (tab.type === 'code-canvas' || tab.type === 'doc') {
       const tabAnns = annotations.filter(a => a.tabId === tab.id && a.status === 'open');
       return (
@@ -2377,7 +2403,7 @@ export default function App() {
               onSendMessage={handleSendMessage}
             />
           ) : (
-            <div className="flex-1 flex items-center justify-center h-full text-xs text-neutral-500">
+            <div className="flex-1 flex items-center justify-center h-full text-xs text-ink-3">
               Nothing here yet — ask an agent to build something.
             </div>
           )}
@@ -2415,7 +2441,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-[#0a0b0e] text-neutral-900 dark:text-neutral-100">
+    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-base text-ink">
 
       {nukeShieldPending && (
         <NukeShieldModal
@@ -2451,12 +2477,12 @@ export default function App() {
         <div className="fixed inset-0 z-40 bg-transparent" onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} />
       )}
       {/* Inbox panel — shown instead of MemmoPanel when inbox tab active */}
-      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-white dark:bg-neutral-950 border-l border-neutral-200 dark:border-neutral-800 shadow-2xl flex flex-col transition-transform duration-300 overflow-y-auto ${
+      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-panel-2 border-l border-edge shadow-2xl flex flex-col transition-transform duration-300 overflow-y-auto ${
         showMemmoPanel && memmoPanelTab === 'inbox' ? 'translate-x-0' : 'translate-x-full'
       }`}>
-        <div className="flex items-center justify-between px-4 py-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
-          <span className="text-xs font-black uppercase tracking-widest text-neutral-700 dark:text-neutral-300">Inbox</span>
-          <button onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} className="p-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 transition-colors">
+        <div className="flex items-center justify-between px-4 py-4 border-b border-edge shrink-0">
+          <span className="text-xs font-black uppercase tracking-widest text-ink-2">Inbox</span>
+          <button onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} className="p-1.5 rounded-lg hover:bg-wash text-ink-3 transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -2521,13 +2547,13 @@ export default function App() {
       )}
 
       {toastMessage && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300] bg-[#2C3E50] text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 font-bold text-xs uppercase tracking-widest">
-           <AlertTriangle className="w-4 h-4 text-[#D4AA7D]" />
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300] bg-ink text-panel px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 font-bold text-xs uppercase tracking-widest">
+           <AlertTriangle className="w-4 h-4 text-warning" />
            {toastMessage}
            {toastAction && (
              <button
                onClick={() => { toastAction.onClick(); useUIStore.getState().clearToast(); }}
-               className="ml-1 underline underline-offset-2 text-[#D4AA7D] hover:text-white transition-colors"
+               className="ml-1 underline underline-offset-2 text-warning hover:opacity-80 transition-colors"
              >
                {toastAction.label}
              </button>
@@ -2537,9 +2563,9 @@ export default function App() {
 
       {showConsole && (
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-neutral-900 w-full max-w-2xl h-[60vh] rounded-2xl flex flex-col shadow-2xl border border-neutral-700 font-mono text-xs overflow-hidden">
-            <div className="flex items-center justify-between p-3 border-b border-neutral-800 bg-neutral-950 shrink-0"><span className="text-neutral-400 font-bold flex items-center gap-2"><Activity className="w-4 h-4"/> App Console Log</span><div className="flex gap-4"><button onClick={() => useUIStore.getState().clearLogs()} className="text-neutral-500 hover:text-white font-bold tracking-widest uppercase">Clear</button><button onClick={() => useUIStore.getState().setShowConsole(false)} className="text-neutral-500 hover:text-white"><X className="w-4 h-4"/></button></div></div>
-            <div className="flex-1 overflow-auto p-4 space-y-2 custom-scrollbar select-text">{logs.length === 0 ? <span className="text-neutral-600 italic">No logs yet...</span> : logs.map((l, i) => (<div key={i} className={`flex gap-3 ${l.level === 'error' ? 'text-[#C98A8A]' : l.level === 'warn' ? 'text-[#D4AA7D]' : 'text-neutral-300'}`}><span className="text-neutral-600 shrink-0 select-none">[{l.time}]</span><span className="break-all whitespace-pre-wrap">{l.msg}</span></div>))}</div>
+          <div className="bg-panel-2 w-full max-w-2xl h-[60vh] rounded-2xl flex flex-col shadow-2xl border border-edge-2 font-mono text-xs overflow-hidden">
+            <div className="flex items-center justify-between p-3 border-b border-edge bg-inset shrink-0"><span className="text-ink-2 font-bold flex items-center gap-2"><Activity className="w-4 h-4"/> App Console Log</span><div className="flex gap-4"><button onClick={() => useUIStore.getState().clearLogs()} className="text-ink-3 hover:text-ink font-bold tracking-widest uppercase">Clear</button><button onClick={() => useUIStore.getState().setShowConsole(false)} className="text-ink-3 hover:text-ink"><X className="w-4 h-4"/></button></div></div>
+            <div className="flex-1 overflow-auto p-4 space-y-2 custom-scrollbar select-text">{logs.length === 0 ? <span className="text-ink-3 italic">No logs yet...</span> : logs.map((l, i) => (<div key={i} className={`flex gap-3 ${l.level === 'error' ? 'text-danger' : l.level === 'warn' ? 'text-warning' : 'text-ink-2'}`}><span className="text-ink-3 shrink-0 select-none">[{l.time}]</span><span className="break-all whitespace-pre-wrap">{l.msg}</span></div>))}</div>
           </div>
         </div>
       )}
@@ -2565,13 +2591,13 @@ export default function App() {
             <>
               <div
                 onMouseDown={handleSplitDrag}
-                className="w-1 shrink-0 cursor-col-resize bg-[rgba(255,255,255,0.07)] hover:bg-[#4A5D75] transition-colors"
+                className="w-1 shrink-0 cursor-col-resize bg-edge-2 hover:bg-accent transition-colors"
                 title="Drag to resize"
               />
               <div className="relative overflow-hidden min-w-0 flex flex-col flex-1">
                 <button
                   onClick={() => useUIStore.getState().setSplitTabId(null)}
-                  className="absolute top-2 right-2 z-[60] p-1 rounded-md bg-[#12141a]/80 text-neutral-400 hover:text-white hover:bg-[rgba(255,255,255,0.1)] transition-colors"
+                  className="absolute top-2 right-2 z-[60] p-1 rounded-md bg-panel/80 text-ink-3 hover:text-ink hover:bg-inset transition-colors"
                   title="Close split"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -2620,20 +2646,23 @@ export default function App() {
         />
       )}
 
+      {/* New Space wizard — name, goal, invite agents/people */}
+      {showNewSpace && <NewSpaceModal />}
+
       {/* Save Artifact Modal */}
       {showSaveModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-neutral-900 w-full max-w-sm rounded-[2rem] shadow-2xl p-6 border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white">
+          <div className="bg-panel-2 w-full max-w-sm rounded-[2rem] shadow-2xl p-6 border border-edge text-ink">
             <h3 className="text-lg font-black mb-4 tracking-tight">Save to Archives</h3>
             <div className="space-y-4">
                <div>
                   <label className="text-[10px] font-black uppercase opacity-40 block mb-1">Project Name</label>
-                  <input type="text" value={saveAppData.title} onChange={e => useUIStore.getState().setSaveAppData({ ...useUIStore.getState().saveAppData, title: e.target.value })} className="w-full bg-neutral-100 dark:bg-neutral-800 border-none rounded-xl px-4 py-3 text-sm dark:text-neutral-100 outline-none font-bold" />
+                  <input type="text" value={saveAppData.title} onChange={e => useUIStore.getState().setSaveAppData({ ...useUIStore.getState().saveAppData, title: e.target.value })} className="w-full bg-inset border-none rounded-xl px-4 py-3 text-sm text-ink outline-none font-bold" />
                </div>
             </div>
             <div className="flex gap-2 mt-8">
-              <button onClick={() => setShowSaveModal(false)} className="flex-1 py-3 text-xs font-black uppercase text-neutral-400 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800">Cancel</button>
-              <button onClick={() => saveToLibrary(true)} className="flex-1 py-3 text-xs font-black uppercase bg-[#4A5D75] text-white rounded-xl hover:bg-[#3D4D61]">Save</button>
+              <button onClick={() => setShowSaveModal(false)} className="flex-1 py-3 text-xs font-black uppercase text-ink-3 rounded-xl hover:bg-wash">Cancel</button>
+              <button onClick={() => saveToLibrary(true)} className="flex-1 py-3 text-xs font-black uppercase bg-accent text-on-accent rounded-xl hover:bg-accent-strong">Save</button>
             </div>
           </div>
         </div>
