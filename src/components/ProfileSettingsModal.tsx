@@ -2,14 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
   MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
-  Sun, Moon, Monitor, Check
+  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { VoicePicker } from './ui/VoicePicker';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
+import { migrateLocalCalendarToEventkit, localCalendarMigrationCount, migrateLocalTasksToEventkit, localTasksMigrationCount } from '../services/connectors/migrate';
+import { getCalendar, getTasks, getNotes } from '../services/connectors';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
 
 interface ProfileSettingsModalProps {
@@ -112,6 +115,140 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
       setIntegrations((prev: any) => ({ ...prev, imessage: { enabled: false } }));
       setImsgStatus({ state: 'error', msg: String(e) });
     }
+  };
+
+  // Calendar — choose where events live (local store vs the native macOS calendar via EventKit),
+  // grant access, pick which calendars to show, and migrate existing local birthdays/events over.
+  const calendarBackend: string = (integrations as any).calendar?.backend ?? 'local';
+  const selectedCalendarIds: string[] = (integrations as any).calendar?.selectedCalendarIds ?? [];
+  const calendarMigrated = !!(integrations as any).calendar?.migratedToEventkit;
+  const [calCals, setCalCals] = useState<Array<{ id: string; title: string; account: string }>>([]);
+  const [calStatus, setCalStatus] = useState<{ state: 'idle' | 'working' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
+  const [calAuth, setCalAuth] = useState<string>('notDetermined'); // TCC status — drives the "Connected" badge
+
+  const setCalendarBackend = async (backend: string) => {
+    setIntegrations((prev: any) => ({ ...prev, calendar: { ...(prev.calendar ?? {}), backend } }));
+    await useSettingsStore.getState().persist();
+  };
+
+  const grantCalendarAccess = async () => {
+    setCalStatus({ state: 'working', msg: 'Requesting access…' });
+    try {
+      const granted = await invoke<boolean>('eventkit_request_access', { kind: 'event' });
+      if (!granted) { setCalAuth('denied'); setCalStatus({ state: 'error', msg: 'Calendar access was denied' }); return; }
+      const cals = await invoke<Array<{ id: string; title: string; account: string }>>('eventkit_list_calendars', { kind: 'event' });
+      setCalCals(cals);
+      setCalAuth('authorized');
+      setCalStatus({ state: 'ok', msg: `Connected — ${cals.length} calendar${cals.length === 1 ? '' : 's'} found` });
+    } catch (e) { setCalStatus({ state: 'error', msg: String(e) }); }
+  };
+
+  // Probe the live TCC status whenever the native backend is active, so the "Connected" badge is
+  // accurate without the user having to click Grant first.
+  useEffect(() => {
+    if (calendarBackend !== 'eventkit') return;
+    invoke<string>('eventkit_authorization_status', { kind: 'event' }).then(setCalAuth).catch(() => {});
+  }, [calendarBackend]);
+
+  // Re-read from the native store to prove writes actually landed (the closest in-app confirmation
+  // of the iCloud round-trip we can give).
+  const verifyCalendarSync = async () => {
+    setCalStatus({ state: 'working', msg: 'Verifying…' });
+    try {
+      const y = new Date().getFullYear();
+      const evs = await getCalendar().listEvents(`${y}-01-01`, `${y}-12-31`);
+      setCalStatus({ state: 'ok', msg: `Verified — ${evs.length} event${evs.length === 1 ? '' : 's'} in your Mac calendar this year` });
+    } catch (e) { setCalStatus({ state: 'error', msg: String(e) }); }
+  };
+
+  // To-Dos — same pattern as Calendar, backed by the native Reminders app via EventKit.
+  const tasksBackend: string = (integrations as any).tasks?.backend ?? 'local';
+  const tasksMigrated = !!(integrations as any).tasks?.migratedToEventkit;
+  const [taskLists, setTaskLists] = useState<Array<{ id: string; title: string; account: string }>>([]);
+  const [taskAuth, setTaskAuth] = useState<string>('notDetermined');
+  const [taskStatus, setTaskStatus] = useState<{ state: 'idle' | 'working' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
+
+  const setTasksBackend = async (backend: string) => {
+    setIntegrations((prev: any) => ({ ...prev, tasks: { ...(prev.tasks ?? {}), backend } }));
+    await useSettingsStore.getState().persist();
+  };
+
+  const grantRemindersAccess = async () => {
+    setTaskStatus({ state: 'working', msg: 'Requesting access…' });
+    try {
+      const granted = await invoke<boolean>('eventkit_request_access', { kind: 'reminder' });
+      if (!granted) { setTaskAuth('denied'); setTaskStatus({ state: 'error', msg: 'Reminders access was denied' }); return; }
+      const lists = await invoke<Array<{ id: string; title: string; account: string }>>('eventkit_list_calendars', { kind: 'reminder' });
+      setTaskLists(lists);
+      setTaskAuth('authorized');
+      setTaskStatus({ state: 'ok', msg: `Connected — ${lists.length} list${lists.length === 1 ? '' : 's'} found` });
+    } catch (e) { setTaskStatus({ state: 'error', msg: String(e) }); }
+  };
+
+  useEffect(() => {
+    if (tasksBackend !== 'eventkit') return;
+    invoke<string>('eventkit_authorization_status', { kind: 'reminder' }).then(setTaskAuth).catch(() => {});
+  }, [tasksBackend]);
+
+  const runTasksMigration = async () => {
+    const count = localTasksMigrationCount();
+    if (count === 0) { setTaskStatus({ state: 'error', msg: 'No open tasks to migrate' }); return; }
+    if (!window.confirm(`Copy ${count} open task${count === 1 ? '' : 's'} into Reminders? Your local copy is kept.`)) return;
+    setTaskStatus({ state: 'working', msg: 'Migrating…' });
+    try {
+      const n = await migrateLocalTasksToEventkit();
+      setIntegrations((prev: any) => ({ ...prev, tasks: { ...(prev.tasks ?? {}), migratedToEventkit: true } }));
+      await useSettingsStore.getState().persist();
+      setTaskStatus({ state: 'ok', msg: `Migrated ${n} task${n === 1 ? '' : 's'} to Reminders — syncing to your devices` });
+    } catch (e) { setTaskStatus({ state: 'error', msg: String(e) }); }
+  };
+
+  const verifyRemindersSync = async () => {
+    setTaskStatus({ state: 'working', msg: 'Verifying…' });
+    try {
+      const ts = await getTasks().listTasks();
+      setTaskStatus({ state: 'ok', msg: `Verified — ${ts.length} reminder${ts.length === 1 ? '' : 's'} in Reminders` });
+    } catch (e) { setTaskStatus({ state: 'error', msg: String(e) }); }
+  };
+
+  // Notes — local store vs the native Apple Notes app (AppleScript). Connecting/verifying lists
+  // folders, which triggers the one-time Automation prompt.
+  const notesBackend: string = (integrations as any).notes?.backend ?? 'local';
+  const [notesStatus, setNotesStatus] = useState<{ state: 'idle' | 'working' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
+
+  const setNotesBackend = async (backend: string) => {
+    setIntegrations((prev: any) => ({ ...prev, notes: { ...(prev.notes ?? {}), backend } }));
+    await useSettingsStore.getState().persist();
+  };
+
+  const verifyNotes = async () => {
+    setNotesStatus({ state: 'working', msg: 'Connecting…' });
+    try {
+      const folders = await getNotes().listFolders();
+      setNotesStatus({ state: 'ok', msg: `Connected — ${folders.length} folder${folders.length === 1 ? '' : 's'} in Notes` });
+    } catch (e) { setNotesStatus({ state: 'error', msg: String(e) }); }
+  };
+
+  const toggleCalendarSelected = async (id: string) => {
+    setIntegrations((prev: any) => {
+      const cur: string[] = prev.calendar?.selectedCalendarIds ?? [];
+      const next = cur.includes(id) ? cur.filter((x: string) => x !== id) : [...cur, id];
+      return { ...prev, calendar: { ...(prev.calendar ?? {}), selectedCalendarIds: next } };
+    });
+    await useSettingsStore.getState().persist();
+  };
+
+  const runCalendarMigration = async () => {
+    const count = localCalendarMigrationCount();
+    if (count === 0) { setCalStatus({ state: 'error', msg: 'No local events to migrate' }); return; }
+    if (!window.confirm(`Copy ${count} local birthday/event${count === 1 ? '' : 's'} into your Mac calendar? Your local copy is kept.`)) return;
+    setCalStatus({ state: 'working', msg: 'Migrating…' });
+    try {
+      const n = await migrateLocalCalendarToEventkit();
+      setIntegrations((prev: any) => ({ ...prev, calendar: { ...(prev.calendar ?? {}), migratedToEventkit: true } }));
+      await useSettingsStore.getState().persist();
+      setCalStatus({ state: 'ok', msg: `Migrated ${n} event${n === 1 ? '' : 's'} to your Mac calendar — syncing to your devices` });
+    } catch (e) { setCalStatus({ state: 'error', msg: String(e) }); }
   };
 
   useEffect(() => {
@@ -336,6 +473,18 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   ))}
                 </div>
                 <p className="text-tiny text-ink-3 mt-2 font-medium">Buttons, highlights, and your chat bubbles pick up this color everywhere.</p>
+              </div>
+
+              {/* Voice — default for the "Read aloud" button */}
+              <div>
+                <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 flex items-center gap-2"><Volume2 className="w-3.5 h-3.5" /> Voice</label>
+                <p className="text-tiny text-ink-3 mb-3 font-medium">The default voice for reading messages aloud. Each agent can pick its own in its settings. Download richer voices in System Settings → Accessibility → Spoken Content → Manage Voices.</p>
+                <VoicePicker
+                  voiceURI={appSettings.ttsVoiceURI}
+                  rate={appSettings.ttsRate ?? 1}
+                  pitch={appSettings.ttsPitch ?? 1}
+                  onChange={(next) => setAppSettings((prev: any) => ({ ...prev, ttsVoiceURI: next.voiceURI, ttsRate: next.rate, ttsPitch: next.pitch }))}
+                />
               </div>
             </div>
           ) : (
@@ -711,7 +860,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     <li>The first time you send, macOS asks to let Agent Forge control Messages — click <span className="font-bold">OK</span>.</li>
                   </ol>
                   <button
-                    onClick={() => openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles').catch(() => {})}
+                    onClick={() => invoke('imessage_open_fda_settings').catch(() => {})}
                     className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
                   ><ExternalLink className="w-3.5 h-3.5" /> Open Full Disk Access</button>
                 </div>
@@ -725,6 +874,192 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     <span className="text-ink-3 font-medium">↑ Turn on Full Disk Access for Agent Forge, then click Connect again. (A full quit &amp; relaunch may be needed after granting.)</span>
                   </div>
                 )}
+              </div>
+
+              {/* Calendar — local store vs the native macOS Calendar (EventKit). Native syncs to iPhone via iCloud. */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2">
+                    <CalendarDays className="w-5 h-5 text-secondary" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest block">Calendar</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5">Keep events on this Mac, or use your real macOS Calendar — which syncs to your iPhone via iCloud.</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {([['local', 'On this Mac'], ['eventkit', 'macOS Calendar']] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => setCalendarBackend(id)}
+                      className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${calendarBackend === id ? 'bg-primary text-white border-primary' : 'bg-inset text-ink-3 border-edge-2 hover:text-ink-2'}`}
+                    >{label}</button>
+                  ))}
+                </div>
+
+                {calendarBackend === 'eventkit' && (
+                  <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
+                    {calAuth === 'authorized'
+                      ? <span className="flex items-center gap-1.5 text-xs font-bold text-success-light"><CheckCircle2 className="w-4 h-4 shrink-0" /> Connected to macOS Calendar — changes sync to your devices via iCloud.</span>
+                      : <span className="text-tiny text-ink-3 font-medium">Grant access so Agent Forge can read &amp; write your real calendar (it syncs to your iPhone via iCloud).</span>}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={grantCalendarAccess}
+                        disabled={calStatus.state === 'working'}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm disabled:opacity-40"
+                      >
+                        {calStatus.state === 'working' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />} {calAuth === 'authorized' ? 'Re-check access' : 'Grant Calendar access'}
+                      </button>
+                      {calAuth === 'authorized' && (
+                        <button
+                          onClick={verifyCalendarSync}
+                          disabled={calStatus.state === 'working'}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-inset border border-edge-2 text-ink-2 hover:bg-wash transition-all disabled:opacity-40"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Verify sync
+                        </button>
+                      )}
+                    </div>
+
+                    {calCals.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Show these calendars</span>
+                        {calCals.map(c => (
+                          <label key={c.id} className="flex items-center gap-2 text-xs text-ink-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedCalendarIds.length === 0 || selectedCalendarIds.includes(c.id)}
+                              onChange={() => toggleCalendarSelected(c.id)}
+                            />
+                            <span className="font-bold">{c.title}</span>
+                            {c.account && <span className="text-ink-3">· {c.account}</span>}
+                          </label>
+                        ))}
+                        <span className="text-[10px] text-ink-3 font-medium">Leave all checked to show every calendar.</span>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={runCalendarMigration}
+                      disabled={calStatus.state === 'working' || calendarMigrated}
+                      className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-inset border border-edge-2 text-ink-2 hover:bg-wash transition-all disabled:opacity-40"
+                    >
+                      <Upload className="w-3.5 h-3.5" /> {calendarMigrated ? 'Local events migrated' : 'Migrate local events → Mac calendar'}
+                    </button>
+                  </div>
+                )}
+
+                {calStatus.state === 'ok' && <span className="text-tiny font-bold text-success-light">✓ {calStatus.msg}</span>}
+                {calStatus.state === 'error' && <span className="text-tiny font-bold text-error break-words">✗ {calStatus.msg}</span>}
+              </div>
+
+              {/* To-Dos — local store vs the native Reminders app (EventKit). Native syncs to iPhone via iCloud. */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2">
+                    <ListTodo className="w-5 h-5 text-secondary" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest block">To-Dos</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5">Keep tasks on this Mac, or use the native Reminders app — which syncs to your iPhone via iCloud.</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {([['local', 'On this Mac'], ['eventkit', 'Reminders']] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => setTasksBackend(id)}
+                      className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${tasksBackend === id ? 'bg-primary text-white border-primary' : 'bg-inset text-ink-3 border-edge-2 hover:text-ink-2'}`}
+                    >{label}</button>
+                  ))}
+                </div>
+
+                {tasksBackend === 'eventkit' && (
+                  <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
+                    {taskAuth === 'authorized'
+                      ? <span className="flex items-center gap-1.5 text-xs font-bold text-success-light"><CheckCircle2 className="w-4 h-4 shrink-0" /> Connected to Reminders — changes sync to your devices via iCloud.</span>
+                      : <span className="text-tiny text-ink-3 font-medium">Grant access so Agent Forge can read &amp; write your Reminders (they sync to your iPhone via iCloud).</span>}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={grantRemindersAccess}
+                        disabled={taskStatus.state === 'working'}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm disabled:opacity-40"
+                      >
+                        {taskStatus.state === 'working' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />} {taskAuth === 'authorized' ? 'Re-check access' : 'Grant Reminders access'}
+                      </button>
+                      {taskAuth === 'authorized' && (
+                        <button
+                          onClick={verifyRemindersSync}
+                          disabled={taskStatus.state === 'working'}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-inset border border-edge-2 text-ink-2 hover:bg-wash transition-all disabled:opacity-40"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Verify sync
+                        </button>
+                      )}
+                    </div>
+
+                    {taskLists.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Your reminder lists</span>
+                        {taskLists.map(l => (
+                          <span key={l.id} className="text-xs text-ink-2"><span className="font-bold">{l.title}</span>{l.account && <span className="text-ink-3"> · {l.account}</span>}</span>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={runTasksMigration}
+                      disabled={taskStatus.state === 'working' || tasksMigrated}
+                      className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-inset border border-edge-2 text-ink-2 hover:bg-wash transition-all disabled:opacity-40"
+                    >
+                      <Upload className="w-3.5 h-3.5" /> {tasksMigrated ? 'Local tasks migrated' : 'Migrate local tasks → Reminders'}
+                    </button>
+                  </div>
+                )}
+
+                {taskStatus.state === 'ok' && <span className="text-tiny font-bold text-success-light">✓ {taskStatus.msg}</span>}
+                {taskStatus.state === 'error' && <span className="text-tiny font-bold text-error break-words">✗ {taskStatus.msg}</span>}
+              </div>
+
+              {/* Notes — local store vs the native Apple Notes app (AppleScript). Native syncs to iPhone via iCloud. */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2">
+                    <StickyNote className="w-5 h-5 text-secondary" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest block">Notes</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5">Keep notes in the app, or use the native Apple Notes app — which syncs to your iPhone via iCloud.</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {([['local', 'In the app'], ['applescript', 'Apple Notes']] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => setNotesBackend(id)}
+                      className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${notesBackend === id ? 'bg-primary text-white border-primary' : 'bg-inset text-ink-3 border-edge-2 hover:text-ink-2'}`}
+                    >{label}</button>
+                  ))}
+                </div>
+
+                {notesBackend === 'applescript' && (
+                  <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
+                    <span className="text-tiny text-ink-3 font-medium">First use prompts macOS to let Agent Forge control Notes (Automation). Notes sync to your iPhone via iCloud.</span>
+                    <button
+                      onClick={verifyNotes}
+                      disabled={notesStatus.state === 'working'}
+                      className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm disabled:opacity-40"
+                    >
+                      {notesStatus.state === 'working' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />} Connect &amp; verify
+                    </button>
+                  </div>
+                )}
+
+                {notesStatus.state === 'ok' && <span className="text-tiny font-bold text-success-light">✓ {notesStatus.msg}</span>}
+                {notesStatus.state === 'error' && <span className="text-tiny font-bold text-error break-words">✗ {notesStatus.msg}</span>}
               </div>
 
               {/* GUS — Salesforce Agile Accelerator */}

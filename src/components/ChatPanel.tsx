@@ -21,7 +21,7 @@ export interface SpaceLogProps {
   forgettingIndex: number;
   onConfirmEdit: (msgId: string) => void;
   onBookmark: (msg: any) => Promise<void>;
-  onToggleSpeak: (msgId: string, text: string) => void;
+  onToggleSpeak: (msgId: string, text: string, agentId?: string) => void;
   onAddTask: (title: string) => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   onRenderMessage: (msg: any) => React.ReactNode;

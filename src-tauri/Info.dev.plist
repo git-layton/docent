@@ -10,5 +10,9 @@
   <string>Agent Forge sends your iMessages and texts through the Messages app on your behalf.</string>
   <key>NSContactsUsageDescription</key>
   <string>Agent Forge matches phone numbers and emails in your conversations to names from your contacts.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Agent Forge shows and manages your calendar events on your behalf.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>Agent Forge shows and manages your reminders and to-dos on your behalf.</string>
 </dict>
 </plist>

@@ -6,6 +6,7 @@ import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check,
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
+import { speak, cancelSpeech, resolveVoicePrefs, loadVoices } from '../lib/voice';
 import { FormattedText } from './ui/FormattedText';
 
 /** Renders assistant markdown: code fences get a styled block, everything else goes to FormattedText. */
@@ -73,6 +74,8 @@ export default function SpotlightBar() {
   const [preferredBrowser, setPreferredBrowser] = useState<'chrome' | 'safari'>('chrome');
   const [agents, setAgents] = useState<any[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');
+  // App-wide TTS defaults (per-agent voice overrides these). Read from the shared store.
+  const [voiceDefaults, setVoiceDefaults] = useState<{ voiceURI?: string; rate?: number; pitch?: number }>({});
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [models, setModels] = useState<any[]>([]);
   const [selectedModelId, setSelectedModelId] = useState('');
@@ -121,16 +124,19 @@ export default function SpotlightBar() {
   useEffect(() => {
     (async () => {
       await db.init();
-      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings, onboarded, hotkeyOnboarded, storedBrowser] = await Promise.all([
+      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings, storedAppSettings, onboarded, hotkeyOnboarded, storedBrowser] = await Promise.all([
         db.get('chats', []),
         db.get('messages', {}),
         db.get('assistants', []),
         db.get('models', []),
         db.get('settings', {}),
+        db.get('appSettings', {}),
         db.get('spotlightOnboarded', false),
         db.get('spotlightHotkeyOnboarded', false),
         db.get('preferredBrowser', 'chrome'),
       ]);
+      setVoiceDefaults({ voiceURI: storedAppSettings.ttsVoiceURI, rate: storedAppSettings.ttsRate, pitch: storedAppSettings.ttsPitch });
+      void loadVoices();
       if (!onboarded) setShowOnboarding(true);
       if (!hotkeyOnboarded) setShowHotkeyOnboarding(true);
       if (storedBrowser === 'chrome' || storedBrowser === 'safari') setPreferredBrowser(storedBrowser);
@@ -657,14 +663,14 @@ export default function SpotlightBar() {
                   <button
                     onClick={() => {
                       if (speakingId === msg.id) {
-                        window.speechSynthesis.cancel();
+                        cancelSpeech();
                         setSpeakingId(null);
                       } else {
-                        window.speechSynthesis.cancel();
-                        const utt = new SpeechSynthesisUtterance(msg.content);
-                        utt.onend = () => setSpeakingId(null);
-                        window.speechSynthesis.speak(utt);
                         setSpeakingId(msg.id);
+                        speak(msg.content, resolveVoicePrefs(selectedAgent, voiceDefaults), {
+                          onEnd: () => setSpeakingId(null),
+                          onError: () => setSpeakingId(null),
+                        });
                       }
                     }}
                     className="flex items-center gap-1 text-[10px] text-ink-3 hover:text-ink-2 px-1.5 py-0.5 rounded-md hover:bg-wash transition-all"

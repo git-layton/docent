@@ -17,16 +17,22 @@ interface ModelState {
 
 interface ModelStorePanelProps {
   ramMb: number;
+  isAppleSilicon?: boolean;
   onModelReady: (model: any) => void;
 }
 
 const DEFAULT_PORT = 8080;
+// The bundled llama-server launches with `-c 32768` (see start_local_model in lib.rs),
+// so cap the stored context to what the engine actually serves — otherwise long-context
+// models like Llama 70B / Gemma (advertised 128K) would silently overflow.
+const ENGINE_CONTEXT = 32768;
+const engineContextLimit = (contextK: number) => Math.min(contextK * 1024, ENGINE_CONTEXT);
 
 function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
+export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady }: ModelStorePanelProps) {
   const [states, setStates] = useState<Record<string, ModelState>>({});
   const [search, setSearch] = useState('');
   const unlistenRef = useRef<(() => void) | null>(null);
@@ -108,7 +114,7 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
       modelId: model.ggufFilename.replace('.gguf', ''),
       endpoint,
       apiKey: '',
-      contextLimit: model.contextK * 1024,
+      contextLimit: engineContextLimit(model.contextK),
       canImage: false,
       isLocal: true,
     };
@@ -130,12 +136,21 @@ export function ModelStorePanel({ ramMb, onModelReady }: ModelStorePanelProps) {
         modelId: model.ggufFilename.replace('.gguf', ''),
         endpoint: state.endpoint,
         apiKey: '',
-        contextLimit: model.contextK * 1024,
+        contextLimit: engineContextLimit(model.contextK),
         canImage: false,
         isLocal: true,
       };
       onModelReady(existing);
     }
+  }
+
+  if (isAppleSilicon === false) {
+    return (
+      <div className="text-center py-8 text-sm text-ink-2">
+        <p className="font-bold text-ink mb-1">Local AI runs on Apple Silicon</p>
+        <p className="text-xs">This Mac isn't Apple Silicon, so the built-in engine can't run a local model — use a cloud model instead.</p>
+      </div>
+    );
   }
 
   if (ramMb < 6144) {

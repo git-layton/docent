@@ -7,6 +7,8 @@ use futures_util::StreamExt;
 
 mod mail;
 mod imessage;
+mod calendar;
+mod notes;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -194,6 +196,42 @@ fn get_ram_stats() -> serde_json::Value {
         "used_mb": used_mb,
         "available_mb": available_mb
     })
+}
+
+#[derive(serde::Serialize)]
+struct HardwareSummary {
+    total_mb: u64,
+    chip: String,            // human label, e.g. "Apple M3 Pro" or the Intel brand string
+    is_apple_silicon: bool,  // gates the bundled (arm64-only) llama-server engine
+    arch: String,            // "aarch64" | "x86_64" | …
+    cpu_count: usize,
+}
+
+// Chip + RAM in one shot. `is_apple_silicon` decides whether the bundled
+// `llama-server` (arm64-only) can run — on Intel we must steer users to cloud.
+#[tauri::command]
+fn get_hardware_summary() -> HardwareSummary {
+    let mut sys = System::new_all();
+    sys.refresh_memory();
+    sys.refresh_cpu_specifics(CpuRefreshKind::everything());
+
+    let total_mb = sys.total_memory() / 1024 / 1024;
+    let arch = std::env::consts::ARCH.to_string();
+    let is_apple_silicon = cfg!(target_arch = "aarch64");
+    let cpu_count = sys.cpus().len();
+
+    let brand = sys
+        .cpus()
+        .first()
+        .map(|c| c.brand().trim().to_string())
+        .unwrap_or_default();
+    let chip = if brand.is_empty() {
+        if is_apple_silicon { "Apple Silicon".to_string() } else { arch.clone() }
+    } else {
+        brand
+    };
+
+    HardwareSummary { total_mb, chip, is_apple_silicon, arch, cpu_count }
 }
 
 // ─── 1.2 System Stats (CPU + RAM + Network) ──────────────────────────────────
@@ -3164,6 +3202,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_ram_stats,
+            get_hardware_summary,
             get_system_stats,
             spawn_llama_server,
             sigstop_llama_server,
@@ -3222,6 +3261,24 @@ pub fn run() {
             imessage::imessage_list_chats,
             imessage::imessage_fetch_messages,
             imessage::imessage_send,
+            calendar::eventkit_authorization_status,
+            calendar::eventkit_request_access,
+            calendar::eventkit_list_calendars,
+            calendar::eventkit_list_events,
+            calendar::eventkit_save_event,
+            calendar::eventkit_update_event,
+            calendar::eventkit_delete_event,
+            calendar::eventkit_list_reminders,
+            calendar::eventkit_save_reminder,
+            calendar::eventkit_set_reminder_completed,
+            calendar::eventkit_delete_reminder,
+            calendar::eventkit_update_reminder,
+            notes::notes_list_folders,
+            notes::notes_list,
+            notes::notes_read,
+            notes::notes_create,
+            notes::notes_update,
+            notes::notes_delete,
             browser_create,
             browser_navigate,
             browser_reload,
@@ -3346,6 +3403,9 @@ mod tests {
             "keychain_get", "keychain_save", "keychain_delete", "browser_eval", "browser_navigate",
             "browser_create", "browser_reload", "mail_test_connection", "mail_fetch_recent",
             "imessage_check_access", "imessage_open_fda_settings", "imessage_unread_count", "imessage_list_chats", "imessage_fetch_messages", "imessage_send",
+            "eventkit_authorization_status", "eventkit_request_access", "eventkit_list_calendars", "eventkit_list_events", "eventkit_save_event", "eventkit_update_event", "eventkit_delete_event",
+            "eventkit_list_reminders", "eventkit_save_reminder", "eventkit_set_reminder_completed", "eventkit_delete_reminder", "eventkit_update_reminder",
+            "notes_list_folders", "notes_list", "notes_read", "notes_create", "notes_update", "notes_delete",
             "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
             "download_model", "upsert_graph_node", "get_graph_stats", "get_graph_full", "setup_relay",
         ] {

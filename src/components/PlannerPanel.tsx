@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   ListTodo, LayoutList, CalendarDays, ChevronLeft, ChevronRight,
   GripVertical, Circle, Clock, MapPin, MessageSquare, Trash2,
@@ -11,6 +11,9 @@ import type { RecurringEvent } from '../store/useTaskStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useUIStore } from '../store/useUIStore';
 import { useChatStore } from '../store/useChatStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { getTasks } from '../services/connectors';
+import type { TaskItem } from '../services/connectors';
 import { getHolidaysForYear } from '../data/usHolidays';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -93,6 +96,31 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
   const { setInput, setViewMode } = useUIStore.getState();
   const { setActiveChatId } = useChatStore.getState();
 
+  // Tasks flow through the connector so the planner shows whichever backend is active. For 'local'
+  // this wraps useTaskStore (behavior-preserving); for 'eventkit' it shows the real Reminders app.
+  const tasksBackend = useSettingsStore(s => (s.integrations as any).tasks?.backend ?? 'local');
+  const eventkitTasksActive = tasksBackend === 'eventkit';
+  const [nativeItems, setNativeItems] = useState<TaskItem[]>([]);
+  const loadNativeTasks = useCallback(async () => {
+    try { setNativeItems(await getTasks().listTasks()); } catch { setNativeItems([]); }
+  }, []);
+  useEffect(() => { if (eventkitTasksActive) loadNativeTasks(); }, [eventkitTasksActive, loadNativeTasks]);
+
+  // Unified source + mutation wrappers — local uses the reactive store, native re-reads after writes.
+  const displayTasks: any[] = eventkitTasksActive ? nativeItems : tasks;
+  const onToggle = (id: string, completed: boolean) => {
+    if (eventkitTasksActive) getTasks().setCompleted(id, !completed).then(loadNativeTasks).catch(() => {});
+    else toggleTask(id);
+  };
+  const onDelete = (id: string) => {
+    if (eventkitTasksActive) getTasks().deleteTask(id).then(loadNativeTasks).catch(() => {});
+    else deleteTask(id);
+  };
+  const onAddTask = (title: string, dueDate: string | null, details = '', location = '') => {
+    if (eventkitTasksActive) getTasks().createTask({ title, dueDate: dueDate ?? undefined, details, location }).then(loadNativeTasks).catch(() => {});
+    else addTask(title, dueDate, details, location);
+  };
+
   // Day-detail panel state
   const [selectedDayDetail, setSelectedDayDetail] = useState<string | null>(null);
 
@@ -126,7 +154,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
   const handleManualTaskSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskInput.trim()) return;
-    addTask(newTaskInput, newTaskDate || null, newTaskDetails, newTaskLocation);
+    onAddTask(newTaskInput, newTaskDate || null, newTaskDetails, newTaskLocation);
     setNewTaskInput(''); setNewTaskDate(''); setNewTaskDetails(''); setNewTaskLocation(''); setShowTaskDetailsForm(false);
   };
 
@@ -201,7 +229,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                   const ds = toLocalISODate(dateObj) as string;
                   const isToday = ds === toLocalISODate(new Date());
                   const isSelected = ds === newTaskDate;
-                  const dayTasks = tasks.filter(t => !t.completed && taskCoversDate(t, ds));
+                  const dayTasks = displayTasks.filter(t => !t.completed && taskCoversDate(t, ds));
                   const dayBirthdays = recurringEvents.filter(ev => ev.month === calendarMonth && ev.day === dateObj.getDate());
                   const dayHolidays = holidaysThisMonth.filter(h => h.date === ds);
                   return (
@@ -221,7 +249,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                 const monthNum = parseInt(mm);
                 const dayNum = parseInt(dd);
                 const detailDate = new Date(parseInt(yyyy), monthNum - 1, dayNum);
-                const detailTasks = tasks.filter(t => taskCoversDate(t, selectedDayDetail));
+                const detailTasks = displayTasks.filter(t => taskCoversDate(t, selectedDayDetail));
                 const detailHolidays = holidaysThisMonth.filter(h => h.date === selectedDayDetail);
                 const detailBirthdays = recurringEvents.filter(ev => ev.month === monthNum && ev.day === dayNum);
                 return (
@@ -251,17 +279,17 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                     )}
                     {detailTasks.map(task => (
                       <div key={task.id} className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl border border-edge hover:bg-wash transition-all">
-                        <button onClick={() => toggleTask(task.id)} className={`shrink-0 ${task.completed ? 'text-accent' : 'text-ink-3 hover:text-accent'} transition-colors`}>
+                        <button onClick={() => onToggle(task.id, task.completed)} className={`shrink-0 ${task.completed ? 'text-accent' : 'text-ink-3 hover:text-accent'} transition-colors`}>
                           {task.completed ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
                         </button>
                         <span className={`text-sm font-bold flex-1 ${task.completed ? 'line-through text-ink-3' : 'text-ink'}`}>{task.title}</span>
-                        <button onClick={() => deleteTask(task.id)} className="text-ink-3 hover:text-danger transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => onDelete(task.id)} className="text-ink-3 hover:text-danger transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     ))}
                     <form onSubmit={(e) => {
                       e.preventDefault();
                       if (!newTaskInput.trim()) return;
-                      addTask(newTaskInput, selectedDayDetail, newTaskDetails, newTaskLocation);
+                      onAddTask(newTaskInput, selectedDayDetail, newTaskDetails, newTaskLocation);
                       setNewTaskInput('');
                       setNewTaskDetails('');
                       setNewTaskLocation('');
@@ -320,9 +348,9 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
               )}
 
               {/* ── Pending Tasks ── */}
-              {tasks.filter(t => !t.completed).length === 0 ? (
+              {displayTasks.filter(t => !t.completed).length === 0 ? (
                 <div className="text-center py-6 text-ink-3 text-sm font-bold">No pending tasks — you're clear!</div>
-              ) : tasks.filter(t => !t.completed).map(task => (
+              ) : displayTasks.filter(t => !t.completed).map(task => (
                 <div key={task.id}
                      draggable
                      onDragStart={(e) => onDragStart(e, task.id)}
@@ -332,7 +360,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                      className={`flex items-start justify-between group p-3 hover:bg-wash rounded-xl border transition-all ${draggedTaskId === task.id ? 'opacity-50 border-accent bg-wash' : 'border-transparent hover:border-edge'}`}>
                   <div className="flex items-start gap-3 mt-1">
                     <div className="cursor-grab text-ink-3 hover:text-ink-2 mt-1 flex shrink-0" title="Drag to reorder"><GripVertical className="w-4 h-4" /></div>
-                    <button onClick={() => toggleTask(task.id)} className="text-ink-3 hover:text-accent transition-colors mt-0.5"><Circle className="w-5 h-5" /></button>
+                    <button onClick={() => onToggle(task.id, task.completed)} className="text-ink-3 hover:text-accent transition-colors mt-0.5"><Circle className="w-5 h-5" /></button>
                     <div className="flex flex-col">
                       <span className="text-sm font-bold text-ink">{task.title}</span>
                       <div className="flex items-center gap-3 mt-1 flex-wrap">
@@ -344,7 +372,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                   </div>
                   <div className="opacity-0 group-hover:opacity-100 flex items-center transition-all">
                     <button onClick={() => setTaskToDiscuss(task)} className="p-2 text-ink-3 hover:text-accent transition-all" title="Get Help"><MessageSquare className="w-4 h-4" /></button>
-                    <button onClick={() => deleteTask(task.id)} className="p-2 text-ink-3 hover:text-danger transition-all" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => onDelete(task.id)} className="p-2 text-ink-3 hover:text-danger transition-all" title="Delete"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}
@@ -439,13 +467,13 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
         </div>
 
         {/* ── Completed Tasks ── */}
-        {tasks.filter(t => t.completed).length > 0 && (
+        {displayTasks.filter(t => t.completed).length > 0 && (
           <div className="opacity-60 hover:opacity-100 transition-all">
             <h3 className="text-xs font-black uppercase tracking-widest mb-4 px-2 text-ink-2 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Completed</h3>
-            {tasks.filter(t => t.completed).map(task => (
+            {displayTasks.filter(t => t.completed).map(task => (
               <div key={task.id} className="flex items-center justify-between p-2 px-4 bg-wash rounded-lg mb-2 group">
                 <div className="flex items-center gap-3">
-                  <button onClick={() => toggleTask(task.id)} className="text-success"><CheckCircle2 className="w-4 h-4" /></button>
+                  <button onClick={() => onToggle(task.id, task.completed)} className="text-success"><CheckCircle2 className="w-4 h-4" /></button>
                   <span className="text-sm font-medium line-through text-ink-2">{task.title}</span>
                   {task.completedAt && (
                     <span className="text-[9px] font-bold text-ink-3 uppercase tracking-wide">Done {formatCompletedAt(task.completedAt)}</span>
@@ -453,7 +481,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
                 </div>
                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all">
                   <button onClick={() => { setInput(`I need help with this completed task: ${task.title}${task.details ? `\nDetails: ${task.details}` : ''}`); setShowPlanner(false); setViewMode('chat'); }} className="p-2 text-ink-3 hover:text-accent transition-all" title="Get Help"><MessageSquare className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => deleteTask(task.id)} className="p-2 text-ink-3 hover:text-danger"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onDelete(task.id)} className="p-2 text-ink-3 hover:text-danger"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             ))}

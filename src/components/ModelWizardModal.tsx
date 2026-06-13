@@ -64,6 +64,7 @@ export function ModelWizardModal({
   onAddSingleLLM,
 }: ModelWizardModalProps) {
   const [ramMb, setRamMb] = useState(0);
+  const [isAppleSilicon, setIsAppleSilicon] = useState<boolean | undefined>(undefined);
   const editingModel = useSettingsStore(s => s.editingModel);
   const modelTab = useSettingsStore(s => s.modelTab);
   const fetchedModels = useSettingsStore(s => s.fetchedModels);
@@ -95,8 +96,8 @@ export function ModelWizardModal({
   }, [currentProvider, modelTab]);
 
   useEffect(() => {
-    invoke<{ total_mb: number }>('get_ram_stats')
-      .then(r => setRamMb(r.total_mb))
+    invoke<{ total_mb: number; is_apple_silicon: boolean }>('get_hardware_summary')
+      .then(r => { setRamMb(r.total_mb); setIsAppleSilicon(r.is_apple_silicon); })
       .catch(() => {});
   }, []);
 
@@ -215,7 +216,7 @@ export function ModelWizardModal({
         {/* ── Local tab ── */}
         {modelTab === 'local' && (
           <div className="flex flex-col flex-1 animate-in slide-in-from-right-2 duration-200">
-            <ModelStorePanel ramMb={ramMb} onModelReady={handleModelReady} />
+            <ModelStorePanel ramMb={ramMb} isAppleSilicon={isAppleSilicon} onModelReady={handleModelReady} />
           </div>
         )}
       </div>

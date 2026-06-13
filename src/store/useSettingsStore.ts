@@ -45,6 +45,10 @@ interface SettingsStore {
     inboxOwners?: Array<{ id: string; label: string }>;
     people?: Array<{ id: string; label: string; role?: string }>;
     penguinMode?: boolean;
+    // Default text-to-speech voice for reading messages aloud (per-agent overrides this).
+    ttsVoiceURI?: string;
+    ttsRate?: number;
+    ttsPitch?: number;
   };
 
   // Profile settings modal
@@ -132,6 +136,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     imessage: { enabled: false, setupComplete: false },
     googleWorkspaces: [],
     gus: { enabled: false, instanceUrl: '', accessToken: '' },
+    // Backend-agnostic connectors (see src/services/connectors). Default to 'local' so behavior is
+    // unchanged until the user opts into a native (EventKit/Notes.app) or cloud backend.
+    calendar: { backend: 'local', selectedCalendarIds: [], googleWorkspaceId: '', migratedToEventkit: false },
+    tasks: { backend: 'local', selectedListIds: [], migratedToEventkit: false },
+    notes: { backend: 'local' },
   },
   appSettings: {
     allowProfileUpdates: true,

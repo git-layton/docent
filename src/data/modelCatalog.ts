@@ -113,17 +113,15 @@ const TIER_16: CatalogModel[] = [
   {
     id: 'gemma3-12b',
     name: 'Gemma 3 12B',
-    ggufFilename: '',
-    downloadUrl: '',
-    sizeMb: 8264,
+    ggufFilename: 'google_gemma-3-12b-it-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/google_gemma-3-12b-it-GGUF/resolve/main/google_gemma-3-12b-it-Q4_K_M.gguf',
+    sizeMb: 7301,
     ramGb: 16,
     contextK: 128,
     role: 'General',
     bestFor: 'Fluent writing, instruction-following, long context (128K)',
     notGreatFor: 'Complex code generation',
     tag: 'Google',
-    gated: true,
-    gatedUrl: 'https://huggingface.co/google/gemma-3-12b-it',
   },
 ];
 
@@ -159,17 +157,15 @@ const TIER_32: CatalogModel[] = [
   {
     id: 'gemma3-27b',
     name: 'Gemma 3 27B',
-    ggufFilename: '',
-    downloadUrl: '',
-    sizeMb: 17653,
+    ggufFilename: 'google_gemma-3-27b-it-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/google_gemma-3-27b-it-GGUF/resolve/main/google_gemma-3-27b-it-Q4_K_M.gguf',
+    sizeMb: 16550,
     ramGb: 32,
     contextK: 128,
     role: 'General',
     bestFor: 'Writing, analysis, very long context (128K), instruction-following',
     notGreatFor: 'Heavy coding tasks',
     tag: 'Google',
-    gated: true,
-    gatedUrl: 'https://huggingface.co/google/gemma-3-27b-it',
   },
 ];
 
@@ -192,17 +188,15 @@ const TIER_48: CatalogModel[] = [
   {
     id: 'llama33-70b',
     name: 'Llama 3.3 70B',
-    ggufFilename: '',
-    downloadUrl: '',
-    sizeMb: 43541,
+    ggufFilename: 'Llama-3.3-70B-Instruct-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/Llama-3.3-70B-Instruct-GGUF/resolve/main/Llama-3.3-70B-Instruct-Q4_K_M.gguf',
+    sizeMb: 42520,
     ramGb: 48,
     contextK: 128,
     role: 'General',
     bestFor: 'Creative writing, roleplay, nuanced conversation — beautiful prose, no thinking overhead',
     notGreatFor: 'Ultra-complex logic or debugging nasty code blocks',
     tag: 'Meta · All-rounder',
-    gated: true,
-    gatedUrl: 'https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct',
   },
 ];
 
@@ -212,3 +206,54 @@ export const MODEL_CATALOG: CatalogModel[] = [
   ...TIER_32,
   ...TIER_48,
 ];
+
+// ─── Unified recommendation (chip + RAM aware) ──────────────────────────────────
+// Single source of truth for the onboarding model step. The bundled llama-server is
+// arm64-only, so local inference requires Apple Silicon; Intel / low-RAM Macs are
+// steered to a free cloud model instead.
+
+export const MIN_LOCAL_GB = 8;
+
+export type SetupRecommendation =
+  | { kind: 'cloud'; reason: string }
+  | { kind: 'local'; recommended: CatalogModel; coder?: CatalogModel; tierLabel: string };
+
+export function recommendSetup(
+  { totalMb, isAppleSilicon }: { totalMb: number; isAppleSilicon: boolean },
+): SetupRecommendation {
+  const gb = totalMb / 1024;
+
+  if (!isAppleSilicon) {
+    return {
+      kind: 'cloud',
+      reason: 'Local models run on Apple Silicon — on this Mac a free cloud model is the best path.',
+    };
+  }
+  if (gb < MIN_LOCAL_GB) {
+    return {
+      kind: 'cloud',
+      reason: `Your Mac has ${Math.round(gb)}GB RAM — not quite enough for a capable local model. A free cloud model is faster and needs no download.`,
+    };
+  }
+
+  // Highest compatible tier wins, preferring a tagged "top pick" — mirrors ModelStorePanel.
+  const ramGb = Math.floor(gb);
+  const compatible = MODEL_CATALOG.filter(m => m.ramGb <= ramGb);
+  const maxTier = compatible.reduce((mx, m) => Math.max(mx, m.ramGb), 0);
+  const topTier = compatible.filter(m => m.ramGb === maxTier);
+  const recommended =
+    topTier.find(m => m.tag && m.role === 'General') ??
+    topTier.find(m => m.tag) ??
+    topTier.find(m => m.role === 'General') ??
+    topTier[0];
+  const coder = compatible
+    .filter(m => m.role === 'Coder')
+    .sort((a, b) => b.ramGb - a.ramGb)[0];
+
+  return {
+    kind: 'local',
+    recommended,
+    coder: coder && coder.id !== recommended.id ? coder : undefined,
+    tierLabel: `${maxTier}GB tier`,
+  };
+}

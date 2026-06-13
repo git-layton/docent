@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, ChevronLeft, ChevronRight, X, Plus,
   ListTodo, Cake, CalendarPlus,
@@ -7,6 +7,9 @@ import clsx from 'clsx';
 import { useTaskStore } from '../store/useTaskStore';
 import type { RecurringEvent } from '../store/useTaskStore';
 import { getHolidaysForYear } from '../data/usHolidays';
+import { getCalendar } from '../services/connectors';
+import type { CalEvent } from '../services/connectors';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -41,6 +44,11 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
   const recurringEvents = useTaskStore(s => s.recurringEvents);
   const addRecurringEvent = useTaskStore(s => s.addRecurringEvent);
   const addTask = useTaskStore(s => s.addTask);
+
+  // Events are read/written through the connector facade, so the panel shows whichever backend the
+  // user selected (local birthdays/anniversaries, or their real macOS/Google calendar).
+  const calendarBackend: string = useSettingsStore(s => (s.integrations as any).calendar?.backend ?? 'local');
+  const [events, setEvents] = useState<CalEvent[]>([]);
 
   // Self-contained month navigation (local UI state, decoupled from the store).
   const [viewDate, setViewDate] = useState(() => {
@@ -94,6 +102,30 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
     return map;
   }, [tasks]);
 
+  // Load events for the visible month from the active backend; reload on month/backend change and
+  // whenever the local recurring-events store changes (so local edits reflect immediately).
+  const monthStartISO = toLocalISODate(new Date(year, month, 1));
+  const monthEndISO = toLocalISODate(new Date(year, month + 1, 0));
+  const loadEvents = useCallback(async () => {
+    try {
+      setEvents(await getCalendar().listEvents(monthStartISO, monthEndISO));
+    } catch {
+      setEvents([]); // no native access yet, etc. — degrade to empty rather than crash
+    }
+  }, [monthStartISO, monthEndISO, calendarBackend]);
+  useEffect(() => { loadEvents(); }, [loadEvents, recurringEvents]);
+
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, CalEvent[]>();
+    for (const ev of events) {
+      const key = ev.start.slice(0, 10);
+      const list = map.get(key);
+      if (list) list.push(ev);
+      else map.set(key, [ev]);
+    }
+    return map;
+  }, [events]);
+
   const goToMonth = (delta: number) =>
     setViewDate(new Date(year, month + delta, 1));
 
@@ -130,14 +162,30 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
     closeForm();
   };
 
-  const submitEvent = () => {
+  const submitEvent = async () => {
     if (!selectedDay || !evName.trim()) return;
-    const [, m, d] = selectedDay.split('-').map(n => parseInt(n, 10));
     const name = evName.trim();
-    // Recurring events repeat every year, so the picked calendar year is not
-    // a meaningful "birth/event year" — store month/day only and leave year
-    // unset (the contract makes `year` optional).
-    addRecurringEvent({ type: evType, name, month: m, day: d });
+    if (calendarBackend === 'local') {
+      // Local store keeps the typed birthday/anniversary/custom concept (drives emoji + Planner's
+      // upcoming list). Recurring events repeat yearly, so the picked year isn't meaningful — store
+      // month/day only and leave year unset (the contract makes `year` optional).
+      const [, m, d] = selectedDay.split('-').map(n => parseInt(n, 10));
+      addRecurringEvent({ type: evType, name, month: m, day: d });
+    } else {
+      // Native/cloud backends don't model our types — create a yearly all-day event titled with the
+      // type emoji so it still reads as a birthday/anniversary on the device.
+      await getCalendar().createEvent({
+        title: `${EVENT_EMOJI[evType]} ${name}`,
+        start: selectedDay,
+        end: selectedDay,
+        allDay: true,
+        recurrence: 'yearly',
+      });
+      await loadEvents();
+      onToast(`Added ${name} to your macOS Calendar — syncing to your devices`);
+      closeForm();
+      return;
+    }
     onToast(`Added ${evType} for ${name}`);
     closeForm();
   };
@@ -215,9 +263,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
             const isToday = iso === todayISO;
             const isSelected = iso === selectedDay;
             const dayTasks = tasksByDate.get(iso) ?? [];
-            const dayEvents = recurringEvents.filter(
-              ev => ev.month === monthNum && ev.day === dayNum,
-            );
+            const dayEvents = eventsByDate.get(iso) ?? [];
             const dayHolidays = holidaysThisMonth.filter(h => h.date === iso);
 
             return (
@@ -266,10 +312,10 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
                   {dayEvents.map(ev => (
                     <span
                       key={ev.id}
-                      title={ev.name}
+                      title={ev.title}
                       className="text-[9px] font-bold truncate px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300"
                     >
-                      {EVENT_EMOJI[ev.type]} {ev.name.split(' ')[0]}
+                      {ev.title}
                     </span>
                   ))}
                   {dayHolidays.map(h => (

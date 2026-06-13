@@ -4,6 +4,7 @@ import {
   Pin, Trash2, Loader2, Brain, Database, AlertTriangle, Copy
 } from 'lucide-react';
 import { BOT_COLORS, AVAILABLE_TOOLS } from './ui/AgentIcon';
+import { VoicePicker } from './ui/VoicePicker';
 import { useAgentStore } from '../store/useAgentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -190,6 +191,21 @@ export function AssistantSettingsModal({
                           <button onClick={() => avatarUploadRef.current?.click()} className="w-12 h-12 rounded-2xl border-2 border-dashed border-edge-2 flex items-center justify-center hover:bg-wash"><ImageIcon className="w-5 h-5 text-ink-3" /></button>
                           {BOT_COLORS.map(c => <button key={c.id} onClick={() => setEditingAssistant((prev: any) => ({ ...prev, avatar: { type: 'color', color: c.id } }))} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all border-2 ${c.bg} ${editingAssistant?.avatar?.color === c.id && editingAssistant?.avatar?.type === 'color' ? 'ring-4 ring-accent/30 scale-105 border-panel' : 'border-transparent opacity-80 hover:opacity-100'}`}><Bot className="w-6 h-6 text-white" /></button>)}
                        </div>
+                    </div>
+
+                    {/* Voice — read this agent's replies aloud in its own voice */}
+                    <div>
+                       <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Voice</label>
+                       <p className="text-tiny text-ink-3 mb-2">Used when reading this agent's messages aloud. Falls back to the app default. Download richer voices in System Settings → Accessibility → Spoken Content.</p>
+                       <VoicePicker
+                          allowInherit
+                          inheritLabel="Use app default voice"
+                          fallbackVoiceURI={appSettings.ttsVoiceURI}
+                          voiceURI={editingAssistant.ttsVoiceURI}
+                          rate={editingAssistant.ttsRate ?? 1}
+                          pitch={editingAssistant.ttsPitch ?? 1}
+                          onChange={(next) => setEditingAssistant((prev: any) => ({ ...prev, ttsVoiceURI: next.voiceURI, ttsRate: next.rate, ttsPitch: next.pitch }))}
+                       />
                     </div>
 
                     <div>

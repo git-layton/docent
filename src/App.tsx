@@ -61,6 +61,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { BrowserTabContent } from './components/BrowserTabContent';
 import { MailInboxPanel } from './components/MailInboxPanel';
 import { MessagesPanel } from './components/MessagesPanel';
+import { NotesPanel } from './components/NotesPanel';
 import { CalendarPanel } from './components/CalendarPanel';
 import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateCard, GcalDeleteCard } from './components/EventCards';
 import { CmdKPalette } from './components/CmdKPalette';
@@ -68,6 +69,7 @@ import { MarginaliaLayer } from './components/MarginaliaLayer';
 import { AgentVisionToggle } from './components/AgentVisionToggle';
 import { useSpaceStore } from './store/useSpaceStore';
 import { useMarginaliaStore } from './store/useMarginaliaStore';
+import { speak, cancelSpeech, resolveVoicePrefs } from './lib/voice';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -749,19 +751,21 @@ export default function App() {
       }
   };
 
-  const toggleSpeak = (msgId: string, text: string) => {
+  const toggleSpeak = (msgId: string, text: string, agentId?: string) => {
     if (speakingId === msgId) {
-      window.speechSynthesis.cancel();
+      cancelSpeech();
       useChatStore.getState().setSpeakingId(null);
-    } else {
-      window.speechSynthesis.cancel();
-      const cleanText = text.replace(/[*#`_]/g, '').replace(/<think>[\s\S]*?<\/think>/gi, '');
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.onend = () => useChatStore.getState().setSpeakingId(null);
-      utterance.onerror = () => useChatStore.getState().setSpeakingId(null);
-      useChatStore.getState().setSpeakingId(msgId);
-      window.speechSynthesis.speak(utterance);
+      return;
     }
+    // Read aloud in the message's agent's voice, falling back to the app default.
+    const agent = useAgentStore.getState().assistants.find((a: any) => a.id === agentId) ?? activeAssistant;
+    const { appSettings: s } = useSettingsStore.getState();
+    const prefs = resolveVoicePrefs(agent, { voiceURI: s.ttsVoiceURI, rate: s.ttsRate, pitch: s.ttsPitch });
+    useChatStore.getState().setSpeakingId(msgId);
+    speak(text, prefs, {
+      onEnd: () => useChatStore.getState().setSpeakingId(null),
+      onError: () => useChatStore.getState().setSpeakingId(null),
+    });
   };
 
   const toggleListening = () => {
@@ -2226,6 +2230,9 @@ export default function App() {
     }
     if (tab.type === 'tool' && tab.toolId === 'messages') {
       return <MessagesPanel />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'notes') {
+      return <NotesPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'activity') {
       return (

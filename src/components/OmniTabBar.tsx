@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, Activity } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, Activity, StickyNote } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
@@ -106,6 +106,8 @@ export function TypeIcon({ tab }: { tab: OmniTab }) {
           return <Mail className={cls} />;
         case 'messages':
           return <MessageCircle className={cls} />;
+        case 'notes':
+          return <StickyNote className={cls} />;
         case 'calendar':
           return <CalendarDays className={cls} />;
         case 'activity':

@@ -42,3 +42,11 @@ imap = "2"
 native-tls = "0.2"
 mail-parser = "0.9"
 lettre = "0.11"
+
+# Native macOS Calendar/Reminders via EventKit (objc2 bindings). Calendar events + reminders sync to
+# the user's other devices over iCloud. Feature-gated per Obj-C class/method used in calendar.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSDate", "NSCalendar", "NSArray", "NSError", "NSObject", "NSEnumerator"] }
+objc2-event-kit = { version = "0.3", features = ["EKEventStore", "EKEvent", "EKReminder", "EKCalendar", "EKCalendarItem", "EKObject", "EKTypes", "EKRecurrenceRule", "EKRecurrenceEnd", "EKSource", "block2"] }

@@ -20,6 +20,7 @@ import {
   Activity,
   Share2,
   Settings,
+  StickyNote,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -100,6 +101,14 @@ const APPS: AppEntry[] = [
     icon: MessageCircle,
     tint: 'bg-green-500/12 text-green-700 dark:bg-green-400/15 dark:text-green-300',
     open: (tabId) => launch(tabId, { type: 'tool', toolId: 'messages' as ToolTabId, label: 'Messages' }),
+  },
+  {
+    id: 'notes',
+    label: 'Notes',
+    sub: 'Apple Notes',
+    icon: StickyNote,
+    tint: 'bg-amber-500/12 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'notes' as ToolTabId, label: 'Notes' }),
   },
   {
     id: 'chat',

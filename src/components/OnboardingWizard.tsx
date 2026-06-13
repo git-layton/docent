@@ -7,7 +7,6 @@ import {
   Check,
   CheckCircle2,
   ChevronLeft,
-  Cloud,
   Copy,
   ExternalLink,
   Globe,
@@ -23,6 +22,8 @@ import {
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { db } from '../services/database';
+import { ModelStorePanel } from './ModelStorePanel';
+import { recommendSetup } from '../data/modelCatalog';
 // @ts-ignore — nativeFetch is a plain JS file without a declaration
 import { fetchWithRetry } from '../utils/nativeFetch';
 
@@ -47,7 +48,7 @@ interface RelayStatus {
   tailscaleHostname: string | null;
 }
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 8;
 const genId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -211,116 +212,6 @@ function StepProfile({ onNext }: { onNext: () => void }) {
       </div>
     </div>
   );
-}
-
-// ─── Local model recommendations ─────────────────────────────────────────────
-
-interface LocalRec {
-  role: string;
-  roleEmoji: string;
-  name: string;
-  modelId: string;  // what LM Studio returns from /v1/models once loaded
-  hfId: string;     // huggingface model id for the download link
-  ramGb: number;    // minimum RAM (GB) needed comfortably
-  context: number;
-  description: string;
-  tag: string;      // short badge label
-}
-
-// Returns true if the machine has enough RAM to comfortably run Llama 3.3 70B Q4_K_M (~42GB)
-export function canRunLlama70B(totalMb: number) {
-  return totalMb / 1024 >= 48;
-}
-
-function getLocalRecs(totalMb: number): LocalRec[] {
-  const gb = totalMb / 1024;
-
-  // 48GB+ — comfortably runs the 70B (Q4_K_M ≈ 42GB)
-  if (gb >= 48) {
-    return [
-      {
-        role: 'General',
-        roleEmoji: '🦙',
-        name: 'Llama-3.3-70B-Instruct',
-        modelId: 'llama-3.3-70b-instruct',
-        hfId: 'meta-llama/Llama-3.3-70B-Instruct',
-        ramGb: 42,
-        context: 128000,
-        description: 'The best all-rounder for your Mac. Writes beautifully, reasons deeply, handles code — no thinking lag, just instant fluent responses. Q4_K_M fits perfectly in 64GB.',
-        tag: 'Best for 64GB',
-      },
-      {
-        role: 'Coder',
-        roleEmoji: '💻',
-        name: 'Qwen2.5-Coder-32B',
-        modelId: 'qwen2.5-coder-32b-instruct',
-        hfId: 'Qwen/Qwen2.5-Coder-32B-Instruct',
-        ramGb: 20,
-        context: 32000,
-        description: 'Optional specialist for heavy coding sessions. Beats much larger models on programming tasks and runs fast alongside Llama.',
-        tag: 'Best for code',
-      },
-    ];
-  }
-
-  // 28–47GB — 70B won't fit; use Gemma 3 27B as the capable all-rounder
-  if (gb >= 28) {
-    return [
-      {
-        role: 'General',
-        roleEmoji: '✨',
-        name: 'Gemma-3-27B-Instruct',
-        modelId: 'gemma-3-27b-instruct',
-        hfId: 'google/gemma-3-27b-it',
-        ramGb: 17,
-        context: 128000,
-        description: 'Google\'s sharp 27B model — fast, articulate, and well above its weight class. Great daily driver for 32GB Macs.',
-        tag: 'Best for 32GB',
-      },
-      {
-        role: 'Coder',
-        roleEmoji: '💻',
-        name: 'Qwen2.5-Coder-14B',
-        modelId: 'qwen2.5-coder-14b-instruct',
-        hfId: 'Qwen/Qwen2.5-Coder-14B-Instruct',
-        ramGb: 9,
-        context: 32000,
-        description: 'Efficient coding specialist — sharp on code, light on RAM, leaves room for the main model.',
-        tag: 'Best for code',
-      },
-    ];
-  }
-
-  // 14–27GB — Gemma 4 12B fits well and punches above its weight
-  if (gb >= 14) {
-    return [
-      {
-        role: 'General',
-        roleEmoji: '✨',
-        name: 'Gemma-3-12B-Instruct',
-        modelId: 'gemma-3-12b-instruct',
-        hfId: 'google/gemma-3-12b-it',
-        ramGb: 8,
-        context: 128000,
-        description: 'Remarkably capable for its size — fast responses, strong reasoning, and fits 16GB with room to spare.',
-        tag: 'Best for 16–24GB',
-      },
-      {
-        role: 'Coder',
-        roleEmoji: '💻',
-        name: 'Qwen2.5-Coder-7B',
-        modelId: 'qwen2.5-coder-7b-instruct',
-        hfId: 'Qwen/Qwen2.5-Coder-7B-Instruct',
-        ramGb: 5,
-        context: 32000,
-        description: 'Surprisingly capable at code for its size — efficient and quick on constrained hardware.',
-        tag: 'Best for code',
-      },
-    ];
-  }
-
-  // ≤13GB — local models will be slow and limited; cloud is the better path
-  return [];
 }
 
 // ─── Step 3: AI Model ─────────────────────────────────────────────────────────
@@ -594,7 +485,7 @@ function ModelConnectForm({
 }
 
 function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  const [ramMb, setRamMb] = useState(0);
+  const [hw, setHw] = useState<{ totalMb: number; chip: string; isAppleSilicon: boolean } | null>(null);
   const [connectingProvider, setConnectingProvider] = useState<typeof PROVIDERS[0] | null>(null);
   const [connectingModelId, setConnectingModelId] = useState<string | undefined>(undefined);
   const [showAllProviders, setShowAllProviders] = useState(false);
@@ -602,8 +493,8 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const [detected, setDetected] = useState(0);
 
   useEffect(() => {
-    invoke<{ total_mb: number }>('get_ram_stats')
-      .then(r => setRamMb(r.total_mb))
+    invoke<{ total_mb: number; chip: string; is_apple_silicon: boolean }>('get_hardware_summary')
+      .then(r => setHw({ totalMb: r.total_mb, chip: r.chip, isAppleSilicon: r.is_apple_silicon }))
       .catch(() => {});
     // Auto-detect silently on mount
     detectLocalModels();
@@ -651,17 +542,21 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   }
 
   const currentModels = useSettingsStore(s => s.models);
-  const gb = ramMb / 1024;
-  const recs = getLocalRecs(ramMb);
-  const hasLocalRec = recs.length > 0 && gb >= 14;
-  const lmStudio = PROVIDERS.find(p => p.id === 'lmstudio')!;
+  const gb = hw ? hw.totalMb / 1024 : 0;
+  const rec = hw ? recommendSetup({ totalMb: hw.totalMb, isAppleSilicon: hw.isAppleSilicon }) : null;
   const gemini = PROVIDERS.find(p => p.id === 'gemini')!;
-  const primaryRec = recs[0] ?? null;
-  const coderRec = recs[1] ?? null;
 
   function startConnect(provider: typeof PROVIDERS[0], modelId?: string) {
     setConnectingProvider(provider);
     setConnectingModelId(modelId);
+  }
+
+  // A local model finished downloading + launching in ModelStorePanel — wire it in.
+  function handleLocalReady(newModel: any) {
+    const store = useSettingsStore.getState();
+    store.setModels((prev: any[]) => prev.some((m: any) => m.id === newModel.id) ? prev : [...prev, newModel]);
+    store.setSelectedModelId(newModel.id);
+    store.persist();
   }
 
   if (connectingProvider) {
@@ -741,136 +636,75 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         </div>
       )}
 
-      {/* Recommendation section */}
-      {ramMb > 0 && (
+      {/* Detected hardware */}
+      {hw && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-ink-2">Detected:</span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-inset border border-edge text-xs font-mono font-bold text-ink-2">
+            {hw.chip} · {Math.round(gb)}GB RAM
+          </span>
+        </div>
+      )}
+
+      {/* Recommendation — Apple Silicon downloads & runs locally; otherwise cloud */}
+      {rec && rec.kind === 'local' && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <p className="text-tiny font-black uppercase tracking-widest text-ink-3">
-              {hasLocalRec ? `Best for your ${Math.round(gb)}GB Mac` : 'Our recommendation'}
+          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">
+            Best for your {hw!.chip} — download &amp; run privately
+          </p>
+          <ModelStorePanel ramMb={hw!.totalMb} isAppleSilicon onModelReady={handleLocalReady} />
+
+          {/* Cloud alternative */}
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-edge">
+            <span className="text-sm">✨</span>
+            <p className="text-xs text-ink-2 flex-1 leading-relaxed">
+              Prefer the cloud? <strong>Gemini</strong> is free and needs no download.
             </p>
+            <button
+              onClick={() => startConnect(gemini)}
+              className="text-tiny font-black text-primary hover:underline shrink-0"
+            >
+              Use Gemini
+            </button>
           </div>
+        </div>
+      )}
 
-          {hasLocalRec && primaryRec ? (
-            <>
-              {/* Primary local recommendation */}
-              <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 dark:bg-primary/10 p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl mt-0.5 shrink-0">{primaryRec.roleEmoji}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="text-sm font-black text-ink font-mono">{primaryRec.name}</p>
-                      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Top pick</span>
-                    </div>
-                    <p className="text-xs text-ink-2 leading-relaxed">{primaryRec.description}</p>
-                    <div className="flex items-center gap-3 mt-2">
-                      <span className="text-tiny text-ink-3">~{primaryRec.ramGb}GB RAM · via LM Studio</span>
-                      <button
-                        onClick={() => openUrl(`https://huggingface.co/${primaryRec.hfId}`)}
-                        className="flex items-center gap-1 text-tiny font-bold text-primary hover:underline"
-                      >
-                        HuggingFace <ExternalLink className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  </div>
+      {rec && rec.kind === 'cloud' && (
+        <div className="space-y-2">
+          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Our recommendation</p>
+          <div className="rounded-2xl border-2 border-secondary/30 dark:border-secondary/40 bg-secondary/5 dark:bg-secondary/10 p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl mt-0.5">✨</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <p className="text-sm font-black text-ink">Gemini 2.0 Flash</p>
+                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free</span>
+                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>
                 </div>
-                <div className="flex flex-col gap-1.5 pt-1 border-t border-primary/10">
-                  <div className="grid grid-cols-2 gap-2 text-tiny text-ink-2">
-                    <div className="space-y-1">
-                      <p className="font-black text-success">Local ✓</p>
-                      <p>Private — nothing leaves your Mac</p>
-                      <p>Free — no API costs ever</p>
-                      <p>Fast — no network latency</p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-black text-ink-3">vs Cloud</p>
-                      <p>Needs ~{primaryRec.ramGb}GB free RAM</p>
-                      <p>Download once (~25GB)</p>
-                      <p>Works offline</p>
-                    </div>
-                  </div>
-                  <p className="text-tiny text-ink-3 leading-relaxed">
-                    Download in LM Studio: search <span className="font-mono">{primaryRec.name}</span>, grab the <span className="font-mono">Q4_K_M</span> variant.
-                  </p>
-                </div>
-                <Btn onClick={() => startConnect(lmStudio, primaryRec.modelId)} className="w-full">
-                  Set up LM Studio with {primaryRec.name} <ArrowRight className="w-4 h-4" />
-                </Btn>
-              </div>
-
-              {/* Coder model option */}
-              {coderRec && (
-                <div className="rounded-2xl border border-edge bg-inset p-4 space-y-2">
-                  <div className="flex items-start gap-2.5">
-                    <span className="text-base mt-0.5 shrink-0">{coderRec.roleEmoji}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-xs font-black text-ink font-mono">{coderRec.name}</p>
-                        <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-inset text-ink-2 shrink-0">{coderRec.tag}</span>
-                      </div>
-                      <p className="text-mini text-ink-2 mt-1 leading-relaxed">{coderRec.description}</p>
-                      <p className="text-tiny text-ink-3 mt-1">~{coderRec.ramGb}GB RAM · add after the main model</p>
-                    </div>
-                    <button
-                      onClick={() => startConnect(lmStudio, coderRec.modelId)}
-                      className="text-tiny font-black text-primary hover:underline shrink-0"
-                    >
-                      Add this
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Cloud alternative */}
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-edge">
-                <span className="text-sm">✨</span>
-                <p className="text-xs text-ink-2 flex-1 leading-relaxed">
-                  Or use <strong>Gemini</strong> — free cloud API, great if you want instant setup
+                <p className="text-xs text-secondary-muted dark:text-secondary-light leading-relaxed">
+                  {rec.reason}
                 </p>
-                <button
-                  onClick={() => startConnect(gemini)}
-                  className="text-tiny font-black text-primary hover:underline shrink-0"
-                >
-                  Use Gemini
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Low RAM — cloud first */}
-              <div className="rounded-2xl border-2 border-secondary/30 dark:border-secondary/40 bg-secondary/5 dark:bg-secondary/10 p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl mt-0.5">✨</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="text-sm font-black text-ink">Gemini 2.0 Flash</p>
-                      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free</span>
-                      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>
-                    </div>
-                    <p className="text-xs text-secondary-muted dark:text-secondary-light leading-relaxed">
-                      Your Mac has {Math.round(gb)}GB RAM — not enough for a capable local model. Gemini's free tier is fast, smart, and has no download required.
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 mt-2 text-tiny text-secondary dark:text-secondary-muted">
-                      <div className="space-y-0.5">
-                        <p className="font-black">Cloud ✓</p>
-                        <p>Free with generous limits</p>
-                        <p>No RAM requirement</p>
-                        <p>Always the latest model</p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <p className="font-black text-ink-3">vs Local</p>
-                        <p>Sends data to Google</p>
-                        <p>Requires internet</p>
-                        <p>API key needed (free)</p>
-                      </div>
-                    </div>
+                <div className="grid grid-cols-2 gap-2 mt-2 text-tiny text-secondary dark:text-secondary-muted">
+                  <div className="space-y-0.5">
+                    <p className="font-black">Cloud ✓</p>
+                    <p>Free with generous limits</p>
+                    <p>No RAM requirement</p>
+                    <p>Always the latest model</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="font-black text-ink-3">vs Local</p>
+                    <p>Sends data to Google</p>
+                    <p>Requires internet</p>
+                    <p>API key needed (free)</p>
                   </div>
                 </div>
-                <Btn onClick={() => startConnect(gemini)} className="w-full">
-                  Set up Gemini free <ArrowRight className="w-4 h-4" />
-                </Btn>
               </div>
-            </>
-          )}
+            </div>
+            <Btn onClick={() => startConnect(gemini)} className="w-full">
+              Set up Gemini free <ArrowRight className="w-4 h-4" />
+            </Btn>
+          </div>
         </div>
       )}
 
@@ -908,245 +742,6 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
       ) : (
         <Btn variant="ghost" onClick={onSkip} className="w-full">I'll set this up later</Btn>
       )}
-    </div>
-  );
-}
-
-// ─── Step 4: Hardware-Aware Model Tier ───────────────────────────────────────
-
-interface TierDef {
-  id: string;
-  label: string;
-  tagline: string;
-  modelName: string;
-  ollamaId: string;
-  endpoint: string;
-  provider: string;
-  contextLimit: number;
-  isLocal: boolean;
-  description: string;
-  minGb: number;
-}
-
-const TIERS: TierDef[] = [
-  {
-    id: 'heavy',
-    label: 'Heavy Hitter',
-    tagline: 'Best open-source local model',
-    modelName: 'Llama 3.3 70B',
-    ollamaId: 'llama3.3:70b',
-    endpoint: 'http://localhost:11434/v1',
-    provider: 'ollama',
-    contextLimit: 131072,
-    isLocal: true,
-    description: 'The most capable open-source local model. Your 48GB+ machine can handle it comfortably via Ollama.',
-    minGb: 48,
-  },
-  {
-    id: 'balanced',
-    label: 'Balanced',
-    tagline: 'Great all-rounder for 24GB+',
-    modelName: 'Gemma 4 27B',
-    ollamaId: 'gemma4:27b',
-    endpoint: 'http://localhost:11434/v1',
-    provider: 'ollama',
-    contextLimit: 131072,
-    isLocal: true,
-    description: 'Strong reasoning and writing in a package that fits 24GB RAM. Fast and capable via Ollama.',
-    minGb: 24,
-  },
-  {
-    id: 'lightweight',
-    label: 'Lightweight',
-    tagline: 'Efficient model for 12GB+',
-    modelName: 'Gemma 4 12B',
-    ollamaId: 'gemma4:12b',
-    endpoint: 'http://localhost:11434/v1',
-    provider: 'ollama',
-    contextLimit: 131072,
-    isLocal: true,
-    description: 'Remarkably capable for its size. Runs well on 12GB+ Macs and leaves room for other apps.',
-    minGb: 12,
-  },
-  {
-    id: 'cloud',
-    label: 'Cloud-powered',
-    tagline: 'Free Gemini API — no download needed',
-    modelName: 'Gemini 2.5 Flash',
-    ollamaId: 'gemini-2.5-flash',
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    provider: 'gemini',
-    contextLimit: 1000000,
-    isLocal: false,
-    description: 'Your Mac has less than 12GB RAM. Gemini\'s free tier is fast, smart, and requires no download.',
-    minGb: 0,
-  },
-];
-
-function getRecommendedTier(totalMb: number): TierDef {
-  const gb = totalMb / 1024;
-  if (gb >= 48) return TIERS[0];
-  if (gb >= 24) return TIERS[1];
-  if (gb >= 12) return TIERS[2];
-  return TIERS[3];
-}
-
-function StepModelTier({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  const [totalMb, setTotalMb] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [selected, setSelected] = useState<TierDef | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    invoke<{ total_mb: number }>('get_ram_stats')
-      .then(r => {
-        setTotalMb(r.total_mb);
-        setSelected(getRecommendedTier(r.total_mb));
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, []);
-
-  function applyTier(tier: TierDef) {
-    const store = useSettingsStore.getState();
-    const newModel = {
-      id: genId('m'),
-      name: tier.modelName,
-      provider: tier.provider,
-      modelId: tier.ollamaId,
-      endpoint: tier.endpoint,
-      apiKey: '',
-      contextLimit: tier.contextLimit,
-      canImage: false,
-      isLocal: tier.isLocal,
-    };
-    store.setModels((prev: any[]) => [...prev, newModel]);
-    store.setSelectedModelId(newModel.id);
-    store.persist();
-    setSaved(true);
-    setTimeout(onNext, 500);
-  }
-
-  const totalGb = totalMb != null ? Math.round(totalMb / 1024) : 0;
-  const recommended = totalMb != null ? getRecommendedTier(totalMb) : null;
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <p className="text-sm text-ink-2">Detecting your hardware…</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col gap-5">
-        <div className="flex items-center gap-3">
-          <StepIcon color="bg-accent/10 dark:bg-accent/20">
-            <Zap className="w-6 h-6 text-accent" />
-          </StepIcon>
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-ink">Recommended setup</h2>
-          </div>
-        </div>
-        <div className="p-4 rounded-2xl bg-inset border border-edge">
-          <p className="text-sm text-ink-2">Couldn't detect hardware — you can configure your model in Settings.</p>
-        </div>
-        <Btn variant="ghost" onClick={onSkip} className="w-full">I'll configure this later</Btn>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
-        <StepIcon color="bg-accent/10 dark:bg-accent/20">
-          <Zap className="w-6 h-6 text-accent" />
-        </StepIcon>
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-ink">Recommended setup for your Mac</h2>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-ink-2">Detected:</span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-inset border border-edge text-xs font-mono font-bold text-ink-2">
-              {totalGb}GB RAM
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Recommended tier — highlighted */}
-      {recommended && (
-        <div
-          onClick={() => setSelected(recommended)}
-          className={`rounded-2xl border-2 p-4 space-y-3 cursor-pointer transition-all duration-150 ${selected?.id === recommended.id ? 'border-accent bg-accent-soft/40' : 'border-edge hover:border-edge-2'}`}
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
-              {recommended.isLocal ? <Server className="w-5 h-5 text-primary" /> : <Cloud className="w-5 h-5 text-primary" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap mb-1">
-                <p className="text-sm font-black text-ink">{recommended.label}</p>
-                <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>
-              </div>
-              <p className="text-xs font-bold text-ink-2 font-mono">{recommended.modelName}</p>
-              <p className="text-xs text-ink-2 mt-1 leading-relaxed">{recommended.description}</p>
-            </div>
-            {selected?.id === recommended.id && <Check className="w-4 h-4 text-primary shrink-0 mt-1" />}
-          </div>
-          {selected?.id === recommended.id && (
-            <Btn
-              onClick={() => applyTier(recommended)}
-              disabled={saved}
-              className="w-full"
-            >
-              {saved ? <><CheckCircle2 className="w-4 h-4" /> Set!</> : <>Set as default <ArrowRight className="w-4 h-4" /></>}
-            </Btn>
-          )}
-        </div>
-      )}
-
-      {/* Alternative tiers */}
-      {TIERS.filter(t => t.id !== recommended?.id).length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Alternatives</p>
-          {TIERS.filter(t => t.id !== recommended?.id).map(tier => (
-            <div
-              key={tier.id}
-              onClick={() => setSelected(tier)}
-              className={`rounded-xl border p-3 cursor-pointer transition-all duration-150 space-y-2 ${selected?.id === tier.id ? 'border-accent/50 bg-accent-soft/40' : 'border-edge hover:border-edge-2 bg-inset'}`}
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-xl bg-inset flex items-center justify-center shrink-0">
-                  {tier.isLocal ? <Server className="w-3.5 h-3.5 text-ink-3" /> : <Cloud className="w-3.5 h-3.5 text-ink-3" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="text-xs font-black text-ink">{tier.label}</p>
-                    <span className="text-micro text-ink-3 font-mono">·</span>
-                    <p className="text-xs font-mono text-ink-2">{tier.modelName}</p>
-                  </div>
-                  <p className="text-mini text-ink-3 mt-0.5">{tier.tagline}</p>
-                </div>
-                {selected?.id === tier.id && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
-              </div>
-              {selected?.id === tier.id && (
-                <Btn
-                  onClick={() => applyTier(tier)}
-                  disabled={saved}
-                  className="w-full"
-                >
-                  {saved ? <><CheckCircle2 className="w-4 h-4" /> Set!</> : <>Set as default <ArrowRight className="w-4 h-4" /></>}
-                </Btn>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <Btn variant="ghost" onClick={onSkip} className="w-full">I'll configure this later</Btn>
     </div>
   );
 }
@@ -1827,22 +1422,21 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
           {step === 1 && <StepWelcome onNext={next} />}
           {step === 2 && <StepProfile onNext={next} />}
           {step === 3 && <StepModel onNext={next} onSkip={next} />}
-          {step === 4 && <StepModelTier onNext={next} onSkip={next} />}
-          {step === 5 && <StepBraveSearch onNext={next} onSkip={next} />}
-          {step === 6 && (
+          {step === 4 && <StepBraveSearch onNext={next} onSkip={next} />}
+          {step === 5 && (
             <StepRelay
               onNext={next}
               onSkip={next}
               onResult={r => { setRelayResult(r); setRelayOk(true); }}
             />
           )}
-          {step === 7 && (
+          {step === 6 && (
             <StepTailscale
               onNext={h => { setTailscaleHostname(h); setTailscaleOk(!!h); next(); }}
-              onSkip={() => setStep(9)}
+              onSkip={() => setStep(8)}
             />
           )}
-          {step === 8 && (
+          {step === 7 && (
             <StepShortcut
               relayResult={relayResult}
               tailscaleHostname={tailscaleHostname}
@@ -1850,7 +1444,7 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
               onSkip={next}
             />
           )}
-          {step === 9 && (
+          {step === 8 && (
             <StepDone
               relayOk={relayOk}
               tailscaleOk={tailscaleOk}
