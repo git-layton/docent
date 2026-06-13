@@ -60,20 +60,6 @@ interface GraphData {
   edges: GraphEdge[];
 }
 
-const MOCK_GRAPH: GraphData = {
-  nodes: [
-    { id: 'n1', label: 'Agent Forge Docs', node_type: 'page', source_url: 'https://docs.agentforge.dev' },
-    { id: 'n2', label: 'Anthropic', node_type: 'entity' },
-    { id: 'n3', label: 'React', node_type: 'technology' },
-    { id: 'n4', label: 'Knowledge Core Notes', node_type: 'note', source_path: '~/AgentForge/notes' },
-  ],
-  edges: [
-    { source: 'n1', target: 'n2', relation: 'mentions' },
-    { source: 'n1', target: 'n3', relation: 'uses' },
-    { source: 'n4', target: 'n1', relation: 'references' },
-  ],
-};
-
 const NODE_COLORS: Record<string, string> = {
   page: '#38bdf8',
   file: '#a78bfa',
@@ -103,19 +89,22 @@ function KnowledgeGraphPanelInner() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    // Normalize whatever the backend returns to guaranteed arrays. `get_graph_stats` can resolve
-    // with a stats-shaped payload that has no `nodes`/`edges` arrays — storing that raw left
-    // graphData.nodes undefined and crashed the filter memos during render. Only accept real graphs.
-    const asGraph = (g: any): GraphData | null =>
-      Array.isArray(g?.nodes) && Array.isArray(g?.edges) ? { nodes: g.nodes, edges: g.edges } : null;
+    // Pull the REAL knowledge graph (all nodes + edges). The backend serializes edge endpoints as
+    // source_id/target_id, but the renderer + filters expect source/target — so map them here.
+    // Never fall back to fake data: an empty or unreachable graph just shows the empty state.
+    const asGraph = (g: any): GraphData | null => {
+      if (!Array.isArray(g?.nodes) || !Array.isArray(g?.edges)) return null;
+      const edges: GraphEdge[] = g.edges.map((e: any) => ({
+        source: String(e.source ?? e.source_id),
+        target: String(e.target ?? e.target_id),
+        relation: e.relation ?? '',
+      }));
+      return { nodes: g.nodes as GraphNode[], edges };
+    };
     const load = async () => {
       try {
-        const stats = asGraph(await invoke('get_graph_stats').catch(() => null));
-        if (stats) { setGraphData(stats); return; }
-        const subgraph = asGraph(await invoke('get_graph_neighbors', { nodeId: 'root' }).catch(() => null));
-        setGraphData(subgraph ?? MOCK_GRAPH);
-      } catch {
-        setGraphData(MOCK_GRAPH);
+        const full = asGraph(await invoke('get_graph_full').catch(() => null));
+        setGraphData(full ?? { nodes: [], edges: [] });
       } finally {
         setLoading(false);
       }
@@ -283,8 +272,10 @@ function KnowledgeGraphPanelInner() {
               Loading...
             </div>
           ) : filteredNodes.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest">
-              No nodes match filter
+            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest text-center px-6">
+              {graphData.nodes.length === 0
+                ? 'Nothing in your knowledge base yet to graph'
+                : 'No nodes match filter'}
             </div>
           ) : (
             <GraphErrorBoundary>

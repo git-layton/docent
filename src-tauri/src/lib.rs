@@ -2991,6 +2991,56 @@ fn get_graph_neighbors(node_id: String, max_depth: u32) -> Result<GraphSubgraph,
     Ok(GraphSubgraph { nodes, edges })
 }
 
+/// Return the ENTIRE knowledge graph (all nodes + edges) for the Knowledge Graph panel. An empty
+/// result simply means nothing has been captured yet — the UI shows an empty state, never mock data.
+#[tauri::command]
+fn get_graph_full() -> Result<GraphSubgraph, String> {
+    let conn = open_graph_db()?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at
+         FROM graph_nodes",
+    ).map_err(|e| e.to_string())?;
+    let nodes: Vec<GraphNode> = stmt
+        .query_map([], |row| {
+            Ok(GraphNode {
+                id:            row.get(0)?,
+                node_type:     row.get(1)?,
+                label:         row.get(2)?,
+                source_url:    row.get(3)?,
+                source_path:   row.get(4)?,
+                metadata_json: row.get(5)?,
+                created_at:    row.get(6)?,
+                updated_at:    row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut stmt2 = conn.prepare(
+        "SELECT id, source_id, target_id, relation, weight, metadata_json, created_at
+         FROM graph_edges",
+    ).map_err(|e| e.to_string())?;
+    let edges: Vec<GraphEdge> = stmt2
+        .query_map([], |row| {
+            Ok(GraphEdge {
+                id:            row.get(0)?,
+                source_id:     row.get(1)?,
+                target_id:     row.get(2)?,
+                relation:      row.get(3)?,
+                weight:        row.get(4)?,
+                metadata_json: row.get(5)?,
+                created_at:    row.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(GraphSubgraph { nodes, edges })
+}
+
 #[tauri::command]
 fn get_graph_stats() -> Result<GraphStats, String> {
     let conn = open_graph_db()?;
@@ -3191,6 +3241,7 @@ pub fn run() {
             upsert_graph_node,
             upsert_graph_edge,
             get_graph_neighbors,
+            get_graph_full,
             get_graph_stats,
             delete_graph_node,
         ])
@@ -3296,7 +3347,7 @@ mod tests {
             "browser_create", "browser_reload", "mail_test_connection", "mail_fetch_recent",
             "imessage_check_access", "imessage_open_fda_settings", "imessage_unread_count", "imessage_list_chats", "imessage_fetch_messages", "imessage_send",
             "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
-            "download_model", "upsert_graph_node", "get_graph_stats", "setup_relay",
+            "download_model", "upsert_graph_node", "get_graph_stats", "get_graph_full", "setup_relay",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),
