@@ -7,6 +7,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 import { invalidateUnreadCache } from '../lib/mailUnread';
+import { useToolContextStore } from '../store/useToolContextStore';
 
 interface MailHeader {
   uid: number;
@@ -149,6 +150,19 @@ export function MailInboxPanel() {
   }, [accountsKey]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Publish the inbox to the docked agent's context so it can read what's on screen (the list, plus
+  // any open message). Cleared on unmount.
+  useEffect(() => {
+    const list = rows.slice(0, 40)
+      .map(r => `${r.fromName || r.fromEmail} — ${r.subject || '(no subject)'}${r.seen ? '' : '  [unread]'}`)
+      .join('\n');
+    const open = selected && body
+      ? `\n\nOPEN MESSAGE — "${selected.subject || '(no subject)'}" from ${body.fromName || body.fromEmail}:\n${(body.text || body.html.replace(/<[^>]+>/g, ' ')).slice(0, 2000)}`
+      : '';
+    useToolContextStore.getState().setToolContext({ label: 'Inbox', text: (list || '(no messages loaded)') + open });
+    return () => useToolContextStore.getState().clearToolContext();
+  }, [rows, selected, body]);
 
   useEffect(() => {
     if (!actionError) return;

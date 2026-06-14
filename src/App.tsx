@@ -21,6 +21,7 @@ import { useBrowserStore } from './store/useBrowserStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
 import { buildAmbientContext } from './services/context/ambient';
+import { useToolContextStore } from './store/useToolContextStore';
 import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
@@ -161,6 +162,8 @@ export default function App() {
 
   const [showAgentIntro, setShowAgentIntro] = useState(false);
   const [pendingArtifactType, setPendingArtifactType] = useState<'code' | 'doc' | null>(null);
+  // Co-pilot rail: the active agent docked beside a tool/web/canvas tab. Collapsible (the "mute"/dismiss).
+  const [copilotOpen, setCopilotOpen] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
@@ -1455,6 +1458,9 @@ export default function App() {
         useSpaceStore.getState().activeOmniTabId,
         (id: string) => _assistants.find((a: any) => a.id === id)?.name,
       );
+      // The tool the user is actively looking at (Inbox/Notes/…) — its on-screen contents, so the
+      // docked agent can read it, not just know it's open.
+      const _toolContext = useToolContextStore.getState().content ?? undefined;
 
       const toolMsgId = generateId('tool');
       const capabilityCtx: CapabilityContext = {
@@ -1564,7 +1570,7 @@ export default function App() {
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
-            ambientContext: _ambientContext,
+            ambientContext: _ambientContext, toolContext: _toolContext,
             goal: _activeSpace?.agentGoals?.[agent.id],
           });
 
@@ -1621,7 +1627,7 @@ export default function App() {
               integrations: _integrations,
               models: _models,
               runIntegrationTools,
-              ambientContext: _ambientContext,
+              ambientContext: _ambientContext, toolContext: _toolContext,
               goal: _activeSpace?.agentGoals?.[primaryAgent.id],
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
@@ -1684,7 +1690,7 @@ export default function App() {
             models: _models,
             runIntegrationTools,
             browserContext: _browserContext,
-            ambientContext: _ambientContext,
+            ambientContext: _ambientContext, toolContext: _toolContext,
             goal: _activeSpace?.agentGoals?.[_activeAssistant?.id],
         });
 
@@ -2485,6 +2491,45 @@ export default function App() {
                 {renderTabContent(splitTab)}
               </div>
             </>
+          )}
+
+          {/* ── Co-pilot rail: the active agent, docked beside a tool/web/canvas tab ── */}
+          {activeOmniTab && ['tool', 'web', 'code-canvas', 'doc'].includes(activeOmniTab.type) && (
+            copilotOpen ? (
+              <>
+                <div className="w-px shrink-0 bg-edge-2" />
+                <div className="relative shrink-0 w-[360px] min-w-[300px] flex flex-col border-l border-edge bg-panel">
+                  <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0">
+                    <Bot className="w-4 h-4 text-accent shrink-0" />
+                    <span className="text-xs font-semibold text-ink truncate flex-1">{activeAssistant?.name ?? 'Agent'}</span>
+                    <button
+                      onClick={() => setCopilotOpen(false)}
+                      className="p-1 rounded-md text-ink-3 hover:text-ink hover:bg-inset transition-colors"
+                      title="Hide agent"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    <ChatPanel
+                      mode="inline"
+                      spaceLogProps={spaceLogProps}
+                      chatInputBarProps={chatInputBarProps}
+                      isThreadEmpty={activeMessages.length === 0}
+                      onSendPrompt={handleSendPrompt}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => setCopilotOpen(true)}
+                className="shrink-0 w-9 flex flex-col items-center pt-3 border-l border-edge bg-panel text-ink-3 hover:text-ink hover:bg-wash transition-colors"
+                title="Show agent"
+              >
+                <Bot className="w-4 h-4" />
+              </button>
+            )
           )}
         </div>
       </div>

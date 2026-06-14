@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { MessagesSetupWizard } from './MessagesSetupWizard';
+import { useToolContextStore } from '../store/useToolContextStore';
 
 // Mirrors the Rust ImessageChat / ImessageMessage structs (serde camelCase).
 interface ImessageChat {
@@ -146,6 +147,15 @@ export function MessagesPanel() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, selected]);
+
+  // Publish the messages view to the docked agent's context (open thread, or the conversation list).
+  useEffect(() => {
+    const text = selected
+      ? `Conversation with ${selected.name}:\n` + messages.slice(-30).map(m => `${m.fromMe ? 'You' : (m.senderName || selected.name)}: ${m.text}`).join('\n')
+      : (chats.slice(0, 30).map(c => `${c.name}${c.lastText ? ` — ${c.lastText}` : ''}`).join('\n') || '(no conversations)');
+    useToolContextStore.getState().setToolContext({ label: selected ? `Messages: ${selected.name}` : 'Messages', text });
+    return () => useToolContextStore.getState().clearToolContext();
+  }, [selected, messages, chats]);
 
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();

@@ -7,6 +7,7 @@ import { getNotes } from '../services/connectors';
 import type { NoteItem } from '../services/connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
+import { useToolContextStore } from '../store/useToolContextStore';
 
 interface ImChat { guid: string; name: string }
 
@@ -78,6 +79,15 @@ export function NotesPanel() {
 
   useEffect(() => { loadFolders(); }, [loadFolders]);
   useEffect(() => { if (folder) loadNotes(folder); }, [folder, loadNotes]);
+
+  // Publish the current notes view to the docked agent (open note's text, or the list of titles).
+  useEffect(() => {
+    const text = selected
+      ? `Open note "${selected.title || '(untitled)'}":\n${htmlToText(body)}`
+      : (notes.slice(0, 40).map(n => `• ${n.title || '(untitled)'}`).join('\n') || '(no notes)');
+    useToolContextStore.getState().setToolContext({ label: selected ? `Note: ${selected.title || 'untitled'}` : 'Notes', text });
+    return () => useToolContextStore.getState().clearToolContext();
+  }, [selected, body, notes]);
 
   // Retry after the Automation prompt (Apple Notes backend) — the first list call triggers it.
   const reconnect = useCallback(async () => {

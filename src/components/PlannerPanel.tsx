@@ -17,6 +17,7 @@ import { getTasks } from '../services/connectors';
 import type { TaskItem } from '../services/connectors';
 import { getHolidaysForYear } from '../data/usHolidays';
 import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
+import { useToolContextStore } from '../store/useToolContextStore';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -127,6 +128,16 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
 
   // Unified source + mutation wrappers — local uses the reactive store, native re-reads after writes.
   const displayTasks: any[] = eventkitTasksActive ? nativeItems : tasks;
+
+  // Publish open tasks to the docked agent's context.
+  useEffect(() => {
+    const open = displayTasks.filter((t: any) => !t.completed);
+    const text = open.length
+      ? open.map((t: any) => `• ${t.title}${t.dueDate ? ` (due ${t.dueDate})` : ''}`).join('\n')
+      : '(no open tasks)';
+    useToolContextStore.getState().setToolContext({ label: 'To-Dos', text });
+    return () => useToolContextStore.getState().clearToolContext();
+  }, [displayTasks]);
   const onToggle = (id: string, completed: boolean) => {
     if (eventkitTasksActive) getTasks().setCompleted(id, !completed).then(loadNativeTasks).catch(() => {});
     else toggleTask(id);

@@ -12,6 +12,7 @@ import { getCalendar } from '../services/connectors';
 import type { CalEvent } from '../services/connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
+import { useToolContextStore } from '../store/useToolContextStore';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -126,6 +127,15 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
     }
   }, [monthStartISO, monthEndISO, calendarBackend]);
   useEffect(() => { loadEvents(); }, [loadEvents, recurringEvents]);
+
+  // Publish the visible month to the docked agent's context.
+  useEffect(() => {
+    const text = events.length
+      ? events.map(e => `${e.start.slice(0, 10)} — ${e.title}`).join('\n')
+      : '(no events this month)';
+    useToolContextStore.getState().setToolContext({ label: `Calendar — ${MONTHS[month]} ${year}`, text });
+    return () => useToolContextStore.getState().clearToolContext();
+  }, [events, month, year]);
 
   const grantCalendarAccess = async () => {
     setGranting(true);
