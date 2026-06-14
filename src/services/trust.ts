@@ -21,3 +21,13 @@ export interface Provenance {
 // (docs, canvas, tools, the user's own chat) originates from the user and is trusted-local.
 export const trustOfTab = (t: OmniTab): TrustTier =>
   t.type === 'web' ? 'untrusted-external' : 'trusted-local';
+
+// The tool panels the docked agent can read on screen (see useToolContextStore). Inbound comms —
+// mail and messages — carry content the user RECEIVED from others, so they're attacker-influençable
+// (anyone can email/text you) and must be fenced as untrusted-external DATA, never instructions
+// (§3 rule 1). The user's own tools (notes, calendar, tasks) are trusted-local. An untagged snapshot
+// defaults to trusted-local — only the inbound surfaces opt into the untrusted fence.
+export type ToolContextSource = 'mail' | 'messages' | 'notes' | 'calendar' | 'tasks';
+
+export const trustOfToolSource = (source?: ToolContextSource): TrustTier =>
+  source === 'mail' || source === 'messages' ? 'untrusted-external' : 'trusted-local';

@@ -85,7 +85,7 @@ export function NotesPanel() {
     const text = selected
       ? `Open note "${selected.title || '(untitled)'}":\n${htmlToText(body)}`
       : (notes.slice(0, 40).map(n => `• ${n.title || '(untitled)'}`).join('\n') || '(no notes)');
-    useToolContextStore.getState().setToolContext({ label: selected ? `Note: ${selected.title || 'untitled'}` : 'Notes', text });
+    useToolContextStore.getState().setToolContext({ label: selected ? `Note: ${selected.title || 'untitled'}` : 'Notes', text, source: 'notes' });
     return () => useToolContextStore.getState().clearToolContext();
   }, [selected, body, notes]);
 

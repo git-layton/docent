@@ -153,7 +153,7 @@ export function MessagesPanel() {
     const text = selected
       ? `Conversation with ${selected.name}:\n` + messages.slice(-30).map(m => `${m.fromMe ? 'You' : (m.senderName || selected.name)}: ${m.text}`).join('\n')
       : (chats.slice(0, 30).map(c => `${c.name}${c.lastText ? ` — ${c.lastText}` : ''}`).join('\n') || '(no conversations)');
-    useToolContextStore.getState().setToolContext({ label: selected ? `Messages: ${selected.name}` : 'Messages', text });
+    useToolContextStore.getState().setToolContext({ label: selected ? `Messages: ${selected.name}` : 'Messages', text, source: 'messages' });
     return () => useToolContextStore.getState().clearToolContext();
   }, [selected, messages, chats]);
 

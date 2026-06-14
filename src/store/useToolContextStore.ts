@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ToolContextSource } from '../services/trust';
 
 // The currently-open tool's content snapshot, published by tool panels (Inbox, Notes, Calendar, …)
 // so the docked agent can actually READ what's on screen — not just know a tab is open. Only one
@@ -7,6 +8,9 @@ import { create } from 'zustand';
 export interface ToolContextSnapshot {
   label: string; // e.g. "Inbox", "Note: Groceries", "Calendar — June 2026"
   text: string;  // a concise plaintext view of what's shown
+  // Origin of this content → trust tier (services/trust.ts `trustOfToolSource`). Inbound comms
+  // (mail/messages) are fenced as untrusted DATA in the prompt; omitted ⇒ trusted-local.
+  source?: ToolContextSource;
 }
 
 interface ToolContextStore {

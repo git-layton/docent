@@ -160,7 +160,7 @@ export function MailInboxPanel() {
     const open = selected && body
       ? `\n\nOPEN MESSAGE — "${selected.subject || '(no subject)'}" from ${body.fromName || body.fromEmail}:\n${(body.text || body.html.replace(/<[^>]+>/g, ' ')).slice(0, 2000)}`
       : '';
-    useToolContextStore.getState().setToolContext({ label: 'Inbox', text: (list || '(no messages loaded)') + open });
+    useToolContextStore.getState().setToolContext({ label: 'Inbox', text: (list || '(no messages loaded)') + open, source: 'mail' });
     return () => useToolContextStore.getState().clearToolContext();
   }, [rows, selected, body]);
 

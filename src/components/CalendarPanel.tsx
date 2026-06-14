@@ -133,7 +133,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
     const text = events.length
       ? events.map(e => `${e.start.slice(0, 10)} — ${e.title}`).join('\n')
       : '(no events this month)';
-    useToolContextStore.getState().setToolContext({ label: `Calendar — ${MONTHS[month]} ${year}`, text });
+    useToolContextStore.getState().setToolContext({ label: `Calendar — ${MONTHS[month]} ${year}`, text, source: 'calendar' });
     return () => useToolContextStore.getState().clearToolContext();
   }, [events, month, year]);
 

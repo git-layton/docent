@@ -135,7 +135,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
     const text = open.length
       ? open.map((t: any) => `• ${t.title}${t.dueDate ? ` (due ${t.dueDate})` : ''}`).join('\n')
       : '(no open tasks)';
-    useToolContextStore.getState().setToolContext({ label: 'To-Dos', text });
+    useToolContextStore.getState().setToolContext({ label: 'To-Dos', text, source: 'tasks' });
     return () => useToolContextStore.getState().clearToolContext();
   }, [displayTasks]);
   const onToggle = (id: string, completed: boolean) => {
