@@ -24,6 +24,7 @@ import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
+import { searchWebHistory, renderWebRecall } from './services/webHistory';
 import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
@@ -1493,6 +1494,8 @@ export default function App() {
       // for this message. Both reuse existing memory files + search_knowledge_semantic.
       const _memorySummary = await loadMemorySummary(_activeAssistant?.id);
       const _relevantMemory = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
+      // Browsing-history recall — "remember that article I saw?" (privacy-filtered, dwell-gated).
+      const _webRecall = renderWebRecall(searchWebHistory(userMsg.content));
 
       const toolMsgId = generateId('tool');
       const capabilityCtx: CapabilityContext = {
@@ -1602,7 +1605,7 @@ export default function App() {
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall,
             goal: _activeSpace?.agentGoals?.[agent.id],
           });
 
@@ -1659,7 +1662,7 @@ export default function App() {
               integrations: _integrations,
               models: _models,
               runIntegrationTools,
-              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory,
+              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall,
               goal: _activeSpace?.agentGoals?.[primaryAgent.id],
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
@@ -1722,7 +1725,7 @@ export default function App() {
             models: _models,
             runIntegrationTools,
             browserContext: _browserContext,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall,
             goal: _activeSpace?.agentGoals?.[_activeAssistant?.id],
         });
 
