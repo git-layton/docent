@@ -18,6 +18,9 @@ interface VisitLogEntry {
   wordCount: number;
   wasDigested: boolean;
   isPrivate: boolean;
+  // Space the page was viewed in — the consent boundary for agent recall. Optional: legacy/
+  // outside-a-Space visits are un-attributable and excluded from scoped recall.
+  spaceId?: string;
 }
 
 export interface Favorite {

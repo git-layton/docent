@@ -369,6 +369,9 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       setPageContent(text);
 
       const wordCount = text.split(/\s+/).filter(Boolean).length;
+      // Stamp the owning Space so recall stays inside the agent's consent boundary — an agent must
+      // not later recall a page read in a Space it was never part of.
+      const spaceId = useSpaceStore.getState().omniTabs.find((t) => t.id === tabId)?.spaceId;
       useBrowserStore.getState().addVisitLogEntry({
         id: visitId,
         url,
@@ -377,6 +380,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         wordCount,
         wasDigested: false,
         isPrivate,
+        spaceId,
       });
 
       // Populate the page's readable text for agents. Skip private and non-http(s) pages: we don't

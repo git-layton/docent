@@ -1495,7 +1495,10 @@ export default function App() {
       const _memorySummary = await loadMemorySummary(_activeAssistant?.id);
       const _relevantMemory = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
       // Browsing-history recall — "remember that article I saw?" (privacy-filtered, dwell-gated).
-      const _webRecall = renderWebRecall(searchWebHistory(userMsg.content));
+      // Scoped to the Spaces this agent belongs to: it must not recall pages read in Spaces it was
+      // never part of. Visits with no spaceId (legacy/outside a Space) are excluded by the scope.
+      const _agentSpaceIds = _spaces.filter((s: any) => (s.agentIds ?? []).includes(_activeAssistant?.id)).map((s: any) => s.id);
+      const _webRecall = renderWebRecall(searchWebHistory(userMsg.content, 5, { spaceIds: _agentSpaceIds }));
 
       const toolMsgId = generateId('tool');
       const capabilityCtx: CapabilityContext = {

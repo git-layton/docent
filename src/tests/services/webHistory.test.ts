@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreWebHistory, renderWebRecall } from '../../services/webHistory';
+import { scoreWebHistory, renderWebRecall, scopeVisitsToSpaces } from '../../services/webHistory';
 
 const visit = (over: Partial<any> = {}) => ({
   id: over.id ?? `v-${Math.random()}`,
@@ -39,6 +39,20 @@ describe('webHistory — recall scoring', () => {
     const c = visit({ url: 'https://b.com/cooking', title: 'easy dinner recipes', timestamp: 9 }); // unrelated
     const hits = scoreWebHistory([a, b, c], 'async rust tokio');
     expect(hits.map(h => h.url)).toEqual(['https://a.com/async-rust-tokio']); // c below threshold; dup collapsed
+  });
+
+  it('scopes visits to an agent’s spaces and drops un-attributable ones', () => {
+    const visits = [
+      { ...visit({ id: 'a', url: 'https://a.com' }), spaceId: 's1' },
+      { ...visit({ id: 'b', url: 'https://b.com' }), spaceId: 's2' },
+      visit({ id: 'c', url: 'https://c.com' }), // legacy: no spaceId
+    ] as any[];
+    // Agent is in s1 only → sees a, never b (other space) or c (un-attributable).
+    expect(scopeVisitsToSpaces(visits, ['s1']).map((v) => v.id)).toEqual(['a']);
+    // Agent in both spaces → sees a and b, still never the un-attributable c.
+    expect(scopeVisitsToSpaces(visits, ['s1', 's2']).map((v) => v.id)).toEqual(['a', 'b']);
+    // No spaces → recalls nothing (closed by default).
+    expect(scopeVisitsToSpaces(visits, [])).toEqual([]);
   });
 
   it('renders provenance and empty-on-no-hits', () => {

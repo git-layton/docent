@@ -1,7 +1,7 @@
 import React from 'react';
 import clsx from 'clsx';
 import {
-  Sparkles,
+  Bot,
   PenLine,
   Telescope,
   Globe,
@@ -9,6 +9,9 @@ import {
   Code2,
 } from 'lucide-react';
 import { useGroundedSuggestions } from '../lib/useGroundedSuggestions';
+import { useSpaceStore } from '../store/useSpaceStore';
+import { OmniSearch } from './OmniSearch';
+import type { SearchDoc } from '../services/universalSearch';
 
 export interface SuggestionChip {
   id: string;
@@ -68,6 +71,17 @@ export function SpaceHomeLanding({
 }: SpaceHomeLandingProps) {
   // ── Grounded status: built from real local data, no LLM round-trip ──
   const { statusItems, chips: dynamicChips } = useGroundedSuggestions();
+  const activeSpaceId = useSpaceStore((s) => s.activeSpaceId);
+
+  // Open a hit within this Space: focus the matching tab, or jump to the conversation log.
+  const runSpaceDoc = (doc: SearchDoc) => {
+    const st = useSpaceStore.getState();
+    if (doc.id.startsWith('tab-')) st.setActiveTab(doc.id.slice(4));
+    else if (doc.id.startsWith('chat-')) {
+      const log = st.omniTabs.find((t) => t.type === 'space-log' && t.spaceId === activeSpaceId);
+      if (log) st.setActiveTab(log.id);
+    }
+  };
 
   const chips = suggestions
     ?? [...dynamicChips, ...DEFAULT_SUGGESTIONS.filter((d) => !dynamicChips.some((c) => c.icon === d.icon))].slice(0, 6);
@@ -78,10 +92,10 @@ export function SpaceHomeLanding({
   return (
     <div className="flex h-full w-full items-center justify-center px-6 py-12">
       <div className="flex w-full max-w-2xl flex-col items-center text-center">
-        {/* Accent glyph */}
+        {/* Agent Forge brand mark — matches the sidebar logo */}
         <div className="relative mb-7">
           <div className="flex h-16 w-16 items-center justify-center rounded-[20px] bg-accent shadow-lg shadow-black/20">
-            <Sparkles className="h-7 w-7 text-on-accent drop-shadow-sm" strokeWidth={2.25} />
+            <Bot className="h-7 w-7 text-on-accent drop-shadow-sm" strokeWidth={2.25} />
           </div>
         </div>
 
@@ -94,6 +108,19 @@ export function SpaceHomeLanding({
         <p className="mt-3 max-w-md text-sm leading-relaxed text-ink-3">
           {subtitle}
         </p>
+
+        {/* Scoped search — same omni-bar as global Home, but reaching only this Space's
+            tabs + conversation. ↵ falls through to the Space's agent. */}
+        {activeSpaceId && (
+          <OmniSearch
+            className="z-10 mt-6 max-w-xl"
+            scope={{ kind: 'space', spaceId: activeSpaceId }}
+            agentName={agentName}
+            placeholder={agentName ? `Search this space, or ask ${agentName}…` : 'Search this space, or ask your agent…'}
+            onAsk={onSendPrompt}
+            onRun={runSpaceDoc}
+          />
+        )}
 
         {/* While-you-were-away status — grounded in real local data */}
         {statusItems.length > 0 && (

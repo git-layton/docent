@@ -11,6 +11,9 @@ import { useBrowserStore } from '../store/useBrowserStore';
 
 interface VisitLogEntry {
   id: string; url: string; title: string; timestamp: number; wordCount: number; wasDigested: boolean; isPrivate: boolean;
+  // The Space the page was viewed in — the agent's consent boundary. Visits captured before this
+  // field existed (or outside any Space) are un-attributable and excluded from scoped recall.
+  spaceId?: string;
 }
 export interface WebRecallHit { title: string; url: string; timestamp: number; score: number }
 
@@ -44,9 +47,24 @@ export function scoreWebHistory(visits: VisitLogEntry[], query: string, limit = 
   return scored.slice(0, limit);
 }
 
-/** Live recall over the user's browsing history (privacy-filtered, dwell-gated). */
-export function searchWebHistory(query: string, limit = 5): WebRecallHit[] {
-  return scoreWebHistory(useBrowserStore.getState().visitLog as unknown as VisitLogEntry[], query, limit);
+/**
+ * PURE — limit visits to the Spaces an agent belongs to. A visit with no spaceId is treated as
+ * un-attributable (we can't prove the agent was present) and excluded. Empty spaceIds → nothing.
+ */
+export function scopeVisitsToSpaces(visits: VisitLogEntry[], spaceIds: string[]): VisitLogEntry[] {
+  const allowed = new Set(spaceIds);
+  return (visits ?? []).filter((v) => v.spaceId != null && allowed.has(v.spaceId));
+}
+
+/**
+ * Live recall over the user's browsing history (privacy-filtered, dwell-gated). Pass `scope` to
+ * restrict to an agent's Spaces — agents must not recall pages read in Spaces they're not part of.
+ * Omit `scope` only for the user's own global search (their Spotlight-style view of everything).
+ */
+export function searchWebHistory(query: string, limit = 5, scope?: { spaceIds: string[] }): WebRecallHit[] {
+  let visits = useBrowserStore.getState().visitLog as unknown as VisitLogEntry[];
+  if (scope) visits = scopeVisitsToSpaces(visits, scope.spaceIds);
+  return scoreWebHistory(visits, query, limit);
 }
 
 /** Render recall hits as a provenance-tagged context block ('' if none). */

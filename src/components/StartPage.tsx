@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Search,
   Globe,
   FileText,
   Code2,
@@ -12,7 +11,6 @@ import {
   MessageCircle,
   Building2,
   Star,
-  CornerDownLeft,
   Sunrise,
   Sun,
   Sunset,
@@ -31,6 +29,8 @@ import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
 import { useMessagesStore } from '../store/useMessagesStore';
 import { getUnreadTotal } from '../lib/mailUnread';
+import { type SearchDoc } from '../services/universalSearch';
+import { OmniSearch } from './OmniSearch';
 import type { OmniTab, OmniTabType, ToolTabId } from '../types/omniTab';
 
 // ---------------------------------------------------------------------------
@@ -259,31 +259,6 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
 }
 
 // ── Omni-bar result row ──
-function ResultRow({
-  active,
-  onClick,
-  onMouseEnter,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  onMouseEnter?: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      className={clsx(
-        'flex w-full items-center gap-3 px-3.5 py-2 text-left transition-colors',
-        active ? 'bg-accent-soft' : 'hover:bg-wash',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 interface StartPageProps {
   /** Send a message to the active conversation — wired from App's handleSendPrompt. */
@@ -303,7 +278,6 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const assistants = useAgentStore((s) => s.assistants);
   const activeSpace = useSpaceStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
 
-  const [query, setQuery] = useState('');
 
   // Unread mail badge — cheap IMAP SEARCH per account, cached 5 min in lib/mailUnread.
   const [unread, setUnread] = useState<number | null>(null);
@@ -424,27 +398,18 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
     return assistants.find((a: any) => a.id === id)?.name as string | undefined;
   }, [assistants, activeSpace]);
 
-  // Flattened, searchable index of everything the launcher can open.
-  const searchItems = useMemo(() => {
-    type Item = { kind: 'App' | 'Doc' | 'Bookmark'; id: string; label: string; sub?: string; icon: React.ElementType; run: () => void };
-    const apps: Item[] = APPS.map((a) => ({ kind: 'App', id: `app-${a.id}`, label: a.label, sub: a.sub, icon: a.icon, run: () => a.open(tabId) }));
-    const docItems: Item[] = docs.map((d: any) => ({ kind: 'Doc', id: `doc-${d.id}`, label: d.title || 'Untitled', sub: relativeTime(d.updatedAt), icon: d?.type === 'image' ? ImageIcon : Code2, run: () => openDoc(d, tabId) }));
-    const bms: Item[] = bookmarks.map((t) => ({ kind: 'Bookmark', id: `bm-${t.id}`, label: t.label, sub: domainOf(t.url), icon: Globe, run: () => focusExisting(tabId, t.id) }));
-    return [...apps, ...docItems, ...bms];
-    // openDoc is closure-stable (reads from getState); safe to omit from deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docs, bookmarks]);
-
-  const q = query.trim().toLowerCase();
-  const matches = useMemo(
-    () => (!q ? [] : searchItems.filter((it) => `${it.label} ${it.sub ?? ''}`.toLowerCase().includes(q)).slice(0, 8)),
-    [q, searchItems],
+  // Launcher apps as search docs — merged into the global corpus by <OmniSearch>.
+  const appDocs = useMemo<SearchDoc[]>(
+    () => APPS.map((a) => ({ kind: 'App', id: `app-${a.id}`, title: a.label, sub: a.sub })),
+    [],
   );
 
-  // results[0] is always the "Ask" action; matches follow (1-indexed).
-  const resultCount = 1 + matches.length;
-  const [activeIndex, setActiveIndex] = useState(0);
-  useEffect(() => { setActiveIndex(0); }, [q]);
+  // The omni-bar hides the section grid behind its results while a query is active.
+  const [searchActive, setSearchActive] = useState(false);
+
+  // Apps keep their own tile icon in results; other kinds fall back to OmniSearch's per-kind icons.
+  const iconForDoc = (doc: SearchDoc): React.ElementType | undefined =>
+    doc.kind === 'App' ? APPS.find((a) => `app-${a.id}` === doc.id)?.icon : undefined;
 
   const ask = (text: string) => {
     const t = text.trim();
@@ -457,16 +422,43 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
     onAsk?.(t);
   };
 
-  const runIndex = (i: number) => {
-    if (i <= 0) ask(query);
-    else matches[i - 1]?.run();
+  // Switch to a conversation's Space and focus its log, consuming the Home tab like the tiles do.
+  const openConversation = (chatId: string) => {
+    const st = useSpaceStore.getState();
+    const sp = st.spaces.find((s) => s.chatId === chatId);
+    if (!sp) return; // searchCorpus only emits chats that have an owning Space, so this is defensive
+    st.setActiveSpaceId(sp.id);
+    const log = st.omniTabs.find((x) => x.type === 'space-log' && x.spaceId === sp.id);
+    if (log) focusExisting(tabId, log.id);
+    else if (tabId) st.closeTab(tabId);
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => Math.min(i + 1, resultCount - 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); runIndex(activeIndex); }
-    else if (e.key === 'Escape' && q) { e.preventDefault(); setQuery(''); }
+  // Open whatever a ranked hit points at. The id prefix encodes the source (see searchCorpus).
+  const runSearchDoc = (doc: SearchDoc) => {
+    switch (doc.kind) {
+      case 'App':
+        APPS.find((a) => `app-${a.id}` === doc.id)?.open(tabId);
+        break;
+      case 'Task':
+        launch(tabId, { type: 'tool', toolId: 'planner' as ToolTabId, label: 'To-Do' });
+        break;
+      case 'Chat':
+        openConversation(doc.id.replace(/^chat-/, ''));
+        break;
+      case 'Web':
+        if (doc.url) launch(tabId, { type: 'web', url: doc.url, label: doc.title });
+        break;
+      case 'Bookmark':
+      case 'Doc':
+      default:
+        if (doc.id.startsWith('tab-')) focusExisting(tabId, doc.id.slice(4));
+        else if (doc.id.startsWith('doc-')) {
+          const d = (savedApps ?? []).find((a: any) => `doc-${a.id}` === doc.id);
+          if (d) openDoc(d, tabId);
+        } else if (doc.url) {
+          launch(tabId, { type: 'web', url: doc.url, label: doc.title });
+        }
+    }
   };
 
   return (
@@ -499,72 +491,29 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             </p>
           </div>
 
-          {/* Omni-bar — search-as-you-type, chat is the default ↵ action */}
-          <div className="relative mt-5 w-full">
-            <div className="flex items-center gap-3 rounded-full border border-edge-2 bg-panel-2 px-5 py-3 shadow-sm transition-colors focus-within:border-accent">
-              <Search className="h-4 w-4 shrink-0 text-ink-3" />
-              <input
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder={agentName ? `Search apps & docs, or ask ${agentName} anything…` : 'Search apps & docs, or ask your agent…'}
-                className="flex-1 bg-transparent text-sm text-ink placeholder:text-ink-3 outline-none"
-              />
-              <kbd className="hidden items-center gap-1 rounded-md border border-edge px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:flex">
-                <CornerDownLeft className="h-3 w-3" /> {activeIndex === 0 ? 'ask' : 'open'}
-              </kbd>
-              <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[11px] font-bold text-on-accent">
-                Ask
-              </span>
-            </div>
-
-            {q ? (
-              <div className="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-2xl border border-edge-2 bg-panel py-1.5 text-left shadow-2xl shadow-black/20">
-                {/* Ask row — always index 0, the default action */}
-                <ResultRow active={activeIndex === 0} onMouseEnter={() => setActiveIndex(0)} onClick={() => runIndex(0)}>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent">
-                    <MessageSquare className="h-3.5 w-3.5 text-on-accent" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-ink">{agentName ? `Ask ${agentName}` : 'Ask your agent'}</span>
-                    <span className="block truncate text-[11px] text-ink-3">“{query.trim()}”</span>
-                  </span>
-                  <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-ink-3" />
-                </ResultRow>
-
-                {matches.length > 0 && <div className="my-1 border-t border-edge" />}
-
-                {matches.map((it, i) => {
-                  const Icon = it.icon;
-                  return (
-                    <ResultRow key={it.id} active={activeIndex === i + 1} onMouseEnter={() => setActiveIndex(i + 1)} onClick={() => runIndex(i + 1)}>
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-wash ring-1 ring-edge">
-                        <Icon className="h-3.5 w-3.5 text-ink-2" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-ink">{it.label}</span>
-                        {it.sub && <span className="block truncate text-[11px] text-ink-3">{it.sub}</span>}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-wash px-2 py-0.5 text-[10px] font-medium text-ink-3">{it.kind}</span>
-                    </ResultRow>
-                  );
-                })}
-
-                {matches.length === 0 && (
-                  <div className="px-3.5 py-2 text-[11px] text-ink-3">No matches — press ↵ to ask {agentName ?? 'your agent'}.</div>
-                )}
-              </div>
-            ) : (
-              <p className="mt-2 text-[11px] text-ink-3">
-                Type to filter your apps &amp; docs · press <span className="text-ink-2">↵</span> to ask your agent
-              </p>
-            )}
-          </div>
+          {/* Omni-bar — search-as-you-type across everything, chat is the default ↵ action */}
+          <OmniSearch
+            className="mt-5"
+            scope={{ kind: 'global' }}
+            extraDocs={appDocs}
+            includeWebHistory
+            iconFor={iconForDoc}
+            agentName={agentName}
+            autoFocus
+            placeholder={agentName ? `Search apps & docs, or ask ${agentName} anything…` : 'Search apps & docs, or ask your agent…'}
+            onAsk={ask}
+            onRun={runSearchDoc}
+            onActiveChange={setSearchActive}
+          />
+          {!searchActive && (
+            <p className="mt-2 text-[11px] text-ink-3">
+              Search your apps, docs, tasks &amp; history · press <span className="text-ink-2">↵</span> to ask your agent
+            </p>
+          )}
         </div>
 
         {/* The section grid hides while searching — the omni-bar results take over. */}
-        {!q && (<>
+        {!searchActive && (<>
         {/* ── Apps ── */}
         <Section title="Apps">
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
