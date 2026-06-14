@@ -351,15 +351,17 @@ describe('hydrate — first-run seeding', () => {
   it('seeds a default Space Log tab when no data is stored', async () => {
     await useSpaceStore.getState().hydrate()
     const { omniTabs } = useSpaceStore.getState()
-    expect(omniTabs).toHaveLength(1)
-    expect(omniTabs[0].id).toBe('tab-space-log-default')
-    expect(omniTabs[0].type).toBe('space-log')
-    expect(omniTabs[0].isPinned).toBe(true)
+    const log = omniTabs.find(t => t.type === 'space-log')
+    expect(log?.id).toBe('tab-space-log-default')
+    expect(log?.isPinned).toBe(true)
+    // hydrate also lands on Home (the StartPage) at launch, so a Home tab is added alongside.
+    expect(omniTabs.some(t => t.type === 'home')).toBe(true)
   })
 
-  it('sets activeOmniTabId to tab-space-log-default on first run', async () => {
+  it('lands on a Home tab on first run', async () => {
     await useSpaceStore.getState().hydrate()
-    expect(useSpaceStore.getState().activeOmniTabId).toBe('tab-space-log-default')
+    const { omniTabs, activeOmniTabId } = useSpaceStore.getState()
+    expect(omniTabs.find(t => t.id === activeOmniTabId)?.type).toBe('home')
   })
 
   it('sets activeSpaceId to space-home on first run', async () => {
@@ -404,12 +406,15 @@ describe('hydrate — restore from DB', () => {
 
     await useSpaceStore.getState().hydrate()
 
-    expect(useSpaceStore.getState().spaces).toHaveLength(1)
-    expect(useSpaceStore.getState().spaces[0].name).toBe('Test Space')
-    expect(useSpaceStore.getState().omniTabs).toHaveLength(1)
-    expect(useSpaceStore.getState().omniTabs[0].label).toBe('Test Tab')
-    expect(useSpaceStore.getState().activeOmniTabId).toBe('tab-test')
-    expect(useSpaceStore.getState().activeSpaceId).toBe('space-test')
+    const st = useSpaceStore.getState()
+    expect(st.spaces).toHaveLength(1)
+    expect(st.spaces[0].name).toBe('Test Space')
+    // The persisted tab is restored…
+    expect(st.omniTabs.find(t => t.id === 'tab-test')?.label).toBe('Test Tab')
+    expect(st.activeSpaceId).toBe('space-test')
+    // …and on launch we always land on a Home tab (created here since the Space has none).
+    expect(st.omniTabs.some(t => t.type === 'home')).toBe(true)
+    expect(st.omniTabs.find(t => t.id === st.activeOmniTabId)?.type).toBe('home')
   })
 
   it('does not seed defaults when persisted data exists', async () => {
