@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { CalendarPanel } from '../../components/CalendarPanel';
 import { useTaskStore } from '../../store/useTaskStore';
 import type { RecurringEvent } from '../../store/useTaskStore';
@@ -44,7 +44,7 @@ describe('CalendarPanel', () => {
     expect(screen.getByText('June 2026')).toBeInTheDocument();
   });
 
-  it('renders a recurring event on its day cell', () => {
+  it('renders a recurring event on its day cell', async () => {
     const event: RecurringEvent = {
       id: 'ev-test-1',
       type: 'birthday',
@@ -55,9 +55,12 @@ describe('CalendarPanel', () => {
     useTaskStore.setState({ recurringEvents: [event] });
 
     render(<CalendarPanel onToast={noopToast} />);
+    // The grid loads events from the (local) calendar backend asynchronously in an effect; flush that
+    // microtask so the recurring-event occurrence is in state before we query.
+    await act(async () => { await Promise.resolve(); });
 
-    // Event chip shows the first name; the full name is on the title attr.
-    const chip = screen.getByTitle('Alice Wonderland');
+    // The chip's title is emoji-prefixed by type, e.g. "🎂 Alice Wonderland" (see recurringEventTitle).
+    const chip = screen.getByTitle(/Alice Wonderland/);
     expect(chip).toBeInTheDocument();
     expect(chip.textContent).toContain('Alice');
   });
