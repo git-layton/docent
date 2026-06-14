@@ -162,7 +162,7 @@ export const getSystemPromptBreakdown = (params: {
   return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, goal }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, goal }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
@@ -192,6 +192,12 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     prompt += `[AGENT MEMORIES (KNOWLEDGE BASE)]\nRemember these core facts the user explicitly pinned for you:\n${agentPinnedMessages.map((m: any) => `- ${m}`).join('\n')}\n\n`;
   }
 
+  // Tier 1 — persistent memory: a compact digest of what the agent has learned/consolidated. Always
+  // present so the agent carries its knowledge across every turn (not only on explicit recall).
+  if (memorySummary) {
+    prompt += `[YOUR PERSISTENT MEMORY]\nWhat you've learned and consolidated about the user and your work together over time — carry it forward naturally:\n${String(memorySummary).slice(0, 2500)}\n\n`;
+  }
+
   // Ambient sight: the tabs open in this Space/DM (the user's consent boundary), trust-tagged.
   if (ambientContext?.length) {
     prompt += renderAmbientContext(ambientContext);
@@ -212,6 +218,12 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     `- {"tool":"calendar","op":"create","title":"…","start":"YYYY-MM-DD or ISO","end":"…"?,"allDay":true?}\n` +
     `- {"tool":"message","op":"send","to":"conversation or contact name","text":"…"}\n` +
     `Creating a note/to-do/event applies automatically. Sending a message or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
+
+  // Tier 2 — relevant memory retrieved for THIS message (semantic, gated by relevance). Placed near
+  // the end so it sits close to the user's turn (mitigates "lost in the middle").
+  if (relevantMemory) {
+    prompt += `[RELEVANT MEMORY FOR THIS MESSAGE]\nRetrieved from your knowledge base because it's relevant to what was just said — use it if helpful:\n${String(relevantMemory).slice(0, 3000)}\n\n`;
+  }
 
   if (browserContext) {
     const trimmedContent = browserContext.pageContent.slice(0, 8000);
@@ -273,7 +285,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
 const stripThinkingTags = (text: string): string =>
   text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, goal }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, goal }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -328,7 +340,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, goal })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, goal })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);

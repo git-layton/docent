@@ -23,6 +23,7 @@ import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
+import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
 import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
@@ -1362,6 +1363,7 @@ export default function App() {
       await invoke('write_dream_log', { log });
       useMemoryStore.getState().setDreamLog(log);
       useMemoryStore.getState().setShowDreamBanner(true);
+      invalidateMemorySummary(); // memory files were just consolidated — refresh the Tier-1 digest
       useUIStore.getState().showToast(`🌙 Dream Cycle complete — ${dreamItems.length} change${dreamItems.length !== 1 ? 's' : ''} made`);
 
     } catch (e: any) {
@@ -1484,6 +1486,10 @@ export default function App() {
       // The tool the user is actively looking at (Inbox/Notes/…) — its on-screen contents, so the
       // docked agent can read it, not just know it's open.
       const _toolContext = useToolContextStore.getState().content ?? undefined;
+      // Layered memory: Tier 1 = always-on consolidated digest; Tier 2 = relevance-gated retrieval
+      // for this message. Both reuse existing memory files + search_knowledge_semantic.
+      const _memorySummary = await loadMemorySummary(_activeAssistant?.id);
+      const _relevantMemory = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
 
       const toolMsgId = generateId('tool');
       const capabilityCtx: CapabilityContext = {
@@ -1593,7 +1599,7 @@ export default function App() {
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
-            ambientContext: _ambientContext, toolContext: _toolContext,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory,
             goal: _activeSpace?.agentGoals?.[agent.id],
           });
 
@@ -1650,7 +1656,7 @@ export default function App() {
               integrations: _integrations,
               models: _models,
               runIntegrationTools,
-              ambientContext: _ambientContext, toolContext: _toolContext,
+              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory,
               goal: _activeSpace?.agentGoals?.[primaryAgent.id],
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
@@ -1713,7 +1719,7 @@ export default function App() {
             models: _models,
             runIntegrationTools,
             browserContext: _browserContext,
-            ambientContext: _ambientContext, toolContext: _toolContext,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory,
             goal: _activeSpace?.agentGoals?.[_activeAssistant?.id],
         });
 
