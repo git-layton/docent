@@ -545,7 +545,13 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     const p = listen<{ type: string; host: string; username?: string; password?: string }>(
       'browser:password-event',
       async e => {
-        const { type, host, username, password } = e.payload ?? {};
+        const { type, username, password } = e.payload ?? {};
+        // SECURITY: never trust the `host` the page reports. Any page in the panel can invoke
+        // browser_password_event directly with an arbitrary host; trusting it lets a malicious
+        // page request autofill for *another* site and have that credential filled into its own
+        // DOM (cross-origin credential disclosure). Key strictly off the active tab's real origin.
+        const host = tryHostname(urlRef.current);
+        if (!host || host === urlRef.current) return; // require a parseable real URL, not a bare string
         if (type === 'focus') {
           const result = await invoke<{ ok: boolean }>('keychain_get', { host }).catch(() => ({ ok: false }));
           if (result.ok) {
