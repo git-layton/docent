@@ -203,6 +203,16 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     prompt += `[WHAT THE USER IS LOOKING AT — ${toolContext.label}]\nThis is the user's own data, open on screen right now. You can read and reference it directly.\n${String(toolContext.text).slice(0, 4000)}\n\n`;
   }
 
+  // Acting on tools — the agent can emit a fenced forge:action block to act through the user's tools.
+  prompt += `[ACTING ON THE USER'S TOOLS]\n` +
+    `When the user clearly wants you to DO something to their tools (not just discuss it), emit a fenced \`\`\`forge:action\`\`\` block containing JSON — a single object or an array. Supported:\n` +
+    `- {"tool":"note","op":"create","title":"…","body":"…"}\n` +
+    `- {"tool":"task","op":"create","title":"…","dueDate":"YYYY-MM-DD"?}\n` +
+    `- {"tool":"task","op":"complete","id":"…"}\n` +
+    `- {"tool":"calendar","op":"create","title":"…","start":"YYYY-MM-DD or ISO","end":"…"?,"allDay":true?}\n` +
+    `- {"tool":"message","op":"send","to":"conversation or contact name","text":"…"}\n` +
+    `Creating a note/to-do/event applies automatically. Sending a message or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
+
   if (browserContext) {
     const trimmedContent = browserContext.pageContent.slice(0, 8000);
     // §3 rule 1: untrusted web content enters the prompt as explicitly-delimited, labeled DATA.

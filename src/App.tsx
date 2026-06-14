@@ -22,6 +22,7 @@ import { useBrowserStore } from './store/useBrowserStore';
 import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
+import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
 import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
@@ -164,6 +165,8 @@ export default function App() {
   const [pendingArtifactType, setPendingArtifactType] = useState<'code' | 'doc' | null>(null);
   // Co-pilot rail: the active agent docked beside a tool/web/canvas tab. Collapsible (the "mute"/dismiss).
   const [copilotOpen, setCopilotOpen] = useState(true);
+  // Agent tool-actions awaiting approval (sends/deletes). Local writes auto-apply and never land here.
+  const [pendingActions, setPendingActions] = useState<AgentAction[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
@@ -171,6 +174,26 @@ export default function App() {
 
   // Store action shorthands (imperative, for use in callbacks/effects)
   const showToast = useUIStore.getState().showToast;
+
+  // After an agent reply, run any forge:action blocks it emitted: auto-apply local writes (note/task/
+  // calendar create), queue sends/deletes for approval, and strip the raw blocks from the message.
+  const handleAgentActions = async (text: string, chatId: string, botId: string) => {
+    const actions = parseAgentActions(text);
+    if (actions.length === 0) return;
+    const cleaned = stripActionBlocks(text);
+    if (cleaned && cleaned !== text) {
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+        ...prev,
+        [chatId]: (prev[chatId] ?? []).map((m: any) => (m.id === botId ? { ...m, content: cleaned } : m)),
+      }));
+    }
+    for (const a of actions.filter(x => !actionNeedsApproval(x))) {
+      try { showToast(`✓ ${await executeAgentAction(a)}`); }
+      catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }
+    }
+    const needApproval = actions.filter(actionNeedsApproval);
+    if (needApproval.length) setPendingActions(prev => [...prev, ...needApproval]);
+  };
   const saveGlobalPins = useMemoryStore.getState().saveGlobalPins;
   const setMessages = useChatStore.getState().setMessages;
   const setShowSaveModal = useUIStore.getState().setShowSaveModal;
@@ -1695,6 +1718,7 @@ export default function App() {
         });
 
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
+        void handleAgentActions(response, chatId, botId);
 
         if (_generationMode === 'code' || _generationMode === 'doc') {
            const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
@@ -2596,6 +2620,35 @@ export default function App() {
       {/* Onboarding wizard */}
       {showOnboarding && (
         <OnboardingWizard onClose={() => { useSettingsStore.getState().setShowOnboarding(false); useSettingsStore.getState().setOnboardingInitialStep(1); }} initialStep={onboardingInitialStep} />
+      )}
+
+      {/* Agent action approval — sends/deletes the agent wants to run (local writes auto-applied) */}
+      {pendingActions.length > 0 && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-panel-2 w-full max-w-md rounded-2xl border border-edge shadow-2xl p-5 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-accent" />
+              <span className="text-sm font-black tracking-tight text-ink">Approve action{pendingActions.length > 1 ? 's' : ''}</span>
+            </div>
+            <p className="text-xs text-ink-3">{activeAssistant?.name ?? 'The agent'} wants to do {pendingActions.length > 1 ? 'these' : 'this'}. Review before it runs.</p>
+            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+              {pendingActions.map((a, i) => (
+                <div key={i} className="flex items-center gap-2 p-3 rounded-xl border border-edge bg-inset">
+                  <span className="text-sm text-ink-2 flex-1 break-words">{describeAction(a)}</span>
+                  <button
+                    onClick={async () => { try { showToast(`✓ ${await executeAgentAction(a)}`); } catch (e) { showToast(`Failed: ${String(e)}`); } setPendingActions(p => p.filter((_, j) => j !== i)); }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest bg-accent text-on-accent hover:bg-accent-strong transition-colors shrink-0"
+                  >Approve</button>
+                  <button
+                    onClick={() => setPendingActions(p => p.filter((_, j) => j !== i))}
+                    className="px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest border border-edge-2 text-ink-2 hover:bg-wash transition-colors shrink-0"
+                  >Skip</button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setPendingActions([])} className="self-end text-xs font-medium text-ink-3 hover:text-ink transition-colors">Dismiss all</button>
+          </div>
+        </div>
       )}
 
       {/* Artifact start picker */}
