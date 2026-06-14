@@ -66,23 +66,26 @@ You're a showcase of what an executive assistant on Agent Forge can be. Users ca
   driveEnabled: true,
 };
 
-const DEV_ASSISTANT = {
+const CODEY_ASSISTANT = {
   id: 'forge-dev',
-  name: 'Dev',
-  description: 'Senior engineer — code review, debugging, architecture',
+  name: 'Codey',
+  description: 'Coding partner — best practices, scalable architecture, sharp review',
   role: 'Engineer',
   avatar: { type: 'color', color: 'sky' },
-  prompt: `You are Dev — a senior software engineer embedded in Agent Forge. You write clean, idiomatic code and have strong opinions about architecture. You debug fast, spot edge cases, and give concrete suggestions rather than vague advice.
+  prompt: `You are Codey — a senior software engineer embedded in Agent Forge. You write clean, idiomatic, production-quality code and you have strong, well-reasoned opinions about architecture. You optimize for the long game: code that's correct now and still maintainable when the system is ten times bigger.
 
-Personality:
+How you work:
 - Direct. Skip the ceremony, get to the code.
-- Opinionated but not dogmatic. You'll say "this approach has a problem" and explain why.
-- You point out security issues, performance gotchas, and footguns without being asked.
-- You write production-quality code — not toy examples. No TODO comments left in your output.
+- Best-practices first: clear naming, small focused units, sensible error handling, no dead code, no TODO comments left in your output. Match the conventions of the surrounding codebase rather than imposing your own.
+- Architecture-minded: think about how a change scales — coupling, boundaries, data flow, state ownership, failure modes. Name the trade-off explicitly ("this is fine for now, but it'll bite at scale because…").
+- You proactively flag architectural risk and footguns — tight coupling, leaky abstractions, N+1s, race conditions, security holes — but keep it proportional: don't gold-plate a throwaway script.
+- Opinionated but not dogmatic. Say "this approach has a problem" and explain why, then show the fix. Avoid premature abstraction as fiercely as you avoid copy-paste sprawl.
 
-When reviewing code: identify the actual bug or smell, explain why it's a problem, show the fix.
-When building: ask one clarifying question max if genuinely ambiguous, then build.
-When explaining: assume technical depth. Don't over-simplify.`,
+When reviewing code: find the real bug or smell, explain why it matters, show the corrected code.
+When building: ask one clarifying question max if genuinely ambiguous, then build the whole thing.
+When explaining: assume technical depth. Don't over-simplify.
+
+You bring real taste — strong defaults about what good looks like. Say what you'd do and why; don't retreat into "it depends" unless it genuinely does. You don't invent past projects or war stories — your credibility is the quality of the call you make right now.`,
   trainingDocs: [],
   systemAccess: false,
   tools: { web_search: false, calendar_sync: false, local_workspace: false },
@@ -90,39 +93,16 @@ When explaining: assume technical depth. Don't over-simplify.`,
   defaultMode: 'code',
   awareOfProfile: false,
   isDefault: true,
-  drive: 'Build it right the first time. Clean architecture, working code, no shortcuts that create future debt. Proactively catch problems — security issues, edge cases, performance gotchas — before they become problems.',
+  drive: 'Build it right the first time — clean architecture, working code, no shortcuts that become tomorrow\'s debt. Think about how every change scales, and surface architectural risk, security issues, and edge cases before they bite.',
   driveEnabled: true,
 };
 
-const ARIA_ASSISTANT = {
-  id: 'forge-aria',
-  name: 'Aria',
-  description: 'Research & synthesis — deep dives, summaries, writing',
-  role: 'Research',
-  avatar: { type: 'color', color: 'violet' },
-  prompt: `You are Aria — a research and synthesis specialist in Agent Forge. You turn scattered information into clear understanding. You write well, think carefully, and cite your sources.
+export { ALEXIS_ASSISTANT, CODEY_ASSISTANT };
 
-Personality:
-- Thorough but not exhausting. You know when to go deep and when a paragraph is enough.
-- Intellectually curious — you find connections the user didn't ask about when they're genuinely useful.
-- Clear writer. No jargon unless it's precise. No padding. Paragraphs over bullet-point soup.
-- Honest about uncertainty. You distinguish between "I know this", "I think this", and "I'm not sure".
-
-When researching: lead with the bottom line, then support it. Don't bury the answer in context.
-When summarizing: preserve nuance. Don't flatten important distinctions.
-When writing: match the user's voice if they give you a sample. Otherwise: clear, confident, human.`,
-  trainingDocs: [],
-  systemAccess: false,
-  tools: { web_search: true, calendar_sync: false, local_workspace: false },
-  defaultModelId: '',
-  defaultMode: 'text',
-  awareOfProfile: true,
-  isDefault: true,
-  drive: 'Find what is actually true. Question assumptions, surface real signal over noise, and distinguish clearly between what is known, what is inferred, and what is uncertain. Back claims with evidence.',
-  driveEnabled: true,
-};
-
-export { ALEXIS_ASSISTANT, DEV_ASSISTANT, ARIA_ASSISTANT };
+// Built-in agents that hydrate() re-seeds on every launch. Deleting one must "stick", so a deleted
+// built-in's id is tombstoned (deletedBuiltinIds) and the re-seed skips it. The hidden 'f-default'
+// fallback is never deletable.
+const RESEEDED_BUILTIN_IDS = ['alexis', 'forge-dev', 'forge-guide'];
 
 interface AgentStore {
   assistants: any[];
@@ -130,23 +110,26 @@ interface AgentStore {
   editingAssistant: any | null;
   showAssistantSettings: boolean;
   assistantSettingsTab: string;
+  deletedBuiltinIds: string[];
 
   setAssistants: (fn: ((prev: any[]) => any[]) | any[]) => void;
   setActiveFolderId: (id: string) => void;
   setEditingAssistant: (a: any | ((prev: any) => any) | null) => void;
   setShowAssistantSettings: (v: boolean) => void;
   setAssistantSettingsTab: (tab: string) => void;
+  deleteAgent: (id: string) => Promise<void>;
 
   hydrate: () => Promise<void>;
   persist: () => Promise<void>;
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  assistants: [ALEXIS_ASSISTANT, DEV_ASSISTANT, ARIA_ASSISTANT, DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
+  assistants: [ALEXIS_ASSISTANT, CODEY_ASSISTANT, DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
   activeFolderId: 'alexis',
   editingAssistant: null,
   showAssistantSettings: false,
   assistantSettingsTab: 'config',
+  deletedBuiltinIds: [],
 
   setAssistants: (fn) =>
     set(s => ({ assistants: typeof fn === 'function' ? fn(s.assistants) : fn })),
@@ -156,40 +139,53 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   setShowAssistantSettings: (v) => set({ showAssistantSettings: v }),
   setAssistantSettingsTab: (tab) => set({ assistantSettingsTab: tab }),
 
+  deleteAgent: async (id) => {
+    if (id === 'f-default') return; // never remove the hidden fallback
+    const { assistants, activeFolderId, deletedBuiltinIds } = get();
+    const remaining = assistants.filter((a: any) => a.id !== id);
+    // Always keep at least the fallback so the app is never agent-less.
+    const safe = remaining.length ? remaining : [DEFAULT_ASSISTANT];
+    // Tombstone re-seeded built-ins so hydrate() won't resurrect them next launch.
+    const tombstones = RESEEDED_BUILTIN_IDS.includes(id) && !deletedBuiltinIds.includes(id)
+      ? [...deletedBuiltinIds, id]
+      : deletedBuiltinIds;
+    const nextActive = activeFolderId === id
+      ? (safe.find((a: any) => a.id === 'alexis')?.id ?? safe[0].id)
+      : activeFolderId;
+    set({ assistants: safe, deletedBuiltinIds: tombstones, activeFolderId: nextActive });
+    await get().persist();
+  },
+
   hydrate: async () => {
     const assistants = await db.get('assistants', [DEFAULT_ASSISTANT]);
     const savedActiveFolderId = await db.get('activeFolderId', 'alexis');
-    const hasAlexis = assistants.some((a: any) => a.id === 'alexis');
-    const hasDev = assistants.some((a: any) => a.id === 'forge-dev');
-    const hasAria = assistants.some((a: any) => a.id === 'forge-aria');
-    const hasForgeGuide = assistants.some((a: any) => a.id === 'forge-guide');
+    const deletedBuiltinIds: string[] = await db.get('deletedBuiltinIds', []);
+    // Re-seed a built-in only if it's absent AND the user hasn't deleted it (tombstone).
+    const reseed = (id: string) => !assistants.some((a: any) => a.id === id) && !deletedBuiltinIds.includes(id);
+    const needAlexis = reseed('alexis');
+    const needDev = reseed('forge-dev');
+    const needGuide = reseed('forge-guide');
     let final = assistants;
-    if (!hasAlexis) final = [ALEXIS_ASSISTANT, ...final];
-    if (!hasDev) {
+    if (needAlexis) final = [ALEXIS_ASSISTANT, ...final];
+    if (needDev) {
       const alexisIdx = final.findIndex((a: any) => a.id === 'alexis');
-      final = [...final.slice(0, alexisIdx + 1), DEV_ASSISTANT, ...final.slice(alexisIdx + 1)];
+      final = [...final.slice(0, alexisIdx + 1), CODEY_ASSISTANT, ...final.slice(alexisIdx + 1)];
     }
-    if (!hasAria) {
-      const devIdx = final.findIndex((a: any) => a.id === 'forge-dev');
-      final = [...final.slice(0, devIdx + 1), ARIA_ASSISTANT, ...final.slice(devIdx + 1)];
-    }
-    if (!hasForgeGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
-    // Keep built-in agent prompts in sync with the latest defaults
+    if (needGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
+    // Keep built-in agent prompts in sync with the latest defaults (Aria is no longer a default;
+    // existing installs keep her until deleted, so she's intentionally absent from these maps).
     const promptDefaults: Record<string, string> = {
       alexis: ALEXIS_ASSISTANT.prompt,
-      'forge-dev': DEV_ASSISTANT.prompt,
-      'forge-aria': ARIA_ASSISTANT.prompt,
+      'forge-dev': CODEY_ASSISTANT.prompt,
       'forge-guide': FORGE_GUIDE_ASSISTANT.prompt,
     };
     const driveDefaults: Record<string, string> = {
       alexis: ALEXIS_ASSISTANT.drive,
-      'forge-dev': DEV_ASSISTANT.drive,
-      'forge-aria': ARIA_ASSISTANT.drive,
+      'forge-dev': CODEY_ASSISTANT.drive,
     };
     const roleDefaults: Record<string, string> = {
       alexis: (ALEXIS_ASSISTANT as any).role,
-      'forge-dev': (DEV_ASSISTANT as any).role,
-      'forge-aria': (ARIA_ASSISTANT as any).role,
+      'forge-dev': (CODEY_ASSISTANT as any).role,
       'forge-guide': (FORGE_GUIDE_ASSISTANT as any).role,
     };
     let builtinUpdated = false;
@@ -198,25 +194,29 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const needsPrompt = a.prompt !== promptDefaults[a.id];
       const needsDrive = a.drive === undefined && driveDefaults[a.id];
       const needsRole = a.role === undefined && roleDefaults[a.id];
-      if (needsPrompt || needsDrive || needsRole) {
+      // One-time rename of the former built-in 'Dev' → 'Codey' (leaves user-renamed agents alone).
+      const needsRename = a.id === 'forge-dev' && a.name === 'Dev';
+      if (needsPrompt || needsDrive || needsRole || needsRename) {
         builtinUpdated = true;
         return {
           ...a,
           ...(needsPrompt ? { prompt: promptDefaults[a.id] } : {}),
           ...(needsDrive ? { drive: driveDefaults[a.id], driveEnabled: true } : {}),
           ...(needsRole ? { role: roleDefaults[a.id] } : {}),
+          ...(needsRename ? { name: 'Codey', description: CODEY_ASSISTANT.description } : {}),
         };
       }
       return a;
     });
     const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'alexis';
-    set({ assistants: final, activeFolderId });
-    if (!hasAlexis || !hasDev || !hasAria || !hasForgeGuide || builtinUpdated) await db.set('assistants', final);
+    set({ assistants: final, activeFolderId, deletedBuiltinIds });
+    if (needAlexis || needDev || needGuide || builtinUpdated) await db.set('assistants', final);
   },
 
   persist: async () => {
-    const { assistants, activeFolderId } = get();
+    const { assistants, activeFolderId, deletedBuiltinIds } = get();
     await db.set('assistants', assistants);
     await db.set('activeFolderId', activeFolderId);
+    await db.set('deletedBuiltinIds', deletedBuiltinIds);
   },
 }));

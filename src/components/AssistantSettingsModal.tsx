@@ -104,6 +104,8 @@ export function AssistantSettingsModal({
   const editingAgentPins = globalPins.filter((p: any) => p.agentId === editingAssistant?.id);
 
   const onClose = () => setShowAssistantSettings(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const canDelete = !!editingAssistant && editingAssistant.id !== 'f-default';
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
       <div className="bg-panel-2 w-full max-w-3xl rounded-[2rem] p-8 shadow-2xl border border-edge max-h-[90vh] overflow-y-auto custom-scrollbar text-ink flex flex-col">
@@ -393,6 +395,21 @@ export function AssistantSettingsModal({
           >
             <Copy className="w-4 h-4" /> Clone
           </button>
+          {canDelete && (
+            <button
+              onClick={async () => {
+                if (!confirmDelete) { setConfirmDelete(true); return; }
+                await useAgentStore.getState().deleteAgent(editingAssistant.id);
+                setConfirmDelete(false);
+                setShowAssistantSettings(false);
+              }}
+              onMouseLeave={() => setConfirmDelete(false)}
+              className={`flex items-center gap-2 px-5 py-4 border-2 font-black text-xs uppercase tracking-widest rounded-xl active:scale-[0.98] transition-all ${confirmDelete ? 'bg-danger border-danger text-on-accent' : 'border-edge-2 text-ink-2 hover:bg-wash hover:text-danger hover:border-danger/40'}`}
+              title={`Delete ${editingAssistant?.name || 'this agent'}`}
+            >
+              <Trash2 className="w-4 h-4" /> {confirmDelete ? 'Click to confirm' : 'Delete'}
+            </button>
+          )}
           <button onClick={onSave} className="flex-1 py-4 bg-accent text-on-accent font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl active:scale-[0.98] hover:bg-accent-strong transition-all">Save Configuration</button>
         </div>
       </div>
