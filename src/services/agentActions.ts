@@ -7,6 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getCalendar, getTasks, getNotes } from './connectors';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 export interface AgentAction {
   tool: string; // 'note' | 'task' | 'calendar' | 'message'
@@ -51,6 +52,10 @@ export function describeAction(a: AgentAction): string {
     case 'task.complete': return `Mark a to-do complete`;
     case 'calendar.create': return `Add event “${a.title ?? ''}”${a.start ? ` on ${String(a.start).slice(0, 10)}` : ''}`;
     case 'message.send': return `Send iMessage to ${a.to ?? a.chatGuid ?? 'a conversation'}: “${a.text ?? ''}”`;
+    case 'mail.send': return `Send email to ${Array.isArray(a.to) ? a.to.join(', ') : (a.to ?? '?')}: “${a.subject ?? ''}”`;
+    case 'note.delete': return `Delete a note`;
+    case 'task.delete': return `Delete a to-do`;
+    case 'calendar.delete': return `Delete a calendar event`;
     default: return `${a.tool} ${a.op}`;
   }
 }
@@ -95,6 +100,22 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
       await invoke('imessage_send', { chatGuid: guid, text: String(a.text ?? '') });
       return 'Sent iMessage';
     }
+    case 'mail.send': {
+      const accounts = ((useSettingsStore.getState().integrations as any)?.mailAccounts ?? []) as Array<{ email: string; provider: string }>;
+      const acct = a.account ? accounts.find(x => x.email === a.account) : accounts[0];
+      if (!acct) throw new Error('No mail account is connected');
+      const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', { host: `mail:${acct.email}` }).catch(() => ({ ok: false } as { ok: boolean; password?: string }));
+      if (!cred?.ok || !cred.password) throw new Error(`No saved password for ${acct.email}`);
+      await invoke('mail_send', {
+        provider: acct.provider, email: acct.email, password: cred.password,
+        to: Array.isArray(a.to) ? a.to : [a.to].filter(Boolean),
+        cc: Array.isArray(a.cc) ? a.cc : [], subject: String(a.subject ?? ''), body: String(a.body ?? ''), inReplyTo: null,
+      });
+      return 'Sent email';
+    }
+    case 'note.delete': { await getNotes().deleteNote(String(a.id)); return 'Deleted note'; }
+    case 'task.delete': { await getTasks().deleteTask(String(a.id)); return 'Deleted to-do'; }
+    case 'calendar.delete': { await getCalendar().deleteEvent(String(a.id)); return 'Deleted event'; }
     default:
       throw new Error(`Unknown action: ${a.tool}.${a.op}`);
   }

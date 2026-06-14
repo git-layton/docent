@@ -217,7 +217,9 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     `- {"tool":"task","op":"complete","id":"…"}\n` +
     `- {"tool":"calendar","op":"create","title":"…","start":"YYYY-MM-DD or ISO","end":"…"?,"allDay":true?}\n` +
     `- {"tool":"message","op":"send","to":"conversation or contact name","text":"…"}\n` +
-    `Creating a note/to-do/event applies automatically. Sending a message or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
+    `- {"tool":"mail","op":"send","to":["addr"],"subject":"…","body":"…"}\n` +
+    `- {"tool":"note|task|calendar","op":"delete","id":"…"}\n` +
+    `Creating a note/to-do/event applies automatically. Sending a message/email or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
 
   // Tier 2 — relevant memory retrieved for THIS message (semantic, gated by relevance). Placed near
   // the end so it sits close to the user's turn (mitigates "lost in the middle").

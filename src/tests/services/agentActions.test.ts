@@ -30,7 +30,10 @@ describe('agentActions — parsing', () => {
 describe('agentActions — safety classification', () => {
   it('flags sends and deletes for approval', () => {
     expect(actionNeedsApproval({ tool: 'message', op: 'send', text: 'x' })).toBe(true);
+    expect(actionNeedsApproval({ tool: 'mail', op: 'send', to: ['a@b.c'], subject: 's' })).toBe(true);
     expect(actionNeedsApproval({ tool: 'task', op: 'delete', id: '1' })).toBe(true);
+    expect(actionNeedsApproval({ tool: 'note', op: 'delete', id: '1' })).toBe(true);
+    expect(actionNeedsApproval({ tool: 'calendar', op: 'delete', id: '1' })).toBe(true);
   });
   it('auto-applies local writes', () => {
     expect(actionNeedsApproval({ tool: 'note', op: 'create', title: 'x' })).toBe(false);

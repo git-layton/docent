@@ -168,6 +168,9 @@ export default function App() {
   const [copilotOpen, setCopilotOpen] = useState(true);
   // Agent tool-actions awaiting approval (sends/deletes). Local writes auto-apply and never land here.
   const [pendingActions, setPendingActions] = useState<AgentAction[]>([]);
+  // Persist the co-pilot's open/closed state so "dismiss" sticks across reloads (a real mute).
+  useEffect(() => { db.get('copilotOpen', true).then((v: any) => setCopilotOpen(v !== false)).catch(() => {}); }, []);
+  const toggleCopilot = (v: boolean) => { setCopilotOpen(v); void db.set('copilotOpen', v); };
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
@@ -2531,9 +2534,16 @@ export default function App() {
                 <div className="relative shrink-0 w-[360px] min-w-[300px] flex flex-col border-l border-edge bg-panel">
                   <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0">
                     <Bot className="w-4 h-4 text-accent shrink-0" />
-                    <span className="text-xs font-semibold text-ink truncate flex-1">{activeAssistant?.name ?? 'Agent'}</span>
+                    <select
+                      value={activeAssistant?.id ?? ''}
+                      onChange={(e) => useAgentStore.getState().setActiveFolderId(e.target.value)}
+                      className="text-xs font-semibold text-ink bg-transparent outline-none flex-1 min-w-0 cursor-pointer"
+                      title="Switch agent"
+                    >
+                      {assistants.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
                     <button
-                      onClick={() => setCopilotOpen(false)}
+                      onClick={() => toggleCopilot(false)}
                       className="p-1 rounded-md text-ink-3 hover:text-ink hover:bg-inset transition-colors"
                       title="Hide agent"
                     >
@@ -2553,7 +2563,7 @@ export default function App() {
               </>
             ) : (
               <button
-                onClick={() => setCopilotOpen(true)}
+                onClick={() => toggleCopilot(true)}
                 className="shrink-0 w-9 flex flex-col items-center pt-3 border-l border-edge bg-panel text-ink-3 hover:text-ink hover:bg-wash transition-colors"
                 title="Show agent"
               >
