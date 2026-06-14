@@ -1350,11 +1350,11 @@ function StepDone({
           </div>
           <div>
             <p className="text-sm font-black text-ink">Meet Alexis</p>
-            <p className="text-tiny text-ink-2">Your first ForgeBot — already waiting for you</p>
+            <p className="text-tiny text-ink-2">Your executive assistant — already waiting for you</p>
           </div>
         </div>
         <p className="text-mini text-ink-2 leading-relaxed">
-          Confident, sharp, and a little fun. She's a showcase of what a ForgeBot can be — edit her personality, clone her, or use her as a starting point to build your own.
+          Confident, sharp, and a little fun. Think of her as your executive assistant — edit her personality, clone her, or use her as a starting point to build your own.
         </p>
         <button
           onClick={openAlexis}
