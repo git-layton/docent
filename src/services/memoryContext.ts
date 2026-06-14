@@ -59,17 +59,23 @@ export function formatRelevantHits(hits: RagHit[], minScore = TIER2_MIN_SCORE, m
   return kept.length ? kept.map((h, i) => `[${i + 1}] ${h.title}\n${h.snippet}`).join('\n\n') : '';
 }
 
-/** Tier 2 — per-turn semantic retrieval, gated to the most relevant hits. */
-export async function retrieveRelevantMemory(query: string, agentId: string | null | undefined): Promise<string> {
+/**
+ * Tier 2 — per-turn semantic retrieval, gated to the most relevant hits. Returns the formatted
+ * prompt text AND the structured hits, so the caller can surface them as clickable sources (which
+ * makes the agent's [[Title]] memory citations resolve, the same way web sources do).
+ */
+export async function retrieveRelevantMemory(query: string, agentId: string | null | undefined): Promise<{ text: string; hits: RagHit[] }> {
   const q = (query || '').trim();
-  if (q.length < 4 || !isTauri()) return '';
+  if (q.length < 4 || !isTauri()) return { text: '', hits: [] };
   try {
     const res = await invoke<{ results: RagHit[] }>('search_knowledge_semantic', {
       query: q, agentId: agentId ?? null, maxResults: 8, snippetChars: 400,
     });
-    return formatRelevantHits(res?.results ?? []);
+    // The same relevant subset that goes into the prompt — returned so it can double as sources.
+    const hits = (res?.results ?? []).filter((h) => (h?.score ?? 0) >= TIER2_MIN_SCORE).slice(0, TIER2_MAX);
+    return { text: formatRelevantHits(hits), hits };
   } catch {
-    return '';
+    return { text: '', hits: [] };
   }
 }
 

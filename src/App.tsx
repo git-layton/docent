@@ -1493,7 +1493,7 @@ export default function App() {
       // Layered memory: Tier 1 = always-on consolidated digest; Tier 2 = relevance-gated retrieval
       // for this message. Both reuse existing memory files + search_knowledge_semantic.
       const _memorySummary = await loadMemorySummary(_activeAssistant?.id);
-      const _relevantMemory = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
+      const { text: _relevantMemory, hits: _relevantMemoryHits } = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
       // Browsing-history recall — "remember that article I saw?" (privacy-filtered, dwell-gated).
       // Scoped to the Spaces this agent belongs to: it must not recall pages read in Spaces it was
       // never part of. Visits with no spaceId (legacy/outside a Space) are excluded by the scope.
@@ -1539,6 +1539,13 @@ export default function App() {
             // Only inject toolData into the LLM payload — never into stored messages (avoids SYSTEM NOTE bleed in chat bubbles)
             messagesForLLM = history.map(m => m.id === userMsg.id ? { ...m, content: m.content + toolData } : m);
         }
+      }
+
+      // Surface the Tier-2 memory hits as sources too, so the agent's [[Title]] memory citations
+      // resolve to clickable, hover-previewable pills (and a Sources entry) — exactly like web sources.
+      if (_relevantMemoryHits.length) {
+        const seen = new Set(foundSources.map((s: any) => s.path ?? s.url ?? s.title));
+        foundSources = [...foundSources, ..._relevantMemoryHits.filter((h) => !seen.has(h.path))];
       }
 
       const isImageRequest = _generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
