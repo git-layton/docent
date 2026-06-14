@@ -146,6 +146,7 @@ export function ChatPanel({
             errorLogsCount={p.errorLogsCount}
             onRunDreamCycle={p.onRunDreamCycle}
             onToast={p.onToast}
+            onSendPrompt={onSendPrompt}
           />
         </div>
       </div>
