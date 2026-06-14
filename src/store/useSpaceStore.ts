@@ -356,6 +356,19 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });
     }
 
+    // Always land on Home (the StartPage) on launch — you can chat, search, and open anything from
+    // there. Reuse an existing Home tab in the active Space, else create one.
+    {
+      const st = get();
+      const sid = st.activeSpaceId ?? 'space-home';
+      let home = st.omniTabs.find(t => t.type === 'home' && t.spaceId === sid);
+      if (!home) {
+        home = { id: generateId('tab'), type: 'home', label: 'Home', spaceId: sid };
+        set(s => ({ omniTabs: [...s.omniTabs, home!] }));
+      }
+      set({ activeOmniTabId: home.id });
+    }
+
     // Reconcile the active conversation with the active container's own thread,
     // so the chat panel never shows a leftover DM when a Space is active.
     const active = get().spaces.find(s => s.id === get().activeSpaceId);

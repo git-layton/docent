@@ -86,6 +86,12 @@ export function NotesPanel() {
     await loadNotes(folder);
   }, [loadFolders, loadNotes, folder]);
 
+  const openNotesSettings = () => {
+    const s = useSettingsStore.getState();
+    s.setProfileSettingsTab('integrations');
+    s.setShowProfileSettings(true);
+  };
+
   useEffect(() => {
     if (!actionMsg) return;
     const t = setTimeout(() => setActionMsg(null), 4000);
@@ -282,7 +288,14 @@ export function NotesPanel() {
         ) : notes.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8">
             <StickyNote className="w-8 h-8 text-ink-3" />
-            <p className="text-sm text-ink-2 max-w-xs">No notes here yet. Create one — it'll sync to your other devices.</p>
+            <p className="text-sm text-ink-2 max-w-xs">
+              No notes here yet. Create one — it stays {notesBackend === 'applescript' ? 'in Apple Notes and syncs to your devices' : 'on this Mac'}.
+            </p>
+            {notesBackend !== 'applescript' && (
+              <button onClick={openNotesSettings} className="text-xs font-semibold text-accent hover:underline">
+                Use Apple Notes instead (syncs to your iPhone) →
+              </button>
+            )}
           </div>
         ) : (
           notes.map(n => (

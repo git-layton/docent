@@ -2275,8 +2275,16 @@ export default function App() {
               onSendMessage={handleSendMessage}
             />
           ) : (
-            <div className="flex-1 flex items-center justify-center h-full text-xs text-ink-3">
-              Nothing here yet — ask an agent to build something.
+            <div className="flex-1 flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+              <p className="text-sm text-ink-2 max-w-xs">
+                Nothing here yet. Start {tab.type === 'doc' ? 'a document' : 'a canvas'} and an agent can build in it alongside you.
+              </p>
+              <button
+                onClick={() => setPendingArtifactType(tab.type === 'doc' ? 'doc' : 'code')}
+                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-accent text-on-accent hover:bg-accent-strong transition-all shadow-md"
+              >
+                Start {tab.type === 'doc' ? 'a document' : 'a canvas'}
+              </button>
             </div>
           )}
           {/* Ghost UI: Agent Vision toggle + marginalia overlay */}
