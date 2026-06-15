@@ -1655,6 +1655,18 @@ fn fs_delete_external(path: String) -> serde_json::Value {
     }
 }
 
+/// Reveal a file/folder in Finder (selects it in its enclosing folder). Powers AgentForge Code's
+/// "Open original" / reveal actions. The opener plugin can't reveal-in-Finder, so we shell `open -R`
+/// (same reason as the System Settings openers). Read-only: it shows a path, never mutates anything —
+/// but it's still on the remote-isolation DENIED list so a web page can't probe the local filesystem.
+#[tauri::command]
+fn fs_reveal(path: String) -> serde_json::Value {
+    match std::process::Command::new("open").arg("-R").arg(&path).spawn() {
+        Ok(_) => serde_json::json!({ "ok": true }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+    }
+}
+
 // ── Phase 4: command execution (opt-in via Developer Mode; behind the command-approval card) ──
 // Runs through the user's login shell so PATH/aliases match their terminal. Git commands borrow the
 // OS's already-configured credentials (Keychain helper / SSH agent) — no separate auth to manage.
@@ -3537,6 +3549,7 @@ pub fn run() {
             fs_list_external,
             fs_write_external,
             fs_delete_external,
+            fs_reveal,
             run_command,
             get_active_tab,
             show_spotlight,
@@ -3721,7 +3734,7 @@ mod tests {
             // remote page in the browser panel, even read-only or workspace-scoped.
             "fs_list", "fs_read", "fs_write", "fs_mkdir", "fs_delete", "fs_move", "fs_import",
             "fs_probe_context", "fs_read_external", "fs_list_external", "fs_write_external",
-            "fs_delete_external", "run_command",
+            "fs_delete_external", "fs_reveal", "run_command",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),

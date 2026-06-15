@@ -34,6 +34,18 @@ export function parseProvenance(content: string): Provenance | null {
   return null;
 }
 
+/** Remove the provenance comment from a file's contents — used by "Detach" (make it a plain workspace
+ * file) and "Push back" (don't write our bookkeeping comment into the user's real file). */
+export function stripProvenance(content: string): string {
+  const start = content.lastIndexOf(FENCE_START);
+  if (start === -1) return content;
+  const end = content.indexOf(FENCE_END, start);
+  if (end === -1) return content;
+  const before = content.slice(0, start).replace(/\n+$/, '');
+  const after = content.slice(end + FENCE_END.length).replace(/^\n+/, '');
+  return after ? `${before}\n${after}` : before;
+}
+
 /** A safe, unique workspace filename for an imported source path. */
 export function importTargetName(sourcePath: string, now: number): string {
   const base = sourcePath.split('/').pop() || 'imported-file';

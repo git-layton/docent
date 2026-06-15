@@ -8,7 +8,7 @@ import {
   makeGrant,
   isPreapproved,
 } from '../../services/fileAccess/consent';
-import { provenanceComment, parseProvenance, importTargetName } from '../../services/fileAccess/provenance';
+import { provenanceComment, parseProvenance, importTargetName, stripProvenance } from '../../services/fileAccess/provenance';
 import type { FileOp, FileGrant } from '../../services/fileAccess/types';
 
 const ROOT = '/Users/me/AgentForge/workspace';
@@ -131,5 +131,19 @@ describe('fileAccess provenance', () => {
   it('builds a safe, unique workspace target name', () => {
     expect(importTargetName('/Users/me/Desktop/My Report (final).pdf', 123)).toBe('imports/My-Report-final-123.pdf');
     expect(importTargetName('/tmp/notes', 7)).toBe('imports/notes-7');
+  });
+
+  it('strips the provenance comment back to the original body (Detach / Push back)', () => {
+    const now = new Date('2026-06-13T12:00:00.000Z');
+    const original = '# Report\n\nsome text';
+    const imported = `${original}${provenanceComment('/Users/me/Desktop/report.md', now)}`;
+    expect(parseProvenance(imported)).not.toBeNull();
+    const stripped = stripProvenance(imported);
+    expect(stripped).toBe(original);
+    expect(parseProvenance(stripped)).toBeNull();
+  });
+
+  it('leaves a file with no provenance untouched', () => {
+    expect(stripProvenance('plain content, no fence')).toBe('plain content, no fence');
   });
 });

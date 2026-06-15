@@ -55,6 +55,7 @@ allow = [
   "fs_probe_context",
   "fs_read",
   "fs_read_external",
+  "fs_reveal",
   "fs_write",
   "fs_write_external",
   "get_active_tab",
