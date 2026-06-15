@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Zap, Loader2, ImageIcon, CheckCircle2, PlusCircle, Cloud, Cpu } from 'lucide-react';
+import { X, Zap, Loader2, ImageIcon, CheckCircle2, PlusCircle, Cpu, ArrowRight, ExternalLink } from 'lucide-react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { ModelStorePanel } from './ModelStorePanel';
+import { recommendSetup } from '../data/modelCatalog';
+
+// Linked (not asserted) so users verify what's free themselves — keeps us out of pricing claims.
+const GOOGLE_PRICING_URL = 'https://ai.google.dev/gemini-api/docs/pricing';
 
 interface ModelWizardModalProps {
   onToggleModelSelection: (m: any) => void;
@@ -34,9 +39,9 @@ const RECOMMENDED_MODELS: Record<string, RecModel[]> = {
     { id: 'claude-haiku-3-5',  name: 'Claude 3.5 Haiku',  context: 200000, badge: 'Fast' },
   ],
   google: [
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', context: 1000000, badge: 'Free · recommended' },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', context: 1000000, badge: 'Thinking' },
-    { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',   context: 2000000, badge: 'Most capable' },
+    { id: 'gemini-2.5-flash',      name: 'Gemini 2.5 Flash',      context: 1000000, badge: 'Recommended' },
+    { id: 'gemini-2.5-pro',        name: 'Gemini 2.5 Pro',        context: 1000000, badge: 'Most capable' },
+    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', context: 1000000, badge: 'Fastest' },
   ],
   huggingface: [
     { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B',   context: 128000, badge: '' },
@@ -53,7 +58,7 @@ const PROVIDER_KEY_URLS: Record<string, string> = {
 };
 
 const FREE_NOTE: Record<string, string> = {
-  google: 'gemini-2.0-flash is free with generous rate limits',
+  google: "Gemini has a free tier — check Google's current pricing",
 };
 
 export function ModelWizardModal({
@@ -64,23 +69,24 @@ export function ModelWizardModal({
   onAddSingleLLM,
 }: ModelWizardModalProps) {
   const [ramMb, setRamMb] = useState(0);
+  const [chip, setChip] = useState('');
   const [isAppleSilicon, setIsAppleSilicon] = useState<boolean | undefined>(undefined);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const editingModel = useSettingsStore(s => s.editingModel);
-  const modelTab = useSettingsStore(s => s.modelTab);
   const fetchedModels = useSettingsStore(s => s.fetchedModels);
   const modelSearchQuery = useSettingsStore(s => s.modelSearchQuery);
   const isFetchingModels = useSettingsStore(s => s.isFetchingModels);
   const fetchModelsError = useSettingsStore(s => s.fetchModelsError);
   const pendingModelSelections = useSettingsStore(s => s.pendingModelSelections);
-  const { setEditingModel, setModelSearchQuery, setShowModelWizard, setWizardStep, setModelTab } = useSettingsStore.getState();
+  const { setEditingModel, setModelSearchQuery, setShowModelWizard, setWizardStep } = useSettingsStore.getState();
 
   const currentProvider = CLOUD_PROVIDERS.some(p => p.value === editingModel.provider)
     ? editingModel.provider
     : 'google';
 
-  // Auto-select first recommended model when tab opens or provider changes
+  // Auto-select first recommended model when the advanced cloud form opens or the provider changes
   useEffect(() => {
-    if (modelTab !== 'cloud' || fetchedModels.length > 0) return;
+    if (!showAdvanced || fetchedModels.length > 0) return;
     const recs = RECOMMENDED_MODELS[currentProvider] ?? [];
     if (recs.length === 0) return;
     const alreadySelected = recs.some((r: RecModel) => r.id === editingModel.modelId);
@@ -93,12 +99,12 @@ export function ModelWizardModal({
         name: first.name,
       }));
     }
-  }, [currentProvider, modelTab]);
+  }, [currentProvider, showAdvanced]);
 
   useEffect(() => {
-    invoke<{ total_mb: number; is_apple_silicon: boolean }>('get_hardware_summary')
-      .then(r => { setRamMb(r.total_mb); setIsAppleSilicon(r.is_apple_silicon); })
-      .catch(() => {});
+    invoke<{ total_mb: number; chip: string; is_apple_silicon: boolean }>('get_hardware_summary')
+      .then(r => { setRamMb(r.total_mb); setChip(r.chip); setIsAppleSilicon(r.is_apple_silicon); })
+      .catch(() => setIsAppleSilicon(false));
   }, []);
 
   const onClose = () => { setShowModelWizard(false); setWizardStep(3); };
@@ -115,108 +121,183 @@ export function ModelWizardModal({
     onClose();
   }
 
+  // Jump straight into the cloud form, pre-set to Google's free Gemini tier.
+  function useGeminiFree() {
+    onProviderChange({ target: { value: 'google' } } as React.ChangeEvent<HTMLSelectElement>);
+    setShowAdvanced(true);
+  }
+
+  const gb = ramMb / 1024;
+  const rec = isAppleSilicon === undefined
+    ? null
+    : recommendSetup({ totalMb: ramMb, isAppleSilicon });
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200 text-ink">
-      <div className="bg-panel-2 w-full max-w-lg rounded-[2rem] p-8 shadow-2xl border border-edge max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col">
+      <div className="bg-panel-2 w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-edge max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col">
 
         {/* Header */}
         <div className="flex justify-between items-center mb-6 shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-accent rounded-xl"><Zap className="w-6 h-6 text-on-accent" /></div>
-            <h3 className="text-xl font-black tracking-tighter uppercase">Connect LLM</h3>
+            <h3 className="text-xl font-black tracking-tighter uppercase">Connect a model</h3>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex gap-2 mb-6 shrink-0 bg-inset p-1 rounded-xl">
-          <button
-            onClick={() => { setModelTab('cloud'); onProviderChange({ target: { value: 'google' } } as React.ChangeEvent<HTMLSelectElement>); }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${modelTab === 'cloud' ? 'bg-panel text-accent shadow-sm' : 'text-ink-3 hover:text-ink-2'}`}
-          >
-            <Cloud className="w-3.5 h-3.5" /> Cloud API
-          </button>
-          <button
-            onClick={() => setModelTab('local')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${modelTab === 'local' ? 'bg-panel text-accent shadow-sm' : 'text-ink-3 hover:text-ink-2'}`}
-          >
-            <Cpu className="w-3.5 h-3.5" /> Local AI
-          </button>
-        </div>
-
-        {/* ── Cloud tab ── */}
-        {modelTab === 'cloud' && (
-          <div className="flex flex-col flex-1 animate-in slide-in-from-left-2 duration-200 space-y-4">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-ink-3 shrink-0">Cloud / API Provider</h4>
-
-            <select
-              value={currentProvider}
-              onChange={onProviderChange}
-              className="w-full bg-inset border-2 border-edge rounded-xl px-4 py-3 text-xs outline-none focus:border-accent font-bold shrink-0"
-            >
-              {CLOUD_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-
-            <div className="shrink-0">
-              <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Endpoint URL (optional override)</label>
-              <input
-                type="text"
-                placeholder="e.g. https://api.openai.com/v1"
-                value={editingModel.endpoint}
-                onChange={e => setEditingModel((prev: any) => ({ ...prev, endpoint: e.target.value }))}
-                className="w-full bg-inset border-2 border-edge rounded-xl px-4 py-3 text-xs outline-none focus:border-accent font-mono placeholder:font-sans"
-              />
-            </div>
-
-            <div className="relative shrink-0">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-black uppercase opacity-50">API Key</label>
-                {PROVIDER_KEY_URLS[currentProvider] && (
-                  <button
-                    onClick={() => window.open(PROVIDER_KEY_URLS[currentProvider], '_blank')}
-                    className="text-[9px] font-black text-accent hover:underline"
-                  >
-                    {FREE_NOTE[currentProvider] ? 'Get free key →' : 'Get key →'}
-                  </button>
-                )}
-              </div>
-              {FREE_NOTE[currentProvider] && (
-                <p className="text-[9px] font-bold text-success mb-1.5">
-                  ✓ {FREE_NOTE[currentProvider]}
-                </p>
-              )}
-              <input
-                type="password"
-                placeholder="sk-…"
-                value={editingModel.apiKey}
-                onChange={e => setEditingModel((prev: any) => ({ ...prev, apiKey: e.target.value }))}
-                className="w-full bg-inset border-2 border-edge rounded-xl px-4 py-3 text-xs outline-none focus:border-accent font-mono pr-28"
-              />
-              <button onClick={onFetchModels} disabled={isFetchingModels} className="absolute right-2 bottom-1.5 px-3 py-1.5 bg-inset rounded-lg text-[9px] font-black uppercase text-accent hover:bg-accent-soft/50 transition-all disabled:opacity-50">
-                {isFetchingModels ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : fetchedModels.length > 0 ? 'Refresh' : 'Fetch all'}
-              </button>
-            </div>
-
-            <ModelListOrManual
-              fetchedModels={fetchedModels}
-              modelSearchQuery={modelSearchQuery}
-              setModelSearchQuery={setModelSearchQuery}
-              pendingModelSelections={pendingModelSelections}
-              onToggleModelSelection={onToggleModelSelection}
-              onBulkAdd={onBulkAdd}
-              onAddSingleLLM={onAddSingleLLM}
-              editingModel={editingModel}
-              setEditingModel={setEditingModel}
-              fetchModelsError={fetchModelsError}
-              provider={currentProvider}
-            />
+        {/* Scanning hardware */}
+        {!rec && (
+          <div className="flex items-center gap-2 text-xs text-ink-2 py-8 justify-center">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Scanning your Mac…
           </div>
         )}
 
-        {/* ── Local tab ── */}
-        {modelTab === 'local' && (
-          <div className="flex flex-col flex-1 animate-in slide-in-from-right-2 duration-200">
-            <ModelStorePanel ramMb={ramMb} isAppleSilicon={isAppleSilicon} onModelReady={handleModelReady} />
+        {rec && (
+          <div className="flex flex-col flex-1 space-y-4 animate-in fade-in duration-200">
+
+            {/* Detected hardware */}
+            {chip && (
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-ink-2">Detected:</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-inset border border-edge text-xs font-mono font-bold text-ink-2">
+                  {chip} · {Math.round(gb)}GB RAM
+                </span>
+              </div>
+            )}
+
+            {/* ── The recommendation: privacy ↔ smarts trade-off, both shown, the fit highlighted ── */}
+            <p className="text-xs text-ink leading-relaxed shrink-0">
+              Two good ways to start — it's a trade-off between <strong>privacy</strong> and <strong>smarts</strong>:
+            </p>
+            {rec.kind === 'cloud' && rec.reason && (
+              <p className="text-[11px] text-ink-3 leading-relaxed -mt-2 shrink-0">{rec.reason}</p>
+            )}
+            {(() => {
+              const localPick = rec.kind === 'local';
+              const Local = (
+                <div key="local" className={`rounded-2xl border-2 p-4 space-y-2 ${localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Cpu className="w-4 h-4 text-ink-2" />
+                    <p className="text-sm font-black text-ink">Run on your Mac</p>
+                    <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-secondary/15 text-secondary shrink-0">Private</span>
+                    {localPick && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Best for your Mac</span>}
+                  </div>
+                  <p className="text-xs text-ink-2 leading-relaxed">
+                    Stays on your device, works offline, free — nothing leaves your computer. As smart as your {chip || 'Mac'} can run.
+                  </p>
+                  <p className="text-[10px] font-bold text-ink-3">📄 ~32K-token context (the on-device engine's limit)</p>
+                  <ModelStorePanel ramMb={ramMb} isAppleSilicon={isAppleSilicon} onModelReady={handleModelReady} mode="recommended" />
+                </div>
+              );
+              const Cloud = (
+                <div key="cloud" className={`rounded-2xl border-2 p-4 space-y-2 ${!localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-base">✨</span>
+                    <p className="text-sm font-black text-ink">Gemini 2.5 Flash</p>
+                    <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-inset text-ink-3 shrink-0">Cloud</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free tier</span>
+                    {!localPick && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Best for your Mac</span>}
+                  </div>
+                  <p className="text-xs text-ink-2 leading-relaxed">
+                    Smarter than local on most Macs, instant, no download. The trade-off: your messages go to Google.
+                  </p>
+                  <p className="text-[10px] font-bold text-ink-3">📄 1M-token context — whole codebases & long PDFs</p>
+                  <button
+                    onClick={() => openUrl(GOOGLE_PRICING_URL)}
+                    className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-accent hover:underline"
+                  >
+                    See what's free <ExternalLink className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    onClick={useGeminiFree}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-accent text-on-accent rounded-2xl font-black text-xs uppercase tracking-widest shadow-md hover:bg-accent-strong active:scale-[0.98] transition-all"
+                  >
+                    Use Gemini <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+              return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start shrink-0">{localPick ? [Local, Cloud] : [Cloud, Local]}</div>;
+            })()}
+
+            {/* ── Advanced: pick any provider / endpoint ── */}
+            <button
+              onClick={() => setShowAdvanced(v => !v)}
+              className="text-[10px] font-black uppercase tracking-widest text-ink-3 hover:text-ink-2 text-left transition-colors shrink-0 pt-1"
+            >
+              {showAdvanced ? '▲ Hide providers & custom endpoint' : '▾ Browse all providers (Claude, OpenAI, custom endpoint…)'}
+            </button>
+
+            {showAdvanced && (
+              <div className="space-y-4 animate-in slide-in-from-top-2 duration-200 border-t border-edge pt-4">
+                <select
+                  value={currentProvider}
+                  onChange={onProviderChange}
+                  className="w-full bg-inset border-2 border-edge rounded-xl px-4 py-3 text-xs outline-none focus:border-accent font-bold shrink-0"
+                >
+                  {CLOUD_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+
+                <div className="shrink-0">
+                  <label className="text-[10px] font-black uppercase opacity-50 mb-1 block">Endpoint URL (optional override)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. https://api.openai.com/v1"
+                    value={editingModel.endpoint}
+                    onChange={e => setEditingModel((prev: any) => ({ ...prev, endpoint: e.target.value }))}
+                    className="w-full bg-inset border-2 border-edge rounded-xl px-4 py-3 text-xs outline-none focus:border-accent font-mono placeholder:font-sans"
+                  />
+                </div>
+
+                <div className="relative shrink-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-black uppercase opacity-50">API Key</label>
+                    {PROVIDER_KEY_URLS[currentProvider] && (
+                      <button
+                        onClick={() => openUrl(PROVIDER_KEY_URLS[currentProvider])}
+                        className="inline-flex items-center gap-1 text-[9px] font-black text-accent hover:underline"
+                      >
+                        Get key <ExternalLink className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
+                  {FREE_NOTE[currentProvider] && (
+                    <p className="text-[9px] font-bold text-ink-3 mb-1.5">
+                      {FREE_NOTE[currentProvider]}
+                      {currentProvider === 'google' && (
+                        <button onClick={() => openUrl(GOOGLE_PRICING_URL)} className="ml-1 text-accent hover:underline">
+                          pricing →
+                        </button>
+                      )}
+                    </p>
+                  )}
+                  <input
+                    type="password"
+                    placeholder="sk-…"
+                    value={editingModel.apiKey}
+                    onChange={e => setEditingModel((prev: any) => ({ ...prev, apiKey: e.target.value }))}
+                    className="w-full bg-inset border-2 border-edge rounded-xl px-4 py-3 text-xs outline-none focus:border-accent font-mono pr-28"
+                  />
+                  <button onClick={onFetchModels} disabled={isFetchingModels} className="absolute right-2 bottom-1.5 px-3 py-1.5 bg-inset rounded-lg text-[9px] font-black uppercase text-accent hover:bg-accent-soft/50 transition-all disabled:opacity-50">
+                    {isFetchingModels ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : fetchedModels.length > 0 ? 'Refresh' : 'Fetch all'}
+                  </button>
+                </div>
+
+                <ModelListOrManual
+                  fetchedModels={fetchedModels}
+                  modelSearchQuery={modelSearchQuery}
+                  setModelSearchQuery={setModelSearchQuery}
+                  pendingModelSelections={pendingModelSelections}
+                  onToggleModelSelection={onToggleModelSelection}
+                  onBulkAdd={onBulkAdd}
+                  onAddSingleLLM={onAddSingleLLM}
+                  editingModel={editingModel}
+                  setEditingModel={setEditingModel}
+                  fetchModelsError={fetchModelsError}
+                  provider={currentProvider}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -224,7 +305,7 @@ export function ModelWizardModal({
   );
 }
 
-// Shared model list / manual entry — used by the cloud tab
+// Shared model list / manual entry — used by the advanced cloud form
 function ModelListOrManual({ fetchedModels, modelSearchQuery, setModelSearchQuery, pendingModelSelections, onToggleModelSelection, onBulkAdd, onAddSingleLLM, editingModel, setEditingModel, fetchModelsError, provider }: any) {
   const [showManual, setShowManual] = useState(false);
 

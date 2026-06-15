@@ -24,6 +24,7 @@ import { useAgentStore } from '../store/useAgentStore';
 import { db } from '../services/database';
 import { ModelStorePanel } from './ModelStorePanel';
 import { recommendSetup } from '../data/modelCatalog';
+import { supportsVision } from '../services/llm';
 // @ts-ignore — nativeFetch is a plain JS file without a declaration
 import { fetchWithRetry } from '../utils/nativeFetch';
 
@@ -216,6 +217,8 @@ function StepProfile({ onNext }: { onNext: () => void }) {
 
 // ─── Step 3: AI Model ─────────────────────────────────────────────────────────
 
+const GOOGLE_PRICING_URL = 'https://ai.google.dev/gemini-api/docs/pricing';
+
 const PROVIDERS = [
   {
     id: 'lmstudio',
@@ -233,6 +236,7 @@ const PROVIDERS = [
     keyLabel: null,
     keyPlaceholder: null,
     getKeyUrl: null,
+    pricingUrl: null,
   },
   {
     id: 'gemini',
@@ -242,14 +246,15 @@ const PROVIDERS = [
     color: 'bg-secondary/5 dark:bg-secondary/10 border-secondary/30 dark:border-secondary/40',
     activeColor: 'bg-secondary/10 dark:bg-secondary/20 border-secondary dark:border-secondary',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    defaultModel: 'gemini-2.0-flash',
+    defaultModel: 'gemini-2.5-flash',
     context: 1000000,
     local: false,
     free: true,
-    freeNote: 'gemini-2.0-flash is free with generous rate limits',
+    freeNote: "Gemini has a free tier — check Google's current pricing",
     keyLabel: 'Google AI API key',
     keyPlaceholder: 'AIza…',
     getKeyUrl: 'https://aistudio.google.com/apikey',
+    pricingUrl: GOOGLE_PRICING_URL,
   },
   {
     id: 'anthropic',
@@ -267,6 +272,7 @@ const PROVIDERS = [
     keyLabel: 'Anthropic API key',
     keyPlaceholder: 'sk-ant-…',
     getKeyUrl: 'https://console.anthropic.com/settings/keys',
+    pricingUrl: null,
   },
   {
     id: 'openai',
@@ -284,6 +290,7 @@ const PROVIDERS = [
     keyLabel: 'OpenAI API key',
     keyPlaceholder: 'sk-…',
     getKeyUrl: 'https://platform.openai.com/api-keys',
+    pricingUrl: null,
   },
 ];
 
@@ -343,7 +350,7 @@ function ModelConnectForm({
       endpoint,
       apiKey: apiKey.trim(),
       contextLimit: ctx,
-      canImage: false,
+      canImage: supportsVision(mid),
       isLocal: provider.local,
     };
     const store = useSettingsStore.getState();
@@ -380,9 +387,14 @@ function ModelConnectForm({
       </div>
 
       {provider.free && provider.freeNote && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-success-soft border border-success/30">
-          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free</span>
-          <p className="text-mini text-success">{provider.freeNote}</p>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-inset border border-edge">
+          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free tier</span>
+          <p className="text-mini text-ink-2 flex-1">{provider.freeNote}</p>
+          {provider.pricingUrl && (
+            <button onClick={() => openUrl(provider.pricingUrl!)} className="inline-flex items-center gap-1 text-mini font-bold text-primary hover:underline shrink-0">
+              Pricing <ExternalLink className="w-2.5 h-2.5" />
+            </button>
+          )}
         </div>
       )}
 
@@ -488,14 +500,15 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const [hw, setHw] = useState<{ totalMb: number; chip: string; isAppleSilicon: boolean } | null>(null);
   const [connectingProvider, setConnectingProvider] = useState<typeof PROVIDERS[0] | null>(null);
   const [connectingModelId, setConnectingModelId] = useState<string | undefined>(undefined);
-  const [showAllProviders, setShowAllProviders] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [detected, setDetected] = useState(0);
 
   useEffect(() => {
     invoke<{ total_mb: number; chip: string; is_apple_silicon: boolean }>('get_hardware_summary')
       .then(r => setHw({ totalMb: r.total_mb, chip: r.chip, isAppleSilicon: r.is_apple_silicon }))
-      .catch(() => {});
+      // If hardware can't be read, degrade to the cloud recommendation rather than spinning forever.
+      .catch(() => setHw({ totalMb: 0, chip: '', isAppleSilicon: false }));
     // Auto-detect silently on mount
     detectLocalModels();
   }, []);
@@ -515,7 +528,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           const { data } = await r.json();
           (data ?? []).forEach((m: any) => {
             if (!existing.some((e: any) => e.modelId === m.id && e.endpoint === 'http://localhost:1234/v1'))
-              added.push({ id: genId('m'), name: m.id, provider: 'lmstudio', modelId: m.id, endpoint: 'http://localhost:1234/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+              added.push({ id: genId('m'), name: m.id, provider: 'lmstudio', modelId: m.id, endpoint: 'http://localhost:1234/v1', apiKey: '', contextLimit: 32768, canImage: supportsVision(m.id), isLocal: true });
           });
         }
       } catch (_) {}
@@ -526,7 +539,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           const { models: om } = await r.json();
           (om ?? []).forEach((m: any) => {
             if (!existing.some((e: any) => e.modelId === m.name && e.endpoint === 'http://localhost:11434/v1'))
-              added.push({ id: genId('m'), name: m.name, provider: 'ollama', modelId: m.name, endpoint: 'http://localhost:11434/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+              added.push({ id: genId('m'), name: m.name, provider: 'ollama', modelId: m.name, endpoint: 'http://localhost:11434/v1', apiKey: '', contextLimit: 32768, canImage: supportsVision(m.name), isLocal: true });
           });
         }
       } catch (_) {}
@@ -595,35 +608,10 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         </div>
       </div>
 
-      {/* Auto-detect status */}
-      {detecting && (
-        <div className="flex items-center gap-2 text-xs text-ink-2">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Looking for LM Studio and Ollama…
-        </div>
-      )}
-      {!detecting && detected > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-success-soft border border-success/30 text-xs text-success">
-          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-          {detected === 1 ? '1 local model detected and connected' : `${detected} local models detected and connected`}
-        </div>
-      )}
-      {!detecting && detected === 0 && currentModels.length === 0 && (
-        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-inset border border-edge">
-          <span className="text-xs text-ink-2">No local models found</span>
-          <button onClick={detectLocalModels} className="text-tiny font-bold text-primary hover:underline">Try again</button>
-        </div>
-      )}
-
-      {/* Existing models */}
+      {/* Already connected (e.g. an LM Studio model we auto-detected) */}
       {currentModels.length > 0 && (
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Connected</p>
-            <button onClick={detectLocalModels} disabled={detecting} className="text-tiny text-primary hover:underline disabled:opacity-40">
-              {detecting ? 'Detecting…' : 'Re-detect'}
-            </button>
-          </div>
+          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Connected</p>
           {currentModels.map(m => (
             <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-inset border border-edge">
               <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
@@ -636,104 +624,128 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         </div>
       )}
 
-      {/* Detected hardware */}
-      {hw && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-ink-2">Detected:</span>
-          <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-inset border border-edge text-xs font-mono font-bold text-ink-2">
-            {hw.chip} · {Math.round(gb)}GB RAM
-          </span>
+      {/* Scanning */}
+      {!rec && (
+        <div className="flex items-center gap-2 text-xs text-ink-2 py-4">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking your Mac…
         </div>
       )}
 
-      {/* Recommendation — Apple Silicon downloads & runs locally; otherwise cloud */}
-      {rec && rec.kind === 'local' && (
-        <div className="space-y-2">
-          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">
-            Best for your {hw!.chip} — download &amp; run privately
-          </p>
-          <ModelStorePanel ramMb={hw!.totalMb} isAppleSilicon onModelReady={handleLocalReady} />
-
-          {/* Cloud alternative */}
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-edge">
-            <span className="text-sm">✨</span>
-            <p className="text-xs text-ink-2 flex-1 leading-relaxed">
-              Prefer the cloud? <strong>Gemini</strong> is free and needs no download.
-            </p>
-            <button
-              onClick={() => startConnect(gemini)}
-              className="text-tiny font-black text-primary hover:underline shrink-0"
-            >
-              Use Gemini
-            </button>
-          </div>
-        </div>
-      )}
-
-      {rec && rec.kind === 'cloud' && (
-        <div className="space-y-2">
-          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Our recommendation</p>
-          <div className="rounded-2xl border-2 border-secondary/30 dark:border-secondary/40 bg-secondary/5 dark:bg-secondary/10 p-4 space-y-3">
-            <div className="flex items-start gap-3">
-              <span className="text-2xl mt-0.5">✨</span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <p className="text-sm font-black text-ink">Gemini 2.0 Flash</p>
-                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free</span>
-                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>
-                </div>
-                <p className="text-xs text-secondary-muted dark:text-secondary-light leading-relaxed">
-                  {rec.reason}
-                </p>
-                <div className="grid grid-cols-2 gap-2 mt-2 text-tiny text-secondary dark:text-secondary-muted">
-                  <div className="space-y-0.5">
-                    <p className="font-black">Cloud ✓</p>
-                    <p>Free with generous limits</p>
-                    <p>No RAM requirement</p>
-                    <p>Always the latest model</p>
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="font-black text-ink-3">vs Local</p>
-                    <p>Sends data to Google</p>
-                    <p>Requires internet</p>
-                    <p>API key needed (free)</p>
-                  </div>
-                </div>
-              </div>
+      {/* THE recommendation — two clear choices, the privacy ↔ smarts trade-off made explicit.
+          We highlight the one that fits this Mac, but always show both. */}
+      {rec && (
+        <div className="space-y-3">
+          {hw?.chip && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ink-2">Your Mac:</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-inset border border-edge text-xs font-mono font-bold text-ink-2">
+                {hw.chip} · {Math.round(gb)}GB
+              </span>
             </div>
-            <Btn onClick={() => startConnect(gemini)} className="w-full">
-              Set up Gemini free <ArrowRight className="w-4 h-4" />
-            </Btn>
-          </div>
+          )}
+          <p className="text-sm text-ink leading-relaxed">
+            Two good ways to start — it's a trade-off between <strong>privacy</strong> and <strong>smarts</strong>:
+          </p>
+          {rec.kind === 'cloud' && rec.reason && (
+            <p className="text-xs text-ink-3 leading-relaxed -mt-1">{rec.reason}</p>
+          )}
+
+          {(() => {
+            const localPick = rec.kind === 'local';
+            const Local = (
+              <div key="local" className={`rounded-2xl border-2 p-4 space-y-2 ${localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-lg">🖥️</span>
+                  <p className="text-sm font-black text-ink">Run on your Mac</p>
+                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-secondary/15 text-secondary shrink-0">Private</span>
+                  {localPick && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Best for your Mac</span>}
+                </div>
+                <p className="text-xs text-ink-2 leading-relaxed">
+                  Stays on your device, works offline, free — nothing leaves your computer. As smart as your {hw?.chip || 'Mac'} can run.
+                </p>
+                <p className="text-[10px] font-bold text-ink-3">📄 ~32K-token context (the on-device engine's limit)</p>
+                <ModelStorePanel ramMb={hw?.totalMb ?? 0} isAppleSilicon={hw?.isAppleSilicon} mode="recommended" onModelReady={handleLocalReady} />
+              </div>
+            );
+            const Cloud = (
+              <div key="cloud" className={`rounded-2xl border-2 p-4 space-y-2 ${!localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-lg">✨</span>
+                  <p className="text-sm font-black text-ink">Gemini 2.5 Flash</p>
+                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-inset text-ink-3 shrink-0">Cloud</span>
+                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free tier</span>
+                  {!localPick && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Best for your Mac</span>}
+                </div>
+                <p className="text-xs text-ink-2 leading-relaxed">
+                  Smarter than local on most Macs, instant, no download. The trade-off: your messages go to Google.
+                </p>
+                <p className="text-[10px] font-bold text-ink-3">📄 1M-token context — whole codebases & long PDFs</p>
+                <button
+                  onClick={() => openUrl(GOOGLE_PRICING_URL)}
+                  className="inline-flex items-center gap-1 text-tiny font-bold text-primary hover:underline"
+                >
+                  See what's free <ExternalLink className="w-2.5 h-2.5" />
+                </button>
+                <Btn onClick={() => startConnect(gemini)} className="w-full">
+                  Use Gemini <ArrowRight className="w-4 h-4" />
+                </Btn>
+              </div>
+            );
+            // Lead with whichever fits this Mac.
+            return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">{localPick ? [Local, Cloud] : [Cloud, Local]}</div>;
+          })()}
         </div>
       )}
 
-      {/* Browse all options */}
+      {/* Advanced — everything technical lives here, out of the way */}
       <button
-        onClick={() => setShowAllProviders(v => !v)}
+        onClick={() => setShowAdvanced(v => !v)}
         className="text-mini font-black text-ink-3 hover:text-ink-2 text-left"
       >
-        {showAllProviders ? '▲ Hide all options' : '▾ Browse all providers (Claude, OpenAI, …)'}
+        {showAdvanced ? '▲ Hide advanced' : '▾ Advanced — pick your own model'}
       </button>
 
-      {showAllProviders && (
-        <div className="grid grid-cols-2 gap-2">
-          {PROVIDERS.map(p => (
-            <button
-              key={p.id}
-              onClick={() => startConnect(p)}
-              className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition-all duration-150 hover:opacity-90 ${p.color}`}
-            >
-              <span className="text-xl">{p.emoji}</span>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <p className="text-sm font-black text-ink leading-none">{p.name}</p>
-                  {p.free && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-success-soft text-success">free</span>}
-                </div>
-                <p className="text-tiny text-ink-2 mt-0.5 leading-tight">{p.sub}</p>
-              </div>
+      {showAdvanced && (
+        <div className="space-y-3 border-t border-edge pt-4 animate-in slide-in-from-top-2 duration-200">
+          {/* Already running LM Studio / Ollama? */}
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-inset border border-edge">
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-ink">Already running LM Studio or Ollama?</p>
+              <p className="text-tiny text-ink-3">Detect a model already loaded on this Mac.</p>
+            </div>
+            <button onClick={detectLocalModels} disabled={detecting} className="text-tiny font-bold text-primary hover:underline disabled:opacity-40 shrink-0">
+              {detecting ? 'Detecting…' : detected > 0 ? `${detected} found` : 'Detect'}
             </button>
-          ))}
+          </div>
+
+          {/* Pick a provider */}
+          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Connect a provider</p>
+          <div className="grid grid-cols-2 gap-2">
+            {PROVIDERS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => startConnect(p)}
+                className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition-all duration-150 hover:opacity-90 ${p.color}`}
+              >
+                <span className="text-xl">{p.emoji}</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-sm font-black text-ink leading-none">{p.name}</p>
+                    {p.free && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-success-soft text-success">free</span>}
+                  </div>
+                  <p className="text-tiny text-ink-2 mt-0.5 leading-tight">{p.sub}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* All local models for this Mac */}
+          {rec && rec.kind === 'local' && (
+            <div className="space-y-2">
+              <p className="text-tiny font-black uppercase tracking-widest text-ink-3">All local models</p>
+              <ModelStorePanel ramMb={hw!.totalMb} isAppleSilicon mode="full" onModelReady={handleLocalReady} />
+            </div>
+          )}
         </div>
       )}
 
@@ -1397,7 +1409,7 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-xl p-4">
-      <div className="relative bg-panel-2 w-full max-w-lg rounded-[2rem] shadow-2xl border border-edge flex flex-col max-h-[92vh]">
+      <div className="relative bg-panel-2 w-full max-w-2xl rounded-[2rem] shadow-2xl border border-edge flex flex-col max-h-[92vh]">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 shrink-0">

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search } from 'lucide-react';
 import { MODEL_CATALOG, type CatalogModel } from '../data/modelCatalog';
+import { supportsVision } from '../services/llm';
 
 type ModelStatus = 'idle' | 'downloaded' | 'downloading' | 'installing' | 'ready' | 'error';
 
@@ -19,6 +20,9 @@ interface ModelStorePanelProps {
   ramMb: number;
   isAppleSilicon?: boolean;
   onModelReady: (model: any) => void;
+  // 'recommended' shows ONLY the single best pick for this Mac (clean getting-started view).
+  // 'full' (default) shows the searchable list of every model + "also available" + "needs more RAM".
+  mode?: 'full' | 'recommended';
 }
 
 const DEFAULT_PORT = 8080;
@@ -32,7 +36,7 @@ function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady }: ModelStorePanelProps) {
+export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'full' }: ModelStorePanelProps) {
   const [states, setStates] = useState<Record<string, ModelState>>({});
   const [search, setSearch] = useState('');
   const unlistenRef = useRef<(() => void) | null>(null);
@@ -115,7 +119,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady }: ModelSt
       endpoint,
       apiKey: '',
       contextLimit: engineContextLimit(model.contextK),
-      canImage: false,
+      canImage: supportsVision(model.ggufFilename),
       isLocal: true,
     };
     onModelReady(newModel);
@@ -137,7 +141,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady }: ModelSt
         endpoint: state.endpoint,
         apiKey: '',
         contextLimit: engineContextLimit(model.contextK),
-        canImage: false,
+        canImage: supportsVision(model.ggufFilename),
         isLocal: true,
       };
       onModelReady(existing);
@@ -172,6 +176,20 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady }: ModelSt
 
   const compatible = MODEL_CATALOG.filter(m => m.ramGb <= ramGb);
   const maxTier = compatible.reduce((mx, m) => Math.max(mx, m.ramGb), 0);
+
+  // ── Recommended-only: the single best pick for this Mac, no list, no search ──
+  if (mode === 'recommended') {
+    const topTier = compatible.filter(m => m.ramGb === maxTier);
+    const pick =
+      topTier.find(m => m.primary) ??
+      topTier.find(m => m.tag && m.role === 'General') ??
+      topTier.find(m => m.role === 'General') ??
+      topTier[0];
+    if (!pick) return null;
+    return (
+      <ModelCard model={pick} state={states[pick.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />
+    );
+  }
 
   const recommended = compatible
     .filter(m => m.ramGb === maxTier && m.tag)

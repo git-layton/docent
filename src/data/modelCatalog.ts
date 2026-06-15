@@ -10,6 +10,7 @@ export interface CatalogModel {
   bestFor: string;
   notGreatFor: string;
   tag?: string;        // badge shown on card; also marks model as a top pick
+  primary?: boolean;   // THE single get-started pick for its RAM tier (drives recommendSetup)
   gated?: boolean;     // requires HuggingFace login — show link instead of download
   gatedUrl?: string;
 }
@@ -30,6 +31,7 @@ const TIER_8: CatalogModel[] = [
     bestFor: 'Chat, Q&A, writing, analysis',
     notGreatFor: 'Complex multi-step coding',
     tag: 'Best for 8GB',
+    primary: true,
   },
   {
     id: 'qwen25coder-7b',
@@ -122,6 +124,7 @@ const TIER_16: CatalogModel[] = [
     bestFor: 'Fluent writing, instruction-following, long context (128K)',
     notGreatFor: 'Complex code generation',
     tag: 'Google',
+    primary: true,
   },
 ];
 
@@ -166,6 +169,7 @@ const TIER_32: CatalogModel[] = [
     bestFor: 'Writing, analysis, very long context (128K), instruction-following',
     notGreatFor: 'Heavy coding tasks',
     tag: 'Google',
+    primary: true,
   },
 ];
 
@@ -197,6 +201,7 @@ const TIER_48: CatalogModel[] = [
     bestFor: 'Creative writing, roleplay, nuanced conversation — beautiful prose, no thinking overhead',
     notGreatFor: 'Ultra-complex logic or debugging nasty code blocks',
     tag: 'Meta · All-rounder',
+    primary: true,
   },
 ];
 
@@ -216,7 +221,7 @@ export const MIN_LOCAL_GB = 8;
 
 export type SetupRecommendation =
   | { kind: 'cloud'; reason: string }
-  | { kind: 'local'; recommended: CatalogModel; coder?: CatalogModel; tierLabel: string };
+  | { kind: 'local'; recommended: CatalogModel; tierLabel: string };
 
 export function recommendSetup(
   { totalMb, isAppleSilicon }: { totalMb: number; isAppleSilicon: boolean },
@@ -226,34 +231,30 @@ export function recommendSetup(
   if (!isAppleSilicon) {
     return {
       kind: 'cloud',
-      reason: 'Local models run on Apple Silicon — on this Mac a free cloud model is the best path.',
+      reason: 'Local models run on Apple Silicon — on this Mac a cloud model is the best path.',
     };
   }
   if (gb < MIN_LOCAL_GB) {
     return {
       kind: 'cloud',
-      reason: `Your Mac has ${Math.round(gb)}GB RAM — not quite enough for a capable local model. A free cloud model is faster and needs no download.`,
+      reason: `Your Mac has ${Math.round(gb)}GB RAM — not quite enough for a capable local model. A cloud model is faster and needs no download.`,
     };
   }
 
-  // Highest compatible tier wins, preferring a tagged "top pick" — mirrors ModelStorePanel.
+  // Highest compatible tier wins; each tier names exactly one `primary` get-started pick.
   const ramGb = Math.floor(gb);
   const compatible = MODEL_CATALOG.filter(m => m.ramGb <= ramGb);
   const maxTier = compatible.reduce((mx, m) => Math.max(mx, m.ramGb), 0);
   const topTier = compatible.filter(m => m.ramGb === maxTier);
   const recommended =
+    topTier.find(m => m.primary) ??
     topTier.find(m => m.tag && m.role === 'General') ??
-    topTier.find(m => m.tag) ??
     topTier.find(m => m.role === 'General') ??
     topTier[0];
-  const coder = compatible
-    .filter(m => m.role === 'Coder')
-    .sort((a, b) => b.ramGb - a.ramGb)[0];
 
   return {
     kind: 'local',
     recommended,
-    coder: coder && coder.id !== recommended.id ? coder : undefined,
     tierLabel: `${maxTier}GB tier`,
   };
 }

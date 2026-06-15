@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
+import { supportsVision } from '../services/llm';
 import { applyTheme, watchSystemTheme, DEFAULT_ACCENT, DEFAULT_THEME } from '../lib/theme';
 import type { ThemeMode } from '../lib/theme';
 import type { FileGrant, FileActivityEntry } from '../services/fileAccess/types';
@@ -256,7 +257,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const models: Model[] = rawModels.map((m: any) => ({
       ...m,
       isLocal: m.isLocal ?? isLocalProvider(m.provider ?? '', m.endpoint ?? ''),
-      canImage: m.canImage ?? false,
+      // Derived from the model id (single source of truth) so models persisted before vision
+      // gating existed get the correct flag retroactively, in lockstep with the live UI check.
+      canImage: supportsVision(m.modelId ?? ''),
     }));
     const userName = await db.get('userName', '');
     const userProfile = await db.get('userProfile', '');

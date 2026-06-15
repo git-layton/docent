@@ -28,10 +28,19 @@ export const getContextLimit = (id: string) => {
 export const supportsVision = (modelId: string) => {
   if (!modelId) return false;
   const id = modelId.toLowerCase();
-  return id.includes('gpt-4o') || id.includes('claude-3-5') || id.includes('claude-3-opus') ||
-         id.includes('gemini-2.5') || id.includes('gemini-2.0') || id.includes('llava') ||
-         id.includes('vision') || id.includes('pixtral');
+  return id.includes('gpt-4o') || id.includes('gpt-4.1') || id.includes('gpt-5') ||
+         id.includes('claude-3-5') || id.includes('claude-3-7') || id.includes('claude-3-opus') ||
+         id.includes('claude-sonnet-4') || id.includes('claude-opus-4') ||
+         id.includes('gemini-2.5') || id.includes('gemini-2.0') || id.includes('gemini-1.5') ||
+         id.includes('llava') || id.includes('vision') || id.includes('pixtral') ||
+         id.includes('llama-3.2') || id.includes('qwen2-vl') || id.includes('qwen2.5-vl');
 };
+
+// Live, model-object-aware wrapper — the single source of truth used by the UI to decide
+// whether to surface image attachments. Keyed off modelId so it stays correct for models
+// persisted before vision gating existed (no migration/stored flag to drift out of sync).
+export const modelSupportsVision = (model: { modelId?: string } | null | undefined) =>
+  supportsVision(model?.modelId ?? '');
 
 export const trimHistoryChars = (msgs: any[], charLimit: number) => {
   if (!charLimit || charLimit <= 0) return msgs;

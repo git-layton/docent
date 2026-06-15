@@ -411,12 +411,37 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
 
+              {/* AI Models */}
+              <div className="border-t border-edge pt-4 mt-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-ink">AI Models</p>
+                    <p className="text-xs text-ink-3 mt-0.5">
+                      {models.length > 0
+                        ? `${models.length} connected · add another anytime`
+                        : 'Connect a model to power your agents'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const ss = useSettingsStore.getState();
+                      ss.setWizardStep(3);
+                      ss.setShowModelWizard(true);
+                      onClose();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-accent text-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong transition-all shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Connect a model
+                  </button>
+                </div>
+              </div>
+
               {/* Setup Wizard */}
               <div className="border-t border-edge pt-4 mt-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-bold text-ink">Setup Wizard</p>
-                    <p className="text-xs text-ink-3 mt-0.5">Re-run the model setup and recommendations</p>
+                    <p className="text-xs text-ink-3 mt-0.5">Re-run the full first-time setup walkthrough</p>
                   </div>
                   <button
                     onClick={async () => {
