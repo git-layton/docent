@@ -32,7 +32,6 @@ const defaultTab: OmniTab = {
   type: 'space-log',
   label: 'Chat',
   spaceId: 'space-home',
-  isPinned: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -215,7 +214,6 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       type: 'space-log',
       label: 'Chat',
       spaceId,
-      isPinned: true,
     };
     const space: Space = {
       id: spaceId,
@@ -252,7 +250,6 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         type: 'space-log',
         label: 'Chat',
         spaceId: containerId,
-        isPinned: true,
       };
       const dm: Space = {
         id: containerId,
@@ -302,9 +299,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const { omniTabs, spaces } = get();
     const space = spaces.find(s => s.id === id);
     const spaceTabs = omniTabs.filter(t => t.spaceId === id);
-    const pinned = spaceTabs.find(t => t.isPinned);
-    const first = spaceTabs[0];
-    set({ activeSpaceId: id, activeOmniTabId: (pinned ?? first)?.id ?? null });
+    // Entering a Space lands on its conversation (the Chat tab) if present, else its first tab.
+    const preferred = spaceTabs.find(t => t.type === 'space-log') ?? spaceTabs[0];
+    set({ activeSpaceId: id, activeOmniTabId: preferred?.id ?? null });
 
     // Drive the global conversation + active agent to THIS container's thread.
     if (space) {
@@ -324,9 +321,14 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const isCompatible = version === STORE_VERSION && spaces !== null && omniTabs !== null;
 
     if (isCompatible) {
+      // Chat (space-log) tabs are normal closable tabs now — clear any leftover pin
+      // from older persisted state so existing installs pick up the change too.
+      const tabs = (omniTabs as OmniTab[]).map(t =>
+        t.type === 'space-log' && t.isPinned ? { ...t, isPinned: false } : t,
+      );
       set({
         spaces: spaces as Space[],
-        omniTabs: omniTabs as OmniTab[],
+        omniTabs: tabs,
         activeOmniTabId: activeIds?.activeOmniTabId ?? null,
         activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
@@ -356,8 +358,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });
     }
 
-    // Always land on Home (the StartPage) on launch — you can chat, search, and open anything from
-    // there. Reuse an existing Home tab in the active Space, else create one.
+    // Land on the active Space's chat (your agent) on launch, so the selected agent is front
+    // and center — Alexis by default, or whoever you were last with. The Home (StartPage) tab is
+    // kept available one click away. Fall back to Home only if the Space somehow has no chat tab.
     {
       const st = get();
       const sid = st.activeSpaceId ?? 'space-home';
@@ -366,7 +369,8 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         home = { id: generateId('tab'), type: 'home', label: 'Home', spaceId: sid };
         set(s => ({ omniTabs: [...s.omniTabs, home!] }));
       }
-      set({ activeOmniTabId: home.id });
+      const chat = get().omniTabs.find(t => t.type === 'space-log' && t.spaceId === sid);
+      set({ activeOmniTabId: (chat ?? home).id });
     }
 
     // Reconcile the active conversation with the active container's own thread,

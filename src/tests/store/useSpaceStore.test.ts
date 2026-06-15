@@ -302,14 +302,14 @@ describe('createSpace', () => {
     expect(space.agentIds).toEqual([])
   })
 
-  it('initialises peopleIds as empty array and auto-creates a pinned chat tab', () => {
+  it('initialises peopleIds as empty array and auto-creates a chat tab', () => {
     const space = useSpaceStore.getState().createSpace('Fresh')
     expect(space.peopleIds).toEqual([])
-    // createSpace now seeds one pinned space-log tab automatically
+    // createSpace seeds one space-log (Chat) tab automatically — a normal, closable tab.
     expect(space.tabIds).toHaveLength(1)
     const tab = useSpaceStore.getState().omniTabs.find(t => t.id === space.tabIds[0])
     expect(tab?.type).toBe('space-log')
-    expect(tab?.isPinned).toBe(true)
+    expect(tab?.isPinned).toBeFalsy()
     expect(tab?.spaceId).toBe(space.id)
   })
 
@@ -353,15 +353,15 @@ describe('hydrate — first-run seeding', () => {
     const { omniTabs } = useSpaceStore.getState()
     const log = omniTabs.find(t => t.type === 'space-log')
     expect(log?.id).toBe('tab-space-log-default')
-    expect(log?.isPinned).toBe(true)
-    // hydrate also lands on Home (the StartPage) at launch, so a Home tab is added alongside.
+    expect(log?.isPinned).toBeFalsy()
+    // hydrate keeps a Home (StartPage) tab available alongside the chat.
     expect(omniTabs.some(t => t.type === 'home')).toBe(true)
   })
 
-  it('lands on a Home tab on first run', async () => {
+  it('lands on the agent Chat (space-log) tab on first run', async () => {
     await useSpaceStore.getState().hydrate()
     const { omniTabs, activeOmniTabId } = useSpaceStore.getState()
-    expect(omniTabs.find(t => t.id === activeOmniTabId)?.type).toBe('home')
+    expect(omniTabs.find(t => t.id === activeOmniTabId)?.type).toBe('space-log')
   })
 
   it('sets activeSpaceId to space-home on first run', async () => {

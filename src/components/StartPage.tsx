@@ -19,6 +19,7 @@ import {
   Share2,
   Settings,
   StickyNote,
+  FolderGit2,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -65,6 +66,17 @@ function focusExisting(tabId: string | undefined, targetId: string) {
   const st = useSpaceStore.getState();
   st.setActiveTab(targetId);
   if (tabId && tabId !== targetId) st.closeTab(tabId);
+}
+
+// Open a Space's chat: focus its existing Chat tab, or recreate one (Chat is a normal
+// closable tab now) — reusing the Home tab slot we came from so tabs don't stack.
+function openSpaceLog(fromTabId: string | undefined, spaceId: string | undefined) {
+  const st = useSpaceStore.getState();
+  const log =
+    st.omniTabs.find((t) => t.type === 'space-log' && t.spaceId === spaceId) ??
+    st.omniTabs.find((t) => t.type === 'space-log');
+  if (log) focusExisting(fromTabId, log.id);
+  else launch(fromTabId, { type: 'space-log', label: 'Chat', spaceId });
 }
 
 // Order mirrors the home-page mockup: lead with the actionable daily-driver apps
@@ -117,13 +129,8 @@ const APPS: AppEntry[] = [
     icon: MessageSquare,
     tint: 'bg-pink-500/12 text-pink-700 dark:bg-pink-400/15 dark:text-pink-300',
     open: (tabId) => {
-      // Focus the current Space's chat (the pinned space-log tab).
-      const { omniTabs, activeSpaceId } = useSpaceStore.getState();
-      const sid = activeSpaceId ?? undefined;
-      const log =
-        omniTabs.find((t) => t.type === 'space-log' && t.spaceId === sid) ??
-        omniTabs.find((t) => t.type === 'space-log');
-      if (log) focusExisting(tabId, log.id);
+      // Open the current Space's chat — recreating its Chat tab if it was closed.
+      openSpaceLog(tabId, useSpaceStore.getState().activeSpaceId ?? undefined);
     },
   },
   {
@@ -141,6 +148,14 @@ const APPS: AppEntry[] = [
     icon: Code2,
     tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
     open: (tabId) => launch(tabId, { type: 'code-canvas', label: 'Untitled Canvas' }),
+  },
+  {
+    id: 'agentforge-code',
+    label: 'AgentForge Code',
+    sub: 'Files, code & commands',
+    icon: FolderGit2,
+    tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'agentforge-code' as ToolTabId, label: 'AgentForge Code' }),
   },
   {
     id: 'browser',
@@ -414,11 +429,8 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const ask = (text: string) => {
     const t = text.trim();
     if (!t) return;
-    // Surface the conversation (the pinned space-log tab), consuming the Home tab, then send.
-    const { omniTabs: tabs, activeSpaceId } = useSpaceStore.getState();
-    const sid = activeSpaceId ?? undefined;
-    const log = tabs.find((x) => x.type === 'space-log' && x.spaceId === sid) ?? tabs.find((x) => x.type === 'space-log');
-    if (log) focusExisting(tabId, log.id);
+    // Surface the conversation (recreating its Chat tab if closed), consuming the Home tab, then send.
+    openSpaceLog(tabId, useSpaceStore.getState().activeSpaceId ?? undefined);
     onAsk?.(t);
   };
 
@@ -428,9 +440,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
     const sp = st.spaces.find((s) => s.chatId === chatId);
     if (!sp) return; // searchCorpus only emits chats that have an owning Space, so this is defensive
     st.setActiveSpaceId(sp.id);
-    const log = st.omniTabs.find((x) => x.type === 'space-log' && x.spaceId === sp.id);
-    if (log) focusExisting(tabId, log.id);
-    else if (tabId) st.closeTab(tabId);
+    openSpaceLog(tabId, sp.id);
   };
 
   // Open whatever a ranked hit points at. The id prefix encodes the source (see searchCorpus).
@@ -514,6 +524,42 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
 
         {/* The section grid hides while searching — the omni-bar results take over. */}
         {!searchActive && (<>
+        {/* ── Pick up where you left off (first — your most likely next action) ── */}
+        {(recentDoc || lastChat) && (
+        <Section title="Pick up where you left off">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            {recentDoc && (
+              <Tile onClick={() => openDoc(recentDoc, tabId)}>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
+                  {recentDoc?.type === 'image'
+                    ? <ImageIcon className="h-[18px] w-[18px] text-accent-soft-ink" />
+                    : <FileText className="h-[18px] w-[18px] text-accent-soft-ink" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-ink">{recentDoc?.title || 'Untitled'}</span>
+                  <span className="block truncate text-[11px] text-ink-3">Edited {relativeTime(recentDoc?.updatedAt)}</span>
+                </span>
+              </Tile>
+            )}
+            {lastChat && (
+              <Tile onClick={() => APPS.find((a) => a.id === 'chat')?.open(tabId)}>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
+                  <MessageSquare className="h-[18px] w-[18px] text-accent-soft-ink" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-ink">
+                    {agentName ? `Chat with ${agentName}` : 'Last conversation'}
+                  </span>
+                  <span className="block truncate text-[11px] text-ink-3">
+                    {activeSpace?.name ? `# ${activeSpace.name}` : 'Chat'}{lastChat?.updatedAt ? ` · ${relativeTime(lastChat.updatedAt)}` : ''}
+                  </span>
+                </span>
+              </Tile>
+            )}
+          </div>
+        </Section>
+        )}
+
         {/* ── Apps ── */}
         <Section title="Apps">
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
@@ -550,42 +596,6 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             })}
           </div>
         </Section>
-
-        {/* ── Pick up where you left off ── */}
-        {(recentDoc || lastChat) && (
-        <Section title="Pick up where you left off">
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {recentDoc && (
-              <Tile onClick={() => openDoc(recentDoc, tabId)}>
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
-                  {recentDoc?.type === 'image'
-                    ? <ImageIcon className="h-[18px] w-[18px] text-accent-soft-ink" />
-                    : <FileText className="h-[18px] w-[18px] text-accent-soft-ink" />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium text-ink">{recentDoc?.title || 'Untitled'}</span>
-                  <span className="block truncate text-[11px] text-ink-3">Edited {relativeTime(recentDoc?.updatedAt)}</span>
-                </span>
-              </Tile>
-            )}
-            {lastChat && (
-              <Tile onClick={() => APPS.find((a) => a.id === 'chat')?.open(tabId)}>
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
-                  <MessageSquare className="h-[18px] w-[18px] text-accent-soft-ink" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium text-ink">
-                    {agentName ? `Chat with ${agentName}` : 'Last conversation'}
-                  </span>
-                  <span className="block truncate text-[11px] text-ink-3">
-                    {activeSpace?.name ? `# ${activeSpace.name}` : 'Chat'}{lastChat?.updatedAt ? ` · ${relativeTime(lastChat.updatedAt)}` : ''}
-                  </span>
-                </span>
-              </Tile>
-            )}
-          </div>
-        </Section>
-        )}
 
         {/* ── Docs ── */}
         <Section title="Docs" count={docs.length}>

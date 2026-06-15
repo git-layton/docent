@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Paperclip, Zap, Plus, Bookmark, Edit3, Copy, Volume2, VolumeX, ListTodo,
+  Paperclip, Bookmark, Edit3, Copy, Volume2, VolumeX, ListTodo,
   ArrowDown, ArrowUp
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { TypingIndicator } from './ui/TypingIndicator';
 import { useChatStore } from '../store/useChatStore';
 import { useMemoryStore } from '../store/useMemoryStore';
-import { useSettingsStore } from '../store/useSettingsStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
 import { useGroundedSuggestions } from '../lib/useGroundedSuggestions';
@@ -62,13 +61,9 @@ export function MessageList({
 
   const globalPins = useMemoryStore(s => s.globalPins);
 
-  const models = useSettingsStore(s => s.models);
-  const { setWizardStep, setShowModelWizard } = useSettingsStore.getState();
-
   const { setShowPlanner } = useTaskStore.getState();
 
   const isDragging = useUIStore(s => s.isDragging);
-  const { setIsModelDropdownOpen } = useUIStore.getState();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -136,14 +131,7 @@ export function MessageList({
       )}
 
       <div ref={scrollContainerRef} onScroll={checkScroll} className="flex-1 overflow-y-auto p-3 lg:p-4 no-scrollbar scroll-smooth">
-        {models.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-in fade-in zoom-in duration-500">
-            <div className="p-6 bg-accent-soft rounded-full mb-6 border border-accent/20"><Zap className="w-12 h-12 text-accent" /></div>
-            <h2 className="text-3xl font-black tracking-tighter uppercase mb-3 text-ink">Welcome to Agent Forge</h2>
-            <p className="text-sm font-medium text-ink-2 max-w-md mb-8 leading-relaxed">Connect an LLM to begin. Initialize a Native AI, scan local ports, or enter a cloud API key.</p>
-            <button onClick={() => { setWizardStep(3); setShowModelWizard(true); setIsModelDropdownOpen(false); }} className="px-8 py-4 bg-accent hover:bg-accent-strong text-on-accent rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-accent/30 transition-all active:scale-95 flex items-center gap-3"><Plus className="w-5 h-5" /> Connect Your First LLM</button>
-          </div>
-        ) : activeChatId && activeMessages.length > 0 ? (
+        {activeChatId && activeMessages.length > 0 ? (
           <div className="max-w-3xl mx-auto space-y-3 pb-36">
             {activeMessages.flatMap((msg, idx) => {
               const divider = idx === forgettingIndex ? (

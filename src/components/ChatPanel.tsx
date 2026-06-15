@@ -5,7 +5,6 @@ import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
 import { PlannerPanel } from './PlannerPanel';
 import { ChatInputBar } from './ChatInputBar';
-import { SpaceHomeLanding } from './SpaceHomeLanding';
 import { useTaskStore } from '../store/useTaskStore';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { db } from '../services/database';
@@ -67,7 +66,6 @@ interface ChatPanelProps {
   mode: 'inline' | 'docked';
   spaceLogProps: SpaceLogProps;
   chatInputBarProps: ChatInputBarProps;
-  isThreadEmpty: boolean;
   onSendPrompt: (text: string) => void;
   onCollapse?: () => void;
 }
@@ -102,15 +100,14 @@ function ContextPill(): React.ReactElement | null {
 }
 
 // ---------------------------------------------------------------------------
-// ChatPanel — the conversation column. Renders inline (center, with hero when
-// empty) or docked (right rail footer). Absorbs the old SpaceLogTabContent body
-// plus the chat input that used to float in CommandNode.
+// ChatPanel — the conversation column. Renders inline (center) or docked
+// (right rail footer). Absorbs the old SpaceLogTabContent body plus the chat
+// input that used to float in CommandNode.
 // ---------------------------------------------------------------------------
 export function ChatPanel({
   mode,
   spaceLogProps: p,
   chatInputBarProps,
-  isThreadEmpty,
   onSendPrompt,
   onCollapse,
 }: ChatPanelProps): React.ReactElement {
@@ -189,25 +186,22 @@ export function ChatPanel({
             </div>
           )}
 
-          {/* Inline + empty thread → hero landing; otherwise the message list */}
-          {!docked && isThreadEmpty ? (
-            <SpaceHomeLanding agentName={p.activeAssistant?.name} onSendPrompt={onSendPrompt} />
-          ) : (
-            <MessageList
-              activeMessages={p.activeMessages}
-              isGenerating={p.isGenerating}
-              activeAssistant={p.activeAssistant}
-              forgettingIndex={p.forgettingIndex}
-              onConfirmEdit={p.onConfirmEdit}
-              onBookmark={p.onBookmark}
-              onToggleSpeak={p.onToggleSpeak}
-              onAddTask={p.onAddTask}
-              messagesEndRef={p.messagesEndRef}
-              onRenderMessage={p.onRenderMessage}
-              onToast={p.onToast}
-              onSendPrompt={onSendPrompt}
-            />
-          )}
+          {/* The conversation. An empty thread just shows the composer — the
+              Home tab is the app's landing surface, so chat has no separate hero. */}
+          <MessageList
+            activeMessages={p.activeMessages}
+            isGenerating={p.isGenerating}
+            activeAssistant={p.activeAssistant}
+            forgettingIndex={p.forgettingIndex}
+            onConfirmEdit={p.onConfirmEdit}
+            onBookmark={p.onBookmark}
+            onToggleSpeak={p.onToggleSpeak}
+            onAddTask={p.onAddTask}
+            messagesEndRef={p.messagesEndRef}
+            onRenderMessage={p.onRenderMessage}
+            onToast={p.onToast}
+            onSendPrompt={onSendPrompt}
+          />
         </div>
       )}
 

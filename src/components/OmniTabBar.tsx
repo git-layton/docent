@@ -247,7 +247,8 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
           <SplitSquareHorizontal className="w-3 h-3" />
         </span>
       )}
-      {!tab.isPinned && (
+      {/* The agent Chat (space-log) is the home base — it can't be closed. */}
+      {!tab.isPinned && tab.type !== 'space-log' && (
         <span
           role="button"
           tabIndex={-1}

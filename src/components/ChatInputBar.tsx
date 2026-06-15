@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText, ChevronDown, Globe, Zap, Send, Square, Wand2, Paperclip, X,
   AlertTriangle, Loader2, Brain, ListTodo, ShieldCheck, Trash2, Plus, Mic,
-  Telescope, Code2, ScrollText, Smile
+  Telescope, Code2, ScrollText, Smile, Eye
 } from 'lucide-react';
+import { supportsVision, modelSupportsVision } from '../services/llm';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
@@ -129,6 +130,12 @@ export function ChatInputBar({
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
   const modelValidation = useSettingsStore(s => s.modelValidation);
   const { setSelectedModelId, setModels, setShowModelWizard, setWizardStep } = useSettingsStore.getState();
+
+  // Image attachments only make sense for vision-capable models; docs/PDFs work everywhere.
+  // When the active model can't see, the picker is restricted to text/doc types and the tooltip says so.
+  const canAttachImages = modelSupportsVision(selectedModel);
+  const DOC_ACCEPT = 'text/*,application/pdf,.md,.markdown,.csv,.tsv,.json,.xml,.yml,.yaml,.log,.rtf';
+
   return (
     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-panel pt-6 pb-3 px-3 lg:px-4 z-10">
       <div className="max-w-3xl mx-auto">
@@ -197,8 +204,11 @@ export function ChatInputBar({
               </div>
             </div>
           )}
-        {/* Textarea */}
-        <div className={`bg-panel border shadow-sm rounded-3xl transition-all overflow-hidden ${models.length === 0 ? 'opacity-50 border-edge-2' : 'border-edge-2 focus-within:border-accent'}`}>
+        {/* Textarea — with no model connected the whole bar becomes a "connect a model" prompt */}
+        <div
+          className={`bg-panel border shadow-sm rounded-3xl transition-all overflow-hidden ${models.length === 0 ? 'border-accent/60 cursor-pointer hover:border-accent hover:bg-accent-soft/20' : 'border-edge-2 focus-within:border-accent'}`}
+          onClick={models.length === 0 ? () => { setWizardStep(3); setShowModelWizard(true); } : undefined}
+        >
           <textarea
             ref={composerRef}
             value={input}
@@ -222,7 +232,7 @@ export function ChatInputBar({
               }
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
             }}
-            placeholder={models.length === 0 ? 'Connect an LLM to start...' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
+            placeholder={models.length === 0 ? 'Connect a model to start chatting →' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
             className="w-full bg-transparent p-3 min-h-[52px] max-h-40 resize-none outline-none text-ink placeholder-ink-3 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
         </div>
 
@@ -292,7 +302,13 @@ export function ChatInputBar({
                       const cloudModels = models.filter(m => !m.isLocal);
                       const renderModel = (m: any) => (
                         <button key={m.id} onClick={() => { setSelectedModelId(m.id); setIsModelDropdownOpen(false); }} className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all ${selectedModelId === m.id ? 'bg-accent text-on-accent' : 'text-ink hover:bg-wash'}`}>
-                          <div className="flex flex-col"><span className="text-xs font-medium">{m.name}</span><span className={`text-[9px] font-medium opacity-50 ${selectedModelId === m.id ? 'text-on-accent' : 'text-ink-3'}`}>{m.provider}</span></div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-medium flex items-center gap-1 truncate">
+                              {m.name}
+                              {supportsVision(m.modelId) && <span title="Reads images (vision)"><Eye className={`w-2.5 h-2.5 shrink-0 ${selectedModelId === m.id ? 'text-on-accent' : 'text-accent'}`} /></span>}
+                            </span>
+                            <span className={`text-[9px] font-medium opacity-50 ${selectedModelId === m.id ? 'text-on-accent' : 'text-ink-3'}`}>{m.provider}</span>
+                          </div>
                           <div className="flex items-center gap-1">
                             {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-danger" />}
                             {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-success" />}
@@ -326,8 +342,8 @@ export function ChatInputBar({
             </div>
             <div className="w-px h-4 bg-edge mx-0.5" />
             {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-full transition-all ${isListening ? 'text-danger bg-danger-soft' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title="Attach Document"><Paperclip className="w-3.5 h-3.5" /></button>}
-            <input type="file" ref={fileInputRef} onChange={onChatFileUpload} className="hidden" />
+            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title={canAttachImages ? 'Attach document or image' : "Attach document — this model can't read images"}><Paperclip className="w-3.5 h-3.5" /></button>}
+            <input type="file" ref={fileInputRef} onChange={onChatFileUpload} accept={canAttachImages ? undefined : DOC_ACCEPT} className="hidden" />
             {/* Emoji picker */}
             {models.length > 0 && (
               <div className="relative" ref={emojiPickerRef}>

@@ -167,24 +167,30 @@ describe('OmniTabBar — pinned tab protection', () => {
     expect(screen.queryByTitle('Close tab')).not.toBeInTheDocument()
   })
 
+  it('the agent Chat (space-log) tab has no close button — it is the home base', () => {
+    seedStore([makeTab({ id: 'chat', label: 'Chat', type: 'space-log', isPinned: false })], 'chat')
+    render(<OmniTabBar />)
+    expect(screen.queryByTitle('Close tab')).not.toBeInTheDocument()
+  })
+
   it('non-pinned tab renders a close button', () => {
-    seedStore([makeTab({ id: 'free', label: 'Closeable', isPinned: false })], 'free')
+    seedStore([makeTab({ id: 'free', label: 'Closeable', type: 'doc', isPinned: false })], 'free')
     render(<OmniTabBar />)
     expect(screen.getByTitle('Close tab')).toBeInTheDocument()
   })
 
-  it('multiple tabs: only non-pinned ones show close buttons', () => {
+  it('multiple tabs: only non-pinned, non-chat ones show close buttons', () => {
     seedStore([
-      makeTab({ id: 'p', label: 'Pinned',    isPinned: true }),
-      makeTab({ id: 'a', label: 'Free A',    isPinned: false }),
-      makeTab({ id: 'b', label: 'Free B',    isPinned: false }),
+      makeTab({ id: 'p', label: 'Pinned',    type: 'doc', isPinned: true }),
+      makeTab({ id: 'a', label: 'Free A',    type: 'doc', isPinned: false }),
+      makeTab({ id: 'b', label: 'Free B',    type: 'doc', isPinned: false }),
     ], 'p')
     render(<OmniTabBar />)
     expect(screen.getAllByTitle('Close tab')).toHaveLength(2)
   })
 
   it('close button click calls closeTab with the correct id', () => {
-    seedStore([makeTab({ id: 'kill-me', label: 'Kill Me', isPinned: false })], 'kill-me')
+    seedStore([makeTab({ id: 'kill-me', label: 'Kill Me', type: 'doc', isPinned: false })], 'kill-me')
     const spy = vi.spyOn(useSpaceStore.getState(), 'closeTab')
     render(<OmniTabBar />)
     fireEvent.click(screen.getByTitle('Close tab'))
@@ -193,8 +199,8 @@ describe('OmniTabBar — pinned tab protection', () => {
 
   it('close button click does NOT propagate to setActiveTab', () => {
     seedStore([
-      makeTab({ id: 'tab-1', label: 'First', isPinned: false }),
-      makeTab({ id: 'tab-2', label: 'Second', isPinned: false }),
+      makeTab({ id: 'tab-1', label: 'First', type: 'doc', isPinned: false }),
+      makeTab({ id: 'tab-2', label: 'Second', type: 'doc', isPinned: false }),
     ], 'tab-1')
     const setActive = vi.spyOn(useSpaceStore.getState(), 'setActiveTab')
     render(<OmniTabBar />)

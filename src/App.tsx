@@ -19,7 +19,7 @@ import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 
-import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry } from './services/llm';
+import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry, modelSupportsVision, supportsVision } from './services/llm';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
@@ -69,6 +69,7 @@ import { MailInboxPanel } from './components/MailInboxPanel';
 import { MessagesPanel } from './components/MessagesPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { CalendarPanel } from './components/CalendarPanel';
+import { AgentForgeCodePanel } from './components/AgentForgeCodePanel';
 import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateCard, GcalDeleteCard } from './components/EventCards';
 import { CmdKPalette } from './components/CmdKPalette';
 import { MarginaliaLayer } from './components/MarginaliaLayer';
@@ -323,7 +324,7 @@ export default function App() {
             const { data } = await r.json();
             (data ?? []).forEach((m: any) => {
               if (!existingModels.some((e: any) => e.modelId === m.id && e.endpoint === 'http://localhost:1234/v1')) {
-                autoAdded.push({ id: generateId('m'), name: m.id, provider: 'lmstudio', modelId: m.id, endpoint: 'http://localhost:1234/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+                autoAdded.push({ id: generateId('m'), name: m.id, provider: 'lmstudio', modelId: m.id, endpoint: 'http://localhost:1234/v1', apiKey: '', contextLimit: 32768, canImage: supportsVision(m.id), isLocal: true });
               }
             });
           }
@@ -336,7 +337,7 @@ export default function App() {
             const { models: om } = await r.json();
             (om ?? []).forEach((m: any) => {
               if (!existingModels.some((e: any) => e.modelId === m.name && e.endpoint === 'http://localhost:11434/v1')) {
-                autoAdded.push({ id: generateId('m'), name: m.name, provider: 'ollama', modelId: m.name, endpoint: 'http://localhost:11434/v1', apiKey: '', contextLimit: 32768, canImage: false, isLocal: true });
+                autoAdded.push({ id: generateId('m'), name: m.name, provider: 'ollama', modelId: m.name, endpoint: 'http://localhost:11434/v1', apiKey: '', contextLimit: 32768, canImage: supportsVision(m.name), isLocal: true });
               }
             });
           }
@@ -351,24 +352,13 @@ export default function App() {
         }
       } catch (e) { console.warn('[AgentForge] Auto-detect skipped:', e); }
 
-      // Onboarding wizard
-      // • First launch (onboardingComplete = false) with nothing set up → full wizard from step 1
-      // • First launch but already has models/chats (migrated user) → silently mark done
-      // • Any launch with no models configured → jump to model step (step 3)
+      // First launch no longer force-opens the setup wizard. Land users on Home with their
+      // agent; model setup is on-demand — the empty chat bar nudges them into the
+      // "Connect a model" flow, and full setup (capture, iPhone, …) lives in Settings.
       const onboardingDone = await db.get('onboardingComplete', false);
-      const hasModels = useSettingsStore.getState().models.length > 0;
-      const hasChats = useChatStore.getState().chats.length > 0;
       if (!onboardingDone) {
-        if (hasModels || hasChats) {
-          await db.set('onboardingComplete', true);
-          useSettingsStore.getState().setOnboardingComplete(true);
-        } else {
-          useSettingsStore.getState().setShowOnboarding(true);
-        }
-      } else if (!hasModels) {
-        // Completed onboarding before but has no models — go straight to model step
-        useSettingsStore.getState().setOnboardingInitialStep(3);
-        useSettingsStore.getState().setShowOnboarding(true);
+        await db.set('onboardingComplete', true);
+        useSettingsStore.getState().setOnboardingComplete(true);
       }
 
       // First-time agent intro card
@@ -914,6 +904,15 @@ export default function App() {
 
     const reader = new FileReader();
     if (file.type.startsWith('image/')) {
+      // Backstop for drag-drop / paste paths that bypass the composer's docs-only accept filter.
+      const ss = useSettingsStore.getState();
+      const sel = ss.models.find(m => m.id === ss.selectedModelId) ?? ss.models[0] ?? null;
+      if (!modelSupportsVision(sel)) {
+        ui.setUploadError(`${sel?.name ?? 'This model'} can't read images — switch to a vision model (e.g. GPT-4o, Claude, Gemini).`);
+        ui.showToast("This model can't read images.");
+        e.target.value = '';
+        return;
+      }
       reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
       reader.readAsDataURL(file);
     } else {
@@ -1166,7 +1165,7 @@ export default function App() {
     const existingModels = ss.models;
     const newModels = _pendingModelSelections
       .filter((m: any) => !existingModels.some((e: any) => e.modelId === m.id && e.endpoint === _editingModel.endpoint))
-      .map((m: any) => ({ id: generateId('m'), name: m.id, provider: _editingModel.provider, modelId: m.id, endpoint: _editingModel.endpoint, apiKey: _editingModel.apiKey, contextLimit: m.context, canImage: false, isLocal: isLocalProvider(_editingModel.provider, _editingModel.endpoint) }));
+      .map((m: any) => ({ id: generateId('m'), name: m.id, provider: _editingModel.provider, modelId: m.id, endpoint: _editingModel.endpoint, apiKey: _editingModel.apiKey, contextLimit: m.context, canImage: supportsVision(m.id), isLocal: isLocalProvider(_editingModel.provider, _editingModel.endpoint) }));
     if (newModels.length === 0) { useUIStore.getState().showToast('All selected models are already added.'); ss.setPendingModelSelections([]); ss.setShowModelWizard(false); ss.setWizardStep(3); return; }
     ss.setModels((prev: any[]) => [...prev, ...newModels]);
     if (!ss.selectedModelId && newModels.length > 0) ss.setSelectedModelId(newModels[0].id);
@@ -1181,7 +1180,7 @@ export default function App() {
   const executeAddLLM = async (cfg: any) => {
     const ss = useSettingsStore.getState();
     const id = generateId('m');
-    const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: false, isLocal: isLocalProvider(cfg.provider, cfg.endpoint) };
+    const mdl = { id, name: String(cfg.name || 'Custom Model').trim(), provider: cfg.provider, modelId: String(cfg.modelId || 'custom').trim(), endpoint: String(cfg.endpoint || '').trim(), apiKey: String(cfg.apiKey || '').trim(), contextLimit: parseInt(cfg.contextLimit, 10) || 32000, canImage: supportsVision(String(cfg.modelId || 'custom').trim()), isLocal: isLocalProvider(cfg.provider, cfg.endpoint) };
     const duplicate = ss.models.find((e: any) => e.modelId === mdl.modelId && e.endpoint === mdl.endpoint);
     if (duplicate) { ss.setSelectedModelId(duplicate.id); ss.setShowModelWizard(false); ss.setWizardStep(3); useUIStore.getState().showToast('Model already added — switched to it.'); return; }
     ss.setModels((prev: any[]) => [...prev, mdl]); ss.setSelectedModelId(id); ss.setShowModelWizard(false); ss.setWizardStep(3); ss.setEditingModel({ name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 });
@@ -1798,8 +1797,17 @@ export default function App() {
       .filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === _activeFolderId) ?? useAgentStore.getState().assistants[0])?.id)
       .map((p: any) => p.content);
 
-    if (isGenerating || !_selectedModel) return;
+    if (isGenerating) return;
     if (!_input.trim() && _attachedDocs.length === 0) return;
+    // Single, central no-model flag: any agent action (composer, Home chips, programmatic
+    // sends all route through here) nudges into the recommend-a-model flow instead of failing silently.
+    if (!_selectedModel) {
+      useUIStore.getState().showToast('Connect a model first — here are picks for your Mac.');
+      const ss = useSettingsStore.getState();
+      ss.setWizardStep(3);
+      ss.setShowModelWizard(true);
+      return;
+    }
 
     if (_canvasContent && (_generationMode === 'code' || _generationMode === 'doc')) {
       useUIStore.getState().setCanvasContent((prev: any) => {
@@ -2275,7 +2283,6 @@ export default function App() {
           mode="inline"
           spaceLogProps={spaceLogProps}
           chatInputBarProps={chatInputBarProps}
-          isThreadEmpty={activeMessages.length === 0}
           onSendPrompt={handleSendPrompt}
         />
       );
@@ -2300,6 +2307,9 @@ export default function App() {
     }
     if (tab.type === 'tool' && tab.toolId === 'notes') {
       return <NotesPanel />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'agentforge-code') {
+      return <AgentForgeCodePanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'activity') {
       return (
@@ -2568,7 +2578,6 @@ export default function App() {
                       mode="inline"
                       spaceLogProps={spaceLogProps}
                       chatInputBarProps={chatInputBarProps}
-                      isThreadEmpty={activeMessages.length === 0}
                       onSendPrompt={handleSendPrompt}
                     />
                   </div>

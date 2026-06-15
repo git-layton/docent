@@ -22,11 +22,6 @@ vi.mock('../../components/PlannerPanel', () => ({
 vi.mock('../../components/ChatInputBar', () => ({
   ChatInputBar: () => <div data-testid="chat-input-bar" />,
 }))
-vi.mock('../../components/SpaceHomeLanding', () => ({
-  SpaceHomeLanding: (props: Record<string, unknown>) => (
-    <button data-testid="home-landing" onClick={() => (props.onSendPrompt as (t: string) => void)('hi')}>hero</button>
-  ),
-}))
 
 const spaceLogProps = {
   activeMessages: [] as any[],
@@ -81,7 +76,6 @@ function renderPanel(over: Partial<React.ComponentProps<typeof ChatPanel>> = {})
       mode="inline"
       spaceLogProps={spaceLogProps}
       chatInputBarProps={chatInputBarProps}
-      isThreadEmpty={true}
       onSendPrompt={vi.fn()}
       {...over}
     />
@@ -101,21 +95,13 @@ describe('ChatPanel — core', () => {
     expect(screen.getByTestId('chat-input-bar')).toBeInTheDocument()
   })
 
-  it('inline + empty thread → hero landing (no message list)', () => {
-    renderPanel({ mode: 'inline', isThreadEmpty: true })
-    expect(screen.getByTestId('home-landing')).toBeInTheDocument()
-    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument()
-  })
-
-  it('inline + non-empty thread → message list (no hero)', () => {
-    renderPanel({ mode: 'inline', isThreadEmpty: false })
+  it('inline renders the message list (no separate empty-state hero)', () => {
+    renderPanel({ mode: 'inline' })
     expect(screen.getByTestId('message-list')).toBeInTheDocument()
-    expect(screen.queryByTestId('home-landing')).not.toBeInTheDocument()
   })
 
-  it('docked never shows the hero even when empty', () => {
-    renderPanel({ mode: 'docked', isThreadEmpty: true })
-    expect(screen.queryByTestId('home-landing')).not.toBeInTheDocument()
+  it('docked renders the message list', () => {
+    renderPanel({ mode: 'docked' })
     expect(screen.getByTestId('message-list')).toBeInTheDocument()
   })
 
@@ -124,13 +110,6 @@ describe('ChatPanel — core', () => {
     renderPanel()
     expect(screen.getByTestId('planner-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument()
-  })
-
-  it('hero chip click forwards onSendPrompt', () => {
-    const onSendPrompt = vi.fn()
-    renderPanel({ mode: 'inline', isThreadEmpty: true, onSendPrompt })
-    fireEvent.click(screen.getByTestId('home-landing'))
-    expect(onSendPrompt).toHaveBeenCalledWith('hi')
   })
 })
 
