@@ -9,6 +9,8 @@ import { rankSearchDocs, type SearchDoc, type ScoredDoc } from '../services/univ
 import { buildSearchCorpus, type SearchScope } from '../services/searchCorpus';
 import { searchWebHistory } from '../services/webHistory';
 import { quickSearchAnswer, hasSearchModel } from '../services/searchAnswer';
+import { searchKnowledgeDocs, mergeRanked, isKnowledgeDoc } from '../services/semanticDocs';
+import { useMemoryStore } from '../store/useMemoryStore';
 
 // ---------------------------------------------------------------------------
 // OmniSearch — the search-as-you-type bar shared by the global Home and each
@@ -110,7 +112,28 @@ export function OmniSearch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, corpus, includeWebHistory]);
 
-  const resultCount = 1 + matches.length;
+  // Semantic Knowledge-Core hits — only on the user's own global search (the space bar is
+  // privacy-scoped and must not reach cross-agent memory, like includeWebHistory). Debounced and
+  // Tauri-guarded, then merged into the lexical matches so the bar ranks by meaning, not keywords.
+  const semanticEnabled = scope.kind === 'global';
+  const [semantic, setSemantic] = useState<ScoredDoc[]>([]);
+  useEffect(() => {
+    if (!semanticEnabled || !q) { setSemantic([]); return; }
+    let stale = false;
+    const t = setTimeout(async () => {
+      const docs = await searchKnowledgeDocs(query);
+      if (!stale) setSemantic(docs);
+    }, 300);
+    return () => { stale = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, semanticEnabled]);
+
+  const displayed = useMemo<ScoredDoc[]>(
+    () => mergeRanked(matches, semanticEnabled ? semantic : [], 8),
+    [matches, semantic, semanticEnabled],
+  );
+
+  const resultCount = 1 + displayed.length;
   const [activeIndex, setActiveIndex] = useState(0);
   useEffect(() => { setActiveIndex(0); }, [q]);
   useEffect(() => { onActiveChange?.(!!q); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [q]);
@@ -119,8 +142,8 @@ export function OmniSearch({
   const [answer, setAnswer] = useState('');
   const [answering, setAnswering] = useState(false);
   const [answerError, setAnswerError] = useState<string | null>(null);
-  const matchesRef = useRef<ScoredDoc[]>(matches);
-  matchesRef.current = matches;
+  const matchesRef = useRef<ScoredDoc[]>(displayed);
+  matchesRef.current = displayed;
 
   const queryText = query.trim();
   const wordCount = queryText ? queryText.split(/\s+/).filter(Boolean).length : 0;
@@ -153,8 +176,18 @@ export function OmniSearch({
   const ask = (text: string) => { const t = text.trim(); if (t) onAsk(t); };
 
   const runIndex = (i: number) => {
-    if (i <= 0) ask(query);
-    else { const m = matches[i - 1]; if (m) onRun(m); }
+    if (i <= 0) { ask(query); return; }
+    const m = displayed[i - 1];
+    if (!m) return;
+    // Semantic Knowledge-Core hits open the Knowledge Base — the caller's onRun only knows about
+    // apps/tabs/docs/urls, so keep this here and callers stay unchanged.
+    if (isKnowledgeDoc(m.id)) {
+      const mem = useMemoryStore.getState();
+      mem.setMemmoPanelTab('library');
+      mem.setShowMemmoPanel(true);
+      return;
+    }
+    onRun(m);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -227,9 +260,9 @@ export function OmniSearch({
             <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-ink-3" />
           </ResultRow>
 
-          {matches.length > 0 && <div className="my-1 border-t border-edge" />}
+          {displayed.length > 0 && <div className="my-1 border-t border-edge" />}
 
-          {matches.map((it, i) => {
+          {displayed.map((it, i) => {
             const Icon = resolveIcon(it);
             return (
               <ResultRow key={it.id} active={activeIndex === i + 1} onMouseEnter={() => setActiveIndex(i + 1)} onClick={() => runIndex(i + 1)}>
@@ -249,7 +282,7 @@ export function OmniSearch({
             );
           })}
 
-          {matches.length === 0 && !answering && !answerText && (
+          {displayed.length === 0 && !answering && !answerText && (
             <div className="px-3.5 py-2 text-[11px] text-ink-3">No matches — press ↵ to ask {agentName ?? 'your agent'}.</div>
           )}
         </div>
