@@ -14,6 +14,12 @@ import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { AVAILABLE_TOOLS } from './ui/AgentIcon';
 
+// Tool capability ids (web_search/local_workspace) → the canonical forcedTool route
+// value the router + gatekeeper understand ('search'/'workspace'). Without this map a
+// pinned toggle sets forcedTool to the raw capability id, which the gatekeeper treats as
+// "forced but unknown" and routes to *no* tool — so the toggle would highlight yet do nothing.
+const TOOL_FORCE_VALUE: Record<string, string> = { web_search: 'search', local_workspace: 'workspace' };
+
 interface ChatInputBarProps {
   isGenerating: boolean;
   isEnhancing: boolean;
@@ -254,9 +260,10 @@ export function ChatInputBar({
           {/* Pinned tools — dynamic, only shows if enabled on current agent */}
           {AVAILABLE_TOOLS.filter(t => pinnedTools.includes(t.id) && activeAssistant?.tools?.[t.id]).map(tool => {
             const Icon = tool.icon;
-            const isActive = forcedTool === tool.id;
+            const force = TOOL_FORCE_VALUE[tool.id] ?? tool.id;
+            const isActive = forcedTool === force;
             return (
-              <button key={tool.id} onClick={() => setForcedTool(f => f === tool.id ? null : tool.id)} className={`p-1.5 rounded-full transition-all ${isActive ? 'bg-accent-soft text-accent-soft-ink' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title={tool.name}>
+              <button key={tool.id} onClick={() => setForcedTool(f => f === force ? null : force)} className={`p-1.5 rounded-full transition-all ${isActive ? 'bg-accent-soft text-accent-soft-ink' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title={tool.name}>
                 <Icon className="w-3.5 h-3.5" />
               </button>
             );

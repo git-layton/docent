@@ -36,12 +36,16 @@ export function CmdKPalette(): React.ReactElement | null {
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Query to pre-fill on the next open — set when the palette is launched from
+  // elsewhere (e.g. the sidebar's top search box dispatches `forge:open-cmdk`).
+  const seedRef = useRef('');
 
   const spaces = useSpaceStore(s => s.spaces);
   const omniTabs = useSpaceStore(s => s.omniTabs);
   const assistants = useAgentStore(s => s.assistants);
 
-  // ⌘K / Ctrl+K to toggle; Esc to close
+  // ⌘K / Ctrl+K to toggle; Esc to close; `forge:open-cmdk` to open from anywhere
+  // (optionally seeded with a query, e.g. from the sidebar's top search box).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -51,12 +55,21 @@ export function CmdKPalette(): React.ReactElement | null {
         setOpen(false);
       }
     };
+    const onOpenEvent = (e: Event) => {
+      const q = (e as CustomEvent).detail?.query;
+      seedRef.current = typeof q === 'string' ? q : '';
+      setOpen(true);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('forge:open-cmdk', onOpenEvent as EventListener);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('forge:open-cmdk', onOpenEvent as EventListener);
+    };
   }, []);
 
   useEffect(() => {
-    if (open) { setQuery(''); setHighlight(0); setTimeout(() => inputRef.current?.focus(), 30); }
+    if (open) { setQuery(seedRef.current); seedRef.current = ''; setHighlight(0); setTimeout(() => inputRef.current?.focus(), 30); }
   }, [open]);
 
   const results = useMemo<Result[]>(() => {

@@ -257,17 +257,6 @@ export function ChatHeader({
               )}
             </div>
           )}
-          {/* Forge Search — arms the agent's workspace tool (memory, channels, Knowledge Core) */}
-          <button
-            onClick={() => {
-              useUIStore.getState().setForcedTool('workspace');
-              _onToast('Forge Search armed. Ask what to find across memory, channels, and the Knowledge Core.');
-            }}
-            className="p-2 rounded-lg transition-colors hover:bg-wash text-ink-3 hover:text-accent"
-            title="Forge Search — ask the agent to search"
-          >
-            <Zap className="w-5 h-5" />
-          </button>
           {ramStats && ramStats.available_mb < (hwProfile?.hud_show_mb ?? 2000) && (
             <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
               ramStats.available_mb < (hwProfile?.hud_warn_mb ?? 1200) ? 'bg-danger-soft text-danger' :

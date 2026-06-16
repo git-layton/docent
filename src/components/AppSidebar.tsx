@@ -95,6 +95,11 @@ export function AppSidebar(_: AppSidebarProps) {
   };
 
   const query = chatSearchQuery.toLowerCase();
+
+  // The top box filters this sidebar as you type; pressing ↵ (or the ⌘K pill) hands the
+  // same text to the global command palette, which searches across every space, tab & agent.
+  const openGlobalSearch = () =>
+    window.dispatchEvent(new CustomEvent('forge:open-cmdk', { detail: { query: chatSearchQuery } }));
   const visibleAgents = assistants
     .filter((agent: any) => agent.id !== 'forge-guide' && agent.id !== 'f-default')
     .filter((agent: any) => `${agent.name} ${agent.description ?? ''}`.toLowerCase().includes(query));
@@ -111,15 +116,23 @@ export function AppSidebar(_: AppSidebarProps) {
         {/* Scrollable nav */}
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2 no-scrollbar">
           <div className="space-y-3">
-            {/* Search bar */}
+            {/* Search bar — filters the sidebar as you type; ↵ or the ⌘K pill searches everything */}
             <div className="px-1 mb-2 relative mt-2">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-3" />
               <input
-                className="w-full bg-inset border border-edge rounded-full pl-8 pr-4 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-accent text-ink placeholder:text-ink-3"
-                placeholder="Search people, agents, spaces..."
+                className="w-full bg-inset border border-edge rounded-full pl-8 pr-12 py-2.5 text-[10px] font-bold outline-none focus:ring-1 ring-accent text-ink placeholder:text-ink-3"
+                placeholder="Search everything..."
                 value={chatSearchQuery}
                 onChange={e => useChatStore.getState().setChatSearchQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); openGlobalSearch(); } }}
               />
+              <button
+                onClick={openGlobalSearch}
+                className="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded-md bg-wash text-ink-3 hover:text-ink hover:bg-inset transition-colors text-[9px] font-bold tracking-wide"
+                title="Search everything"
+              >
+                ⌘K
+              </button>
             </div>
 
             {/* PEOPLE section */}
