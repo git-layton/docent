@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, MessageSquare, CornerDownLeft, Sparkles, Loader2, Globe, FileText, CheckSquare } from 'lucide-react';
+import { Search, MessageSquare, CornerDownLeft, Sparkles, Loader2, Globe, FileText, CheckSquare, Image as ImageIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { useUIStore } from '../store/useUIStore';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -32,6 +32,7 @@ function iconForKind(doc: SearchDoc): React.ElementType {
     case 'Chat': return MessageSquare;
     case 'Web':
     case 'Bookmark': return Globe;
+    case 'Image': return ImageIcon;
     case 'Doc':
     default: return FileText;
   }
@@ -232,9 +233,13 @@ export function OmniSearch({
             const Icon = resolveIcon(it);
             return (
               <ResultRow key={it.id} active={activeIndex === i + 1} onMouseEnter={() => setActiveIndex(i + 1)} onClick={() => runIndex(i + 1)}>
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-wash ring-1 ring-edge">
-                  <Icon className="h-3.5 w-3.5 text-ink-2" />
-                </span>
+                {it.image ? (
+                  <img src={it.image} alt={it.title || 'Image'} className="h-7 w-7 shrink-0 rounded-lg object-cover ring-1 ring-edge" />
+                ) : (
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-wash ring-1 ring-edge">
+                    <Icon className="h-3.5 w-3.5 text-ink-2" />
+                  </span>
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium text-ink">{it.title}</span>
                   {it.sub && <span className="block truncate text-[11px] text-ink-3">{it.sub}</span>}

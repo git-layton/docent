@@ -9,8 +9,10 @@ import {
 import clsx from 'clsx';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useSpaceStore } from '../store/useSpaceStore';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { parseProvenance, provenanceComment, stripProvenance, importTargetName } from '../services/fileAccess/provenance';
+import { spaceHome, spacePath, relativeToSpace } from '../services/fileAccess/spaces';
 import { makeGrant, grantKey } from '../services/fileAccess/consent';
 import type { Provenance } from '../services/fileAccess/provenance';
 import type { FileActivityEntry, FileGrant, GrantScope } from '../services/fileAccess/types';
@@ -52,9 +54,14 @@ export function AgentForgeCodePanel() {
   const grants = useSettingsStore(s => s.appSettings.fileAccessGrants ?? {});
   const activity = useSettingsStore(s => s.appSettings.fileActivity ?? []);
   const revokeFileGrant = useSettingsStore(s => s.revokeFileGrant);
+  // A space ≈ a project; each gets its own home folder (spaces/<id>/) under the workspace jail, so its
+  // files stay separate from other spaces'. See docs/agentforge-code-design.md.
+  const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
+  const spaceName = useSpaceStore(s => s.spaces.find(x => x.id === s.activeSpaceId)?.name ?? 'Workspace');
+  const rootPath = spaceHome(activeSpaceId);
 
   const [view, setView] = useState<View>('workspace');
-  const [cwd, setCwd] = useState('');
+  const [cwd, setCwd] = useState<string>(() => spaceHome(useSpaceStore.getState().activeSpaceId));
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,14 +93,18 @@ export function AgentForgeCodePanel() {
 
   useEffect(() => { if (view === 'workspace') void load(); }, [view, load]);
 
+  // Follow the active space — jump to its home folder when you switch spaces.
+  useEffect(() => { setCwd(rootPath); setSelected(null); }, [rootPath]);
+
   // Publish what's on screen to the docked agent (workspace files are trusted-local → no source tag).
   useEffect(() => {
+    const here = relativeToSpace(activeSpaceId, cwd);
     const text = selected
-      ? `Open workspace file "${selected.path}":\n${selected.content.slice(0, 4000)}`
-      : `AgentForge Code — workspace /${cwd}\n` + entries.slice(0, 60).map(e => `${e.isDir ? '📁 ' : ''}${e.path}`).join('\n');
-    useToolContextStore.getState().setToolContext({ label: selected ? `Code: ${selected.path}` : 'AgentForge Code', text });
+      ? `Open file "${relativeToSpace(activeSpaceId, selected.path)}" in space "${spaceName}":\n${selected.content.slice(0, 4000)}`
+      : `AgentForge Code — space "${spaceName}" /${here}\n` + entries.slice(0, 60).map(e => `${e.isDir ? '📁 ' : ''}${relativeToSpace(activeSpaceId, e.path)}`).join('\n');
+    useToolContextStore.getState().setToolContext({ label: selected ? `Code: ${relativeToSpace(activeSpaceId, selected.path)}` : `Code · ${spaceName}`, text });
     return () => useToolContextStore.getState().clearToolContext();
-  }, [selected, entries, cwd]);
+  }, [selected, entries, cwd, activeSpaceId, spaceName]);
 
   useEffect(() => {
     if (!toast) return;
@@ -152,7 +163,7 @@ export function AgentForgeCodePanel() {
   };
 
   const importCopy = async (source: string) => {
-    const dest = importTargetName(source, Date.now());
+    const dest = spacePath(activeSpaceId, importTargetName(source, Date.now()));
     const res = await invoke<any>('fs_import', { sourcePath: source, destName: dest });
     if (!res?.ok) { setToast(res?.error ?? 'Import failed'); return; }
     // Stamp provenance so the copy is never an orphan — text files only (binary fs_read fails).
@@ -208,7 +219,10 @@ export function AgentForgeCodePanel() {
     else setToast(w?.error ?? 'Detach failed');
   };
 
-  const crumbs = useMemo(() => (cwd ? cwd.split('/') : []), [cwd]);
+  const crumbs = useMemo(() => {
+    const rel = relativeToSpace(activeSpaceId, cwd);
+    return rel ? rel.split('/') : [];
+  }, [cwd, activeSpaceId]);
   const shown = useMemo(
     () => (query ? entries.filter(e => e.name.toLowerCase().includes(query.toLowerCase())) : entries),
     [entries, query],
@@ -230,7 +244,7 @@ export function AgentForgeCodePanel() {
       {/* Header */}
       <div className="h-12 flex items-center gap-3 px-4 border-b border-edge shrink-0">
         <FolderGit2 className="w-4 h-4 text-ink-3" />
-        <span className="text-sm font-semibold text-ink">AgentForge Code</span>
+        <span className="text-sm font-semibold text-ink">Code</span>
         <div className="flex items-center gap-1 ml-2 p-0.5 rounded-lg bg-inset">
           <Segment id="workspace" label="Workspace" />
           <Segment id="linked" label="Linked files" />
@@ -260,11 +274,11 @@ export function AgentForgeCodePanel() {
             {/* Breadcrumb + filter */}
             <div className="px-3 py-2 border-b border-edge flex flex-col gap-2 shrink-0">
               <div className="flex items-center gap-1 text-xs text-ink-3 flex-wrap">
-                <button onClick={() => { setCwd(''); setSelected(null); }} className="flex items-center gap-1 hover:text-ink-2"><Home className="w-3.5 h-3.5" /> workspace</button>
+                <button onClick={() => { setCwd(rootPath); setSelected(null); }} className="flex items-center gap-1 hover:text-ink-2" title={spaceName}><Home className="w-3.5 h-3.5" /> {spaceName}</button>
                 {crumbs.map((seg, i) => (
                   <span key={i} className="flex items-center gap-1">
                     <ChevronRight className="w-3 h-3" />
-                    <button onClick={() => { setCwd(crumbs.slice(0, i + 1).join('/')); setSelected(null); }} className="hover:text-ink-2">{seg}</button>
+                    <button onClick={() => { setCwd(spacePath(activeSpaceId, crumbs.slice(0, i + 1).join('/'))); setSelected(null); }} className="hover:text-ink-2">{seg}</button>
                   </span>
                 ))}
               </div>

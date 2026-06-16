@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { MessageCircle, RotateCw, ArrowLeft, Send, Search, X, ShieldAlert, Users, Paperclip } from 'lucide-react';
+import { MessageCircle, RotateCw, ArrowLeft, Send, Search, X, ShieldAlert, Users, Paperclip, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
 import { MessagesSetupWizard } from './MessagesSetupWizard';
 import { useToolContextStore } from '../store/useToolContextStore';
+import { normalizeVoiceProfile } from '../services/voice';
+import { buildVoiceCard, draftReply } from '../services/voiceRuntime';
 
 // Mirrors the Rust ImessageChat / ImessageMessage structs (serde camelCase).
 interface ImessageChat {
@@ -84,6 +87,11 @@ export function MessagesPanel() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
+  // "Write like me" — on-demand reply suggestions in the user's own voice.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const hasModel = useSettingsStore(s => s.models.length > 0);
+
   const selectedRef = useRef<ImessageChat | null>(null);
   selectedRef.current = selected;
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -137,6 +145,7 @@ export function MessagesPanel() {
 
   // When a thread is open, load it and poll for new messages.
   useEffect(() => {
+    setSuggestions([]); // stale suggestions belong to the previous thread
     if (!selected) return;
     loadMessages(selected);
     const t = setInterval(() => { const s = selectedRef.current; if (s) loadMessages(s, true); }, 3000);
@@ -185,6 +194,38 @@ export function MessagesPanel() {
       setSendError(String(e));
     } finally {
       setSending(false);
+    }
+  };
+
+  // Draft a few short replies in the user's voice. Learns their style on first use (auto-distills
+  // from their own sent texts/email), then suggests options to tap into the box.
+  const suggestReplies = async () => {
+    const chat = selected;
+    if (!chat || voiceBusy) return;
+    if (!hasModel) { useUIStore.getState().showToast('Connect a model first to draft replies.'); return; }
+    setVoiceBusy(true);
+    setSuggestions([]);
+    try {
+      const existing = normalizeVoiceProfile(useSettingsStore.getState().appSettings?.voiceProfile);
+      if (!existing.card.trim()) {
+        useUIStore.getState().showToast('✍️ Learning your writing style…');
+        const { card, sampleCounts } = await buildVoiceCard();
+        useSettingsStore.getState().setAppSettings((prev: any) => ({
+          ...prev,
+          voiceProfile: { ...normalizeVoiceProfile(prev?.voiceProfile), enabled: true, card, sampleCounts, lastBuiltAt: Date.now() },
+        }));
+        await useSettingsStore.getState().persist();
+      }
+      const transcript = messages.slice(-14)
+        .map(m => `${m.fromMe ? 'Me' : (m.senderName || chat.name)}: ${m.text}`)
+        .filter(Boolean)
+        .join('\n');
+      const drafts = await draftReply({ surface: 'imessage', incoming: transcript, recipient: chat.name, count: 3 });
+      setSuggestions(drafts);
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not draft a reply.');
+    } finally {
+      setVoiceBusy(false);
     }
   };
 
@@ -254,7 +295,37 @@ export function MessagesPanel() {
               <button onClick={() => setSendError(null)}><X className="w-3 h-3" /></button>
             </div>
           )}
+          {(suggestions.length > 0 || voiceBusy) && (
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              {voiceBusy && suggestions.length === 0 && (
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3 px-1">
+                  <Sparkles className="w-3 h-3 animate-pulse" /> Drafting in your voice…
+                </span>
+              )}
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setDraft(s); setSuggestions([]); }}
+                  title={s}
+                  className="max-w-[16rem] truncate text-left text-xs px-3 py-1.5 rounded-full bg-inset border border-edge-2 text-ink-2 hover:border-accent hover:text-ink transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+              {suggestions.length > 0 && (
+                <button onClick={() => setSuggestions([])} className="p-1 text-ink-3 hover:text-ink" title="Dismiss suggestions"><X className="w-3 h-3" /></button>
+              )}
+            </div>
+          )}
           <div className="flex items-end gap-2">
+            <button
+              onClick={suggestReplies}
+              disabled={voiceBusy || !hasModel}
+              className={clsx('p-2.5 rounded-full shrink-0 transition-colors disabled:opacity-40', voiceBusy ? 'text-accent' : 'text-ink-3 hover:bg-wash hover:text-accent')}
+              title="Suggest replies in my voice"
+            >
+              <Sparkles className={clsx('w-4 h-4', voiceBusy && 'animate-pulse')} />
+            </button>
             <textarea
               value={draft}
               onChange={e => setDraft(e.target.value)}

@@ -13,6 +13,12 @@ export interface CatalogModel {
   primary?: boolean;   // THE single get-started pick for its RAM tier (drives recommendSetup)
   gated?: boolean;     // requires HuggingFace login — show link instead of download
   gatedUrl?: string;
+  // Local vision: a natively-multimodal model (e.g. Gemma 3) becomes image-capable when llama-server
+  // is launched with its CLIP projector (--mmproj). Download mmprojFilename from mmprojUrl alongside
+  // the model and pass the on-disk path to start_local_model.
+  vision?: boolean;
+  mmprojUrl?: string;
+  mmprojFilename?: string;
 }
 
 // ─── 8 GB tier ────────────────────────────────────────────────────────────────
@@ -56,6 +62,22 @@ const TIER_8: CatalogModel[] = [
     role: 'Reasoning',
     bestFor: 'Step-by-step reasoning, math, logic problems',
     notGreatFor: 'Casual chat, creative writing',
+  },
+  {
+    id: 'gemma3-4b',
+    name: 'Gemma 3 4B',
+    ggufFilename: 'google_gemma-3-4b-it-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/google_gemma-3-4b-it-Q4_K_M.gguf',
+    sizeMb: 2490,
+    ramGb: 8,
+    contextK: 128,
+    role: 'General',
+    bestFor: 'Reads images on a small Mac — the lightest local vision option, plus fluent writing',
+    notGreatFor: 'Complex reasoning or coding (it is small)',
+    tag: 'Vision · Low-RAM',
+    vision: true,
+    mmprojUrl: 'https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/mmproj-google_gemma-3-4b-it-f16.gguf',
+    mmprojFilename: 'mmproj-google_gemma-3-4b-it-f16.gguf',
   },
 ];
 
@@ -121,10 +143,13 @@ const TIER_16: CatalogModel[] = [
     ramGb: 16,
     contextK: 128,
     role: 'General',
-    bestFor: 'Fluent writing, instruction-following, long context (128K)',
+    bestFor: 'Fluent writing, instruction-following, long context (128K), reads images',
     notGreatFor: 'Complex code generation',
-    tag: 'Google',
+    tag: 'Google · Vision',
     primary: true,
+    vision: true,
+    mmprojUrl: 'https://huggingface.co/bartowski/google_gemma-3-12b-it-GGUF/resolve/main/mmproj-google_gemma-3-12b-it-f16.gguf',
+    mmprojFilename: 'mmproj-google_gemma-3-12b-it-f16.gguf',
   },
 ];
 
@@ -166,10 +191,13 @@ const TIER_32: CatalogModel[] = [
     ramGb: 32,
     contextK: 128,
     role: 'General',
-    bestFor: 'Writing, analysis, very long context (128K), instruction-following',
+    bestFor: 'Writing, analysis, very long context (128K), instruction-following, reads images',
     notGreatFor: 'Heavy coding tasks',
-    tag: 'Google',
+    tag: 'Google · Vision',
     primary: true,
+    vision: true,
+    mmprojUrl: 'https://huggingface.co/bartowski/google_gemma-3-27b-it-GGUF/resolve/main/mmproj-google_gemma-3-27b-it-f16.gguf',
+    mmprojFilename: 'mmproj-google_gemma-3-27b-it-f16.gguf',
   },
 ];
 

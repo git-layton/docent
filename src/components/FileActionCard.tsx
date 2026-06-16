@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useSpaceStore } from '../store/useSpaceStore';
 import { classifyOp, isPreapproved, effectOf, makeGrant } from '../services/fileAccess/consent';
+import { resolveWorkspaceOpPaths } from '../services/fileAccess/spaces';
 import type { FileOp, OpTier, GrantScope } from '../services/fileAccess/types';
 
 // Auto-apply must be idempotent across React re-renders (chat messages re-render constantly while
@@ -85,30 +87,39 @@ export function FileActionCard({ op, opKey, streaming, onToast }: Props) {
   const tier = classifyOp(op, workspaceRoot);
   const preapproved = tier !== 'invalid' && isPreapproved(op, workspaceRoot, grants);
 
+  // Workspace-tier ops land in the ACTIVE SPACE's home folder (spaces/<id>/…), matching the human
+  // panel. Relative paths get the space prefix; absolute/external paths are untouched. No active
+  // space ⇒ no prefix (today's behavior). Classification stays on the original op above — a prefixed
+  // relative path is still workspace-tier — and a space ≈ a project, so its folder is the agent's desk.
+  const activeSpaceId = useSpaceStore.getState().activeSpaceId;
+  const resolved = resolveWorkspaceOpPaths(op, tier, activeSpaceId);
+
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<string>('');
   const [readOut, setReadOut] = useState<string | null>(null);
   const [current, setCurrent] = useState<string | null>(null);
 
   const finish = useCallback((ok: boolean, detail: string, content?: string) => {
+    // Log the RESOLVED path so the activity receipt matches where the op actually landed.
     useSettingsStore.getState().logFileActivity({
-      id: opKey, action: op.action, path: op.path ?? op.to ?? '', tier, ok, detail, at: Date.now(),
+      id: opKey, action: op.action, path: resolved.path ?? resolved.to ?? '', tier, ok, detail, at: Date.now(),
     });
     if (content !== undefined && (op.action === 'read' || op.action === 'list')) setReadOut(content);
     setResult(detail);
     setPhase(ok ? 'done' : 'error');
-  }, [op, opKey, tier]);
+  }, [op, opKey, tier, resolved]);
 
   const apply = useCallback(async (scope?: GrantScope) => {
     setPhase('running');
+    // External grants are keyed off the absolute target, which the space prefix never touches.
     const target = op.action === 'import' ? op.source : op.path;
     if (scope && scope !== 'once' && target) {
       useSettingsStore.getState().addFileGrant(makeGrant(target, scope, effectOf(op.action), Date.now()));
     }
-    const r = await runOp(op, tier);
+    const r = await runOp(resolved, tier);
     finish(r.ok, r.detail, r.content);
     if (!r.ok) onToast(`File op failed: ${r.detail}`);
-  }, [op, tier, finish, onToast]);
+  }, [op, resolved, tier, finish, onToast]);
 
   // Auto-apply workspace ops (and anything a remembered grant already covers) — exactly once.
   useEffect(() => {

@@ -63,7 +63,8 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     // Listen for download progress events
     listen('download-progress', (event: any) => {
       const { filename, pct, downloaded_mb, total_mb } = event.payload;
-      const model = MODEL_CATALOG.find(m => m.ggufFilename === filename);
+      // Match either the model GGUF or its vision projector so progress shows during both downloads.
+      const model = MODEL_CATALOG.find(m => m.ggufFilename === filename || m.mmprojFilename === filename);
       if (model) {
         setModelState(model.id, { status: 'downloading', pct, downloadedMb: downloaded_mb, totalMb: total_mb });
       }
@@ -83,8 +84,17 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
         url: model.downloadUrl,
         filename: model.ggufFilename,
       });
+      // Vision models ship a separate CLIP projector — fetch it too so llama-server can see.
+      let mmprojPath: string | undefined;
+      if (model.mmprojUrl && model.mmprojFilename) {
+        setModelState(model.id, { status: 'installing' });
+        mmprojPath = await invoke<string>('download_model', {
+          url: model.mmprojUrl,
+          filename: model.mmprojFilename,
+        });
+      }
       setModelState(model.id, { status: 'installing' });
-      await launchModel(model, filePath);
+      await launchModel(model, filePath, mmprojPath);
     } catch (err: any) {
       if (err === 'cancelled' || String(err).includes('cancelled')) {
         setModelState(model.id, { status: 'idle' });
@@ -97,18 +107,20 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
   async function handleLoad(model: CatalogModel) {
     const dir = await invoke<string>('get_models_dir');
     const filePath = `${dir}/${model.ggufFilename}`;
+    const mmprojPath = model.mmprojFilename ? `${dir}/${model.mmprojFilename}` : undefined;
     setModelState(model.id, { status: 'installing' });
     try {
-      await launchModel(model, filePath);
+      await launchModel(model, filePath, mmprojPath);
     } catch (err: any) {
       setModelState(model.id, { status: 'error', error: String(err) });
     }
   }
 
-  async function launchModel(model: CatalogModel, filePath: string) {
+  async function launchModel(model: CatalogModel, filePath: string, mmprojPath?: string) {
     const endpoint = await invoke<string>('start_local_model', {
       modelPath: filePath,
       port: DEFAULT_PORT,
+      mmprojPath: mmprojPath ?? null,
     });
     setModelState(model.id, { status: 'ready', endpoint });
     const newModel = {
@@ -119,8 +131,9 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       endpoint,
       apiKey: '',
       contextLimit: engineContextLimit(model.contextK),
-      canImage: supportsVision(model.ggufFilename),
+      canImage: supportsVision(model.ggufFilename) || !!model.vision,
       isLocal: true,
+      mmprojPath,
     };
     onModelReady(newModel);
   }
@@ -130,9 +143,12 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     setModelState(model.id, { status: 'idle' });
   }
 
-  function handleUseModel(model: CatalogModel) {
+  async function handleUseModel(model: CatalogModel) {
     const state = states[model.id];
-    if (state?.endpoint) {
+    if (!state?.endpoint) return;
+    try {
+      const dir = model.mmprojFilename ? await invoke<string>('get_models_dir') : '';
+      const mmprojPath = model.mmprojFilename ? `${dir}/${model.mmprojFilename}` : undefined;
       const existing = {
         id: genId('native'),
         name: model.name,
@@ -141,10 +157,13 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
         endpoint: state.endpoint,
         apiKey: '',
         contextLimit: engineContextLimit(model.contextK),
-        canImage: supportsVision(model.ggufFilename),
+        canImage: supportsVision(model.ggufFilename) || !!model.vision,
         isLocal: true,
+        mmprojPath,
       };
       onModelReady(existing);
+    } catch (err: any) {
+      setModelState(model.id, { status: 'error', error: String(err) });
     }
   }
 

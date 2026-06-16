@@ -210,6 +210,88 @@ pub async fn mail_fetch_body(
     .map_err(|e| format!("mail task failed: {e}"))?
 }
 
+/// One sent message's plain-text body — used to learn the user's writing voice ("write like me").
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SentMail {
+    text: String,
+}
+
+/// Candidate Sent-folder names per provider (IMAP servers name this mailbox differently).
+fn sent_mailbox_candidates(provider: &str) -> &'static [&'static str] {
+    match provider.to_ascii_lowercase().as_str() {
+        "gmail" | "google" => &["[Gmail]/Sent Mail", "Sent Mail", "Sent"],
+        "icloud" | "apple" | "me" => &["Sent Messages", "Sent"],
+        _ => &["Sent", "Sent Items", "Sent Messages"],
+    }
+}
+
+/// Fetch the plain-text bodies of the most recent `limit` messages the user SENT, for voice learning.
+/// Tries provider-specific Sent-folder names and uses the first that opens. Returns newest-first.
+#[tauri::command]
+pub async fn mail_fetch_sent(
+    provider: String,
+    email: String,
+    password: String,
+    limit: u32,
+) -> Result<Vec<SentMail>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SentMail>, String> {
+        let (host, port) = imap_endpoint(&provider)?;
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls)
+            .map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client
+            .login(&email, &password)
+            .map_err(|(e, _client)| format!("login rejected: {e}"))?;
+
+        // Open the first Sent folder that exists for this provider.
+        let mut total = 0u32;
+        let mut opened = false;
+        for name in sent_mailbox_candidates(&provider) {
+            if let Ok(mb) = session.select(name) {
+                total = mb.exists;
+                opened = true;
+                break;
+            }
+        }
+        if !opened {
+            let _ = session.logout();
+            return Err("could not open a Sent folder for this account".to_string());
+        }
+        if total == 0 {
+            let _ = session.logout();
+            return Ok(Vec::new());
+        }
+
+        let want = limit.max(1);
+        let start = if total > want { total - want + 1 } else { 1 };
+        let seq = format!("{start}:{total}");
+        let fetches = session
+            .fetch(seq, "(RFC822)")
+            .map_err(|e| format!("fetch failed: {e}"))?;
+
+        let mut out: Vec<SentMail> = Vec::new();
+        for msg in fetches.iter() {
+            if let Some(raw) = msg.body() {
+                if let Some(parsed) = mail_parser::MessageParser::default().parse(raw) {
+                    let text = parsed.body_text(0).map(|c| c.to_string()).unwrap_or_default();
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        out.push(SentMail { text: trimmed.to_string() });
+                    }
+                }
+            }
+        }
+        let _ = session.logout();
+        out.reverse(); // newest first
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("mail task failed: {e}"))?
+}
+
 /// Set or clear the \Seen flag on a message (mark read / unread).
 #[tauri::command]
 pub async fn mail_set_seen(

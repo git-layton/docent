@@ -19,7 +19,7 @@ import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 
-import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry, modelSupportsVision, supportsVision } from './services/llm';
+import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry, modelSupportsVision, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
@@ -70,6 +70,7 @@ import { MessagesPanel } from './components/MessagesPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { CalendarPanel } from './components/CalendarPanel';
 import { AgentForgeCodePanel } from './components/AgentForgeCodePanel';
+import { GalleryPanel } from './components/GalleryPanel';
 import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateCard, GcalDeleteCard } from './components/EventCards';
 import { CmdKPalette } from './components/CmdKPalette';
 import { MarginaliaLayer } from './components/MarginaliaLayer';
@@ -558,7 +559,7 @@ export default function App() {
     [allOmniTabs, activeSpaceId, activeOmniTab?.id, assistants],
   );
 
-  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext]);
+  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext, voiceProfile: appSettings?.voiceProfile }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext]);
 
   // Recency-weighted fingerprint of what this agent's user actually saves
   const pinProfile = useMemo(
@@ -905,10 +906,11 @@ export default function App() {
     const reader = new FileReader();
     if (file.type.startsWith('image/')) {
       // Backstop for drag-drop / paste paths that bypass the composer's docs-only accept filter.
+      // Allowed when the model sees natively OR a Vision Provider can read the image into text.
       const ss = useSettingsStore.getState();
       const sel = ss.models.find(m => m.id === ss.selectedModelId) ?? ss.models[0] ?? null;
-      if (!modelSupportsVision(sel)) {
-        ui.setUploadError(`${sel?.name ?? 'This model'} can't read images — switch to a vision model (e.g. GPT-4o, Claude, Gemini).`);
+      if (!modelSupportsVision(sel) && !hasVisionProvider(ss.appSettings, ss.integrations, ss.models)) {
+        ui.setUploadError(`${sel?.name ?? 'This model'} can't read images. Turn on Image Understanding in Settings (Gemini's free tier works), or pick a vision model.`);
         ui.showToast("This model can't read images.");
         e.target.value = '';
         return;
@@ -1023,9 +1025,41 @@ export default function App() {
     ui.setSavedApps((prev: any[]) => exists && !asNew ? prev.map((a: any) => a.id === id ? item : a) : [item, ...prev]);
     ui.setCanvasContent(item); ui.setShowSaveModal(false); ui.showToast('Saved to Archives!');
   };
-  const saveImageToLibrary = useCallback((src: string) => {
-     const item = { id: generateId('art'), title: 'Generated Image', type: 'image', content: src, updatedAt: Date.now() };
-     useUIStore.getState().setSavedApps((prev: any[]) => [item, ...prev]);
+  // Image Library: every image (generated OR attached) lands here — tagged with its Space + a vision
+  // description so it's findable by what's IN it (search indexes the description, not the base64).
+  // De-duped by content; the description is fetched best-effort in the background and patched in.
+  const saveImageToLibrary = useCallback((src: string, meta?: { title?: string; name?: string; source?: 'generated' | 'attached'; mimeType?: string }) => {
+     if (!src) return;
+     const id = generateId('art');
+     const spaceId = useSpaceStore.getState().activeSpaceId ?? undefined;
+     const item = {
+       id,
+       title: meta?.title || meta?.name || (meta?.source === 'attached' ? 'Attached Image' : 'Generated Image'),
+       name: meta?.name,
+       type: 'image',
+       content: src,
+       source: meta?.source ?? 'generated',
+       spaceId,
+       description: '',
+       updatedAt: Date.now(),
+     };
+     let added = false;
+     useUIStore.getState().setSavedApps((prev: any[]) => {
+       if (prev.some((a: any) => a.type === 'image' && a.content === src)) return prev; // de-dupe identical images
+       added = true;
+       return [item, ...prev];
+     });
+     if (!added) return;
+     // Read the image into searchable text in the background (best-effort; needs a vision provider).
+     void (async () => {
+       try {
+         const ss = useSettingsStore.getState();
+         const route = resolveVisionRoute(ss.appSettings, ss.integrations, ss.models);
+         if (!route) return;
+         const description = await describeImage(src, meta?.mimeType || 'image/png', route);
+         if (description) useUIStore.getState().setSavedApps((prev: any[]) => prev.map((a: any) => a.id === id ? { ...a, description } : a));
+       } catch { /* description is best-effort — the image is still saved and openable */ }
+     })();
   }, []);
 
   const persistGatekeeperMemory = useCallback(async (chatId: string, userMsg: any, decision: ReturnType<typeof evaluateMemoryGate>, agent: any) => {
@@ -1614,7 +1648,7 @@ export default function App() {
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
             goal: _activeSpace?.agentGoals?.[agent.id],
           });
 
@@ -1671,7 +1705,7 @@ export default function App() {
               integrations: _integrations,
               models: _models,
               runIntegrationTools,
-              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall,
+              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
               goal: _activeSpace?.agentGoals?.[primaryAgent.id],
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
@@ -1734,7 +1768,7 @@ export default function App() {
             models: _models,
             runIntegrationTools,
             browserContext: _browserContext,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
             goal: _activeSpace?.agentGoals?.[_activeAssistant?.id],
         });
 
@@ -1844,6 +1878,10 @@ export default function App() {
       }
     }
     const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
+    // Auto-save any attached images to the Image Library (de-duped, described in the background).
+    for (const f of _attachedDocs) {
+      if (f?.isImage && typeof f.content === 'string') saveImageToLibrary(f.content, { source: 'attached', name: f.name, mimeType: f.type });
+    }
     if(chatId) {
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: [...(prev[chatId] ?? []), userMsg] }));
         useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, updatedAt: Date.now() } : c));
@@ -2310,6 +2348,9 @@ export default function App() {
     }
     if (tab.type === 'tool' && tab.toolId === 'agentforge-code') {
       return <AgentForgeCodePanel />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'gallery') {
+      return <GalleryPanel spaceId={tab.spaceId} />;
     }
     if (tab.type === 'tool' && tab.toolId === 'activity') {
       return (

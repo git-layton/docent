@@ -2,9 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
   MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
-  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote
+  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
+import { normalizeVoiceProfile } from '../services/voice';
+import { buildVoiceCard } from '../services/voiceRuntime';
 import { VoiceSetupModal } from './VoiceSetupModal';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
@@ -15,6 +18,10 @@ import { db } from '../services/database';
 import { migrateLocalCalendarToEventkit, localCalendarMigrationCount, migrateLocalTasksToEventkit, localTasksMigrationCount } from '../services/connectors/migrate';
 import { getCalendar, getTasks, getNotes } from '../services/connectors';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
+import { describeImage, resolveVisionRoute } from '../services/llm';
+
+// 1×1 PNG used purely to round-trip the vision provider on "Test" (proves the key/endpoint works).
+const VISION_TEST_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 interface ProfileSettingsModalProps {
   fetchImageModels: () => void;
@@ -32,15 +39,39 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const imageTestState = useSettingsStore(s => s.imageTestState);
   const imageEngineModels = useSettingsStore(s => s.imageEngineModels);
   const isFetchingImageModels = useSettingsStore(s => s.isFetchingImageModels);
+  const visionTestState = useSettingsStore(s => s.visionTestState);
   const models = useSettingsStore(s => s.models);
   const theme = useSettingsStore(s => s.theme);
   const accentColor = useSettingsStore(s => s.accentColor);
   const { setUserName, setUserProfile, setUserAvatar, setIntegrations, setAppSettings, setProfileSettingsTab,
-    setImageTestState, setImageEngineModels, setShowProfileSettings, setTheme, setAccentColor } = useSettingsStore.getState();
+    setImageTestState, setImageEngineModels, setVisionTestState, setShowProfileSettings, setTheme, setAccentColor } = useSettingsStore.getState();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const displayName = userName?.trim() || userProfile?.split('\n')[0]?.trim().replace(/^[#\s]+/, '').trim() || 'You';
+
+  // ── "Write Like Me" — personal writing voice ──
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const voice = normalizeVoiceProfile(appSettings?.voiceProfile);
+  const setVoice = (patch: any) => {
+    setAppSettings((prev: any) => ({ ...prev, voiceProfile: { ...normalizeVoiceProfile(prev?.voiceProfile), ...patch } }));
+    void useSettingsStore.getState().persist();
+  };
+  const rebuildVoice = async () => {
+    if (voiceBusy) return;
+    if (models.length === 0) { useUIStore.getState().showToast('Connect a model first to learn your voice.'); return; }
+    setVoiceBusy(true);
+    try {
+      const { card, sampleCounts } = await buildVoiceCard();
+      setAppSettings((prev: any) => ({ ...prev, voiceProfile: { ...normalizeVoiceProfile(prev?.voiceProfile), enabled: true, card, sampleCounts, lastBuiltAt: Date.now() } }));
+      await useSettingsStore.getState().persist();
+      useUIStore.getState().showToast('✍️ Learned your writing voice.');
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not learn your voice.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -301,13 +332,29 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
   const hasImplicitGoogleKey = models.some((m: any) => m.provider === 'google' && m.apiKey);
   const hasImplicitOpenAIKey = models.some((m: any) => m.provider === 'openai' && m.apiKey);
+  const hasImplicitAnthropicKey = models.some((m: any) => m.provider === 'anthropic' && m.apiKey);
   const activeImageKey = appSettings.imageProvider === 'openai'
     ? (integrations.openai?.apiKey || models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey)
     : appSettings.imageProvider === 'google'
     ? (integrations.google?.apiKey || models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey)
     : integrations.customImage?.apiKey || '';
 
-  const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); };
+  // Whether the current Image Understanding setting resolves to a usable backend (for Test/status).
+  const visionRouteReady = !!resolveVisionRoute(appSettings, integrations, models);
+  // Round-trip the configured vision provider on a tiny image to confirm the key/endpoint works.
+  const runVisionTest = async () => {
+    setVisionTestState({ loading: true, error: null, successUrl: null });
+    try {
+      const route = resolveVisionRoute(appSettings, integrations, models);
+      if (!route) throw new Error('No vision provider available — pick one and add a key, or set an endpoint.');
+      const desc = await describeImage(VISION_TEST_IMAGE, 'image/png', route);
+      setVisionTestState({ loading: false, error: null, successUrl: desc || '(empty response)' });
+    } catch (e: any) {
+      setVisionTestState({ loading: false, error: String(e?.message || e), successUrl: null });
+    }
+  };
+
+  const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); setVisionTestState({ loading: false, error: null, successUrl: null }); };
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
       <div className="bg-panel w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]">
@@ -381,6 +428,63 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-primary' : 'bg-inset '}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.allowProfileUpdates ? 'right-0.5' : 'left-0.5'}`} />
                  </button>
+              </div>
+
+              {/* Write Like Me — personal writing voice */}
+              <div className="mt-4 rounded-2xl border border-edge bg-inset p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="w-4 h-4 text-accent shrink-0" />
+                    <div>
+                      <span className="text-sm font-bold block">Write Like Me</span>
+                      <span className="text-tiny text-ink-3 font-medium tracking-wide">Agents draft messages, emails & replies in your own voice — learned from your sent texts & mail.</span>
+                    </div>
+                  </div>
+                  <button onClick={() => setVoice({ enabled: !voice.enabled })} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${voice.enabled ? 'bg-primary' : 'bg-inset '}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${voice.enabled ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+
+                {voice.enabled && (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button onClick={rebuildVoice} disabled={voiceBusy} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-accent text-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong transition-all disabled:opacity-50">
+                        {voiceBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                        {voice.card ? 'Rebuild from my messages' : 'Learn my voice'}
+                      </button>
+                      {voice.lastBuiltAt && (
+                        <span className="text-tiny text-ink-3 font-medium">
+                          {(voice.sampleCounts?.imessage ?? 0) + (voice.sampleCounts?.email ?? 0)} samples · updated {new Date(voice.lastBuiltAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-tiny font-black uppercase opacity-50 mb-1.5 block tracking-widest">Your Voice Profile</label>
+                      <textarea
+                        value={voice.card}
+                        onChange={e => setVoice({ card: e.target.value })}
+                        rows={6}
+                        placeholder="Tap “Learn my voice” to build this automatically from your sent messages — or describe your style here yourself."
+                        className="w-full bg-panel border-2 border-edge-2 rounded-2xl px-4 py-3 text-xs font-medium resize-none outline-none focus:border-secondary leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-tiny font-black uppercase opacity-50 tracking-widest mr-1">Use in</span>
+                      {(['chat', 'imessage', 'email'] as const).map(key => {
+                        const label = key === 'chat' ? 'Agent chat' : key === 'imessage' ? 'Messages' : 'Email';
+                        const on = voice.perSurface[key];
+                        return (
+                          <button key={key} onClick={() => setVoice({ perSurface: { ...voice.perSurface, [key]: !on } })} className={`px-3 py-1.5 rounded-full text-tiny font-bold transition-all ${on ? 'bg-accent text-on-accent' : 'bg-inset text-ink-3 hover:text-ink'}`}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-tiny text-ink-3 font-medium">Your messages are read locally on this Mac to learn your style — only the resulting profile goes to the model you’ve connected.</p>
+                  </div>
+                )}
               </div>
 
               {/* User Guide section */}
@@ -573,9 +677,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                                 }
                                 onChange={e => {
                                    const val = e.target.value;
-                                   if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { apiKey: val } }));
-                                   else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { apiKey: val } }));
-                                   else setIntegrations((prev: any) => ({ ...prev, customImage: { apiKey: val } }));
+                                   if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } }));
+                                   else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } }));
+                                   else setIntegrations((prev: any) => ({ ...prev, customImage: { ...prev.customImage, apiKey: val } }));
                                 }}
                                 placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
                                 className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
@@ -663,6 +767,99 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                            <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white  shadow-sm text-primary dark:text-white' : 'text-ink-3 hover:text-ink-2 dark:hover:text-ink-2'}`}>In-Chat Message</button>
                         </div>
                      </div>
+                 )}
+              </div>
+
+              {/* Image Understanding (vision) — mirror of the Image Engine, pointed the other way */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
+                 <div>
+                    <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><Eye className="w-4 h-4 text-accent" /> Image Understanding</h4>
+                    <p className="text-xs text-ink-3 font-medium">Lets any chat model read images you attach. Vision-capable models see them directly; text-only models use the model you pick here to read the image into text. Keys are stored locally.</p>
+                 </div>
+
+                 <div>
+                    <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">Provider</label>
+                    <select value={appSettings.visionProvider} onChange={e => { setAppSettings((prev: any) => ({ ...prev, visionProvider: e.target.value, visionModelId: '', visionEndpoint: '' })); setVisionTestState({ loading: false, error: null, successUrl: null }); }} className="w-full bg-inset border-2 border-edge-2 rounded-xl px-4 py-3 text-xs outline-none focus:border-secondary font-bold">
+                       <option value="auto">Automatic (use a connected key)</option>
+                       <option value="none">Disabled</option>
+                       <option value="google">Google (Gemini)</option>
+                       <option value="openai">OpenAI (GPT-4o)</option>
+                       <option value="anthropic">Anthropic (Claude)</option>
+                       <option value="custom">Local / Custom Endpoint</option>
+                    </select>
+                    {appSettings.visionProvider === 'auto' && (
+                       <p className="text-tiny text-ink-3 mt-2 font-medium">{visionRouteReady ? 'Using a key already connected to your chat models — nothing leaves your Mac unless you attach an image.' : 'No connected key found yet. Connect Google/OpenAI/Anthropic, or choose Local/Custom.'}</p>
+                    )}
+                 </div>
+
+                 {(appSettings.visionProvider === 'google' || appSettings.visionProvider === 'openai' || appSettings.visionProvider === 'anthropic' || appSettings.visionProvider === 'custom') && (
+                    <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
+
+                       {appSettings.visionProvider === 'google' && hasImplicitGoogleKey ? (
+                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.</div>
+                       ) : appSettings.visionProvider === 'openai' && hasImplicitOpenAIKey ? (
+                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.</div>
+                       ) : appSettings.visionProvider === 'anthropic' && hasImplicitAnthropicKey ? (
+                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Anthropic API Key from Chat Models.</div>
+                       ) : appSettings.visionProvider !== 'custom' ? (
+                          <div className="flex flex-col gap-2">
+                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
+                             <input
+                                type="password"
+                                value={appSettings.visionProvider === 'google' ? integrations.google?.apiKey || '' : appSettings.visionProvider === 'openai' ? integrations.openai?.apiKey || '' : integrations.anthropic?.apiKey || ''}
+                                onChange={e => { const val = e.target.value; if (appSettings.visionProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } })); else if (appSettings.visionProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } })); else setIntegrations((prev: any) => ({ ...prev, anthropic: { ...prev.anthropic, apiKey: val } })); }}
+                                placeholder={appSettings.visionProvider === 'google' ? 'AIzaSy...' : appSettings.visionProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                             />
+                          </div>
+                       ) : null}
+
+                       {appSettings.visionProvider === 'custom' && (
+                          <div className="flex flex-col gap-2">
+                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Endpoint (OpenAI-compatible)</label>
+                             <input
+                                type="text"
+                                value={appSettings.visionEndpoint || ''}
+                                onChange={e => setAppSettings((prev: any) => ({ ...prev, visionEndpoint: e.target.value }))}
+                                placeholder="http://127.0.0.1:8080/v1"
+                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                             />
+                          </div>
+                       )}
+
+                       <div className="flex flex-col gap-2 border-t border-edge pt-4">
+                          <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Vision Model <span className="opacity-50 normal-case font-medium">(optional)</span></label>
+                          <input
+                             type="text"
+                             value={appSettings.visionModelId || ''}
+                             onChange={e => setAppSettings((prev: any) => ({ ...prev, visionModelId: e.target.value }))}
+                             placeholder={appSettings.visionProvider === 'google' ? 'gemini-2.5-flash' : appSettings.visionProvider === 'openai' ? 'gpt-4o-mini' : appSettings.visionProvider === 'anthropic' ? 'claude-3-5-haiku-latest' : 'model id served at endpoint'}
+                             className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                          />
+                       </div>
+                    </div>
+                 )}
+
+                 {appSettings.visionProvider !== 'none' && (
+                    <div className="pt-2 border-t border-edge flex flex-col gap-3">
+                       <button
+                          onClick={runVisionTest}
+                          disabled={visionTestState.loading || !visionRouteReady}
+                          className="flex items-center justify-center gap-2 w-full py-3 bg-accent-soft hover:bg-wash text-accent-soft-ink rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                       >
+                          {visionTestState.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                          {visionTestState.loading ? 'Testing...' : 'Test Connection'}
+                       </button>
+                       {visionTestState.error && (
+                          <div className="p-4 bg-error/10 text-error rounded-xl border border-error/20 text-xs font-bold leading-relaxed">{visionTestState.error}</div>
+                       )}
+                       {visionTestState.successUrl && (
+                          <div className="p-4 bg-success-light/10 rounded-xl border border-success-light/20 text-xs leading-relaxed animate-in fade-in">
+                             <span className="text-tiny font-black uppercase tracking-widest text-success-light flex items-center gap-1 mb-2"><ShieldCheck className="w-3 h-3" /> Connection successful — it can see</span>
+                             <span className="text-ink-2 font-medium block">{visionTestState.successUrl}</span>
+                          </div>
+                       )}
+                    </div>
                  )}
               </div>
 

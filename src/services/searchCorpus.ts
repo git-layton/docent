@@ -63,9 +63,26 @@ export function buildSearchCorpus(scope: SearchScope): SearchDoc[] {
     });
   }
 
+  // Saved images form the Image Library — searchable by their vision DESCRIPTION (the base64 blob is
+  // never matched). They belong to a Space, so they surface in both global and that Space's scope.
+  for (const a of savedApps ?? []) {
+    if (a.type !== 'image') continue;
+    if (!isGlobal && a.spaceId !== spaceId) continue;
+    out.push({
+      kind: 'Image',
+      id: `img-${a.id}`,
+      title: a.title || a.name || 'Image',
+      body: typeof a.description === 'string' ? a.description : undefined,
+      sub: a.source === 'attached' ? 'Attached image' : a.source === 'generated' ? 'Generated image' : 'Image',
+      image: typeof a.content === 'string' ? a.content : undefined,
+      timestamp: a.updatedAt,
+    });
+  }
+
   // Library docs and open tasks are global (not owned by a Space), so only the global scope sees them.
   if (isGlobal) {
     for (const a of savedApps ?? []) {
+      if (a.type === 'image') continue; // images handled above (searchable by description, not base64)
       out.push({
         kind: 'Doc',
         id: `doc-${a.id}`,

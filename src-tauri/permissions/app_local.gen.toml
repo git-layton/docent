@@ -91,6 +91,7 @@ allow = [
   "mail_delete",
   "mail_fetch_body",
   "mail_fetch_recent",
+  "mail_fetch_sent",
   "mail_send",
   "mail_set_flagged",
   "mail_set_seen",

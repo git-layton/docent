@@ -4,10 +4,13 @@ import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 import { invalidateUnreadCache } from '../lib/mailUnread';
 import { useToolContextStore } from '../store/useToolContextStore';
+import { normalizeVoiceProfile } from '../services/voice';
+import { buildVoiceCard, draftReply } from '../services/voiceRuntime';
 
 interface MailHeader {
   uid: number;
@@ -48,6 +51,8 @@ interface ComposeState {
   inReplyTo: string;
   account: string;
   provider: 'gmail' | 'icloud';
+  sourceText?: string;     // plain text of the message being replied to — context for "draft in my voice"
+  recipientName?: string;  // who we're writing to, for the voice draft
 }
 
 type SortMode = 'newest' | 'oldest' | 'unread' | 'starred' | 'sender';
@@ -124,6 +129,7 @@ export function MailInboxPanel() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false); // "write like me" drafting in progress
 
   const load = useCallback(async () => {
     if (accounts.length === 0) { setRows([]); return; }
@@ -356,7 +362,8 @@ export function MailInboxPanel() {
       to = [body.fromEmail].filter(Boolean);
     }
     const subject = /^re:/i.test(selected.subject || '') ? selected.subject : `Re: ${selected.subject || ''}`;
-    setCompose({ mode: all ? 'replyAll' : 'reply', to: to.join(', '), cc: cc.join(', '), subject, body: quoteBody(body, selected), inReplyTo: body.messageId || '', account: selected.account, provider: selected.provider });
+    const sourceText = (body.text || (body.html ? body.html.replace(/<[^>]+>/g, ' ') : '')).trim();
+    setCompose({ mode: all ? 'replyAll' : 'reply', to: to.join(', '), cc: cc.join(', '), subject, body: quoteBody(body, selected), inReplyTo: body.messageId || '', account: selected.account, provider: selected.provider, sourceText, recipientName: body.fromName || body.fromEmail });
     setSendError(null);
   };
 
@@ -386,6 +393,41 @@ export function MailInboxPanel() {
       setSendError(String(e));
     } finally {
       setSending(false);
+    }
+  };
+
+  // Draft this email in the user's own voice (learns their style on first use). Places the draft
+  // above any quoted original so the reply chain is preserved.
+  const draftEmailInVoice = async () => {
+    if (!compose || voiceBusy) return;
+    if (models.length === 0) { useUIStore.getState().showToast('Connect a model first to draft in your voice.'); return; }
+    setVoiceBusy(true);
+    try {
+      const existing = normalizeVoiceProfile(useSettingsStore.getState().appSettings?.voiceProfile);
+      if (!existing.card.trim()) {
+        useUIStore.getState().showToast('✍️ Learning your writing style…');
+        const { card, sampleCounts } = await buildVoiceCard();
+        useSettingsStore.getState().setAppSettings((prev: any) => ({
+          ...prev,
+          voiceProfile: { ...normalizeVoiceProfile(prev?.voiceProfile), enabled: true, card, sampleCounts, lastBuiltAt: Date.now() },
+        }));
+        await useSettingsStore.getState().persist();
+      }
+      const recipient = compose.recipientName || compose.to.split(',')[0]?.trim() || undefined;
+      const incoming = compose.sourceText || (compose.subject ? `Subject: ${compose.subject}` : '');
+      const [draft] = await draftReply({ surface: 'email', incoming, recipient, count: 1 });
+      if (draft) {
+        setCompose(c => {
+          if (!c) return c;
+          const idx = c.body.indexOf('\n\n\nOn '); // start of the quoted original, if any
+          const quote = idx >= 0 ? c.body.slice(idx) : '';
+          return { ...c, body: draft + quote };
+        });
+      }
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not draft the email.');
+    } finally {
+      setVoiceBusy(false);
     }
   };
 
@@ -421,6 +463,14 @@ export function MailInboxPanel() {
           </span>
           <span className="text-xs text-ink-3">from {compose.account}</span>
           <div className="flex-1" />
+          <button
+            onClick={draftEmailInVoice}
+            disabled={voiceBusy || sending}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-accent hover:bg-accent-soft transition-colors disabled:opacity-40"
+            title="Draft this email in my voice"
+          >
+            <Wand2 className={clsx('w-3.5 h-3.5', voiceBusy && 'animate-spin')} /> {voiceBusy ? 'Drafting…' : 'Draft in my voice'}
+          </button>
           <button onClick={sendCompose} disabled={sending} className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity disabled:opacity-40">
             {sending ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
           </button>

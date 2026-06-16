@@ -7,17 +7,19 @@
 // layer is owned by a separate effort (the Rust index behind webHistory's searchWebHistory) —
 // when that lands it composes with this, it doesn't replace it.
 
-export type SearchKind = 'App' | 'Doc' | 'Bookmark' | 'Task' | 'Chat' | 'Web';
+export type SearchKind = 'App' | 'Doc' | 'Bookmark' | 'Task' | 'Chat' | 'Web' | 'Image';
 
 export interface SearchDoc {
   kind: SearchKind;
   id: string;
   title: string;
-  /** Extra searchable text (doc contents, task details, recent messages). Matched, never displayed. */
+  /** Extra searchable text (doc contents, task details, recent messages, image descriptions). Matched, never displayed. */
   body?: string;
   /** Short display subtitle (also lightly searched). */
   sub?: string;
   url?: string;
+  /** For Image hits: a data URL / src rendered as a thumbnail in results. Displayed, never matched. */
+  image?: string;
   /** ms epoch — drives a mild recency tiebreak (recent wins when relevance ties). */
   timestamp?: number;
 }

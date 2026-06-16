@@ -4,7 +4,7 @@ import {
   AlertTriangle, Loader2, Brain, ListTodo, ShieldCheck, Trash2, Plus, Mic,
   Telescope, Code2, ScrollText, Smile, Eye
 } from 'lucide-react';
-import { supportsVision, modelSupportsVision } from '../services/llm';
+import { supportsVision, modelSupportsVision, hasVisionProvider } from '../services/llm';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
@@ -129,11 +129,18 @@ export function ChatInputBar({
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
   const modelValidation = useSettingsStore(s => s.modelValidation);
+  const appSettings = useSettingsStore(s => s.appSettings);
+  const integrations = useSettingsStore(s => s.integrations);
   const { setSelectedModelId, setModels, setShowModelWizard, setWizardStep } = useSettingsStore.getState();
 
-  // Image attachments only make sense for vision-capable models; docs/PDFs work everywhere.
-  // When the active model can't see, the picker is restricted to text/doc types and the tooltip says so.
-  const canAttachImages = modelSupportsVision(selectedModel);
+  // Docs/PDFs work everywhere. Images need either a vision-capable model OR a configured Image
+  // Understanding provider (which reads the image into text for any model). When neither is available,
+  // the picker is restricted to text/doc types and the tooltip says so.
+  // Derive the active model from the store (matching App.tsx's handleChatFileUpload backstop) so the
+  // composer gate never disagrees with the handler over a stale `selectedModel` prop.
+  const liveSelectedModel = models.find(m => m.id === selectedModelId) ?? selectedModel ?? null;
+  const modelSees = modelSupportsVision(liveSelectedModel);
+  const canAttachImages = modelSees || hasVisionProvider(appSettings, integrations, models);
   const DOC_ACCEPT = 'text/*,application/pdf,.md,.markdown,.csv,.tsv,.json,.xml,.yml,.yaml,.log,.rtf';
 
   return (
@@ -342,7 +349,7 @@ export function ChatInputBar({
             </div>
             <div className="w-px h-4 bg-edge mx-0.5" />
             {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-full transition-all ${isListening ? 'text-danger bg-danger-soft' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title={canAttachImages ? 'Attach document or image' : "Attach document — this model can't read images"}><Paperclip className="w-3.5 h-3.5" /></button>}
+            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title={modelSees ? 'Attach document or image' : canAttachImages ? 'Attach document or image — images read by your Image Understanding model' : "Attach document — this model can't read images"}><Paperclip className="w-3.5 h-3.5" /></button>}
             <input type="file" ref={fileInputRef} onChange={onChatFileUpload} accept={canAttachImages ? undefined : DOC_ACCEPT} className="hidden" />
             {/* Emoji picker */}
             {models.length > 0 && (

@@ -4,6 +4,7 @@ import { supportsVision } from '../services/llm';
 import { applyTheme, watchSystemTheme, DEFAULT_ACCENT, DEFAULT_THEME } from '../lib/theme';
 import type { ThemeMode } from '../lib/theme';
 import type { FileGrant, FileActivityEntry } from '../services/fileAccess/types';
+import { DEFAULT_VOICE_PROFILE, type VoiceProfile } from '../services/voice';
 
 export const LOCAL_PROVIDERS = ['ollama', 'lmstudio', 'native'] as const;
 
@@ -23,6 +24,7 @@ export interface Model {
   contextLimit: number;
   canImage: boolean;
   isLocal: boolean;
+  mmprojPath?: string;   // local vision: path to the mmproj projector llama-server was launched with
 }
 
 interface SettingsStore {
@@ -41,6 +43,11 @@ interface SettingsStore {
     imageProvider: string;
     imageModelId: string;
     imageEndpoint: string;
+    // Image Understanding (vision) — mirror of the Image Engine, pointed the other way: reads images
+    // into text so any chat model can use them. 'auto' uses an already-configured cloud key if present.
+    visionProvider: string;   // 'auto' | 'none' | 'google' | 'openai' | 'anthropic' | 'local' | 'custom'
+    visionModelId: string;
+    visionEndpoint: string;
     dreamAutoEnabled?: boolean;
     showContextWindowLine?: boolean;
     forgeInstanceId?: string;
@@ -57,6 +64,9 @@ interface SettingsStore {
     developerMode?: boolean;
     fileAccessGrants?: Record<string, FileGrant>;
     fileActivity?: FileActivityEntry[];
+    // "Write like me" — the user's distilled writing voice + per-surface toggles. Learned from
+    // their own sent comms; injected so agents compose on the user's behalf in their voice.
+    voiceProfile?: VoiceProfile;
   };
 
   // Profile settings modal
@@ -65,6 +75,9 @@ interface SettingsStore {
   imageTestState: { loading: boolean; error: string | null; successUrl: string | null };
   imageEngineModels: any[];
   isFetchingImageModels: boolean;
+  visionTestState: { loading: boolean; error: string | null; successUrl: string | null };
+  visionEngineModels: any[];
+  isFetchingVisionModels: boolean;
 
   // Model wizard
   showModelWizard: boolean;
@@ -115,6 +128,9 @@ interface SettingsStore {
   setImageTestState: (v: { loading: boolean; error: string | null; successUrl: string | null }) => void;
   setImageEngineModels: (v: any[]) => void;
   setIsFetchingImageModels: (v: boolean) => void;
+  setVisionTestState: (v: { loading: boolean; error: string | null; successUrl: string | null }) => void;
+  setVisionEngineModels: (v: any[]) => void;
+  setIsFetchingVisionModels: (v: boolean) => void;
   setShowModelWizard: (v: boolean) => void;
   setWizardStep: (step: number) => void;
   setEditingModel: (fn: ((prev: any) => any) | any) => void;
@@ -142,6 +158,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     googleCalendar: { connected: false },
     openai: { apiKey: '' },
     google: { apiKey: '' },
+    anthropic: { apiKey: '' },
     customImage: { apiKey: '' },
     slack: { enabled: false, botToken: '' },
     imessage: { enabled: false, setupComplete: false },
@@ -158,17 +175,24 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     imageProvider: 'none',
     imageModelId: '',
     imageEndpoint: '',
+    visionProvider: 'auto',
+    visionModelId: '',
+    visionEndpoint: '',
     dreamAutoEnabled: true,
     showContextWindowLine: false,
     developerMode: false,
     fileAccessGrants: {},
     fileActivity: [],
+    voiceProfile: DEFAULT_VOICE_PROFILE,
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,
   imageTestState: { loading: false, error: null, successUrl: null },
   imageEngineModels: [],
   isFetchingImageModels: false,
+  visionTestState: { loading: false, error: null, successUrl: null },
+  visionEngineModels: [],
+  isFetchingVisionModels: false,
   showModelWizard: false,
   wizardStep: 3,
   editingModel: { name: '', provider: 'openai', modelId: '', endpoint: '', apiKey: '', contextLimit: 128000 },
@@ -239,6 +263,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setImageTestState: (v) => set({ imageTestState: v }),
   setImageEngineModels: (v) => set({ imageEngineModels: v }),
   setIsFetchingImageModels: (v) => set({ isFetchingImageModels: v }),
+  setVisionTestState: (v) => set({ visionTestState: v }),
+  setVisionEngineModels: (v) => set({ visionEngineModels: v }),
+  setIsFetchingVisionModels: (v) => set({ isFetchingVisionModels: v }),
   setShowModelWizard: (v) => set({ showModelWizard: v }),
   setWizardStep: (step) => set({ wizardStep: step }),
   setEditingModel: (fn) =>
@@ -271,6 +298,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       imageProvider: 'none',
       imageModelId: '',
       imageEndpoint: '',
+      visionProvider: 'auto',
+      visionModelId: '',
+      visionEndpoint: '',
     });
     // Migrate legacy single googleWorkspace → googleWorkspaces array
     if (savedIntegrations.googleWorkspace && !savedIntegrations.googleWorkspaces) {

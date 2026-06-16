@@ -9,6 +9,7 @@ import {
   isPreapproved,
 } from '../../services/fileAccess/consent';
 import { provenanceComment, parseProvenance, importTargetName, stripProvenance } from '../../services/fileAccess/provenance';
+import { safeSpaceSegment, spaceHome, spacePath, relativeToSpace, resolveWorkspaceOpPaths } from '../../services/fileAccess/spaces';
 import type { FileOp, FileGrant } from '../../services/fileAccess/types';
 
 const ROOT = '/Users/me/AgentForge/workspace';
@@ -145,5 +146,91 @@ describe('fileAccess provenance', () => {
 
   it('leaves a file with no provenance untouched', () => {
     expect(stripProvenance('plain content, no fence')).toBe('plain content, no fence');
+  });
+});
+
+describe('fileAccess per-space home', () => {
+  it('derives a jail-relative home folder from a space id', () => {
+    expect(spaceHome('space-abc123')).toBe('spaces/space-abc123');
+  });
+
+  it('treats a missing space as the workspace root (no prefix)', () => {
+    expect(spaceHome(null)).toBe('');
+    expect(spaceHome(undefined)).toBe('');
+    expect(spacePath(null, 'plan.md')).toBe('plan.md');
+  });
+
+  it('sanitizes unsafe ids into a single safe path segment', () => {
+    expect(safeSpaceSegment('../../etc/passwd')).toBe('etc-passwd');
+    expect(safeSpaceSegment('')).toBe('default');
+    expect(safeSpaceSegment('My Space!! 2026')).toBe('My-Space-2026');
+  });
+
+  it('scopes a relative subpath into the space home', () => {
+    expect(spacePath('s1', 'notes/plan.md')).toBe('spaces/s1/notes/plan.md');
+    expect(spacePath('s1', '/leading/slash')).toBe('spaces/s1/leading/slash');
+    expect(spacePath('s1', '')).toBe('spaces/s1');
+  });
+
+  it('is idempotent — never double-prefixes a path already under the space home', () => {
+    expect(spacePath('s1', 'spaces/s1/plan.md')).toBe('spaces/s1/plan.md');
+    expect(spacePath('s1', spacePath('s1', 'notes/a.md'))).toBe('spaces/s1/notes/a.md');
+  });
+
+  it('strips the space prefix for display (round-trips with spacePath)', () => {
+    expect(relativeToSpace('s1', 'spaces/s1/notes/plan.md')).toBe('notes/plan.md');
+    expect(relativeToSpace('s1', spacePath('s1', 'a/b.md'))).toBe('a/b.md');
+    expect(relativeToSpace('s1', 'spaces/s1')).toBe('');
+    expect(relativeToSpace('s1', 'spaces/other/x.md')).toBe('spaces/other/x.md'); // not under this home
+  });
+});
+
+describe('fileAccess — resolveWorkspaceOpPaths (agent-scoping wire)', () => {
+  it('prefixes a workspace-tier relative path into the active space home', () => {
+    const op = { action: 'write', path: 'plan.md', content: 'x' };
+    expect(resolveWorkspaceOpPaths(op, 'workspace', 's1')).toEqual({
+      action: 'write', path: 'spaces/s1/plan.md', content: 'x',
+    });
+  });
+
+  it('prefixes BOTH endpoints of a workspace move', () => {
+    const op = { action: 'move', path: 'a.md', to: 'b.md' };
+    expect(resolveWorkspaceOpPaths(op, 'workspace', 's1')).toEqual({
+      action: 'move', path: 'spaces/s1/a.md', to: 'spaces/s1/b.md',
+    });
+  });
+
+  it('does NOT prefix when there is no active space (today\'s behavior)', () => {
+    const op = { action: 'write', path: 'plan.md', content: 'x' };
+    expect(resolveWorkspaceOpPaths(op, 'workspace', null)).toEqual(op);
+    expect(resolveWorkspaceOpPaths(op, 'workspace', undefined)).toEqual(op);
+  });
+
+  it('NEVER touches an external-tier (absolute) op', () => {
+    const op = { action: 'write', path: '/Users/me/Desktop/r.md', content: 'x' };
+    expect(resolveWorkspaceOpPaths(op, 'external', 's1')).toEqual(op);
+  });
+
+  it('scopes an import target name into the space, leaving the external source alone', () => {
+    const op = { action: 'import', source: '/Users/me/Desktop/r.pdf', to: 'r.pdf' };
+    expect(resolveWorkspaceOpPaths(op, 'external', 's1')).toEqual({
+      action: 'import', source: '/Users/me/Desktop/r.pdf', to: 'spaces/s1/r.pdf',
+    });
+  });
+
+  it('scopes a no-path workspace list to the space home (not the shared root)', () => {
+    expect(resolveWorkspaceOpPaths({ action: 'list' }, 'workspace', 's1')).toEqual({
+      action: 'list', path: 'spaces/s1',
+    });
+  });
+
+  it('does not prefix command or invalid tiers', () => {
+    const cmd = { action: 'command', path: undefined as any };
+    expect(resolveWorkspaceOpPaths(cmd, 'command', 's1')).toEqual(cmd);
+  });
+
+  it('returns the SAME reference when nothing is resolved (cheap no-op)', () => {
+    const op = { action: 'list' };
+    expect(resolveWorkspaceOpPaths(op, 'workspace', null)).toBe(op);
   });
 });

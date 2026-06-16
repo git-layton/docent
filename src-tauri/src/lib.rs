@@ -2662,6 +2662,7 @@ fn cancel_download(filename: String, dl_state: tauri::State<'_, DownloadState>) 
 async fn start_local_model(
     model_path: String,
     port: u16,
+    mmproj_path: Option<String>,
     llama_state: tauri::State<'_, LlamaState>,
 ) -> Result<String, String> {
     // Kill any running server first (drop lock before await)
@@ -2679,14 +2680,22 @@ async fn start_local_model(
             .join("llama-server")
     };
 
+    let mut server_args: Vec<String> = vec![
+        "-m".into(), model_path,
+        "--port".into(), port.to_string(),
+        "-c".into(), "32768".into(),
+        "--threads".into(), "4".into(),
+        "--host".into(), "127.0.0.1".into(),
+    ];
+    // Multimodal: load the CLIP projector so the model can see images (llama.cpp libmtmd / MTMD).
+    // Only passed when present, so text-only models are unaffected.
+    if let Some(mmproj) = mmproj_path.filter(|p| !p.is_empty()) {
+        server_args.push("--mmproj".into());
+        server_args.push(mmproj);
+    }
+
     let child = std::process::Command::new(&sidecar_path)
-        .args([
-            "-m", &model_path,
-            "--port", &port.to_string(),
-            "-c", "32768",
-            "--threads", "4",
-            "--host", "127.0.0.1",
-        ])
+        .args(&server_args)
         .spawn()
         .map_err(|e| format!("Failed to spawn llama-server: {}", e))?;
 
@@ -3571,6 +3580,7 @@ pub fn run() {
             check_page_is_private,
             mail::mail_test_connection,
             mail::mail_fetch_recent,
+            mail::mail_fetch_sent,
             mail::mail_fetch_body,
             mail::mail_set_seen,
             mail::mail_set_flagged,
@@ -3723,7 +3733,7 @@ mod tests {
         // mail, fs, model, and graph commands.
         for cmd in [
             "keychain_get", "keychain_save", "keychain_delete", "browser_eval", "browser_navigate",
-            "browser_create", "browser_reload", "mail_test_connection", "mail_fetch_recent",
+            "browser_create", "browser_reload", "mail_test_connection", "mail_fetch_recent", "mail_fetch_sent",
             "imessage_check_access", "imessage_open_fda_settings", "imessage_unread_count", "imessage_list_chats", "imessage_fetch_messages", "imessage_send",
             "eventkit_authorization_status", "eventkit_request_access", "eventkit_list_calendars", "eventkit_list_events", "eventkit_save_event", "eventkit_update_event", "eventkit_delete_event",
             "eventkit_list_reminders", "eventkit_save_reminder", "eventkit_set_reminder_completed", "eventkit_delete_reminder", "eventkit_update_reminder",

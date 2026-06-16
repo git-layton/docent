@@ -1,5 +1,6 @@
 import { renderAmbientContext } from './context/ambient';
 import { trustOfToolSource } from './trust';
+import { renderVoiceBlock } from './voice';
 
 export const MODEL_SPECS: Record<string, number> = {
   'gpt-4o': 128000,
@@ -39,8 +40,124 @@ export const supportsVision = (modelId: string) => {
 // Live, model-object-aware wrapper — the single source of truth used by the UI to decide
 // whether to surface image attachments. Keyed off modelId so it stays correct for models
 // persisted before vision gating existed (no migration/stored flag to drift out of sync).
-export const modelSupportsVision = (model: { modelId?: string } | null | undefined) =>
-  supportsVision(model?.modelId ?? '');
+// A local model launched with an mmproj projector (canImage/mmprojPath set at creation) also
+// counts as natively vision-capable even though its id doesn't match the heuristic.
+export const modelSupportsVision = (
+  model: { modelId?: string; canImage?: boolean; mmprojPath?: string } | null | undefined,
+) =>
+  !!model && (supportsVision(model.modelId ?? '') || model.canImage === true || !!model.mmprojPath);
+
+// ─── Image Understanding ("describe-and-inject") ────────────────────────────────
+// When the active chat model can't see, a configured Vision Provider reads the image into text
+// that is then injected into ANY model's context. Mirrors the Image Engine (image generation):
+// configured in appSettings.visionProvider/visionModelId/visionEndpoint, keyed off existing keys.
+
+const DEFAULT_VISION_MODEL: Record<string, string> = {
+  google: 'gemini-2.5-flash',
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-3-5-haiku-latest',
+};
+
+export interface VisionRoute {
+  provider: 'google' | 'openai' | 'anthropic' | 'local' | 'custom';
+  modelId: string;
+  endpoint?: string;
+  apiKey?: string;
+}
+
+// Resolve which backend understands an image when the chat model can't. Returns null when nothing is
+// available (caller gates / falls back). `'auto'` only picks a cloud provider whose key ALREADY
+// exists — it never invents credentials, so nothing silently leaves the device unprompted.
+export const resolveVisionRoute = (appSettings: any, integrations: any, models: any[]): VisionRoute | null => {
+  const sel = appSettings?.visionProvider || 'auto';
+  if (sel === 'none') return null;
+
+  const keyFor = (provider: string) =>
+    integrations?.[provider]?.apiKey || models?.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
+  const cloud = (provider: 'google' | 'openai' | 'anthropic'): VisionRoute | null => {
+    const apiKey = keyFor(provider);
+    return apiKey ? { provider, apiKey, modelId: appSettings?.visionModelId || DEFAULT_VISION_MODEL[provider] } : null;
+  };
+
+  if (sel === 'google' || sel === 'openai' || sel === 'anthropic') return cloud(sel);
+  if (sel === 'local' || sel === 'custom') {
+    if (!appSettings?.visionEndpoint) return null;
+    return {
+      provider: sel,
+      modelId: appSettings?.visionModelId || 'local-model',
+      endpoint: appSettings.visionEndpoint,
+      apiKey: integrations?.customImage?.apiKey || '',
+    };
+  }
+  // 'auto' — prefer an already-configured cloud key, in order of description quality.
+  return cloud('google') || cloud('openai') || cloud('anthropic');
+};
+
+// Whether a text-only chat model could still understand an image via a configured/auto provider.
+// Drives the composer affordance: images are offered if the model sees OR a provider is reachable.
+export const hasVisionProvider = (appSettings: any, integrations: any, models: any[]): boolean =>
+  resolveVisionRoute(appSettings, integrations, models) !== null;
+
+// Cheap content hash so a multi-turn chat doesn't re-describe the same image every send.
+const imageDescCache = new Map<string, string>();
+const hashImageData = (s: string): string => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+  return `${h.toString(36)}:${s.length}`;
+};
+
+const DESCRIBE_PROMPT =
+  'Describe this image for someone who cannot see it. Include: a one-line caption; a verbatim ' +
+  'transcription of any visible text (OCR), preserving structure; and notable layout (tables, UI ' +
+  'elements, chart axes/labels). Be concise but complete.';
+
+// Turn one image (data URL) into descriptive text via the resolved Vision Provider. Cached by content.
+export const describeImage = async (
+  dataUrl: string,
+  mimeType: string,
+  route: VisionRoute,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const cacheKey = `${route.provider}:${route.modelId}:${hashImageData(dataUrl)}`;
+  const cached = imageDescCache.get(cacheKey);
+  if (cached) return cached;
+
+  const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+  const asDataUrl = dataUrl.startsWith('data:') ? dataUrl : `data:${mimeType};base64,${base64}`;
+  let text = '';
+
+  if (route.provider === 'google') {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${route.modelId || DEFAULT_VISION_MODEL.google}:generateContent?key=${route.apiKey}`;
+    const body = { contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: base64 } }, { text: DESCRIBE_PROMPT }] }] };
+    const res = await fetchWithRetry(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 2, signal);
+    if (res.error) throw new Error(res.error.message || 'Image Understanding (Google) failed.');
+    text = (res.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text).filter(Boolean).join('\n');
+  } else if (route.provider === 'anthropic') {
+    const url = 'https://api.anthropic.com/v1/messages';
+    const headers = { 'Content-Type': 'application/json', 'x-api-key': route.apiKey || '', 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
+    const body = { model: route.modelId || DEFAULT_VISION_MODEL.anthropic, max_tokens: 1024, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } }, { type: 'text', text: DESCRIBE_PROMPT }] }] };
+    const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 2, signal);
+    if (res.error) throw new Error(res.error.message || 'Image Understanding (Anthropic) failed.');
+    text = (res.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n');
+  } else {
+    // openai / local / custom — OpenAI-compatible /chat/completions with an image_url part.
+    // This is also the local path: a llama-server launched with --mmproj accepts data-URI image_url.
+    const base = (route.endpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
+    const url = base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
+    const headers: any = { 'Content-Type': 'application/json' };
+    if (route.apiKey) headers['Authorization'] = `Bearer ${route.apiKey}`;
+    const body = { model: route.modelId || DEFAULT_VISION_MODEL.openai, messages: [{ role: 'user', content: [{ type: 'text', text: DESCRIBE_PROMPT }, { type: 'image_url', image_url: { url: asDataUrl } }] }] };
+    const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 2, signal);
+    if (res.error) throw new Error(res.error.message || 'Image Understanding failed.');
+    text = res.choices?.[0]?.message?.content || '';
+  }
+
+  text = (text || '').trim();
+  if (!text) console.warn(`[vision] Empty description from ${route.provider} (${route.modelId || 'default'}) — the response had no error but no text; schema may have changed.`);
+  text = text || '(no description available)';
+  imageDescCache.set(cacheKey, text);
+  return text;
+};
 
 export const trimHistoryChars = (msgs: any[], charLimit: number) => {
   if (!charLimit || charLimit <= 0) return msgs;
@@ -172,7 +289,7 @@ export const getSystemPromptBreakdown = (params: {
   return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal, voiceProfile }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
@@ -244,6 +361,12 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     prompt += `[RELEVANT MEMORY FOR THIS MESSAGE]\nRetrieved from your knowledge base because it's relevant to what was just said — use it if helpful:\n${String(relevantMemory).slice(0, 3000)}\n\n`;
   }
 
+  // "Write like me" — when the user asks the agent to draft something they'll send AS THEMSELVES,
+  // compose it in their distilled voice. Scoped so it never bleeds into the agent's own replies.
+  // Only present when the voice layer is on for chat (passed explicitly by the chat call sites, so
+  // it never contaminates the many utility/service model calls that share appSettings).
+  prompt += renderVoiceBlock(voiceProfile, 'chat');
+
   // Browsing-history recall — pages the user actually read that match this message. Provenance only:
   // sources they saw, not verified facts (web is untrusted).
   if (webRecall) {
@@ -295,7 +418,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     prompt += `\n[GOOGLE CALENDAR ACTION]\nWhen the user asks you to create or schedule a calendar event, output a \`\`\`gcal_event codeblock with JSON: {"title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "allDay": <optional boolean>, "description": "optional", "location": "optional", "accountLabel": "label of account to use or null for first"}. For all-day or multi-day events (e.g. a vacation, conference, or anything without a specific time), set "allDay": true and use date-only "YYYY-MM-DD" for start and end, where end is the LAST day the event covers (inclusive). For timed events that simply run across midnight into the next day, keep "allDay" false and use full datetimes. The user can edit every field before booking, so output the block immediately without asking for confirmation first.\nTo MOVE/RESCHEDULE or EDIT an existing Google Calendar event, output a \`\`\`gcal_update codeblock with JSON: {"eventId": "<the (id: …) from the calendar search results>", "title": "<optional>", "start": "<optional new start>", "end": "<optional new end>", "allDay": <optional boolean>, "location": "<optional>", "description": "<optional>", "accountLabel": "<account or null>"}. To DELETE an existing Google Calendar event, output a \`\`\`gcal_delete codeblock with JSON: {"eventId": "<the (id: …)>", "title": "<for display>", "accountLabel": "<account or null>"}. You can only move or delete events that appear in the calendar search results (which include their id); if you don't have the id, say so. The user confirms before anything changes.\n`;
   }
 
-  prompt += `\n[FILE ACCESS — WORKSHOP]\nYou have a private workspace folder at ~/AgentForge/workspace for files you create. To work with files, output a \`\`\`file_op codeblock containing ONE JSON object. Actions:\n- {"action":"write","path":"notes/plan.md","content":"...","summary":"why"} — create/overwrite. A RELATIVE path (no leading "/") writes inside your workspace and applies immediately (the folder is git-versioned, so writes can be undone).\n- {"action":"read","path":"notes/plan.md"} · {"action":"list","path":"subdir"} · {"action":"delete","path":"old.md"} · {"action":"move","path":"a.md","to":"b.md"}.\n- To touch one of the USER'S real files, use an ABSOLUTE path (e.g. "/Users/you/Desktop/report.md"). The user must approve each such access; the exact change is shown to them. Prefer editing repo/project files in place. For a loose document, {"action":"import","source":"/abs/path","to":"name.ext"} copies a working copy into your workspace.\nEmit one file_op block per operation, with the content inside the JSON — do not also paste the file body as prose.\n`;
+  prompt += `\n[FILE ACCESS — WORKSHOP]\nYou have a private workspace folder at ~/AgentForge/workspace for files you create. Your workspace is automatically scoped to the CURRENT space's own private folder, so relative paths you emit land in this space's files (the same folder the user sees), separate from other spaces. To work with files, output a \`\`\`file_op codeblock containing ONE JSON object. Actions:\n- {"action":"write","path":"notes/plan.md","content":"...","summary":"why"} — create/overwrite. A RELATIVE path (no leading "/") writes inside your workspace and applies immediately (the folder is git-versioned, so writes can be undone).\n- {"action":"read","path":"notes/plan.md"} · {"action":"list","path":"subdir"} · {"action":"delete","path":"old.md"} · {"action":"move","path":"a.md","to":"b.md"}.\n- To touch one of the USER'S real files, use an ABSOLUTE path (e.g. "/Users/you/Desktop/report.md"). The user must approve each such access; the exact change is shown to them. Prefer editing repo/project files in place. For a loose document, {"action":"import","source":"/abs/path","to":"name.ext"} copies a working copy into your workspace.\nEmit one file_op block per operation, with the content inside the JSON — do not also paste the file body as prose.\n`;
   if (appSettings?.developerMode) {
     prompt += `\n[COMMANDS]\nDeveloper Mode is ON. You may run a shell/git command with {"action":"command","command":"git status","cwd":"/abs/repo/path","summary":"why"} inside a \`\`\`file_op block. The user approves each command (shown with its working directory) before it runs and sees the output. Git commands use the user's already-configured credentials.\n`;
   }
@@ -310,7 +433,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
 const stripThinkingTags = (text: string): string =>
   text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal, voiceProfile }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -365,13 +488,24 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal, voiceProfile })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
 
-  if (imageDocs.length > 0 && !supportsVision(modelId)) {
-    throw new Error(`Model '${modelId}' does not have vision capabilities. Switch to a vision model (GPT-4o, Claude 3.5 Sonnet, Llava).`);
+  // Does the active chat model see the pixels itself? (cloud VLM, or local model + mmproj projector)
+  const nativeVision = modelSupportsVision(modelConfig);
+  if (imageDocs.length > 0 && !nativeVision) {
+    // Text-only model: read each image with the configured Vision Provider and inject the text so
+    // the model can still reason about it. If nothing is configured, gate with a helpful message.
+    const route = resolveVisionRoute(appSettings, integrations, models);
+    if (!route) {
+      throw new Error("This model can't read images. Turn on Image Understanding in Settings (Gemini's free tier works), or pick a vision model.");
+    }
+    for (const doc of imageDocs) {
+      const desc = await describeImage(doc.content, doc.type || 'image/png', route, signal);
+      textDocs.push({ name: `${doc.name} — read by ${route.provider}`, content: desc, isImage: false });
+    }
   }
 
   let contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
@@ -380,6 +514,12 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   const historyBudget = Math.max(1000, limit - contextUsed);
   const safeMessages = trimHistoryChars(messages, historyBudget);
+
+  // A text-only model must not receive raw image parts (it would error). When images were described
+  // into text above, strip them from the outgoing messages so only the description reaches the model.
+  const outMessages = nativeVision
+    ? safeMessages
+    : safeMessages.map((m: any) => ({ ...m, attachedFiles: (m.attachedFiles || []).filter((f: any) => !f.isImage) }));
 
   const attachedContext = textDocs.length > 0 ? '\n\n' + textDocs.map((d: any) => `[ATTACHED DOC: ${d.name}]\n${d.content}`).join('\n\n') : '';
   const fullSystem = systemPrompt + attachedContext;
@@ -396,13 +536,13 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     if (targetProvider === 'google') {
       return {
         role: m.role === 'bot' ? 'model' : 'user',
-        parts: [ { text: textContent }, ...imageFiles.map((f: any) => ({ inlineData: { mimeType: f.type, data: f.content.split(',')[1] } })) ]
+        parts: [ { text: textContent }, ...imageFiles.map((f: any) => ({ inlineData: { mimeType: f.type || 'image/png', data: f.content.split(',')[1] } })) ]
       };
     } else if (targetProvider === 'anthropic') {
       return {
         role: m.role === 'bot' ? 'assistant' : 'user',
         content: [
-          ...imageFiles.map((f: any) => ({ type: 'image', source: { type: 'base64', media_type: f.type, data: f.content.split(',')[1] } })),
+          ...imageFiles.map((f: any) => ({ type: 'image', source: { type: 'base64', media_type: f.type || 'image/png', data: f.content.split(',')[1] } })),
           { type: 'text', text: textContent }
         ]
       };
@@ -421,7 +561,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   if (isGoogle) {
     url = endpoint && endpoint !== '' ? endpoint : `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
-    body = { contents: safeMessages.map(m => formatMessage(m, 'google')), systemInstruction: { parts: [{ text: fullSystem }] } };
+    body = { contents: outMessages.map(m => formatMessage(m, 'google')), systemInstruction: { parts: [{ text: fullSystem }] } };
 
     // Google Preview block does not support stream. We fallback to simulating it after fetch completes.
     const data = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) }, 3, signal);
@@ -444,13 +584,13 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     headers['x-api-key'] = apiKey;
     headers['anthropic-version'] = '2023-06-01';
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
-    body = { model: modelId, max_tokens: 8192, system: fullSystem, messages: safeMessages.map(m => formatMessage(m, 'anthropic')), stream: true };
+    body = { model: modelId, max_tokens: 8192, system: fullSystem, messages: outMessages.map(m => formatMessage(m, 'anthropic')), stream: true };
   } else {
     // Hugging Face uses the exact same Chat Completions format as OpenAI when hitting /v1/chat/completions
     const baseEndpoint = endpoint || 'https://api.openai.com/v1';
     url = baseEndpoint.endsWith('/chat/completions') ? baseEndpoint : `${baseEndpoint.replace(/\/$/, '')}/chat/completions`;
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-    body = { model: modelId, messages: [{ role: 'system', content: fullSystem }, ...safeMessages.map(m => formatMessage(m, 'openai'))], stream: true };
+    body = { model: modelId, messages: [{ role: 'system', content: fullSystem }, ...outMessages.map(m => formatMessage(m, 'openai'))], stream: true };
   }
 
   // Pure SSE Streaming logic

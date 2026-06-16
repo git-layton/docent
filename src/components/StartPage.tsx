@@ -143,19 +143,19 @@ const APPS: AppEntry[] = [
   },
   {
     id: 'canvas',
-    label: 'Code Canvas',
-    sub: 'Build & prototype',
+    label: 'Canvas',
+    sub: 'Build apps & prototypes',
     icon: Code2,
     tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
     open: (tabId) => launch(tabId, { type: 'code-canvas', label: 'Untitled Canvas' }),
   },
   {
     id: 'agentforge-code',
-    label: 'AgentForge Code',
-    sub: 'Files, code & commands',
+    label: 'Code',
+    sub: 'Files, terminal & git',
     icon: FolderGit2,
     tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'agentforge-code' as ToolTabId, label: 'AgentForge Code' }),
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'agentforge-code' as ToolTabId, label: 'Code' }),
   },
   {
     id: 'browser',
@@ -164,6 +164,14 @@ const APPS: AppEntry[] = [
     icon: Globe,
     tint: 'bg-blue-500/12 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300',
     open: (tabId) => launch(tabId, { type: 'web', label: 'New Tab', url: 'https://duckduckgo.com' }),
+  },
+  {
+    id: 'gallery',
+    label: 'Gallery',
+    sub: 'Your saved images',
+    icon: ImageIcon,
+    tint: 'bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'gallery' as ToolTabId, label: 'Gallery' }),
   },
   {
     id: 'activity',
@@ -292,6 +300,15 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const chats = useChatStore((s) => s.chats);
   const assistants = useAgentStore((s) => s.assistants);
   const activeSpace = useSpaceStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
+
+  // Gallery is "openable, auto-shown when images exist": only surface its tile when this scope has
+  // images (global Home → any image; a Space → that Space's images).
+  const galleryScopeId = activeSpace?.id ?? 'space-home';
+  const hasImagesInScope = useMemo(
+    () => (savedApps ?? []).some((a: any) => a.type === 'image' && (galleryScopeId === 'space-home' || a.spaceId === galleryScopeId)),
+    [savedApps, galleryScopeId],
+  );
+  const visibleApps = useMemo(() => APPS.filter((app) => app.id !== 'gallery' || hasImagesInScope), [hasImagesInScope]);
 
 
   // Unread mail badge — cheap IMAP SEARCH per account, cached 5 min in lib/mailUnread.
@@ -458,6 +475,11 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
       case 'Web':
         if (doc.url) launch(tabId, { type: 'web', url: doc.url, label: doc.title });
         break;
+      case 'Image': {
+        const img = (savedApps ?? []).find((a: any) => `img-${a.id}` === doc.id);
+        if (img) openDoc(img, tabId);
+        break;
+      }
       case 'Bookmark':
       case 'Doc':
       default:
@@ -563,7 +585,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
         {/* ── Apps ── */}
         <Section title="Apps">
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {APPS.map((app) => {
+            {visibleApps.map((app) => {
               const Icon = app.icon;
               const badge = live.badge[app.id];
               const liveSub = app.id === 'chat' && agentName ? `Resume ${agentName}` : live.sub[app.id];
