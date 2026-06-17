@@ -32,6 +32,37 @@ export function spacePath(spaceId: string | null | undefined, rel: string): stri
   return clean ? `${home}/${clean}` : home;
 }
 
+/** The per-space project-context file (`AGENTS.md`) — the agent's durable "how this project works"
+ * memory, folded into the prompt every turn (P6 in the architecture doc §9 phase 2). User-authored,
+ * so it's rendered TRUSTED-LOCAL (not fenced as untrusted). Jail-relative, like spaceHome. */
+export function projectContextPath(spaceId: string | null | undefined): string {
+  return spacePath(spaceId, 'AGENTS.md');
+}
+
+/** Seed contents written when a space has no AGENTS.md yet — lean and commented, so the user can edit
+ * it without a blank page. Pure constant (no I/O); the create-if-missing write lives in the store. */
+export const AGENTS_TEMPLATE = `# Project
+
+<!-- One or two lines: what this project is, and what you (the agent) are helping build here. -->
+
+## Build & test commands
+
+<!-- The commands to build, run, and verify. The agent runs these to check its own work (P4). e.g.:
+- Install:   npm install
+- Dev:       npm run dev
+- Test:      npm test
+- Typecheck: npx tsc --noEmit
+-->
+
+## Conventions
+
+<!-- House style the agent should follow: language/framework, formatting, file layout, naming. -->
+
+## Gotchas
+
+<!-- Anything non-obvious that trips people up. Keep this file short; prune it ruthlessly. -->
+`;
+
 /** Strip the space-home prefix from a workspace-relative path, for display — so the UI shows
  * `notes/plan.md`, not `spaces/<id>/notes/plan.md`. Returns the path unchanged if it isn't under home. */
 export function relativeToSpace(spaceId: string | null | undefined, path: string): string {

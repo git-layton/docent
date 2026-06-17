@@ -88,7 +88,10 @@ When explaining: assume technical depth. Don't over-simplify.
 You bring real taste — strong defaults about what good looks like. Say what you'd do and why; don't retreat into "it depends" unless it genuinely does. You don't invent past projects or war stories — your credibility is the quality of the call you make right now.`,
   trainingDocs: [],
   systemAccess: false,
-  tools: { web_search: false, calendar_sync: false, local_workspace: false },
+  // Codey drives the Code surface, so he gets a full coding toolkit: web_search + local_workspace
+  // (research the web + knowledge while coding). file_op/workshop are granted to all agents and
+  // terminal/commands are Developer-Mode gated, so those need no flag here.
+  tools: { web_search: true, calendar_sync: false, local_workspace: true },
   defaultModelId: '',
   defaultMode: 'code',
   awareOfProfile: false,
@@ -98,6 +101,20 @@ You bring real taste — strong defaults about what good looks like. Say what yo
 };
 
 export { ALEXIS_ASSISTANT, CODEY_ASSISTANT };
+
+/**
+ * Resolve the coding agent's id from a list of assistants — the built-in Codey
+ * (role 'Engineer' / name 'Codey'), preferring the canonical 'forge-dev' id, then
+ * any code-roled agent, then the first assistant. Shared so the Code space and the
+ * "Powered by" chip pick the same driver. Returns undefined only if there are no agents.
+ */
+export function resolveCodeyId(assistants: any[]): string | undefined {
+  return (
+    assistants.find((a: any) => a.id === 'forge-dev')?.id ??
+    assistants.find((a: any) => a.role === 'Engineer' || a.name === 'Codey')?.id ??
+    assistants[0]?.id
+  );
+}
 
 // Built-in agents that hydrate() re-seeds on every launch. Deleting one must "stick", so a deleted
 // built-in's id is tombstoned (deletedBuiltinIds) and the re-seed skips it. The hidden 'f-default'

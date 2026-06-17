@@ -151,6 +151,22 @@ export function AssistantSettingsModal({
                     <textarea value={editingAssistant.prompt} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, prompt: e.target.value }))} rows={8} className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-accent text-ink custom-scrollbar" placeholder="You are a helpful assistant..." />
                     </div>
 
+                    {/* Default model — the model this agent uses; applied on switch (see AppSidebar). */}
+                    <div>
+                      <label className="text-tiny font-black uppercase opacity-50 block tracking-widest mb-2">Default Model</label>
+                      <p className="text-tiny text-ink-3 mb-2">The model this agent uses — applied whenever you switch to them.</p>
+                      <select
+                        value={editingAssistant.defaultModelId ?? ''}
+                        onChange={e => setEditingAssistant((prev: any) => ({ ...prev, defaultModelId: e.target.value }))}
+                        className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-3 text-sm font-medium outline-none focus:border-accent text-ink"
+                      >
+                        <option value="">Use current model</option>
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
                     {/* Role — the agent's specialty in a workspace (drives orchestration, spec §6) */}
                     <div>
                       <label className="text-tiny font-black uppercase opacity-50 block tracking-widest mb-2">Role</label>

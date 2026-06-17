@@ -49,6 +49,13 @@ describe('capability registry — route parity with the former App.tsx if-chain'
     expect(files?.effect).toBe('read');
   });
 
+  it('maps the preview route to the Observe preview capability (read-only, "Codey, look at this")', () => {
+    const preview = capabilityForRoute('preview', base);
+    expect(preview?.id).toBe('preview-observe');
+    expect(preview?.title).toBe('Observe preview');
+    expect(preview?.effect).toBe('read');
+  });
+
   it('the four built-ins are always available (surface-* — preserves old behavior)', () => {
     const titles = availableCapabilities(ctx()).map(c => c.title);
     for (const t of ['Knowledge Search', 'Web Search', 'Browse', 'Calendar']) {

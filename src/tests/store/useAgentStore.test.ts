@@ -13,6 +13,13 @@ describe('default agent cast', () => {
     expect(CODEY_ASSISTANT.name).toBe('Codey');
     expect(CODEY_ASSISTANT.id).toBe('forge-dev'); // id kept so existing chats stay wired
   });
+
+  it('gives Codey a research toolkit (web_search + local_workspace) so he can research while coding', () => {
+    // file_op/workshop are universal and commands are Developer-Mode gated, so these two flags are
+    // what make Codey a full code copilot that can also browse the web + search knowledge.
+    expect(CODEY_ASSISTANT.tools.web_search).toBe(true);
+    expect(CODEY_ASSISTANT.tools.local_workspace).toBe(true);
+  });
 });
 
 describe('deleteAgent', () => {

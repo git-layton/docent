@@ -12,7 +12,7 @@ import {
 import { db } from './services/database';
 import { extractTextFromPDF } from './services/pdfParser';
 import { useChatStore } from './store/useChatStore';
-import { useAgentStore, DEFAULT_ASSISTANT } from './store/useAgentStore';
+import { useAgentStore, DEFAULT_ASSISTANT, resolveCodeyId } from './store/useAgentStore';
 import { useSettingsStore, isLocalProvider } from './store/useSettingsStore';
 import { useMemoryStore } from './store/useMemoryStore';
 import { useTaskStore } from './store/useTaskStore';
@@ -25,9 +25,12 @@ import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
 import { searchWebHistory, renderWebRecall } from './services/webHistory';
-import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
+import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds, mentionedAgentsInOrder } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
-import { buildGatekeeperMemoryWrite, evaluateMemoryGate, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
+import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
+import { assessConversationMemory } from './services/memoryPolicy';
+import { buildVoiceCard } from './services/voiceRuntime';
+import { normalizeVoiceProfile } from './services/voice';
 import { capabilityForRoute, type CapabilityContext } from './services/capabilities';
 import { evaluateDroppedMessages } from './services/contextEvaluator';
 import { computePinProfile } from './services/pinPersonalization';
@@ -75,13 +78,17 @@ import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateC
 import { CmdKPalette } from './components/CmdKPalette';
 import { MarginaliaLayer } from './components/MarginaliaLayer';
 import { AgentVisionToggle } from './components/AgentVisionToggle';
-import { useSpaceStore } from './store/useSpaceStore';
+import { useSpaceStore, CODE_CHAT_ID, TEAM_CHAT_ID } from './store/useSpaceStore';
 import { useMarginaliaStore } from './store/useMarginaliaStore';
 import { speak, cancelSpeech, resolveVoicePrefs } from './lib/voice';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB Limit
+
+// Cosine cutoff for collapsing a near-identical memory in place (findDuplicateMemoryPath) — set well
+// above the 0.35 relevance threshold so only true restatements dedup, not merely related memories.
+const MEMORY_DEDUP_MIN_SCORE = 0.88;
 
 // ─── Utility Helpers ──────────────────────────────────────────────────────────
 
@@ -144,6 +151,9 @@ export default function App() {
   const activeOmniTab = useSpaceStore(s => s.omniTabs.find(t => t.id === s.activeOmniTabId) ?? null);
   const allOmniTabs = useSpaceStore(s => s.omniTabs);
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
+  // Active space's AGENTS.md (project context) — folded into the prompt every turn (P6). Subscribed
+  // so the context-window gauge recomputes when it loads/changes.
+  const activeProjectContext = useSpaceStore(s => s.activeProjectContext);
 
   // ── Split view: every tab is full-screen by default; optionally show a second
   //    tab beside it with a draggable divider (e.g. chat next to a doc).
@@ -194,11 +204,17 @@ export default function App() {
         [chatId]: (prev[chatId] ?? []).map((m: any) => (m.id === botId ? { ...m, content: cleaned } : m)),
       }));
     }
-    for (const a of actions.filter(x => !actionNeedsApproval(x))) {
+    // Agent self-edit memory writes (local, no approval) are handled here, not via the connectors.
+    // Only save/update are honored — the agent can write/refresh its memory but never delete it.
+    for (const a of actions.filter(x => x.tool === 'memory' && (x.op === 'save' || x.op === 'update'))) {
+      await persistAgentSelfMemory(a);
+    }
+    const toolActions = actions.filter(x => x.tool !== 'memory');
+    for (const a of toolActions.filter(x => !actionNeedsApproval(x))) {
       try { showToast(`✓ ${await executeAgentAction(a)}`); }
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }
     }
-    const needApproval = actions.filter(actionNeedsApproval);
+    const needApproval = toolActions.filter(actionNeedsApproval);
     if (needApproval.length) setPendingActions(prev => [...prev, ...needApproval]);
   };
   const saveGlobalPins = useMemoryStore.getState().saveGlobalPins;
@@ -455,6 +471,34 @@ export default function App() {
     };
   }, []);
 
+  // Voice profile auto-refresh — keep "Write Like Me" current without the user remembering to rebuild.
+  // Only refreshes a profile the user already opted into (enabled + has a card); it never harvests
+  // sent messages for someone who never set it up — that consent boundary stays intact. Fires once per
+  // launch, ~2 min in (after startup settles), and only when the profile is older than 14 days.
+  useEffect(() => {
+    const VOICE_STALE_MS = 14 * 24 * 60 * 60 * 1000;
+    const timer = setTimeout(async () => {
+      if (!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
+      const ss = useSettingsStore.getState();
+      const vp = normalizeVoiceProfile(ss.appSettings?.voiceProfile);
+      if (!vp.enabled || !vp.card.trim() || !vp.lastBuiltAt) return;        // only an opted-in profile
+      if (Date.now() - vp.lastBuiltAt < VOICE_STALE_MS) return;             // still fresh
+      if (!(ss.models.find((m: any) => m.id === ss.selectedModelId) ?? ss.models[0])) return; // need a model
+      try {
+        const { card, sampleCounts } = await buildVoiceCard();
+        useSettingsStore.getState().setAppSettings((prev: any) => ({
+          ...prev,
+          voiceProfile: { ...normalizeVoiceProfile(prev?.voiceProfile), enabled: true, card, sampleCounts, lastBuiltAt: Date.now() },
+        }));
+        console.log('[Voice] Auto-refreshed writing voice from recent sent messages.');
+      } catch (e) {
+        // Best-effort — a failed refresh just leaves the existing profile untouched.
+        console.warn('[Voice] Auto-refresh skipped:', e);
+      }
+    }, 2 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Soft-reaper: when cooling down and generation finishes naturally → apply SIGSTOP
   useEffect(() => {
     if (llamaServerPid !== null && llamaCoolingDown && !isGenerating && !llamaPaused) {
@@ -528,11 +572,43 @@ export default function App() {
   }, [chats, activeChatId, activeFolderId]);
   // Agents available to @-mention in the composer — the active container's participants. Populated
   // for DMs and Spaces alike so the @-picker (and Cmd+Shift+@) works everywhere, not just channels.
+  // In the Code conversation, any of the user's REAL agents can be summoned as an advisor (Codey still
+  // drives), so the picker offers the whole roster minus Codey himself + hidden built-ins.
   const channelParticipants = useMemo(() => {
+    if (activeChatId === CODE_CHAT_ID) {
+      const codeyId = resolveCodeyId(assistants);
+      return assistants
+        .filter((a: any) => a.id !== codeyId && a.id !== 'forge-guide' && a.id !== 'f-default')
+        .map((a: any) => ({ id: a.id, name: a.name }));
+    }
     if (!activeChat) return [];
     return getParticipantAgents(activeChat, assistants).map((a: any) => ({ id: a.id, name: a.name }));
-  }, [activeChat, assistants]);
+  }, [activeChat, activeChatId, assistants]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
+
+  // ── Code Team rail: a SECOND live conversation (the user's REAL agents — Alexis & co., NOT Codey),
+  // rendered concurrently with Codey's center chat inside AgentForgeCodePanel. These are derived in
+  // App.tsx (where the message store + render handlers live) and passed down; the panel owns the rail's
+  // own composer buffer + collapse. See docs/agentforge-code-design.md pt 9.
+  const teamMessages = useMemo(() => messages[TEAM_CHAT_ID] ?? [], [messages]);
+  const teamChat = useMemo(() => {
+    const c = chats.find(c => c.id === TEAM_CHAT_ID);
+    return c ? normalizeChatRecord(c) : null;
+  }, [chats]);
+  const teamParticipants = useMemo(
+    () => (teamChat ? getParticipantAgents(teamChat, assistants) : []),
+    [teamChat, assistants],
+  );
+  // The rail's "primary" agent — the chat header + composer label resolve to the team's primary
+  // participant (a real agent), never Codey/the global activeFolderId.
+  const teamPrimaryAgent = useMemo(
+    () => teamParticipants.find((a: any) => a.id === teamChat?.primaryAgentId) ?? teamParticipants[0] ?? null,
+    [teamParticipants, teamChat],
+  );
+  const teamChannelParticipants = useMemo(
+    () => teamParticipants.map((a: any) => ({ id: a.id, name: a.name })),
+    [teamParticipants],
+  );
 
   // Keep dream cycle refs in sync (avoids stale closures in 24h timer)
   useEffect(() => { activeAssistantRef.current = activeAssistant; }, [activeAssistant]);
@@ -559,7 +635,7 @@ export default function App() {
     [allOmniTabs, activeSpaceId, activeOmniTab?.id, assistants],
   );
 
-  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext, voiceProfile: appSettings?.voiceProfile }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext]);
+  const systemPromptLen = useMemo(() => buildSystemPrompt({ agent: activeAssistant ?? DEFAULT_ASSISTANT, profile: userProfile, userName, tasks, canvasContent, mode: generationMode, isDeepThinking, agentPinnedMessages: agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext, projectContext: activeProjectContext, voiceProfile: appSettings?.voiceProfile }).length, [activeAssistant, userProfile, userName, tasks, canvasContent, generationMode, isDeepThinking, agentPinnedMessagesForPrompt, appSettings, browserContext, ambientContext, activeProjectContext]);
 
   // Recency-weighted fingerprint of what this agent's user actually saves
   const pinProfile = useMemo(
@@ -1062,6 +1138,82 @@ export default function App() {
      })();
   }, []);
 
+  // Find a near-identical existing memory to update in place instead of minting a duplicate file.
+  // Uses a high cosine cutoff (≫ the 0.35 relevance threshold) so only true restatements collapse,
+  // not merely related memories. Returns the file path to overwrite, or null to create a new one.
+  const findDuplicateMemoryPath = useCallback(async (text: string, agentId: string | null | undefined): Promise<string | null> => {
+    if (!text.trim()) return null;
+    try {
+      const res = await invoke<{ results: Array<{ path: string; score: number }> }>('search_knowledge_semantic', {
+        query: text, agentId: agentId ?? null, maxResults: 1, snippetChars: 40,
+      });
+      const top = res?.results?.[0];
+      return top && typeof top.score === 'number' && top.score >= MEMORY_DEDUP_MIN_SCORE ? top.path : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Write a memory, but collapse repeats: if a near-identical one already exists, update IT in place
+  // (refreshes recency via the file watcher) instead of growing the store with another file. Library
+  // saves are intentional curation, so they're never deduped. If the in-place update is rejected by
+  // the write guard (it would gut the file), fall back to a fresh file so the memory is never lost.
+  const writeMemoryDeduped = useCallback(async (opts: {
+    newPath: string; content: string; commitMessage: string; agentId: string | null;
+    dedupText: string; destination: string;
+  }): Promise<{ ok: boolean; updated: boolean }> => {
+    let targetPath = opts.newPath;
+    let updated = false;
+    if (opts.destination !== 'library') {
+      const dup = await findDuplicateMemoryPath(opts.dedupText, opts.agentId);
+      if (dup) { targetPath = dup; updated = true; }
+    }
+    const doWrite = (path: string) => invoke<{ blocked?: boolean; error?: string }>('write_memory', {
+      path, content: opts.content, commitMessage: opts.commitMessage,
+      agentId: opts.agentId, contextTokens: null, ramState: null,
+    });
+    let result = await doWrite(targetPath);
+    if (result?.blocked && updated) {
+      // In-place update tripped the shrink guard — keep the memory by writing a fresh file instead.
+      updated = false;
+      result = await doWrite(opts.newPath);
+    }
+    if (result?.blocked) { console.warn('[Memory] write blocked:', result.error); return { ok: false, updated: false }; }
+    return { ok: true, updated };
+  }, [findDuplicateMemoryPath]);
+
+  // Agent self-edit: lets the agent durably write/update its OWN memory mid-conversation via a
+  // forge:action {"tool":"memory","op":"save"} block — the MemGPT-style self-editing piece. Routes
+  // through writeMemoryDeduped so a restatement updates the existing note instead of duplicating, and
+  // the agent deliberately choosing to remember is treated as a high-confidence first-party fact.
+  const persistAgentSelfMemory = useCallback(async (a: any) => {
+    const rootPath = useMemoryStore.getState().agentForgePath;
+    if (!rootPath || !((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
+    const title = (String(a?.title ?? '').trim() || 'Note to self').slice(0, 80);
+    const body = String(a?.content ?? a?.body ?? '').trim();
+    if (!body) return;
+    const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
+    const agent = _assistants.find((x: any) => x.id === _activeFolderId) ?? _assistants[0];
+    const agentId = agent?.id ?? 'default';
+    const slug = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'note'}-${Date.now()}`;
+    const content = `---\ntitle: "${title.replace(/"/g, '\\"')}"\ncreated_at: "${new Date().toISOString()}"\ndestination: agent_memory\nmemory_type: fact\nevidence_state: first_party\nconfidence: high\nprivacy: normal\ntags: [agent-authored, self-edit, agent:${agentId}]\n---\n\n# ${title}\n\n${body}\n`;
+    try {
+      const { ok, updated } = await writeMemoryDeduped({
+        newPath: `${rootPath}/memory/${agentId}/gatekeeper/${slug}.md`,
+        content,
+        commitMessage: `memory: ${title}`,
+        agentId,
+        dedupText: `${title}\n${body}`,
+        destination: 'agent_memory',
+      });
+      if (!ok) return;
+      invalidateMemorySummary();
+      showToast(updated ? '🧠 Updated my memory.' : '🧠 Noted to memory.');
+    } catch (e) {
+      console.warn('[SelfMemory] Could not persist:', e);
+    }
+  }, [writeMemoryDeduped, showToast]);
+
   const persistGatekeeperMemory = useCallback(async (chatId: string, userMsg: any, decision: ReturnType<typeof evaluateMemoryGate>, agent: any) => {
     if (!shouldPersistGatekeeperDecision(decision, userMsg.content)) return;
     const rootPath = useMemoryStore.getState().agentForgePath;
@@ -1077,26 +1229,97 @@ export default function App() {
     });
 
     try {
-      const result = await invoke<{ blocked?: boolean; error?: string }>('write_memory', {
-        path: write.path,
+      const { ok, updated } = await writeMemoryDeduped({
+        newPath: write.path,
         content: write.content,
         commitMessage: `memory: ${write.title}`,
         agentId: agent?.id ?? null,
-        contextTokens: null,
-        ramState: null,
+        dedupText: extractMemoryCandidateText(userMsg.content),
+        destination: decision.destination,
       });
-      if (result.blocked) {
-        console.warn('[MemoryGatekeeper] Memory write blocked:', result.error);
-        return;
-      }
-      showToast(decision.destination === 'library' ? 'Saved to Library.' : 'Saved to agent memory.');
+      if (!ok) return;
+      if (updated) invalidateMemorySummary();
+      showToast(decision.destination === 'library' ? 'Saved to Library.' : updated ? 'Updated what I knew.' : 'Saved to agent memory.');
     } catch (e) {
       console.warn('[MemoryGatekeeper] Could not persist memory:', e);
     }
-  }, [showToast]);
+  }, [showToast, writeMemoryDeduped]);
 
-  const handleBookmark = useCallback(async (msg: any) => {
-    const { activeChatId: _cid } = useChatStore.getState();
+  // Salience-driven capture: after a reply lands, score the whole exchange and durably record the
+  // turns worth keeping — so the agent learns from ordinary conversation, not only when the user
+  // literally says "remember this". Reuses the gatekeeper's classification + the existing write path;
+  // the per-turn scorer (assessConversationMemory) just decides whether a turn clears the bar.
+  const persistConversationMemory = useCallback(async (
+    chatId: string,
+    userMsg: any,
+    answerText: string,
+    agent: any,
+    decision: ReturnType<typeof evaluateMemoryGate>,
+    chatKind: 'dm' | 'channel',
+    contributions: string[] = [],
+  ) => {
+    // The explicit "remember this" path already persisted this turn — never double-write.
+    if (shouldPersistGatekeeperDecision(decision, userMsg.content)) return;
+    const rootPath = useMemoryStore.getState().agentForgePath;
+    if (!rootPath || !((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
+    const answer = String(answerText || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    if (!answer) return;
+
+    const assessment = assessConversationMemory({
+      question: userMsg.content,
+      answer,
+      chatKind,
+      contributions,
+      attachments: userMsg.attachedFiles ?? [],
+    });
+    // Only durably capture turns the scorer rates as notable+. Background saves stay unsaved so
+    // ordinary chatter doesn't flood memory; explicit requests are owned by the gatekeeper above.
+    if (!assessment.shouldSave || (assessment.level !== 'notable' && assessment.level !== 'explicit')) return;
+
+    // Keep the gatekeeper's rich classification (memory type, evidence, privacy, provenance), but
+    // promote it to a save and route it to a real destination if the gatekeeper had declined.
+    const destination = (['agent_memory', 'channel_memory', 'library'] as const).includes(decision.destination as any)
+      ? decision.destination
+      : (chatKind === 'channel' ? 'channel_memory' : 'agent_memory');
+    const persistDecision = {
+      ...decision,
+      shouldSave: true,
+      classification: assessment.level,
+      destination,
+      tags: Array.from(new Set([...decision.tags, ...assessment.tags, 'auto-captured'])),
+    } as ReturnType<typeof evaluateMemoryGate>;
+
+    const write = buildGatekeeperMemoryWrite({
+      rootPath,
+      agentId: agent?.id ?? 'default',
+      chatId,
+      channelId: destination === 'channel_memory' ? chatId : null,
+      text: userMsg.content,
+      answer,
+      decision: persistDecision,
+    });
+
+    try {
+      const { ok, updated } = await writeMemoryDeduped({
+        newPath: write.path,
+        content: write.content,
+        commitMessage: `memory: ${write.title}`,
+        agentId: agent?.id ?? null,
+        dedupText: `${userMsg.content}\n${answer}`,
+        destination,
+      });
+      if (!ok) return;
+      invalidateMemorySummary();
+      showToast(updated ? '🧠 Updated what I knew.' : '🧠 Remembered this.');
+    } catch (e) {
+      console.warn('[ConversationMemory] Could not persist memory:', e);
+    }
+  }, [showToast, writeMemoryDeduped]);
+
+  const handleBookmark = useCallback(async (msg: any, chatId?: string) => {
+    // chatId lets a non-active conversation (the Code Team rail) bookmark into ITS thread, not the
+    // global active chat. Defaults to the active chat for every normal caller.
+    const _cid = chatId ?? useChatStore.getState().activeChatId;
     const { globalPins: _pins, agentForgePath: _afp, saveGlobalPins: _save } = useMemoryStore.getState();
     const { setMessages: _setMsgs } = useChatStore.getState();
     const isPinned = _pins.some((p: any) => p.msgId === msg.id);
@@ -1369,6 +1592,27 @@ export default function App() {
             if (writeResult.blocked) continue;
             dreamItems.push({ id, type: 'updated', description: op.description, archive_paths: [], original_paths: [], target_file: op.target_path, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
 
+          } else if (op.type === 'insight') {
+            // Reflection: persist a synthesized cross-file generalization BACK into memory so it's
+            // retrievable in future turns (Tier 1 digest + Tier 2 search), not just shown once. Insights
+            // are additive — sources are kept, not archived.
+            const validSources = (op.source_paths ?? []).filter((p: string) => knownPaths.has(p));
+            if (validSources.length < 2 || !op.insight?.trim() || !op.title?.trim()) continue;
+            const slug = `${op.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'insight'}-${Date.now()}`;
+            const targetFullPath = `${_agentForgePath}/memory/${activeAgent.id}/insights/${slug}.md`;
+            const sourceList = validSources.map((p: string) => `- ${p}`).join('\n');
+            const content = `---\ntitle: "${op.title.replace(/"/g, '\\"')}"\ncreated_at: "${new Date().toISOString()}"\nmemory_type: insight\nevidence_state: inferred\nconfidence: medium\ntags: [insight, dream-insight, agent:${activeAgent.id}]\n---\n\n# ${op.title}\n\n${op.insight}\n\n## Synthesized from\n${sourceList}\n`;
+            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
+              path: targetFullPath,
+              content,
+              commit_message: `dream: insight — ${op.description}`,
+              agent_id: activeAgent.id,
+              context_tokens: null,
+              ram_state: null,
+            });
+            if (writeResult.blocked) continue;
+            dreamItems.push({ id, type: 'insight', description: `${op.title} — ${op.insight}`, archive_paths: [], original_paths: validSources, target_file: targetFullPath, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
+
           } else if (op.type === 'notice') {
             if (!op.title?.trim() || !op.body?.trim()) continue;
             dreamItems.push({
@@ -1513,6 +1757,9 @@ export default function App() {
       // capabilities. The capability bodies live in services/capabilities/builtins/*.
       const { spaces: _spaces, activeSpaceId: _activeSpaceId, omniTabs: _omniTabs } = useSpaceStore.getState();
       const _activeSpace = _spaces.find((s: any) => s.id === _activeSpaceId) ?? null;
+      // Active space's AGENTS.md (project context, P6) — read fresh from the store so the latest
+      // loaded contents fold into this turn's prompt, regardless of React render timing.
+      const _activeProjectContext = useSpaceStore.getState().activeProjectContext;
       const _openTabs = _activeSpace ? _omniTabs.filter((t: any) => _activeSpace.tabIds.includes(t.id)) : _omniTabs;
       // Ambient sight: trust-tagged snapshot of the tabs open in this Space/DM, shown to every agent.
       const _ambientContext = buildAmbientContext(
@@ -1588,14 +1835,39 @@ export default function App() {
       const isChannelChat = normalizedCurrentChat.kind === 'channel';
 
       if (isChannelChat) {
-        // Scoped/sticky routing (spec §5): a tagged agent stays the sole responder across follow-ups
-        // until the user @s someone else. No tag + active scope → still just the scoped agent(s).
-        const _stickyScopeIds = (currentChatRecord as any)?.scopedAgentIds ?? null;
-        const { agents: routedAgents, scopeIds: _newScopeIds } = scopeAgentsForChat(userMsg.content, normalizedCurrentChat, _assistants, _activeFolderId, _stickyScopeIds);
-        const _isScoped = !!(_newScopeIds && _newScopeIds.length > 0);
-        useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, scopedAgentIds: _newScopeIds } : c));
-        const allParticipants = getParticipantAgents(normalizedCurrentChat, _assistants);
-        const mentionedIds = extractMentionedAgentIds(userMsg.content, allParticipants);
+        // ── Code conversation: Codey ALWAYS drives; @-mentioned agents only ADVISE ──
+        // The Code chat is Codey-pinned and the chat-first Code surface @-mentions any of the user's
+        // real agents (resolved against the full roster, not just stored participants). We override the
+        // generic sticky-scope routing so a mentioned advisor never silences Codey: responders are
+        // Codey + the mentioned advisors, with Codey last so he can synthesize their advice and own the
+        // edits. No mention → just Codey. (Full Strategy-B decoupling is deferred — see docs pt 8.)
+        const isCodeChat = chatId === CODE_CHAT_ID;
+        let routedAgents: any[];
+        let _isScoped: boolean;
+        let allParticipants: any[];
+        let mentionedIds: Set<string>;
+        let codeDriverId: string | null = null;
+        if (isCodeChat) {
+          const codey = _assistants.find((a: any) => a.id === resolveCodeyId(_assistants)) ?? _assistants[0];
+          codeDriverId = codey?.id ?? null; // Codey is the Code chat's permanent driver — he always responds.
+          // Resolve mentions against the WHOLE roster so any agent can be summoned as an advisor.
+          const advisors = mentionedAgentsInOrder(userMsg.content, _assistants).filter((a: any) => a.id !== codey?.id);
+          allParticipants = codey ? [codey, ...advisors] : advisors;
+          mentionedIds = new Set(advisors.map((a: any) => a.id));
+          routedAgents = codey ? [...advisors, codey] : advisors; // advisors first, Codey synthesizes last
+          _isScoped = advisors.length > 0;
+          useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, scopedAgentIds: null } : c));
+        } else {
+          // Scoped/sticky routing (spec §5): a tagged agent stays the sole responder across follow-ups
+          // until the user @s someone else. No tag + active scope → still just the scoped agent(s).
+          const _stickyScopeIds = (currentChatRecord as any)?.scopedAgentIds ?? null;
+          const routed = scopeAgentsForChat(userMsg.content, normalizedCurrentChat, _assistants, _activeFolderId, _stickyScopeIds);
+          routedAgents = routed.agents;
+          _isScoped = !!(routed.scopeIds && routed.scopeIds.length > 0);
+          useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, scopedAgentIds: routed.scopeIds } : c));
+          allParticipants = getParticipantAgents(normalizedCurrentChat, _assistants);
+          mentionedIds = extractMentionedAgentIds(userMsg.content, allParticipants);
+        }
         const previousResponses: Array<{ agentName: string; content: string }> = [];
 
         for (const agent of routedAgents) {
@@ -1608,8 +1880,11 @@ export default function App() {
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === agentBotId ? { ...m, content: agentText } : m) }));
           };
 
-          // Channel context PREPENDED so it frames the persona, not buried after it
-          const channelAddendum = buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, mentionedIds.has(agent.id) || _isScoped);
+          // Channel context PREPENDED so it frames the persona, not buried after it.
+          // Codey is the Code chat's sole driver — force must-respond so he's never told to [PASS]
+          // (advisors stay opt-in via @-mention; only Codey edits).
+          const isCodeDriver = isCodeChat && agent.id === codeDriverId;
+          const channelAddendum = buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, isCodeDriver || mentionedIds.has(agent.id) || _isScoped);
           const agentWithChannelContext = {
             ...agent,
             prompt: channelAddendum + '\n\n---\n\n' + (agent.prompt || ''),
@@ -1649,7 +1924,7 @@ export default function App() {
             models: _models,
             runIntegrationTools,
             ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
-            goal: _activeSpace?.agentGoals?.[agent.id],
+            goal: _activeSpace?.agentGoals?.[agent.id], projectContext: _activeProjectContext,
           });
 
           const isPass = agentResponse.trim().toUpperCase() === '[PASS]';
@@ -1663,6 +1938,12 @@ export default function App() {
 
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === agentBotId ? { ...m, content: agentResponse, isStreaming: false } : m) }));
           previousResponses.push({ agentName: agent.name, content: agentResponse });
+        }
+
+        if (previousResponses.length > 0) {
+          const channelAnswer = previousResponses.map((r: any) => `${r.agentName}: ${r.content}`).join('\n\n');
+          const channelMemoryAgent = allParticipants.find((a: any) => a.id === normalizedCurrentChat.primaryAgentId) ?? _activeAssistant;
+          void persistConversationMemory(chatId, userMsg, channelAnswer, channelMemoryAgent, gatekeeperDecision, 'channel', previousResponses.map((r: any) => r.agentName));
         }
 
         if (previousResponses.length === 0) {
@@ -1706,7 +1987,7 @@ export default function App() {
               models: _models,
               runIntegrationTools,
               ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
-              goal: _activeSpace?.agentGoals?.[primaryAgent.id],
+              goal: _activeSpace?.agentGoals?.[primaryAgent.id], projectContext: _activeProjectContext,
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
               ...prev,
@@ -1769,11 +2050,12 @@ export default function App() {
             runIntegrationTools,
             browserContext: _browserContext,
             ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
-            goal: _activeSpace?.agentGoals?.[_activeAssistant?.id],
+            goal: _activeSpace?.agentGoals?.[_activeAssistant?.id], projectContext: _activeProjectContext,
         });
 
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
         void handleAgentActions(response, chatId, botId);
+        if (!isImageRequest) void persistConversationMemory(chatId, userMsg, response, _activeAssistant, gatekeeperDecision, 'dm');
 
         if (_generationMode === 'code' || _generationMode === 'doc') {
            const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
@@ -1913,8 +2195,43 @@ export default function App() {
     queueMicrotask(() => { void handleSendMessage(); });
   };
 
-  const confirmEditMessage = async (msgId: string) => {
-     const { editingMessageContent: _emc, activeChatId: _activeChatId, messages: _messages } = useChatStore.getState();
+  // ── Side-rail send (Code Team chat) — a SECOND, concurrent conversation ────────────────────────
+  // Sends the rail composer's text straight to a SPECIFIC chatId (the Code space's Team thread) via
+  // processChatRequest, which already keys its channel routing off the chat RECORD's participants — so
+  // the real-agent team responds with NO Codey involvement. Crucially this NEVER touches the global
+  // activeChatId/activeFolderId, so Codey's center conversation stays pinned and intact. The composer
+  // text + attachments come from the rail's own buffer (passed in), not useUIStore — see docs pt 9.
+  // This is the scoped, two-conversation slice of the deferred Strategy-B decoupling.
+  const handleSendTeamMessage = async (targetChatId: string, text: string, attachments: any[] = []) => {
+    if (isGenerating) return;
+    if (!text.trim() && attachments.length === 0) return;
+    const _selectedModel = (() => {
+      const { models: m, selectedModelId: id } = useSettingsStore.getState();
+      return m.find((x: any) => x.id === id) ?? m[0] ?? null;
+    })();
+    if (!_selectedModel) {
+      useUIStore.getState().showToast('Connect a model first — here are picks for your Mac.');
+      const ss = useSettingsStore.getState();
+      ss.setWizardStep(3);
+      ss.setShowModelWizard(true);
+      return;
+    }
+
+    abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
+    const userMsg = { id: generateId('msg'), role: 'user', content: text, attachedFiles: [...attachments], isPinned: false, timestamp: Date.now() };
+    for (const f of attachments) {
+      if (f?.isImage && typeof f.content === 'string') saveImageToLibrary(f.content, { source: 'attached', name: f.name, mimeType: f.type });
+    }
+    const currentHistory = useChatStore.getState().messages[targetChatId] ?? [];
+    useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [targetChatId]: [...(prev[targetChatId] ?? []), userMsg] }));
+    useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === targetChatId ? { ...c, updatedAt: Date.now() } : c));
+    await processChatRequest(targetChatId, userMsg, currentHistory);
+  };
+
+  const confirmEditMessage = async (msgId: string, chatId?: string) => {
+     const { editingMessageContent: _emc, messages: _messages } = useChatStore.getState();
+     // chatId targets a specific conversation (the Code Team rail edits its own thread); defaults to active.
+     const _activeChatId = chatId ?? useChatStore.getState().activeChatId;
      if (!_emc.trim() || !_activeChatId) return;
      const chatMsgs = _messages[_activeChatId];
      const msgIdx = chatMsgs.findIndex((m: any) => m.id === msgId);
@@ -2309,6 +2626,28 @@ export default function App() {
     onSlashCommand: handleSlashCommand,
   };
 
+  // ── Team-rail prop bags (Code side rail) — clones pointed at the Team thread + its real agents.
+  // The center keeps the bags above (Codey, global active) 100% intact; these differ only in the
+  // pointed-at messages/agent/participants. The rail's own input buffer + onSend are layered in by
+  // AgentForgeCodePanel (it owns that local state); everything else is shared/cosmetic. See pt 9.
+  const teamSpaceLogProps = {
+    ...spaceLogProps,
+    activeMessages: teamMessages,
+    activeAssistant: teamPrimaryAgent ?? activeAssistant,
+    forgettingIndex: -1,
+    showAgentIntro: false,
+    // Per-message actions must target the Team thread, not the global active chat (Codey) — otherwise a
+    // rail bookmark/edit cross-talks to Codey's bucket. (Send was already decoupled via onSendTeamMessage;
+    // toggleSpeak/addTask are chat-agnostic so they need no override.)
+    onBookmark: (msg: any) => handleBookmark(msg, TEAM_CHAT_ID),
+    onConfirmEdit: (msgId: string) => confirmEditMessage(msgId, TEAM_CHAT_ID),
+  };
+  const teamChatInputBarProps = {
+    ...chatInputBarProps,
+    activeAssistant: teamPrimaryAgent ?? activeAssistant,
+    channelParticipants: teamChannelParticipants,
+  };
+
   // Render the content for any tab — the chat (space-log) is just another tab,
   // shown full-width by default and splittable beside another.
   const renderTabContent = (tab: typeof activeOmniTab) => {
@@ -2347,7 +2686,19 @@ export default function App() {
       return <NotesPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'agentforge-code') {
-      return <AgentForgeCodePanel />;
+      // Chat-first Code: the panel renders Codey's conversation (the global ChatPanel) as its default
+      // body, with Files/Terminal/Preview as toggle panels. The Code space pins Codey as primary, so
+      // the global activeChatId/activeFolderId are already his when this tab is on screen.
+      return (
+        <AgentForgeCodePanel
+          spaceLogProps={spaceLogProps}
+          chatInputBarProps={chatInputBarProps}
+          onSendPrompt={handleSendPrompt}
+          teamSpaceLogProps={teamSpaceLogProps}
+          teamChatInputBarProps={teamChatInputBarProps}
+          onSendTeamMessage={handleSendTeamMessage}
+        />
+      );
     }
     if (tab.type === 'tool' && tab.toolId === 'gallery') {
       return <GalleryPanel spaceId={tab.spaceId} />;
@@ -2591,7 +2942,10 @@ export default function App() {
           )}
 
           {/* ── Co-pilot rail: the active agent, docked beside a tool/web/canvas tab ── */}
-          {activeOmniTab && ['tool', 'web', 'code-canvas', 'doc'].includes(activeOmniTab.type) && (
+          {/* The Code tool tab renders Codey's conversation inline already, so skip the rail there —
+              otherwise the chat would double-render beside itself. */}
+          {activeOmniTab && ['tool', 'web', 'code-canvas', 'doc'].includes(activeOmniTab.type)
+            && activeOmniTab.toolId !== 'agentforge-code' && (
             copilotOpen ? (
               <>
                 <div className="w-px shrink-0 bg-edge-2" />

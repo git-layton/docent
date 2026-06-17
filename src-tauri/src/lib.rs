@@ -9,6 +9,7 @@ mod mail;
 mod imessage;
 mod calendar;
 mod notes;
+mod pty;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -824,6 +825,22 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if na == 0.0 || nb == 0.0 { 0.0 } else { dot / (na * nb) }
 }
 
+/// Memory "importance" in [0.05, 1.0], parsed from the gatekeeper frontmatter so retrieval can
+/// prefer higher-confidence, better-sourced memories. A weak signal by design — it only modulates
+/// ranking, never the relevance threshold. Mirrors the confidence/evidence labels in memoryGatekeeper.ts.
+fn parse_memory_importance(content: &str) -> f32 {
+    let head = content.chars().take(1200).collect::<String>().to_lowercase();
+    let mut score: f32 = if head.contains("confidence: high") { 1.0 }
+        else if head.contains("confidence: low") { 0.3 }
+        else { 0.6 }; // medium / unlabeled
+    if head.contains("evidence_state: needs_verification") || head.contains("evidence_state: conflicting") {
+        score *= 0.6;
+    } else if head.contains("evidence_state: inferred") {
+        score *= 0.85;
+    }
+    score.clamp(0.05, 1.0)
+}
+
 /// Split document text into embeddable chunks.
 fn chunk_text(content: &str) -> Vec<String> {
     let body = strip_frontmatter(content);
@@ -862,10 +879,15 @@ fn open_index_db() -> Result<rusqlite::Connection, String> {
             chunk_index   INTEGER NOT NULL,
             content       TEXT NOT NULL,
             vector        BLOB NOT NULL,
-            last_modified INTEGER NOT NULL
+            last_modified INTEGER NOT NULL,
+            importance    REAL NOT NULL DEFAULT 0.5
         );
         CREATE INDEX IF NOT EXISTS idx_bv_file ON brain_vectors(file_path);",
     ).map_err(|e| e.to_string())?;
+    // Migration for indexes created before the importance column existed. Older rows keep the 0.5
+    // default until their file is touched and re-indexed; the duplicate-column error is expected on
+    // fresh DBs (where CREATE TABLE already added it) and is intentionally ignored.
+    let _ = conn.execute("ALTER TABLE brain_vectors ADD COLUMN importance REAL NOT NULL DEFAULT 0.5", []);
     Ok(conn)
 }
 
@@ -933,6 +955,7 @@ fn init_file_watcher() {
                     .and_then(|m| m.modified().ok())
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs() as i64).unwrap_or(0);
+                let importance = parse_memory_importance(&content);
 
                 let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path]);
 
@@ -952,8 +975,8 @@ fn init_file_watcher() {
                     let chunk_id = format!("{file_path}#{i}");
                     let blob: Vec<u8> = vector.iter().flat_map(|f| f.to_le_bytes()).collect();
                     let _ = conn.execute(
-                        "INSERT OR REPLACE INTO brain_vectors (chunk_id, file_path, chunk_index, content, vector, last_modified) VALUES (?1,?2,?3,?4,?5,?6)",
-                        rusqlite::params![chunk_id, &file_path, i as i64, chunk, blob, mtime],
+                        "INSERT OR REPLACE INTO brain_vectors (chunk_id, file_path, chunk_index, content, vector, last_modified, importance) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                        rusqlite::params![chunk_id, &file_path, i as i64, chunk, blob, mtime, importance as f64],
                     );
                 }
                 let _ = conn.execute("UPDATE pending_index SET status='indexed' WHERE file_path=?1", rusqlite::params![&file_path]);
@@ -1123,14 +1146,14 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
         .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
     let library_prefix = root.join("library").to_string_lossy().to_string();
 
-    let rows: Vec<(String, String, Vec<u8>)> = {
+    let rows: Vec<(String, String, Vec<u8>, i64, f64)> = {
         let mut stmt = match conn.prepare(
-            "SELECT file_path, content, vector FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
+            "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
         ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)) };
 
         stmt.query_map(
             rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%")],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         ).map(|it| it.flatten().collect()).unwrap_or_default()
     };
 
@@ -1138,27 +1161,42 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
         return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars));
     }
 
-    let mut scored: Vec<(f32, String, String)> = rows.into_iter()
-        .filter_map(|(path, content, blob)| {
+    // Re-rank like the Generative-Agents retrieval score: relevance (cosine) stays dominant, but at
+    // comparable similarity a recent, higher-confidence memory beats a stale, weak one. Recency and
+    // importance only MODULATE order (±20%); the cosine pre-filter (>0.25) and the returned `score`
+    // remain raw cosine, so the frontend relevance thresholds keep their exact meaning.
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64).unwrap_or(0);
+    const HALF_LIFE_SECS: f64 = 30.0 * 24.0 * 60.0 * 60.0; // ~half weight at 30 days old
+
+    let mut scored: Vec<(f32, f32, String, String)> = rows.into_iter()
+        .filter_map(|(path, content, blob, last_modified, importance)| {
             let vec: Vec<f32> = blob.chunks_exact(4)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                 .collect();
-            let score = cosine_similarity(&query_vec, &vec);
-            if score > 0.25 { Some((score, path, content)) } else { None }
+            let cosine = cosine_similarity(&query_vec, &vec);
+            if cosine <= 0.25 { return None; }
+            let age = (now_secs - last_modified).max(0) as f64;
+            let recency = (-std::f64::consts::LN_2 * age / HALF_LIFE_SECS).exp() as f32; // 1.0 fresh → 0.5 @30d
+            let rank = cosine * (0.80 + 0.15 * recency + 0.05 * importance as f32);
+            Some((rank, cosine, path, content))
         })
         .collect();
 
+    // Order by the blended rank; surface raw cosine as the score the frontend thresholds on.
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Deduplicate: keep highest-scoring chunk per file
+    // Deduplicate: keep the top-ranked chunk per file (recency/importance are per-file, so this is
+    // still the highest-cosine chunk for that file).
     let mut seen_files = std::collections::HashSet::new();
-    scored.retain(|(_, path, _)| seen_files.insert(path.clone()));
+    scored.retain(|(_, _, path, _)| seen_files.insert(path.clone()));
     scored.truncate(max_results);
 
-    let results: Vec<serde_json::Value> = scored.into_iter().map(|(score, path, content)| {
+    let results: Vec<serde_json::Value> = scored.into_iter().map(|(_rank, cosine, path, content)| {
         let snippet: String = content.chars().take(snippet_chars).collect();
         let title = extract_title_from_path(&path);
-        serde_json::json!({ "path": path, "title": title, "snippet": snippet, "score": score })
+        serde_json::json!({ "path": path, "title": title, "snippet": snippet, "score": cosine })
     }).collect();
 
     serde_json::json!({ "results": results })
@@ -3442,6 +3480,7 @@ pub fn run() {
             pid: Mutex::new(None),
         })
         .manage(DownloadState::default())
+        .manage(pty::PtyState::default())
         .manage(TabCache::default())
         .manage(Mutex::new(NetworkState::default()))
         .manage(SysState(Mutex::new(System::new_with_specifics(
@@ -3504,7 +3543,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        // Clean Exit hook: SIGCONT + SIGKILL the llama sidecar on window destroy
+        // Clean Exit hook: SIGCONT + SIGKILL the llama sidecar on window destroy, and reap every
+        // live PTY session so no zombie shells / dev-servers outlive the app.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let app = window.app_handle();
@@ -3513,6 +3553,7 @@ pub fn run() {
                 if let Some(pid) = pid {
                     kill_llama(pid);
                 }
+                pty::kill_all_sessions(app);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -3560,6 +3601,10 @@ pub fn run() {
             fs_delete_external,
             fs_reveal,
             run_command,
+            pty::pty_spawn,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_kill,
             get_active_tab,
             show_spotlight,
             hide_spotlight,
@@ -3656,6 +3701,25 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    // ── Retrieval importance weighting ────────────────────────────────────────
+    #[test]
+    fn parse_memory_importance_reads_confidence_and_evidence() {
+        // High confidence, first-party → top importance.
+        let hi = parse_memory_importance("---\nconfidence: high\nevidence_state: first_party\n---\n# x");
+        assert!((hi - 1.0).abs() < 1e-6, "high/first_party should be 1.0, got {hi}");
+        // Low confidence → low importance.
+        let lo = parse_memory_importance("---\nconfidence: low\n---\n");
+        assert!((lo - 0.3).abs() < 1e-6, "low should be 0.3, got {lo}");
+        // Unlabeled (no frontmatter) → medium default.
+        assert!((parse_memory_importance("# just a note") - 0.6).abs() < 1e-6);
+        // needs_verification discounts even high confidence (1.0 * 0.6 = 0.6).
+        let nv = parse_memory_importance("confidence: high\nevidence_state: needs_verification");
+        assert!(nv > 0.55 && nv < 0.65, "needs_verification should discount high→~0.6, got {nv}");
+        // Output always stays within bounds.
+        let f = parse_memory_importance("confidence: low\nevidence_state: conflicting");
+        assert!((0.05..=1.0).contains(&f), "importance must stay in [0.05,1.0], got {f}");
+    }
+
     // ── Capability ACL gating ─────────────────────────────────────────────────
     // Faithful, automated proof of the remote-isolation fix. We load the EXACT files
     // `tauri::generate_context!` consumes (gen/schemas/{acl-manifests,capabilities}.json),
@@ -3745,6 +3809,9 @@ mod tests {
             "fs_list", "fs_read", "fs_write", "fs_mkdir", "fs_delete", "fs_move", "fs_import",
             "fs_probe_context", "fs_read_external", "fs_list_external", "fs_write_external",
             "fs_delete_external", "fs_reveal", "run_command",
+            // Interactive terminal (PTY) — a remote page must NEVER reach an interactive shell with
+            // the user's real credentials. These run the login shell; treat as maximally privileged.
+            "pty_spawn", "pty_write", "pty_resize", "pty_kill",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),

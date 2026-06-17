@@ -152,10 +152,16 @@ const APPS: AppEntry[] = [
   {
     id: 'agentforge-code',
     label: 'Code',
-    sub: 'Files, terminal & git',
+    sub: 'Build with Codey',
     icon: FolderGit2,
     tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'agentforge-code' as ToolTabId, label: 'Code' }),
+    // Code is Codey's space: switch to (or create) the dedicated Code space pinned to Codey, so the
+    // Code surface opens to a conversation with Codey. The Code tab opens inside that space, so we
+    // just consume the Home tab we came from.
+    open: (tabId) => {
+      useSpaceStore.getState().openCodeSpace();
+      if (tabId) useSpaceStore.getState().closeTab(tabId);
+    },
   },
   {
     id: 'browser',

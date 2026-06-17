@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { trustOfTab, trustOfToolSource } from '../../services/trust';
 import { buildSystemPrompt } from '../../services/llm';
+import { projectContextPath } from '../../services/fileAccess/spaces';
 import type { OmniTab } from '../../types/omniTab';
 
 describe('trustOfToolSource', () => {
@@ -69,5 +70,53 @@ describe('buildSystemPrompt — tool-context trust rendering', () => {
     });
     expect(p).toContain("This is the user's own data");
     expect(p).not.toContain('<<<UNTRUSTED_EXTERNAL_CONTENT>>>');
+  });
+});
+
+describe('buildSystemPrompt — project context (AGENTS.md)', () => {
+  const base = { agent: { prompt: 'You are Test.', tools: {} }, tasks: [] };
+  const AGENTS = '# Project\nBuild: npm run build\nGOTCHA: never run prod migrations locally';
+
+  it('renders a TRUSTED-LOCAL [PROJECT CONTEXT - AGENTS.md] block with the file text, not fenced as untrusted', () => {
+    const p = buildSystemPrompt({ ...base, projectContext: AGENTS });
+    expect(p).toContain('[PROJECT CONTEXT - AGENTS.md]');
+    expect(p).toContain('never run prod migrations locally');
+    // The user authored AGENTS.md, so it must NOT be wrapped in the untrusted-content fences.
+    expect(p).not.toContain('<<<UNTRUSTED_EXTERNAL_CONTENT>>>');
+    expect(p).not.toContain('<<<UNTRUSTED_WEB_CONTENT>>>');
+  });
+
+  it('places the project-context block after the goal and before [ACTIVE TOOLS]', () => {
+    const p = buildSystemPrompt({
+      ...base,
+      agent: { prompt: 'You are Test.', tools: { files: true } },
+      goal: 'Ship phase 2',
+      projectContext: AGENTS,
+    });
+    const goalIdx = p.indexOf('[YOUR STANDING GOAL IN THIS SPACE]');
+    const ctxIdx = p.indexOf('[PROJECT CONTEXT - AGENTS.md]');
+    const toolsIdx = p.indexOf('[ACTIVE TOOLS]');
+    expect(goalIdx).toBeGreaterThanOrEqual(0);
+    expect(ctxIdx).toBeGreaterThan(goalIdx);
+    expect(toolsIdx).toBeGreaterThan(ctxIdx);
+  });
+
+  it('caps an overlong AGENTS.md at 4000 chars', () => {
+    const huge = 'x'.repeat(9000);
+    const p = buildSystemPrompt({ ...base, projectContext: huge });
+    expect(p).toContain('[PROJECT CONTEXT - AGENTS.md]');
+    expect(p).not.toContain('x'.repeat(4001));
+  });
+
+  it('omits the block entirely when projectContext is empty/whitespace', () => {
+    expect(buildSystemPrompt({ ...base, projectContext: '' })).not.toContain('[PROJECT CONTEXT - AGENTS.md]');
+    expect(buildSystemPrompt({ ...base, projectContext: '   \n  ' })).not.toContain('[PROJECT CONTEXT - AGENTS.md]');
+    expect(buildSystemPrompt({ ...base })).not.toContain('[PROJECT CONTEXT - AGENTS.md]');
+  });
+});
+
+describe('projectContextPath', () => {
+  it('resolves to spaces/<id>/AGENTS.md', () => {
+    expect(projectContextPath('space-x')).toBe('spaces/space-x/AGENTS.md');
   });
 });

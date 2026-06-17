@@ -39,6 +39,7 @@ export interface SpaceLogProps {
   isDragging: boolean;
   showAgentIntro: boolean;
   onDismissAgentIntro: () => void;
+  hideEmptyState?: boolean;
 }
 
 export interface ChatInputBarProps {
@@ -60,6 +61,12 @@ export interface ChatInputBarProps {
   isListening: boolean;
   onToggleListening: () => void;
   onSlashCommand: (cmd: SlashCommand) => void;
+  // OPTIONAL composer-state override — a second ChatInputBar (the Code Team rail) runs its own
+  // input/attachment buffer instead of the global UI store. See ChatInputBar.tsx + docs pt 9.
+  inputValue?: string;
+  onInputChange?: (v: string) => void;
+  attachedDocsOverride?: any[];
+  onAttachedDocsChange?: (fn: (prev: any[]) => any[]) => void;
 }
 
 interface ChatPanelProps {
@@ -68,6 +75,10 @@ interface ChatPanelProps {
   chatInputBarProps: ChatInputBarProps;
   onSendPrompt: (text: string) => void;
   onCollapse?: () => void;
+  /** Suppress the global ChatHeader — used by the Code Team rail, which has its own slim header and
+   *  must NOT render the global-active-chat-coupled ChatHeader (that header reads the global active
+   *  chat/agent = Codey, which would be wrong for the rail's separate Team conversation). pt 9. */
+  hideHeader?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +121,7 @@ export function ChatPanel({
   chatInputBarProps,
   onSendPrompt,
   onCollapse,
+  hideHeader,
 }: ChatPanelProps): React.ReactElement {
   const showPlanner = useTaskStore(s => s.showPlanner);
   const docked = mode === 'docked';
@@ -121,32 +133,34 @@ export function ChatPanel({
 
   return (
     <div className="flex flex-col h-full bg-base min-h-0">
-      {/* Header */}
-      <div className="flex items-center">
-        {docked && onCollapse && (
-          <button
-            onClick={onCollapse}
-            className="shrink-0 px-2 h-full text-ink-3 hover:text-ink transition-colors"
-            title="Collapse chat"
-          >
-            <PanelRightClose className="w-4 h-4" />
-          </button>
-        )}
-        <div className="flex-1 min-w-0">
-          <ChatHeader
-            dropdownRef={p.dropdownRef}
-            llamaPaused={p.llamaPaused}
-            llamaCoolingDown={p.llamaCoolingDown}
-            activeMessages={p.activeMessages}
-            systemPromptLen={p.systemPromptLen}
-            hasErrorLogs={p.hasErrorLogs}
-            errorLogsCount={p.errorLogsCount}
-            onRunDreamCycle={p.onRunDreamCycle}
-            onToast={p.onToast}
-            onSendPrompt={onSendPrompt}
-          />
+      {/* Header (suppressed for the Team rail — it brings its own slim header) */}
+      {!hideHeader && (
+        <div className="flex items-center">
+          {docked && onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="shrink-0 px-2 h-full text-ink-3 hover:text-ink transition-colors"
+              title="Collapse chat"
+            >
+              <PanelRightClose className="w-4 h-4" />
+            </button>
+          )}
+          <div className="flex-1 min-w-0">
+            <ChatHeader
+              dropdownRef={p.dropdownRef}
+              llamaPaused={p.llamaPaused}
+              llamaCoolingDown={p.llamaCoolingDown}
+              activeMessages={p.activeMessages}
+              systemPromptLen={p.systemPromptLen}
+              hasErrorLogs={p.hasErrorLogs}
+              errorLogsCount={p.errorLogsCount}
+              onRunDreamCycle={p.onRunDreamCycle}
+              onToast={p.onToast}
+              onSendPrompt={onSendPrompt}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Body */}
       {showPlanner ? (
@@ -200,6 +214,7 @@ export function ChatPanel({
             messagesEndRef={p.messagesEndRef}
             onRenderMessage={p.onRenderMessage}
             onToast={p.onToast}
+            hideEmptyState={p.hideEmptyState}
             onSendPrompt={onSendPrompt}
           />
         </div>

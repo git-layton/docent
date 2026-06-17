@@ -41,6 +41,22 @@ describe('agentActions — safety classification', () => {
     expect(actionNeedsApproval({ tool: 'calendar', op: 'create', title: 'x', start: '2026-01-01' })).toBe(false);
     expect(actionNeedsApproval({ tool: 'task', op: 'complete', id: '1' })).toBe(false);
   });
+  it('treats agent self-edit memory writes as local (no approval)', () => {
+    // The agent writing to its OWN private memory is a local write, like creating a note — App.tsx
+    // routes it to persistAgentSelfMemory, so it must never land in the approval queue.
+    expect(actionNeedsApproval({ tool: 'memory', op: 'save', title: 'Pref', content: 'likes brevity' })).toBe(false);
+    expect(actionNeedsApproval({ tool: 'memory', op: 'update', title: 'Pref', content: 'likes brevity' })).toBe(false);
+  });
+});
+
+describe('agentActions — self-edit memory parsing', () => {
+  it('parses a memory.save block with title and content', () => {
+    const text = 'Got it — I\'ll remember that.\n```forge:action\n{"tool":"memory","op":"save","title":"Tone","content":"User prefers concise replies."}\n```';
+    const a = parseAgentActions(text);
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({ tool: 'memory', op: 'save', title: 'Tone' });
+    expect(a[0].content).toContain('concise');
+  });
 });
 
 describe('agentActions — strip + describe', () => {

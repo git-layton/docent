@@ -43,6 +43,14 @@ interface ChatInputBarProps {
   onSlashCommand: (cmd: SlashCommand) => void;
   // channel @mentions
   channelParticipants?: Array<{ id: string; name: string }>;
+  // OPTIONAL composer-state override — lets a SECOND ChatInputBar (e.g. the Code Team rail) run its
+  // own input/attachment buffer instead of the global useUIStore one, so two composers can live on
+  // one screen without sharing (and corrupting) each other's text. When omitted, the bar reads/writes
+  // the global UI store exactly as before. See docs/agentforge-code-design.md pt 9.
+  inputValue?: string;
+  onInputChange?: (v: string) => void;
+  attachedDocsOverride?: any[];
+  onAttachedDocsChange?: (fn: (prev: any[]) => any[]) => void;
 }
 
 export function ChatInputBar({
@@ -64,19 +72,37 @@ export function ChatInputBar({
   onToggleListening,
   onSlashCommand,
   channelParticipants = [],
+  inputValue,
+  onInputChange,
+  attachedDocsOverride,
+  onAttachedDocsChange,
 }: ChatInputBarProps) {
-  const input = useUIStore(s => s.input);
+  const storeInput = useUIStore(s => s.input);
   const isDeepThinking = useUIStore(s => s.isDeepThinking);
   const forcedTool = useUIStore(s => s.forcedTool);
   const isPlanMode = useUIStore(s => s.isPlanMode);
-  const attachedDocs = useUIStore(s => s.attachedDocs);
+  const storeAttachedDocs = useUIStore(s => s.attachedDocs);
   const uploadError = useUIStore(s => s.uploadError);
   const isModelDropdownOpen = useUIStore(s => s.isModelDropdownOpen);
   const slashHighlight = useUIStore(s => s.slashHighlight);
   const generationMode = useUIStore(s => s.generationMode);
   const pinnedTools = useUIStore(s => s.pinnedTools);
-  const { setInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
-    setAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode, setPinnedTools } = useUIStore.getState();
+  const { setInput: setStoreInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
+    setAttachedDocs: setStoreAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode, setPinnedTools } = useUIStore.getState();
+
+  // Composer state — use the caller's own buffer when provided (the Code Team rail), else the
+  // global UI store. This is the single decoupling that lets the center (Codey) and rail (Team)
+  // composers coexist without sharing one input/attachment buffer.
+  const isOverridden = inputValue !== undefined && !!onInputChange;
+  const input = isOverridden ? (inputValue as string) : storeInput;
+  const setInput = (next: string | ((prev: string) => string)) => {
+    const value = typeof next === 'function' ? (next as (p: string) => string)(input) : next;
+    if (isOverridden) onInputChange!(value); else setStoreInput(value);
+  };
+  const attachedDocs = attachedDocsOverride !== undefined ? attachedDocsOverride : storeAttachedDocs;
+  const setAttachedDocs = (fn: (prev: any[]) => any[]) => {
+    if (onAttachedDocsChange) onAttachedDocsChange(fn); else setStoreAttachedDocs(fn);
+  };
 
   const [showToolPopover, setShowToolPopover] = useState(false);
   const toolPopoverRef = useRef<HTMLDivElement>(null);
@@ -118,19 +144,22 @@ export function ChatInputBar({
   // Cmd/Ctrl+Shift+@ — summon the agent picker on the current surface (spec §5). Inserts a trailing
   // '@' so the existing mention palette opens, scoped to this chat's participants, then focuses the
   // composer. (Shift+2 on US layouts yields e.key === '@'.)
+  // Only the global (non-overridden) composer owns this global shortcut — an overridden rail composer
+  // (the Code Team rail) skips it so it never hijacks the shortcut from the center conversation.
   useEffect(() => {
+    if (isOverridden) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === '@') {
         e.preventDefault();
         const cur = useUIStore.getState().input;
         const next = !cur || cur.endsWith(' ') || cur.endsWith('@') ? `${cur}@` : `${cur} @`;
-        setInput(next);
+        useUIStore.getState().setInput(next);
         composerRef.current?.focus();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setInput]);
+  }, [isOverridden]);
 
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);

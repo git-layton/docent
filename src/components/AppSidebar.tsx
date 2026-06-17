@@ -100,8 +100,11 @@ export function AppSidebar(_: AppSidebarProps) {
   // same text to the global command palette, which searches across every space, tab & agent.
   const openGlobalSearch = () =>
     window.dispatchEvent(new CustomEvent('forge:open-cmdk', { detail: { query: chatSearchQuery } }));
+  // Codey ('forge-dev') is the CODE-ONLY copilot — he drives the Code surface, not a general agent,
+  // so he's hidden from the People roster (he still exists in `assistants` for the Code space / advisor
+  // flow). 'forge-guide' and the hidden 'f-default' fallback are likewise kept out of the roster.
   const visibleAgents = assistants
-    .filter((agent: any) => agent.id !== 'forge-guide' && agent.id !== 'f-default')
+    .filter((agent: any) => agent.id !== 'forge-guide' && agent.id !== 'f-default' && agent.id !== 'forge-dev')
     .filter((agent: any) => `${agent.name} ${agent.description ?? ''}`.toLowerCase().includes(query));
 
   return (

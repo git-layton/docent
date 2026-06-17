@@ -3,7 +3,7 @@ import { Sparkles, X, Loader2, RotateCcw } from 'lucide-react';
 
 export interface DreamItem {
   id: string;
-  type: 'merged' | 'updated' | 'pruned' | 'noticed';
+  type: 'merged' | 'updated' | 'pruned' | 'noticed' | 'insight';
   description: string;
   // notice-specific
   notice_title?: string;
@@ -44,6 +44,10 @@ const TYPE_STYLES = {
     badge: 'bg-danger-soft text-danger',
     label: 'Pruned',
   },
+  insight: {
+    badge: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300',
+    label: 'Insight',
+  },
 } as const;
 
 function formatTimestamp(iso: string): string {
@@ -70,6 +74,7 @@ export function DreamDigestModal({ log, onClose, onUndo }: Props) {
 
   const notices = log.items.filter(i => i.type === 'noticed');
   const grouped = {
+    insight: log.items.filter(i => i.type === 'insight'),
     merged: log.items.filter(i => i.type === 'merged'),
     updated: log.items.filter(i => i.type === 'updated'),
     pruned: log.items.filter(i => i.type === 'pruned'),
@@ -140,7 +145,7 @@ export function DreamDigestModal({ log, onClose, onUndo }: Props) {
             </div>
           )}
 
-          {(['merged', 'updated', 'pruned'] as const).map(type => {
+          {(['insight', 'merged', 'updated', 'pruned'] as const).map(type => {
             const items = grouped[type];
             if (items.length === 0) return null;
             const style = TYPE_STYLES[type];

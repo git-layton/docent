@@ -209,3 +209,204 @@ so it sits dormant at `''`. **Fix (small, OUTSIDE the collision zone):** add a d
 ensure it persists. **No send-path/App.tsx change** — AppSidebar already routes the agent default into
 `selectedModelId` on switch. This is the NATIVE (Codey) path's model; hosted CLIs configure their own (or point
 at the local endpoint).
+
+## Update 2026-06-16 (pt 7) — agent presence in Code: the "Powered by [agent]" chip
+
+Resolves the "the Code screen has nothing to talk to" confusion. Presence is split, not absent:
+- **Rail = who you talk to** (always there; defaults to Codey).
+- **Center = the work** (files / editor / terminal).
+- A **"⚡ Powered by Codey ▾" chip** in the Code header NAMES the driver and, on click, opens that agent's
+  **code-specific settings** — the per-agent **model** (`defaultModelId` picker), a **Developer Mode** toggle,
+  and an **Edit agent →** link. (Mounted folders live in the panel's Linked-files view, not the popover.) So the
+  model-edit entry point and the agent presence are the same affordance. _(BUILT 2026-06-16.)_
+
+Reconciled agent model (no drift from earlier decisions): the coding **capability is universal** — any agent
+*can* code ("all mini codeys"); **Codey is the tuned default** and what the chip shows; **one driver per space**
+(the rail's active agent); **multiple efforts = multiple spaces** (a space ≈ a project), never multiple drivers
+in one space. So "your agents code with you" (any of them) AND "a dedicated Codey" are both true at once.
+
+**KEY refinement (2026-06-16): Codey is PERMANENT in a Code space.** The realization that unlocked it: the rail
+is normally your **group chat** (you + the space's agents), so reusing it raw for Code would be ambiguous
+("*which* of my group is coding?"). Resolution: **a Code space pins Codey as its permanent agent** — the rail
+there is *you + Codey, fixed*, NOT a swappable group chat; normal/group spaces keep their group-chat rail.
+"Permanent" ≠ rigid: Codey is always the Code agent (not swapped out), but his **settings ARE editable** (model
+`defaultModelId` / Dev Mode / folders) via the "Powered by Codey" chip. Other agents stay code-capable under the
+hood, but Code's face is permanently, legibly Codey — no "who's driving?" moment.
+
+## Update 2026-06-16 (pt 8) — chat-first Code (supersedes the files-first panel)
+
+The Code surface is now a **conversation with Codey**, not a files-first panel. This SUPERSEDES the
+Workspace / Linked / Activity / Terminal segmented tabs, the **"⚡ Powered by Codey" chip** (pt 7), and the
+"open the desktop app" dead empty state. Codey *drives* the code; files/terminal/preview are tools he and
+you reach into, not the home screen. _(BUILT 2026-06-16.)_
+
+**The shape**
+- **Default view = Codey's conversation.** The Code panel renders the app's existing chat machinery (the
+  global `ChatPanel` — message list + the inline `file_op` diff cards + command-result cards + the input
+  bar) pointed at the Code space's per-project thread. No parallel chat was built; coding actions render as
+  the same inline cards every other agent uses.
+- **Header** = project name + a single **gear popover** (Codey's `defaultModelId` model picker + Developer
+  Mode toggle + "Codey's tools & prompt →" full-editor link) + three **toggle buttons: Files · Terminal ·
+  Preview**. No segmented tabs.
+- **Files / Terminal / Preview are toggle panels**, opened on demand beside the conversation (never the
+  default):
+  - **Files** = the original browse/import/preview engine (file tree + provenance actions + "bring in a
+    file"), now a side panel.
+  - **Terminal** = the existing `TerminalPane` (PTY), Developer-Mode gated, cwd = the space's workspace home.
+  - **Preview** = a sandboxed `<iframe>` to a manual localhost URL (default `http://localhost:3000`). v1 is
+    set-URL-and-Go; auto-detect is deferred. (Native webview reuse via `BrowserTabContent` is deferred — its
+    singleton `browser-panel` label would collide with the main browser tab.)
+- **Empty / first-run** = Codey's chat with a friendly hero: "Open a folder, or tell me what to build" plus
+  one-click prompt chips — never an empty file tree.
+
+**Codey is code-only.** He's hidden from the People roster (`AppSidebar` filters out `forge-dev`) — the
+roster shows the user's REAL agents (Alexis etc.). Codey still exists as an agent object (model/tools/prompt)
+and remains in `assistants` so `openCodeSpace`/`resolveCodeyId`/the advisor flow keep working; he only
+appears as the Code driver. His toolkit was widened to a full code copilot: `web_search` + `local_workspace`
+(research the web + knowledge while coding); `file_op`/workshop are universal and terminal commands are
+Developer-Mode gated, so no extra flags are needed there.
+
+**@-mention advisors.** The user can @-mention any of their real agents INTO Codey's conversation to get
+advice — **they advise; only Codey edits.** The Code composer's @-picker offers the whole roster (resolved
+against all agents, not just stored participants). Routing is special-cased for the Code chat
+(`CODE_CHAT_ID`): responders are the mentioned advisors **plus Codey, with Codey last** so he synthesizes
+their input and owns the edits — a mentioned advisor never silences Codey via the generic sticky-scope rule.
+
+**Implementation (Strategy A).** The Code space (`space-code`) already pins Codey as primary and seeds a
+Codey channel (`chat-space-code`) + the `agentforge-code` tool tab. `setActiveSpaceId` already drives the
+global `activeChatId`/`activeFolderId` to Codey, so the inline `ChatPanel` is already his; the panel adds a
+defensive effect to re-pin them if they drift. The co-pilot rail is excluded for the `agentforge-code` tab so
+the conversation doesn't double-render beside itself.
+
+**Deferred (stubbed, not half-built):** multi-chat-per-project + a project switcher (v1 = one Codey
+conversation per Code space); Preview localhost auto-detect + reusing the native browser webview; vision-based
+preview-observation; full Strategy-B decoupling of the send pipeline from the single global
+`activeChatId`/`activeFolderId`. AGENTS.md + per-project memory already exist via `loadProjectContext` — they
+are surfaced into Codey's prompt, not rebuilt here.
+
+## Update 2026-06-17 (pt 9) — the Team side rail: a private group chat with your real agents
+
+The Code surface now carries a **second conversation** alongside Codey's: a collapsible **right rail that is a
+PRIVATE GROUP CHAT with the user's REAL agents** (Alexis & co. — the roster agents, **not** Codey). It's a
+**separate thread** from Codey's center conversation, so you can talk things over with your team **without
+involving or confusing Codey**. The center stays exactly as pt 8 describes (Codey solo, drives the code,
+inline `file_op`/command cards); the rail is the standing "talk to my team" space. _(BUILT 2026-06-17.)_
+
+**Center vs rail (two concurrent conversations on one screen)**
+- **Center = Codey, unchanged.** Still the global `ChatPanel` pinned to `CODE_CHAT_ID` + Codey. @-mentioning
+  a real agent INTO the center to bring them onto the code work is **unchanged** (pt 8 routing).
+- **Right rail = the Team group chat.** A second `ChatPanel` (reused, not re-built) pointed at a dedicated
+  per-project Team thread. Collapsible — a thin `Users` strip when closed; the heavy `ChatPanel` only mounts
+  when expanded. Collapse state persists (`db` key `codeTeamRailOpen`), mirroring the co-pilot `copilotOpen`
+  idiom.
+
+**Why a dedicated per-project Team thread (not the Home chat).** The rail agents must be context-aware of
+**this** Code project, and ambient context (open tabs) + `AGENTS.md` are space-scoped — a per-project thread
+inherits that for free, keeps each project's team discussion isolated, and matches the existing
+"space ≈ project, deterministic per-space chat ids" model. Reusing the Home chat would pull agents into an
+unrelated conversation and leak Code context into Home.
+
+**Data model.** `openCodeSpace` seeds a second channel thread `TEAM_CHAT_ID` (`team-chat-space-code`) named
+"Team", whose `participantAgentIds` are the **real roster** (every agent minus Codey/`forge-guide`/`f-default`
+— the same filter `AppSidebar` uses). The id is stored on the Space as a new optional `teamChatId`. Existing
+installs that already created `space-code` are **backfilled on open** (idempotent — no `STORE_VERSION` bump).
+Because the thread has a **different id from `CODE_CHAT_ID`**, `processChatRequest` takes the generic channel
+path (`isCodeChat` is false) and routes responders from the chat RECORD's participants — a real multi-agent
+team chat with **no Codey involvement**.
+
+**Context-awareness comes for free.** A rail send runs while the Code space is active, so
+`processChatRequest` reads the active space's ambient context (open tabs/selected file), tool context, and
+`AGENTS.md` fresh at send time and threads them into each responder — the rail agents already see the Code
+surface, with no new wiring.
+
+**The minimal decoupling (a scoped slice of Strategy-B).** Two concurrent conversations on one screen needed
+exactly two changes, no more:
+1. **Send target.** A `handleSendTeamMessage(targetChatId, text, attachments)` sends straight to a specific
+   chatId via `processChatRequest` and **never touches** the global `activeChatId`/`activeFolderId`, so the
+   center stays pinned to Codey. (`processChatRequest` already took `chatId` as a param and keys channel
+   routing off it — no change needed there.)
+2. **Composer buffer.** `ChatInputBar` gained optional `inputValue`/`onInputChange` +
+   `attachedDocsOverride`/`onAttachedDocsChange` props. The rail passes its **own** `useState` buffer instead
+   of the global `useUIStore.input`/`attachedDocs`, so the center (Codey) and rail (Team) composers never
+   share or corrupt each other's text. When the props are omitted (everywhere else), the bar reads/writes the
+   global UI store exactly as before. `ChatPanel` also gained a `hideHeader` flag so the rail suppresses the
+   global-active-coupled `ChatHeader` (which would otherwise show Codey) in favor of its own slim "Team"
+   header. **Read needs no decoupling** — `ChatPanel`/`MessageList` are prop-driven; the rail just gets a
+   second prop bag whose `activeMessages = messages[TEAM_CHAT_ID]`.
+
+**Still deferred (knowingly):** pin-/gatekeeper-memory scoping in `processChatRequest` is still keyed to the
+global `_activeFolderId` (Codey), so during a rail send team agents use Codey's pin scope and channel memory
+is attributed under Codey's gatekeeper — **cosmetic for v1**; a clean fix threads the responder agent through
+pin/memory scoping (the rest of full Strategy-B). The Team thread's participants are seeded once at
+create/backfill time — agents added to the roster later don't auto-join the existing Team thread (v1).
+
+## Update 2026-06-17 (pt 10) — Codey-can-see (preview-observation) + rail teamChatId backfill
+
+Two things land here: the **verify loop** (Codey can finally *see* the running app at the Preview URL and
+self-correct), and a small **rail reliability fix** so the Team rail (pt 9) appears even when you reopen
+straight into a pre-existing Code tab. This realizes the preview-observation idea sketched in pt 4 — shipping
+the model-agnostic READ now, stubbing the vision LOOK behind a clear flag.
+
+### Codey-can-see — the verify loop
+
+**READ (shipped, model-agnostic, highest signal).** A new `preview-observe` capability
+(`services/capabilities/builtins/previewObserve.ts`, registered in `capabilities/index.ts`) lets Codey read
+the running app:
+- It reads the **shared** Preview URL — lifted into `useUIStore.codePreviewUrl`, written by the Preview
+  panel's **Go** button (`goPreview`) — so Codey reads **the exact URL the human framed**, never a guessed
+  `localhost:3000`.
+- It runs `curl -sS -i -L --max-time 12 <url>` through the already-shipped, Developer-Mode-gated **`run_command`**
+  (cwd = the active space's workspace home), then pipes the served HTML through the existing Rust
+  **`extract_page_text`** extractor for clean readable text. **Zero new Rust.**
+- Codey sees: the **HTTP status line + response headers**, the **server-rendered markup/JSON**, and — because
+  `run_command` captures stderr — any **connection error** (e.g. dev server not running). The result folds into
+  his context as a `[SYSTEM NOTE: PREVIEW OBSERVATION]` `toolData` block, **identically to browse/files**
+  (`App.tsx` capability fold), and the status chip finalizes to `👁 Observed preview`.
+
+**Honest limitation:** curl gets the **server response only** — no client-rendered DOM, no browser console.
+For an SPA dev server (Vite/CRA) the served HTML is often a near-empty `<div id="root">` shell, so Codey sees
+**build/runtime errors + route reachability + SSR markup + HTTP status** (the highest-signal fix inputs) but
+**not the live rendered UI**. The richer client-rendered DOM read is the **deferred** native-webview path:
+the browser uses a SINGLETON `browser-panel` webview label (`pageCapture.ts`/`browserAgent.ts`/lib.rs ACL
+tests), so reusing it for Preview collides with the user's real browser tab, and a second tracked webview is
+heavy (parallel `browser_agent_report` plumbing + absolute-coord bounds sync that would fight the Preview
+iframe). And cross-origin `postMessage` out of the iframe does **not** work — the Preview iframe frames a
+cross-origin localhost server, so `allow-same-origin` grants the framed page only its own origin.
+
+**LOOK (vision, STUBBED with a flag).** `lookAtPreview()` in the same file wires the **vision SINK** end to
+end — it gates on `resolveVisionRoute(...)`/`modelSupportsVision(model)` (REUSING the `llm.ts` seam,
+unchanged) and, given image bytes, calls `describeImage(dataUrl, 'image/png', route)` and folds the
+description into the same observation note. The **only** missing piece is the screenshot **SOURCE**:
+`capturePreviewScreenshot()` returns `null` for now, so LOOK automatically **falls back to the READ**. Making
+LOOK live needs (a) a new Rust `webview_screenshot` command — macOS WKWebView capture is non-trivial, and it
+MUST go in `generate_handler!` (auto-grants `allow-app-local`) and stay **off** `allow-browser-remote` in
+`app.toml`, same isolation rule as `run_command` — and (b) a vision model in the catalog (currently none; see
+[[project-multimodal-vision]]).
+
+**Surface — capability + affordance.** Routing adds a `'preview'` `ToolRoute` (`memoryGatekeeper.ts`: the type,
+the `TOOL_ROUTES` validation tuple, and a `forced === 'preview'` case in `routeToolCandidates`). The visible
+affordance is a small **eye button** in the Preview panel header (shown once a URL is live): it pins
+`codePreviewUrl`, sets `forcedTool='preview'`, and sends *"Look at the running preview and fix anything
+broken."* through Codey's normal composer — so the capability runs and the observation folds in.
+
+**Honest caveats.** The READ only produces signal when a **dev server is actually running** at the URL
+(otherwise curl reports connection-refused, surfaced as a useful note, not a silent empty read). It is
+**Developer-Mode-gated** (it's a shell command); when Dev Mode is off the capability says so and toasts the
+user to enable it, rather than failing opaquely. LOOK additionally needs the deferred screenshot command **and**
+a vision model. The existing Preview iframe is **untouched** — observation reads out-of-band via curl; the eye
+button is additive header chrome.
+
+### Rail reliability backfill — `teamChatId`
+
+**Bug:** `Space.teamChatId` was only seeded in `openCodeSpace`. `hydrate` restores persisted spaces verbatim
+and never sets it, so a user who reopens the app **directly into a pre-existing Code tab** (hydrate restores
+the active tab) never calls `openCodeSpace`, leaving `teamChatId` undefined → the entire Team rail block
+(`{teamChatId && …}`) renders nothing.
+
+**Fix:** a new `ensureCodeTeamThread(spaceId)` store action reuses the exact same `realRosterAgentIds` +
+`ensureChatThread` + `TEAM_CHAT_ID` logic as `openCodeSpace`: if the space lacks the pointer it seeds the Team
+thread and sets `teamChatId`, then persists. The Code panel calls it from a `useEffect` keyed on
+`[activeSpaceId, activeSpace?.teamChatId]`, gated on `teamChatId !== TEAM_CHAT_ID`. **Loop guard is inherent:**
+the action is a no-op once the pointer is set (it returns early, mutating nothing), so after one backfill the
+effect's condition is false and it never re-fires. Keeping the seeding in a store action (not inline in the
+panel) avoids exporting the module-private roster/thread helpers and keeps the logic in one place.

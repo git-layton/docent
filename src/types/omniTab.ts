@@ -33,6 +33,11 @@ export interface Space {
   tabIds: string[];
   agentGoals?: Record<string, string>; // per-agent standing goal within this Space (spec §6)
   chatId: string;        // this container's own conversation thread (in useChatStore)
+  /** OPTIONAL second conversation owned by this Space. For the Code space this is the private "Team"
+   *  group thread (the user's REAL agents — NOT Codey) shown in the Code side rail: a separate,
+   *  context-aware conversation rendered concurrently with the center (Codey) chat. Other spaces
+   *  leave this undefined. See docs/agentforge-code-design.md pt 9. */
+  teamChatId?: string;
   createdAt: number;
   updatedAt: number;
 }

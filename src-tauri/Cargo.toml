@@ -36,6 +36,10 @@ reqwest = { version = "0.12", features = ["stream"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["time"] }
 scraper = "0.20"
+# Interactive terminal (PTY) backend for AgentForge Code — wezterm's cross-platform pty interface.
+portable-pty = "0.9"
+# Base64 of raw PTY bytes streamed over the pty:data event (never lossy-decode multibyte UTF-8 per read).
+base64 = "0.22"
 # Local-first mail layer (IMAP read; SMTP/parse added next). Uses native-tls = macOS Security.framework,
 # already in the tree, so no new TLS stack.
 imap = "2"
