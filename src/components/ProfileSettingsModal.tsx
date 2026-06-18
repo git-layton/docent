@@ -7,7 +7,7 @@ import {
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { normalizeVoiceProfile } from '../services/voice';
-import { buildVoiceCard } from '../services/voiceRuntime';
+import { buildVoiceCard, buildRelationshipVoiceCard } from '../services/voiceRuntime';
 import { VoiceSetupModal } from './VoiceSetupModal';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
@@ -68,6 +68,42 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
       useUIStore.getState().showToast('✍️ Learned your writing voice.');
     } catch (e: any) {
       useUIStore.getState().showToast(e?.message ?? 'Could not learn your voice.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  // ── Per-relationship voices (the byRecipient map) — manage what was learned per person ──
+  const setRecipientVoice = (relKey: string, patch: any) => {
+    setAppSettings((prev: any) => {
+      const cur = normalizeVoiceProfile(prev?.voiceProfile);
+      const existing = cur.byRecipient?.[relKey];
+      if (!existing) return prev;
+      return { ...prev, voiceProfile: { ...cur, byRecipient: { ...cur.byRecipient, [relKey]: { ...existing, ...patch } } } };
+    });
+    void useSettingsStore.getState().persist();
+  };
+  const removeRecipientVoice = (relKey: string) => {
+    setAppSettings((prev: any) => {
+      const cur = normalizeVoiceProfile(prev?.voiceProfile);
+      if (!cur.byRecipient?.[relKey]) return prev;
+      const next = { ...cur.byRecipient };
+      delete next[relKey];
+      return { ...prev, voiceProfile: { ...cur, byRecipient: next } };
+    });
+    void useSettingsStore.getState().persist();
+  };
+  const rebuildRecipientVoice = async (relKey: string, recipientName?: string) => {
+    if (voiceBusy) return;
+    if (!relKey.startsWith('im:')) { useUIStore.getState().showToast('Rebuilding from messages is available for iMessage contacts.'); return; }
+    if (models.length === 0) { useUIStore.getState().showToast('Connect a model first to rebuild a voice.'); return; }
+    setVoiceBusy(true);
+    try {
+      const { card, sampleCounts } = await buildRelationshipVoiceCard(relKey.slice(3), recipientName);
+      setRecipientVoice(relKey, { card, sampleCounts, source: 'auto', lastBuiltAt: Date.now() });
+      useUIStore.getState().showToast(`✍️ Refreshed ${recipientName || 'their'} voice.`);
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not rebuild that voice.');
     } finally {
       setVoiceBusy(false);
     }
@@ -482,6 +518,47 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                         );
                       })}
                     </div>
+                    {Object.keys(voice.byRecipient ?? {}).length > 0 && (
+                      <div>
+                        <label className="text-tiny font-black uppercase opacity-50 mb-1.5 block tracking-widest">Voices by person</label>
+                        <div className="space-y-2">
+                          {Object.entries(voice.byRecipient ?? {}).map(([relKey, rv]) => (
+                            <div key={relKey} className="rounded-xl border border-edge-2 bg-panel px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold truncate flex-1">{rv.recipientName || relKey.replace(/^(im|mail):/, '')}</span>
+                                <span className="text-tiny text-ink-3 shrink-0">
+                                  {relKey.startsWith('mail:') ? 'Email' : 'Messages'}{rv.lastBuiltAt ? ` · ${new Date(rv.lastBuiltAt).toLocaleDateString()}` : ''}
+                                </span>
+                                <button
+                                  onClick={() => setRecipientVoice(relKey, { optedIn: !rv.optedIn })}
+                                  title={rv.optedIn ? 'On — replies to them use this voice' : 'Off — replies to them use your global voice'}
+                                  className={`px-2 py-1 rounded-full text-tiny font-bold shrink-0 transition-all ${rv.optedIn ? 'bg-accent text-on-accent' : 'bg-inset text-ink-3 hover:text-ink'}`}
+                                >
+                                  {rv.optedIn ? 'On' : 'Off'}
+                                </button>
+                                {relKey.startsWith('im:') && (
+                                  <button onClick={() => rebuildRecipientVoice(relKey, rv.recipientName)} disabled={voiceBusy} className="p-1 text-ink-3 hover:text-accent disabled:opacity-50 shrink-0" title="Rebuild from your messages to them">
+                                    <Wand2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button onClick={() => removeRecipientVoice(relKey)} className="p-1 text-ink-3 hover:text-danger shrink-0" title="Remove this person's voice">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              <textarea
+                                value={rv.card}
+                                onChange={e => setRecipientVoice(relKey, { card: e.target.value, source: 'user_edited' })}
+                                rows={3}
+                                placeholder="Their voice card…"
+                                className="mt-2 w-full bg-inset border border-edge-2 rounded-lg px-3 py-2 text-tiny font-medium resize-none outline-none focus:border-secondary leading-relaxed"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-tiny text-ink-3 font-medium mt-1.5">A person's voice overrides your global voice when you reply to them. Add one from a 1:1 conversation in Messages.</p>
+                      </div>
+                    )}
+
                     <p className="text-tiny text-ink-3 font-medium">Your messages are read locally on this Mac to learn your style — only the resulting profile goes to the model you’ve connected.</p>
                   </div>
                 )}
