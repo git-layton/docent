@@ -37,7 +37,9 @@ export function ragHitsToDocs(hits: RagHit[], minScore = KNOWLEDGE_SEARCH_MIN_SC
       id: `${KNOWLEDGE_DOC_PREFIX}${h.path}`,
       title: h.title || h.path.split('/').pop()?.replace(/\.md$/, '') || 'Untitled',
       sub: (h.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 120),
-      score: Math.round((h.score ?? 0) * 150),
+      // Scores are 0–1 (cosine, or the normalized keyword-fallback). Clamp defensively so a stray
+      // out-of-range value can never blow up the lexical interleave scale.
+      score: Math.round(Math.max(0, Math.min(1, h.score ?? 0)) * 150),
     }));
 }
 

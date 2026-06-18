@@ -184,7 +184,11 @@ export default function App() {
   // Persist the co-pilot's open/closed state so "dismiss" sticks across reloads (a real mute).
   useEffect(() => { db.get('copilotOpen', true).then((v: any) => setCopilotOpen(v !== false)).catch(() => {}); }, []);
   const toggleCopilot = (v: boolean) => { setCopilotOpen(v); void db.set('copilotOpen', v); };
-  const [isGenerating, setIsGenerating] = useState(false);
+  // Per-chat generation. Which chatIds are mid-stream lives in a Set (not a single global bool) so
+  // independent conversations run AT THE SAME TIME — e.g. Codey's center chat and the Team side rail
+  // generate concurrently, and stopping one never touches the other. A tab switch unmounts only the
+  // view (not App), so a request keeps streaming into the store and is waiting when you return.
+  const [generatingChats, setGeneratingChats] = useState<Set<string>>(() => new Set());
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -222,7 +226,28 @@ export default function App() {
   const setShowSaveModal = useUIStore.getState().setShowSaveModal;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  // Per-chat generation helpers (paired with generatingChats above).
+  //  • isChatGenerating — is THIS chat mid-stream? (drives that chat's composer/stop button)
+  //  • setChatGenerating — flip one chat's flag without disturbing the others (stable identity)
+  //  • freshAbort — abort any prior run on a chat and hand back a fresh controller for the new one
+  //  • anyGenerating — is ANYTHING streaming? (only the RAM-cooldown reaper cares about the aggregate)
+  const isChatGenerating = (id: string | null | undefined): boolean => !!id && generatingChats.has(id);
+  const setChatGenerating = useCallback((id: string, on: boolean) => {
+    setGeneratingChats(prev => {
+      if (on === prev.has(id)) return prev;                 // no-op → keep the reference stable
+      const next = new Set(prev);
+      if (on) next.add(id); else next.delete(id);
+      return next;
+    });
+  }, []);
+  const freshAbort = useCallback((id: string) => {
+    abortControllersRef.current.get(id)?.abort();
+    const c = new AbortController();
+    abortControllersRef.current.set(id, c);
+    return c;
+  }, []);
+  const anyGenerating = generatingChats.size > 0;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const avatarUploadRef = useRef<HTMLInputElement>(null);
@@ -444,8 +469,9 @@ export default function App() {
 
           setLlamaPaused(prev => {
             if (stats.available_mb < hw.critical_mb && !prev) {
-              abortControllerRef.current?.abort();
-              setIsGenerating(false);
+              abortControllersRef.current.forEach(c => c.abort());
+              abortControllersRef.current.clear();
+              setGeneratingChats(new Set());
               setLlamaCoolingDown(false);
               invoke('sigstop_llama_server').catch(() => {});
               useUIStore.getState().showToast('🚨 LLaMA force-hibernated — RAM critical');
@@ -486,10 +512,13 @@ export default function App() {
       if (!(ss.models.find((m: any) => m.id === ss.selectedModelId) ?? ss.models[0])) return; // need a model
       try {
         const { card, sampleCounts } = await buildVoiceCard();
-        useSettingsStore.getState().setAppSettings((prev: any) => ({
-          ...prev,
-          voiceProfile: { ...normalizeVoiceProfile(prev?.voiceProfile), enabled: true, card, sampleCounts, lastBuiltAt: Date.now() },
-        }));
+        useSettingsStore.getState().setAppSettings((prev: any) => {
+          // Re-check inside the updater: if the user toggled voice OFF during the (multi-second) build,
+          // their choice wins — don't silently re-enable it. We refresh the card but never flip enabled.
+          const cur = normalizeVoiceProfile(prev?.voiceProfile);
+          if (!cur.enabled) return prev;
+          return { ...prev, voiceProfile: { ...cur, card, sampleCounts, lastBuiltAt: Date.now() } };
+        });
         console.log('[Voice] Auto-refreshed writing voice from recent sent messages.');
       } catch (e) {
         // Best-effort — a failed refresh just leaves the existing profile untouched.
@@ -501,13 +530,13 @@ export default function App() {
 
   // Soft-reaper: when cooling down and generation finishes naturally → apply SIGSTOP
   useEffect(() => {
-    if (llamaServerPid !== null && llamaCoolingDown && !isGenerating && !llamaPaused) {
+    if (llamaServerPid !== null && llamaCoolingDown && !anyGenerating && !llamaPaused) {
       setLlamaCoolingDown(false);
       setLlamaPaused(true);
       invoke('sigstop_llama_server').catch(() => {});
       useUIStore.getState().showToast('🛑 LLaMA hibernated — RAM low');
     }
-  }, [llamaServerPid, llamaCoolingDown, isGenerating, llamaPaused]);
+  }, [llamaServerPid, llamaCoolingDown, anyGenerating, llamaPaused]);
 
   const flushState = useCallback(async () => {
     if (!useUIStore.getState().isDbLoaded) return;
@@ -1141,62 +1170,77 @@ export default function App() {
   // Find a near-identical existing memory to update in place instead of minting a duplicate file.
   // Uses a high cosine cutoff (≫ the 0.35 relevance threshold) so only true restatements collapse,
   // not merely related memories. Returns the file path to overwrite, or null to create a new one.
-  const findDuplicateMemoryPath = useCallback(async (text: string, agentId: string | null | undefined): Promise<string | null> => {
+  // Find a near-identical existing memory to fold into, restricted to `baseDir` (the SAME class/dir as
+  // the pending write). The semantic search also returns Library docs and dream insights; matching only
+  // within baseDir ensures an agent_memory write can never select a curated Library file or a synthesized
+  // insight as its target. Fetches a few candidates so a cross-class top hit doesn't mask a valid one.
+  const findDuplicateMemoryPath = useCallback(async (text: string, agentId: string | null | undefined, baseDir?: string): Promise<string | null> => {
     if (!text.trim()) return null;
     try {
       const res = await invoke<{ results: Array<{ path: string; score: number }> }>('search_knowledge_semantic', {
-        query: text, agentId: agentId ?? null, maxResults: 1, snippetChars: 40,
+        query: text, agentId: agentId ?? null, maxResults: 5, snippetChars: 40,
       });
-      const top = res?.results?.[0];
-      return top && typeof top.score === 'number' && top.score >= MEMORY_DEDUP_MIN_SCORE ? top.path : null;
+      const hit = (res?.results ?? []).find(r =>
+        typeof r.score === 'number' && r.score >= MEMORY_DEDUP_MIN_SCORE &&
+        (!baseDir || r.path.startsWith(`${baseDir}/`)),
+      );
+      return hit?.path ?? null;
     } catch {
       return null;
     }
   }, []);
 
-  // Write a memory, but collapse repeats: if a near-identical one already exists, update IT in place
-  // (refreshes recency via the file watcher) instead of growing the store with another file. Library
-  // saves are intentional curation, so they're never deduped. If the in-place update is rejected by
-  // the write guard (it would gut the file), fall back to a fresh file so the memory is never lost.
+  // Write a memory, but collapse repeats: if a near-identical one already exists in the SAME directory,
+  // APPEND the new content to it under a dated section (never overwrite) so no prior content is lost,
+  // and refresh its recency. Library saves are intentional curation, so they're never deduped. Anything
+  // unexpected (can't read the existing file, append blocked) falls back to writing a fresh file.
   const writeMemoryDeduped = useCallback(async (opts: {
     newPath: string; content: string; commitMessage: string; agentId: string | null;
     dedupText: string; destination: string;
   }): Promise<{ ok: boolean; updated: boolean }> => {
-    let targetPath = opts.newPath;
-    let updated = false;
-    if (opts.destination !== 'library') {
-      const dup = await findDuplicateMemoryPath(opts.dedupText, opts.agentId);
-      if (dup) { targetPath = dup; updated = true; }
-    }
-    const doWrite = (path: string) => invoke<{ blocked?: boolean; error?: string }>('write_memory', {
-      path, content: opts.content, commitMessage: opts.commitMessage,
-      agentId: opts.agentId, contextTokens: null, ramState: null,
+    const doWrite = (path: string, content: string) => invoke<{ blocked?: boolean; error?: string }>('write_memory', {
+      path, content, commitMessage: opts.commitMessage, agentId: opts.agentId, contextTokens: null, ramState: null,
     });
-    let result = await doWrite(targetPath);
-    if (result?.blocked && updated) {
-      // In-place update tripped the shrink guard — keep the memory by writing a fresh file instead.
-      updated = false;
-      result = await doWrite(opts.newPath);
+
+    if (opts.destination !== 'library') {
+      const baseDir = opts.newPath.slice(0, opts.newPath.lastIndexOf('/'));
+      const dup = await findDuplicateMemoryPath(opts.dedupText, opts.agentId, baseDir);
+      if (dup) {
+        const existing = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: dup }).catch(() => ({ ok: false, content: '' }));
+        if (existing?.ok && existing.content.trim()) {
+          // Strip the new file's frontmatter + leading title heading, append just its body. Append-only
+          // can't trip the shrink guard, so the prior memory survives intact.
+          const newBody = opts.content.replace(/^---[\s\S]*?---\s*/, '').replace(/^#[^\n]*\n+/, '').trim();
+          const merged = `${existing.content.trimEnd()}\n\n## Update — ${new Date().toISOString().slice(0, 10)}\n\n${newBody}\n`;
+          const r = await doWrite(dup, merged);
+          if (!r?.blocked) return { ok: true, updated: true };
+          // append unexpectedly blocked — fall through and write a fresh file instead
+        }
+      }
     }
+
+    const result = await doWrite(opts.newPath, opts.content);
     if (result?.blocked) { console.warn('[Memory] write blocked:', result.error); return { ok: false, updated: false }; }
-    return { ok: true, updated };
+    return { ok: true, updated: false };
   }, [findDuplicateMemoryPath]);
 
   // Agent self-edit: lets the agent durably write/update its OWN memory mid-conversation via a
   // forge:action {"tool":"memory","op":"save"} block — the MemGPT-style self-editing piece. Routes
-  // through writeMemoryDeduped so a restatement updates the existing note instead of duplicating, and
-  // the agent deliberately choosing to remember is treated as a high-confidence first-party fact.
+  // through writeMemoryDeduped so a restatement folds into the existing note instead of duplicating.
+  // Provenance is `inferred`/`medium`, NOT first_party/high: an agent assertion (which the model can be
+  // steered to emit by untrusted page/file content in the turn) must not outrank the user's own facts.
   const persistAgentSelfMemory = useCallback(async (a: any) => {
     const rootPath = useMemoryStore.getState().agentForgePath;
     if (!rootPath || !((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
-    const title = (String(a?.title ?? '').trim() || 'Note to self').slice(0, 80);
+    // Collapse newlines/control chars so a crafted title can't inject extra YAML frontmatter keys.
+    const title = (String(a?.title ?? '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Note to self').slice(0, 80);
     const body = String(a?.content ?? a?.body ?? '').trim();
     if (!body) return;
     const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
     const agent = _assistants.find((x: any) => x.id === _activeFolderId) ?? _assistants[0];
     const agentId = agent?.id ?? 'default';
     const slug = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'note'}-${Date.now()}`;
-    const content = `---\ntitle: "${title.replace(/"/g, '\\"')}"\ncreated_at: "${new Date().toISOString()}"\ndestination: agent_memory\nmemory_type: fact\nevidence_state: first_party\nconfidence: high\nprivacy: normal\ntags: [agent-authored, self-edit, agent:${agentId}]\n---\n\n# ${title}\n\n${body}\n`;
+    const content = `---\ntitle: "${title.replace(/"/g, '\\"')}"\ncreated_at: "${new Date().toISOString()}"\ndestination: agent_memory\nmemory_type: fact\nevidence_state: inferred\nconfidence: medium\nprivacy: normal\ntags: [agent-authored, self-edit, agent:${agentId}]\n---\n\n# ${title}\n\n${body}\n`;
     try {
       const { ok, updated } = await writeMemoryDeduped({
         newPath: `${rootPath}/memory/${agentId}/gatekeeper/${slug}.md`,
@@ -1265,41 +1309,44 @@ export default function App() {
     const answer = String(answerText || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     if (!answer) return;
 
-    const assessment = assessConversationMemory({
-      question: userMsg.content,
-      answer,
-      chatKind,
-      contributions,
-      attachments: userMsg.attachedFiles ?? [],
-    });
-    // Only durably capture turns the scorer rates as notable+. Background saves stay unsaved so
-    // ordinary chatter doesn't flood memory; explicit requests are owned by the gatekeeper above.
-    if (!assessment.shouldSave || (assessment.level !== 'notable' && assessment.level !== 'explicit')) return;
-
-    // Keep the gatekeeper's rich classification (memory type, evidence, privacy, provenance), but
-    // promote it to a save and route it to a real destination if the gatekeeper had declined.
-    const destination = (['agent_memory', 'channel_memory', 'library'] as const).includes(decision.destination as any)
-      ? decision.destination
-      : (chatKind === 'channel' ? 'channel_memory' : 'agent_memory');
-    const persistDecision = {
-      ...decision,
-      shouldSave: true,
-      classification: assessment.level,
-      destination,
-      tags: Array.from(new Set([...decision.tags, ...assessment.tags, 'auto-captured'])),
-    } as ReturnType<typeof evaluateMemoryGate>;
-
-    const write = buildGatekeeperMemoryWrite({
-      rootPath,
-      agentId: agent?.id ?? 'default',
-      chatId,
-      channelId: destination === 'channel_memory' ? chatId : null,
-      text: userMsg.content,
-      answer,
-      decision: persistDecision,
-    });
-
+    // Everything below — including assessConversationMemory, which THROWS on a malformed assessment —
+    // runs inside the try, because both call sites invoke this fire-and-forget (void); an escaping
+    // rejection would be unhandled.
     try {
+      const assessment = assessConversationMemory({
+        question: userMsg.content,
+        answer,
+        chatKind,
+        contributions,
+        attachments: userMsg.attachedFiles ?? [],
+      });
+      // Only durably capture turns the scorer rates as notable+. Background saves stay unsaved so
+      // ordinary chatter doesn't flood memory; explicit requests are owned by the gatekeeper above.
+      if (!assessment.shouldSave || (assessment.level !== 'notable' && assessment.level !== 'explicit')) return;
+
+      // Keep the gatekeeper's rich classification (memory type, evidence, privacy, provenance), but
+      // promote it to a save and route it to a real destination if the gatekeeper had declined.
+      const destination = (['agent_memory', 'channel_memory', 'library'] as const).includes(decision.destination as any)
+        ? decision.destination
+        : (chatKind === 'channel' ? 'channel_memory' : 'agent_memory');
+      const persistDecision = {
+        ...decision,
+        shouldSave: true,
+        classification: assessment.level,
+        destination,
+        tags: Array.from(new Set([...decision.tags, ...assessment.tags, 'auto-captured'])),
+      } as ReturnType<typeof evaluateMemoryGate>;
+
+      const write = buildGatekeeperMemoryWrite({
+        rootPath,
+        agentId: agent?.id ?? 'default',
+        chatId,
+        channelId: destination === 'channel_memory' ? chatId : null,
+        text: userMsg.content,
+        answer,
+        decision: persistDecision,
+      });
+
       const { ok, updated } = await writeMemoryDeduped({
         newPath: write.path,
         content: write.content,
@@ -1598,10 +1645,12 @@ export default function App() {
             // are additive — sources are kept, not archived.
             const validSources = (op.source_paths ?? []).filter((p: string) => knownPaths.has(p));
             if (validSources.length < 2 || !op.insight?.trim() || !op.title?.trim()) continue;
-            const slug = `${op.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'insight'}-${Date.now()}`;
+            // Collapse newlines so an LLM title can't inject extra YAML keys or break the quoted scalar.
+            const insightTitle = String(op.title).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+            const slug = `${insightTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'insight'}-${Date.now()}`;
             const targetFullPath = `${_agentForgePath}/memory/${activeAgent.id}/insights/${slug}.md`;
             const sourceList = validSources.map((p: string) => `- ${p}`).join('\n');
-            const content = `---\ntitle: "${op.title.replace(/"/g, '\\"')}"\ncreated_at: "${new Date().toISOString()}"\nmemory_type: insight\nevidence_state: inferred\nconfidence: medium\ntags: [insight, dream-insight, agent:${activeAgent.id}]\n---\n\n# ${op.title}\n\n${op.insight}\n\n## Synthesized from\n${sourceList}\n`;
+            const content = `---\ntitle: "${insightTitle.replace(/"/g, '\\"')}"\ncreated_at: "${new Date().toISOString()}"\nmemory_type: insight\nevidence_state: inferred\nconfidence: medium\ntags: [insight, dream-insight, agent:${activeAgent.id}]\n---\n\n# ${insightTitle}\n\n${op.insight}\n\n## Synthesized from\n${sourceList}\n`;
             const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
               path: targetFullPath,
               content,
@@ -1729,7 +1778,10 @@ export default function App() {
     const _userProfile = useSettingsStore.getState().userProfile;
     const _userName = useSettingsStore.getState().userName;
 
-    setIsGenerating(true);
+    // Per-chat lifecycle: abort any prior run on THIS chat, take a fresh controller, mark it generating.
+    // Keeping the controller local (_controller) means concurrent runs on other chats are untouched.
+    const _controller = freshAbort(chatId);
+    setChatGenerating(chatId, true);
     try {
       const history = [...historyToPass, userMsg];
       const inputLower = userMsg.content.toLowerCase();
@@ -1789,7 +1841,7 @@ export default function App() {
         hwProfile: _hwProfile,
         integrations: _integrations,
         model: _selectedModel,
-        signal: abortControllerRef.current?.signal,
+        signal: _controller.signal,
         openTabs: _openTabs,
         setStatus: (label: string) => {
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === toolMsgId ? { ...m, content: `[ ${label} ] ` } : m) }));
@@ -1918,7 +1970,7 @@ export default function App() {
             isDeepThinking: _isDeepThinking,
             agentPinnedMessages: agentPins,
             onChunk: agentChunk,
-            signal: abortControllerRef.current?.signal,
+            signal: _controller.signal,
             appSettings: _appSettings,
             integrations: _integrations,
             models: _models,
@@ -1981,7 +2033,7 @@ export default function App() {
               isDeepThinking: _isDeepThinking,
               agentPinnedMessages: agentPins,
               onChunk: fallbackChunk,
-              signal: abortControllerRef.current?.signal,
+              signal: _controller.signal,
               appSettings: _appSettings,
               integrations: _integrations,
               models: _models,
@@ -1993,6 +2045,9 @@ export default function App() {
               ...prev,
               [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === fallbackBotId ? { ...m, content: fallbackResponse, isStreaming: false } : m),
             }));
+            // Capture the fallback exchange too — otherwise an all-[PASS] channel turn answered only by
+            // the fallback agent is never recorded. Scoped/attributed to the agent that actually replied.
+            if (!isImageRequest) void persistConversationMemory(chatId, userMsg, fallbackResponse, primaryAgent, gatekeeperDecision, 'channel');
           }
         }
       } else {
@@ -2043,7 +2098,7 @@ export default function App() {
             isDeepThinking: _isDeepThinking,
             agentPinnedMessages: _agentPinnedMessagesForPrompt,
             onChunk: handleChunk,
-            signal: abortControllerRef.current?.signal,
+            signal: _controller.signal,
             appSettings: _appSettings,
             integrations: _integrations,
             models: _models,
@@ -2081,7 +2136,8 @@ export default function App() {
       }
 
     } catch (err: any) {
-      if (err.name === 'AbortError') { setIsGenerating(false); return; }
+      // Only clear if a newer send on this chat hasn't already replaced our controller (edit/stop race).
+      if (err.name === 'AbortError') { if (abortControllersRef.current.get(chatId) === _controller) setChatGenerating(chatId, false); return; }
       const errMsg = err?.message || (typeof err === 'string' ? err : null) || 'An unexpected error occurred.';
       useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
         const msgs = prev[chatId] ?? [];
@@ -2095,7 +2151,11 @@ export default function App() {
         return { ...prev, [chatId]: [...msgs, { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${errMsg}`, isPinned: false, timestamp: Date.now() }] };
       });
     } finally {
-      setIsGenerating(false);
+      // Clear + drop our controller, unless a newer send already took over this chat's slot.
+      if (abortControllersRef.current.get(chatId) === _controller) {
+        setChatGenerating(chatId, false);
+        abortControllersRef.current.delete(chatId);
+      }
     }
   };
 
@@ -2113,7 +2173,7 @@ export default function App() {
       .filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === _activeFolderId) ?? useAgentStore.getState().assistants[0])?.id)
       .map((p: any) => p.content);
 
-    if (isGenerating) return;
+    if (isChatGenerating(_activeChatId)) return;
     if (!_input.trim() && _attachedDocs.length === 0) return;
     // Single, central no-model flag: any agent action (composer, Home chips, programmatic
     // sends all route through here) nudges into the recommend-a-model flow instead of failing silently.
@@ -2140,7 +2200,6 @@ export default function App() {
       });
     }
 
-    abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
     let chatId = _activeChatId; let isNewChat = !chatId;
     if (!chatId) {
       // Recover existing DM before creating a blank duplicate
@@ -2203,7 +2262,7 @@ export default function App() {
   // text + attachments come from the rail's own buffer (passed in), not useUIStore — see docs pt 9.
   // This is the scoped, two-conversation slice of the deferred Strategy-B decoupling.
   const handleSendTeamMessage = async (targetChatId: string, text: string, attachments: any[] = []) => {
-    if (isGenerating) return;
+    if (isChatGenerating(targetChatId)) return;
     if (!text.trim() && attachments.length === 0) return;
     const _selectedModel = (() => {
       const { models: m, selectedModelId: id } = useSettingsStore.getState();
@@ -2217,7 +2276,6 @@ export default function App() {
       return;
     }
 
-    abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
     const userMsg = { id: generateId('msg'), role: 'user', content: text, attachedFiles: [...attachments], isPinned: false, timestamp: Date.now() };
     for (const f of attachments) {
       if (f?.isImage && typeof f.content === 'string') saveImageToLibrary(f.content, { source: 'attached', name: f.name, mimeType: f.type });
@@ -2244,11 +2302,15 @@ export default function App() {
      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({...prev, [_activeChatId]: [...historyToKeep, newMsg]}));
      useChatStore.getState().setEditingMessageId(null);
 
-     abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController();
      await processChatRequest(_activeChatId, newMsg, historyToKeep);
   };
 
-  const handleStop = () => { abortControllerRef.current?.abort(); };
+  // Stop a specific chat's generation (the rail stops the Team thread; the center stops the active chat).
+  // Aborting the controller trips the run's AbortError path, which clears that chat's generating flag.
+  const handleStop = (id?: string | null) => {
+    const target = id ?? useChatStore.getState().activeChatId;
+    if (target) abortControllersRef.current.get(target)?.abort();
+  };
 
   const handleCodeScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
     if (lineNumbersRef.current) {
@@ -2579,7 +2641,7 @@ export default function App() {
   // ── Hoisted prop bags (shared by inline + docked ChatPanel) ──────────────
   const spaceLogProps = {
     activeMessages,
-    isGenerating,
+    isGenerating: isChatGenerating(activeChatId),
     activeAssistant,
     forgettingIndex: appSettings?.showContextWindowLine ? forgettingIndex : -1,
     onConfirmEdit: confirmEditMessage,
@@ -2606,12 +2668,12 @@ export default function App() {
   };
 
   const chatInputBarProps = {
-    isGenerating,
+    isGenerating: isChatGenerating(activeChatId),
     isEnhancing,
     selectedModel,
     modelDropdownRef,
     onSend: handleSendMessage,
-    onStop: handleStop,
+    onStop: () => handleStop(activeChatId),
     onChatFileUpload: handleChatFileUpload,
     onEnhancePrompt: handleEnhancePrompt,
     fileInputRef,
@@ -2636,6 +2698,9 @@ export default function App() {
     activeAssistant: teamPrimaryAgent ?? activeAssistant,
     forgettingIndex: -1,
     showAgentIntro: false,
+    // The rail tracks the Team thread's OWN generation, independent of Codey's center chat — so both
+    // can stream at once and the rail's typing indicator never mirrors Codey's.
+    isGenerating: isChatGenerating(TEAM_CHAT_ID),
     // Per-message actions must target the Team thread, not the global active chat (Codey) — otherwise a
     // rail bookmark/edit cross-talks to Codey's bucket. (Send was already decoupled via onSendTeamMessage;
     // toggleSpeak/addTask are chat-agnostic so they need no override.)
@@ -2646,6 +2711,9 @@ export default function App() {
     ...chatInputBarProps,
     activeAssistant: teamPrimaryAgent ?? activeAssistant,
     channelParticipants: teamChannelParticipants,
+    // Rail composer reflects + stops the Team thread, not the center (Codey) chat.
+    isGenerating: isChatGenerating(TEAM_CHAT_ID),
+    onStop: () => handleStop(TEAM_CHAT_ID),
   };
 
   // Render the content for any tab — the chat (space-log) is just another tab,
@@ -2720,7 +2788,7 @@ export default function App() {
         <>
           {canvasContent ? (
             <CanvasPanel
-              isGenerating={isGenerating}
+              isGenerating={isChatGenerating(activeChatId)}
               onHistoryNavigate={handleHistoryNavigate}
               onSaveToLibrary={saveToLibrary}
               codeRef={codeRef}

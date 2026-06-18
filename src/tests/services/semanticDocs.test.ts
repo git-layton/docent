@@ -22,6 +22,12 @@ describe('ragHitsToDocs', () => {
     expect(ragHitsToDocs([hit({ score: 0.5 })])).toHaveLength(1);
   });
 
+  it('clamps an out-of-range score so the lexical interleave scale stays bounded', () => {
+    // Defends against a non-normalized score (e.g. a raw keyword count) reaching the × 150 scale.
+    const [doc] = ragHitsToDocs([hit({ score: 7 })]);
+    expect(doc.score).toBe(150); // clamped to 1 * 150, not 1050
+  });
+
   it('derives a title from the path when the hit has none', () => {
     const [doc] = ragHitsToDocs([hit({ title: '', path: 'library/Q3 Plan.md' })]);
     expect(doc.title).toBe('Q3 Plan');
