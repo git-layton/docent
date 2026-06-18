@@ -5,7 +5,10 @@ import {
   DRAFT_DELIM,
   normalizeVoiceProfile,
   parseDrafts,
+  relKeyForEmail,
+  relKeyForImessage,
   renderVoiceBlock,
+  resolveRecipientCard,
   voiceActiveFor,
 } from '../../services/voice';
 
@@ -24,6 +27,43 @@ describe('normalizeVoiceProfile — tolerates partial/old shapes', () => {
 
   it('coerces a non-string card to empty', () => {
     expect(normalizeVoiceProfile({ card: 123 }).card).toBe('');
+  });
+
+  it('normalizes the per-recipient map and its entries', () => {
+    const vp = normalizeVoiceProfile({ byRecipient: { 'im:42': { card: 'casual', optedIn: true, label: 'partner', source: 'auto' }, '': { card: 'x' }, 'bad': { card: 99, optedIn: 'yes', label: 'nope' } } });
+    expect(vp.byRecipient?.['']).toBeUndefined();           // empty key dropped
+    expect(vp.byRecipient?.['im:42']).toMatchObject({ card: 'casual', optedIn: true, label: 'partner', source: 'auto' });
+    expect(vp.byRecipient?.['bad']).toMatchObject({ card: '', optedIn: false });  // coerced
+    expect(vp.byRecipient?.['bad'].label).toBeUndefined();  // invalid label dropped
+  });
+});
+
+describe('per-relationship keying & selection', () => {
+  it('builds PII-minimal relationship keys', () => {
+    expect(relKeyForImessage(42)).toBe('im:42');
+    expect(relKeyForImessage('abc')).toBe('im:abc');
+    expect(relKeyForImessage(null)).toBeNull();
+    expect(relKeyForImessage('')).toBeNull();
+    expect(relKeyForEmail('Sarah <Sarah@Acme.com>')).toBe('mail:sarah@acme.com');
+    expect(relKeyForEmail('a@b.com, c@d.com')).toBe('mail:a@b.com'); // first address
+    expect(relKeyForEmail('not an address')).toBeNull();
+  });
+
+  it('resolveRecipientCard prefers an opted-in recipient card, else the global fallback', () => {
+    const vp = {
+      card: 'GLOBAL',
+      byRecipient: {
+        'im:1': { card: 'BOSS', optedIn: true },
+        'im:2': { card: 'DRAFT', optedIn: false },   // not opted in
+        'im:3': { card: '   ', optedIn: true },       // opted in but empty
+      },
+    };
+    expect(resolveRecipientCard(vp, 'im:1')).toBe('BOSS');     // opted-in recipient wins
+    expect(resolveRecipientCard(vp, 'im:2')).toBe('GLOBAL');   // not opted in → global
+    expect(resolveRecipientCard(vp, 'im:3')).toBe('GLOBAL');   // empty card → global
+    expect(resolveRecipientCard(vp, 'im:404')).toBe('GLOBAL'); // no entry → global
+    expect(resolveRecipientCard(vp, null)).toBe('GLOBAL');     // no key → global
+    expect(resolveRecipientCard({ card: '' }, 'im:1')).toBe(''); // nothing anywhere → empty
   });
 });
 

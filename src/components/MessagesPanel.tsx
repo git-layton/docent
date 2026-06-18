@@ -6,8 +6,8 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { MessagesSetupWizard } from './MessagesSetupWizard';
 import { useToolContextStore } from '../store/useToolContextStore';
-import { normalizeVoiceProfile } from '../services/voice';
-import { buildVoiceCard, draftReply } from '../services/voiceRuntime';
+import { normalizeVoiceProfile, relKeyForImessage } from '../services/voice';
+import { buildVoiceCard, buildRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
 
 // Mirrors the Rust ImessageChat / ImessageMessage structs (serde camelCase).
 interface ImessageChat {
@@ -220,10 +220,47 @@ export function MessagesPanel() {
         .map(m => `${m.fromMe ? 'Me' : (m.senderName || chat.name)}: ${m.text}`)
         .filter(Boolean)
         .join('\n');
-      const drafts = await draftReply({ surface: 'imessage', incoming: transcript, recipient: chat.name, count: 3 });
+      // 1:1 chats use this person's own learned voice if opted-in; groups fall back to the global card.
+      const relKey = chat.isGroup ? null : relKeyForImessage(chat.chatId);
+      const drafts = await draftReply({ surface: 'imessage', incoming: transcript, recipient: chat.name, count: 3, relKey });
       setSuggestions(drafts);
     } catch (e: any) {
       useUIStore.getState().showToast(e?.message ?? 'Could not draft a reply.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  // Learn (or refresh) a voice card from ONLY the messages the user has sent to THIS 1:1 contact, and
+  // opt that recipient in so replies to them draft in the voice the user uses with them specifically.
+  const learnRecipientVoice = async () => {
+    const chat = selected;
+    if (!chat || chat.isGroup || voiceBusy) return;
+    if (!hasModel) { useUIStore.getState().showToast('Connect a model first to learn a voice.'); return; }
+    const relKey = relKeyForImessage(chat.chatId);
+    if (!relKey) return;
+    setVoiceBusy(true);
+    try {
+      useUIStore.getState().showToast(`✍️ Learning how you write to ${chat.name}…`);
+      const { card, sampleCounts } = await buildRelationshipVoiceCard(chat.chatId, chat.name);
+      useSettingsStore.getState().setAppSettings((prev: any) => {
+        const cur = normalizeVoiceProfile(prev?.voiceProfile);
+        return {
+          ...prev,
+          voiceProfile: {
+            ...cur,
+            enabled: true,
+            byRecipient: {
+              ...(cur.byRecipient ?? {}),
+              [relKey]: { card, optedIn: true, recipientName: chat.name, source: 'auto', lastBuiltAt: Date.now(), sampleCounts },
+            },
+          },
+        };
+      });
+      await useSettingsStore.getState().persist();
+      useUIStore.getState().showToast(`✓ Saved a voice for ${chat.name} — replies to them now use it.`);
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not learn that voice.');
     } finally {
       setVoiceBusy(false);
     }
@@ -318,6 +355,24 @@ export function MessagesPanel() {
             </div>
           )}
           <div className="flex items-end gap-2">
+            {!selected.isGroup && (() => {
+              const rk = relKeyForImessage(selected.chatId);
+              const vp = normalizeVoiceProfile(useSettingsStore.getState().appSettings?.voiceProfile);
+              const active = !!(rk && vp.byRecipient?.[rk]?.optedIn && vp.byRecipient[rk].card.trim());
+              return (
+                <button
+                  onClick={learnRecipientVoice}
+                  disabled={voiceBusy || !hasModel}
+                  title={active
+                    ? `Using a voice learned for ${selected.name} — click to refresh it`
+                    : `Learn how you write to ${selected.name}, and use it for replies to them`}
+                  className={clsx('px-2.5 py-2 rounded-full shrink-0 text-[11px] font-medium border transition-colors disabled:opacity-40',
+                    active ? 'border-accent text-accent' : 'border-edge-2 text-ink-3 hover:text-accent hover:border-accent')}
+                >
+                  {active ? '✓ their voice' : 'learn voice'}
+                </button>
+              );
+            })()}
             <button
               onClick={suggestReplies}
               disabled={voiceBusy || !hasModel}

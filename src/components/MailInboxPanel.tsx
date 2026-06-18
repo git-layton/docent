@@ -9,7 +9,7 @@ import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 import { invalidateUnreadCache } from '../lib/mailUnread';
 import { useToolContextStore } from '../store/useToolContextStore';
-import { normalizeVoiceProfile } from '../services/voice';
+import { normalizeVoiceProfile, relKeyForEmail } from '../services/voice';
 import { buildVoiceCard, draftReply } from '../services/voiceRuntime';
 
 interface MailHeader {
@@ -415,7 +415,9 @@ export function MailInboxPanel() {
       }
       const recipient = compose.recipientName || compose.to.split(',')[0]?.trim() || undefined;
       const incoming = compose.sourceText || (compose.subject ? `Subject: ${compose.subject}` : '');
-      const [draft] = await draftReply({ surface: 'email', incoming, recipient, count: 1 });
+      // Use this recipient's own voice card if one is opted-in; otherwise the global card.
+      const relKey = relKeyForEmail(compose.to);
+      const [draft] = await draftReply({ surface: 'email', incoming, recipient, count: 1, relKey });
       if (draft) {
         setCompose(c => {
           if (!c) return c;
