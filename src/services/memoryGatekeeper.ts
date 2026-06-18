@@ -8,6 +8,8 @@ export type MemoryType =
   | 'medical'
   | 'research'
   | 'todo'
+  | 'playbook'    // applied memory: a reusable, trigger-keyed procedure (see services/appliedMemory.ts)
+  | 'voice_card'  // reserved: a per-relationship voice promoted from the in-memory byRecipient map
   | 'none';
 export type EvidenceState = 'first_party' | 'source_backed' | 'inferred' | 'needs_verification' | 'conflicting';
 export type ConfidenceLabel = 'low' | 'medium' | 'high';
@@ -48,7 +50,7 @@ export interface MemoryGatekeeperDecision {
 
 const CLASSIFICATIONS = ['skip', 'background', 'notable', 'explicit'] as const;
 const DESTINATIONS = ['agent_memory', 'channel_memory', 'library', 'task', 'inbox_only', 'skip'] as const;
-const MEMORY_TYPES = ['preference', 'decision', 'fact', 'project_context', 'medical', 'research', 'todo', 'none'] as const;
+const MEMORY_TYPES = ['preference', 'decision', 'fact', 'project_context', 'medical', 'research', 'todo', 'playbook', 'voice_card', 'none'] as const;
 const EVIDENCE_STATES = ['first_party', 'source_backed', 'inferred', 'needs_verification', 'conflicting'] as const;
 const CONFIDENCE_LABELS = ['low', 'medium', 'high'] as const;
 const TOOL_ROUTES = ['memory_search', 'web_search', 'browser', 'integrations', 'files', 'calendar', 'another_agent', 'preview', 'none'] as const;

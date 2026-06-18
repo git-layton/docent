@@ -15,8 +15,10 @@ export interface AgentAction {
   [k: string]: any;
 }
 
-/** Outbound (send) and destructive (delete) actions need explicit user approval. */
+/** Outbound (send) and destructive (delete) actions need explicit user approval. Running a saved
+ * playbook also always needs approval — it expands into multiple real actions. */
 export function actionNeedsApproval(a: AgentAction): boolean {
+  if (a.tool === 'playbook' && a.op === 'execute') return true;
   return a.op === 'send' || a.op === 'delete';
 }
 
@@ -56,6 +58,8 @@ export function describeAction(a: AgentAction): string {
     case 'note.delete': return `Delete a note`;
     case 'task.delete': return `Delete a to-do`;
     case 'calendar.delete': return `Delete a calendar event`;
+    case 'playbook.capture': return `Save “${a.title ?? 'this'}” as a reusable playbook`;
+    case 'playbook.execute': return `Run the “${a.title ?? a.id ?? ''}” playbook — you'll approve each step`;
     default: return `${a.tool} ${a.op}`;
   }
 }
@@ -116,6 +120,13 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
     case 'note.delete': { await getNotes().deleteNote(String(a.id)); return 'Deleted note'; }
     case 'task.delete': { await getTasks().deleteTask(String(a.id)); return 'Deleted to-do'; }
     case 'calendar.delete': { await getCalendar().deleteEvent(String(a.id)); return 'Deleted event'; }
+    // SAFETY BACKSTOP: a playbook is a PROPOSAL, never an executor. Approving a playbook.execute must
+    // re-emit each step as its own forge:action (so any per-step send/delete still hits the approval
+    // gate) — steps must NEVER run from here. Reaching this means the proposal-expansion was bypassed.
+    case 'playbook.execute':
+      throw new Error('A playbook cannot be executed directly — each step must be re-emitted and approved.');
+    case 'playbook.capture':
+      throw new Error('playbook.capture is persisted at the app layer, not run through the connectors.');
     default:
       throw new Error(`Unknown action: ${a.tool}.${a.op}`);
   }

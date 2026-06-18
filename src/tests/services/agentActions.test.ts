@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAgentActions, actionNeedsApproval, stripActionBlocks, describeAction } from '../../services/agentActions';
+import { parseAgentActions, actionNeedsApproval, stripActionBlocks, describeAction, executeAgentAction } from '../../services/agentActions';
 
 describe('agentActions — parsing', () => {
   it('extracts a single action block', () => {
@@ -46,6 +46,18 @@ describe('agentActions — safety classification', () => {
     // routes it to persistAgentSelfMemory, so it must never land in the approval queue.
     expect(actionNeedsApproval({ tool: 'memory', op: 'save', title: 'Pref', content: 'likes brevity' })).toBe(false);
     expect(actionNeedsApproval({ tool: 'memory', op: 'update', title: 'Pref', content: 'likes brevity' })).toBe(false);
+  });
+  it('always requires approval to RUN a playbook (it expands into real actions), but capture is local', () => {
+    expect(actionNeedsApproval({ tool: 'playbook', op: 'execute', id: 'p1' })).toBe(true);
+    expect(actionNeedsApproval({ tool: 'playbook', op: 'capture', title: 'Weekly report' })).toBe(false);
+  });
+});
+
+describe('agentActions — playbook safety backstop', () => {
+  it('refuses to execute a playbook directly — steps must be re-emitted and individually approved', async () => {
+    // The whole safety story rests on this: executeAgentAction must NEVER run playbook steps.
+    await expect(executeAgentAction({ tool: 'playbook', op: 'execute', id: 'p1' })).rejects.toThrow();
+    await expect(executeAgentAction({ tool: 'playbook', op: 'capture', title: 'x' })).rejects.toThrow();
   });
 });
 
