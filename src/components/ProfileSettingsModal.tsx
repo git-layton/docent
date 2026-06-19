@@ -12,6 +12,8 @@ import { VoiceSetupModal } from './VoiceSetupModal';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
+import { useAgentStore } from '../store/useAgentStore';
+import { listPlaybooks, reinforcePlaybook, type Playbook } from '../services/appliedMemory';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
@@ -107,6 +109,22 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     } finally {
       setVoiceBusy(false);
     }
+  };
+
+  // ── Playbooks (saved procedures) — view, trust/untrust, remove ──
+  const playbookAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? null);
+  const [playbooks, setPlaybooks] = useState<Array<Playbook & { path: string }>>([]);
+  const loadPlaybooks = async () => { setPlaybooks(playbookAgentId ? await listPlaybooks(playbookAgentId) : []); };
+  useEffect(() => { void loadPlaybooks(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [playbookAgentId]);
+  const togglePlaybookTrust = async (pb: Playbook & { path: string }) => {
+    if (!agentForgePath || !playbookAgentId) return;
+    await reinforcePlaybook(agentForgePath, playbookAgentId, pb.trigger, { verify: !pb.verified });
+    await loadPlaybooks();
+  };
+  const removePlaybook = async (pb: Playbook & { path: string }) => {
+    try { await invoke('archive_memory_file', { path: pb.path }); }
+    catch { useUIStore.getState().showToast('Could not remove that playbook.'); return; }
+    await loadPlaybooks();
   };
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -563,6 +581,35 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   </div>
                 )}
               </div>
+
+              {/* Playbooks — saved procedures the agent can reuse */}
+              {playbooks.length > 0 && (
+                <div className="border-t border-edge pt-4 mt-4">
+                  <label className="text-tiny font-black uppercase opacity-50 mb-1.5 block tracking-widest">Playbooks</label>
+                  <div className="space-y-2">
+                    {playbooks.map((pb) => (
+                      <div key={pb.path} className="rounded-xl border border-edge-2 bg-panel px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold truncate flex-1">{pb.title}</span>
+                          <span className="text-tiny text-ink-3 shrink-0">{pb.steps.length} step{pb.steps.length !== 1 ? 's' : ''}{pb.accept > 0 ? ` · used ${pb.accept}×` : ''}</span>
+                          <button
+                            onClick={() => togglePlaybookTrust(pb)}
+                            title={pb.verified ? 'Trusted — the agent may offer to run this' : "Off — won't be suggested"}
+                            className={`px-2 py-1 rounded-full text-tiny font-bold shrink-0 transition-all ${pb.verified ? 'bg-accent text-on-accent' : 'bg-inset text-ink-3 hover:text-ink'}`}
+                          >{pb.verified ? 'Trusted' : 'Off'}</button>
+                          <button onClick={() => removePlaybook(pb)} className="p-1 text-ink-3 hover:text-danger shrink-0" title="Remove this playbook">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <ol className="mt-1.5 list-decimal list-inside space-y-0.5">
+                          {pb.steps.map((s, i) => <li key={i} className="text-tiny text-ink-2 leading-relaxed">{s.intent}</li>)}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-tiny text-ink-3 font-medium mt-1.5">Saved step-by-step procedures. When one is relevant the agent offers to run it — doing each step with your normal tools, confirmed one at a time.</p>
+                </div>
+              )}
 
               {/* User Guide section */}
               <div className="border-t border-edge pt-4 mt-4">

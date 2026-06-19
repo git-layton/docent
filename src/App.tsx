@@ -29,7 +29,7 @@ import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, ge
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { assessConversationMemory } from './services/memoryPolicy';
-import { buildPlaybookRecord, retrievePlaybooks, formatProceduresBlock } from './services/appliedMemory';
+import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, formatProceduresBlock } from './services/appliedMemory';
 import { buildVoiceCard } from './services/voiceRuntime';
 import { normalizeVoiceProfile } from './services/voice';
 import { capabilityForRoute, type CapabilityContext } from './services/capabilities';
@@ -1681,6 +1681,26 @@ export default function App() {
             if (writeResult.blocked) continue;
             dreamItems.push({ id, type: 'insight', description: `${op.title} — ${op.insight}`, archive_paths: [], original_paths: validSources, target_file: targetFullPath, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
 
+          } else if (op.type === 'playbook_refine') {
+            // Clean up a saved playbook's steps (consolidate messy "## Update" sections, fix ordering).
+            // Only the STEPS are refined; title/trigger/verified/accept are read from the existing file
+            // and preserved, so the dreamer can never silently re-trust or rename a user's procedure.
+            if (!knownPaths.has(op.target_path) || !op.target_path.includes('/playbooks/')) continue;
+            const steps = (Array.isArray(op.steps) ? op.steps : [])
+              .map((s: any) => ({ intent: String(s?.intent ?? '').trim(), toolHint: s?.toolHint ? String(s.toolHint).trim() : undefined }))
+              .filter((s: any) => s.intent);
+            if (steps.length < 2) continue;
+            const existing = memoryFiles.find((m) => m.path === op.target_path);
+            const pb = existing ? parsePlaybook(existing.content) : null;
+            if (!pb) continue;
+            const rebuilt = buildPlaybookRecord({ rootPath: _agentForgePath, agentId: activeAgent.id, title: pb.title, intent: pb.trigger, steps, verified: pb.verified, accept: pb.accept });
+            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
+              path: rebuilt.path, content: rebuilt.content, commit_message: `dream: playbook — ${op.description}`,
+              agent_id: activeAgent.id, context_tokens: null, ram_state: null,
+            });
+            if (writeResult.blocked) continue;
+            dreamItems.push({ id, type: 'updated', description: `Refined playbook “${pb.title}”: ${op.description}`, archive_paths: [], original_paths: [], target_file: rebuilt.path, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
+
           } else if (op.type === 'notice') {
             if (!op.title?.trim() || !op.body?.trim()) continue;
             dreamItems.push({
@@ -3126,10 +3146,11 @@ export default function App() {
               <Bot className="w-5 h-5 text-accent" />
               <span className="text-sm font-black tracking-tight text-ink">Approve action{pendingActions.length > 1 ? 's' : ''}</span>
             </div>
-            <p className="text-xs text-ink-3">{activeAssistant?.name ?? 'The agent'} wants to do {pendingActions.length > 1 ? 'these' : 'this'}. Review before it runs.</p>
+            <p className="text-xs text-ink-3">{activeAssistant?.name ?? 'The agent'} wants to do {pendingActions.length > 1 ? `these ${pendingActions.length} steps` : 'this'}. Review {pendingActions.length > 1 ? 'them' : 'it'} before {pendingActions.length > 1 ? 'they run' : 'it runs'} — run them one at a time, or approve the whole sequence.</p>
             <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
               {pendingActions.map((a, i) => (
                 <div key={i} className="flex items-center gap-2 p-3 rounded-xl border border-edge bg-inset">
+                  {pendingActions.length > 1 && <span className="text-[11px] font-bold text-ink-3 shrink-0 w-4 text-center">{i + 1}</span>}
                   <span className="text-sm text-ink-2 flex-1 break-words">{describeAction(a)}</span>
                   <button
                     onClick={async () => { try { showToast(`✓ ${await executeAgentAction(a)}`); } catch (e) { showToast(`Failed: ${String(e)}`); } setPendingActions(p => p.filter((_, j) => j !== i)); }}
@@ -3142,7 +3163,25 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <button onClick={() => setPendingActions([])} className="self-end text-xs font-medium text-ink-3 hover:text-ink transition-colors">Dismiss all</button>
+            <div className="flex items-center justify-between gap-2">
+              {pendingActions.length > 1 ? (
+                <button
+                  onClick={async () => {
+                    // Run the whole sequence in order; each still goes through executeAgentAction (so a
+                    // send/delete inside a playbook is enacted, never silently skipped). Snapshot first
+                    // because we clear pendingActions up front to avoid double-fires.
+                    const batch = pendingActions;
+                    setPendingActions([]);
+                    for (const a of batch) {
+                      try { showToast(`✓ ${await executeAgentAction(a)}`); }
+                      catch (e) { showToast(`Failed: ${String(e)}`); }
+                    }
+                  }}
+                  className="text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-lg bg-accent text-on-accent hover:bg-accent-strong transition-colors"
+                >Approve all {pendingActions.length}</button>
+              ) : <span />}
+              <button onClick={() => setPendingActions([])} className="text-xs font-medium text-ink-3 hover:text-ink transition-colors">Dismiss all</button>
+            </div>
           </div>
         </div>
       )}

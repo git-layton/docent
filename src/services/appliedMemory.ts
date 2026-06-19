@@ -147,6 +147,60 @@ export const retrievePlaybooks = async (
   }
 };
 
+/** List every playbook for an agent (verified or not) for the management UI. [] outside Tauri/on error. */
+export const listPlaybooks = async (agentId: string | null | undefined): Promise<Array<Playbook & { path: string }>> => {
+  const aid = String(agentId ?? '').trim();
+  if (!aid || !isTauri()) return [];
+  try {
+    const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', { agentId: aid }).catch(() => ({ files: [] }));
+    const out: Array<Playbook & { path: string }> = [];
+    for (const f of listed?.files ?? []) {
+      if (!f?.path || !f.path.includes('/playbooks/')) continue;
+      const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: f.path }).catch(() => ({ ok: false, content: '' }));
+      if (!read?.ok) continue;
+      const pb = parsePlaybook(read.content);
+      if (pb) out.push({ ...pb, path: f.path });
+    }
+    return out.sort((a, b) => a.title.localeCompare(b.title));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Update a stored playbook in place (read → parse → rebuild → write to the same trigger-keyed path).
+ * Used to verify/un-verify (the trust gate) and to bump the accept counter on an approved run.
+ */
+export const reinforcePlaybook = async (
+  rootPath: string,
+  agentId: string,
+  trigger: string,
+  opts: { verify?: boolean; bumpAccept?: boolean } = {},
+): Promise<boolean> => {
+  if (!rootPath || !isTauri()) return false;
+  const slug = playbookTriggerSlug(trigger);
+  const aid = String(agentId || 'default').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'default';
+  const path = `${rootPath}/memory/${aid}/playbooks/${slug}.md`;
+  try {
+    const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path }).catch(() => ({ ok: false, content: '' }));
+    if (!read?.ok) return false;
+    const pb = parsePlaybook(read.content);
+    if (!pb) return false;
+    const rebuilt = buildPlaybookRecord({
+      rootPath, agentId, title: pb.title, intent: pb.trigger, steps: pb.steps,
+      verified: opts.verify !== undefined ? opts.verify : pb.verified,
+      accept: pb.accept + (opts.bumpAccept ? 1 : 0),
+    });
+    const result = await invoke<{ blocked?: boolean }>('write_memory', {
+      path: rebuilt.path, content: rebuilt.content, commitMessage: `playbook: reinforce ${slug}`,
+      agentId, contextTokens: null, ramState: null,
+    });
+    return !result?.blocked;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * PURE — format verified playbooks into a system-prompt block. The agent OFFERS to run one and then
  * carries it out via its NORMAL tool actions, one at a time (each individually approved) — there is no

@@ -67,19 +67,25 @@ relationship the user didn't choose.
 - **iMessage group chats**: per-relationship voice is 1:1-only at first (one chatId can't
   disambiguate participants without a Rust change).
 
-## Procedural playbooks (LIVE — capture + suggest; enact via gated actions)
+## Procedural playbooks (LIVE — capture · suggest · multi-step approve · manage · refine)
 
 > **Status:** the loop is wired. **Capture:** the agent emits `forge:action {tool:'playbook',op:'capture',…}`
 > when the user asks to save a procedure → `persistPlaybook` (App.tsx) → `buildPlaybookRecord` → stored
 > *verified* (the user requested it). **Suggest:** each turn, `retrievePlaybooks` finds verified
 > playbooks matching the intent and `formatProceduresBlock` injects a propose-don't-run block (threaded
 > as `knownProcedures` through `generateTextResponse`). **Enact:** the agent carries out the steps via
-> its NORMAL tools, one at a time — each individually approved by the existing gate — so there is no
-> special executor; the `executeAgentAction`-throws backstop covers a stray `playbook.execute`.
+> its NORMAL tools, one at a time. The approval card renders the batch as a numbered **multi-step plan**
+> with per-step Approve/Skip and **Approve all** (sequential) — every action still hits the existing
+> gate, so a send/delete inside a playbook is never silently run; the `executeAgentAction`-throws
+> backstop covers a stray `playbook.execute`. **Manage:** Profile Settings → "Playbooks" lists each one
+> (steps, trusted toggle, remove). **Refine:** the dream cycle's `playbook_refine` op cleans up a
+> playbook's steps over time (consolidating messy `## Update` sections), preserving its title/trust.
 >
-> **Deferred enhancements** (not blocking; like voice's P2 was): an explicit multi-step approval-card
-> for a `playbook.execute` path; run-tracking/reinforce + the stricter verify-on-first-run gate; a
-> Settings "Playbooks" management list; and dream-cycle `playbook_refine`.
+> **Genuine remaining dependencies** (surfaced, not silently dropped): (a) auto-incrementing the `accept`
+> run-counter needs an explicit "ran it" signal (`reinforcePlaybook(bumpAccept)` exists; nothing calls it
+> on a normal-action enactment yet); (b) `voice_refine` in the dream cycle needs voice cards promoted to
+> `/voices/*.md` files first (they live in `appSettings` today, which the dreamer doesn't read); (c) email
+> per-recipient *learning* needs To/Cc from a Rust `mail_fetch_sent` change (selection already works).
 
 The safe, human-in-the-loop form of procedural/skill memory: the agent saves a reusable multi-step
 procedure and reuses/refines it. **Your acceptance is the verification signal** a personal assistant
@@ -126,12 +132,12 @@ subdirs auto-index (Rust prefix-LIKE + recursive collect) — **no Rust work**.
 - **P1** — per-relationship voice (data model, keying, selection, 1:1 learn pill) — **DONE** (`24adc37`)
 - **P2** — voice management UI in Profile Settings — **DONE** (`c6607e7`)
 - **P3** — playbook capture (foundation + safety backstop `e499fe8`; capture routing in `handleAgentActions`) — **DONE**
-- **P4** — playbook retrieve → suggest (enacted via normal individually-gated actions) — **DONE**; the explicit multi-step approval-card `playbook.execute` path — *deferred enhancement*
-- **P5** — dream-cycle `playbook_refine`/`voice_refine`, run-tracking/reinforce, Settings playbook list — *deferred enhancements*
+- **P4** — playbook retrieve → suggest → enact via normal gated actions, reviewed in the **multi-step approval card** (per-step + Approve all) — **DONE**
+- **P5** — dream-cycle `playbook_refine` + Settings "Playbooks" manager (view/trust/remove) — **DONE**; `voice_refine`, the `accept` run-counter, and email per-recipient learning remain (see dependencies above)
 
 ## Decisions (locked with the user)
 - Playbook steps: **natural-language + optional tool hint**, re-derived & re-gated each run (not rigid templates).
-- Playbook trust: **verified on first approved run** + a manual Trust toggle.
+- Playbook trust: shipped as **verified on capture** (the user explicitly asked to save it = a deliberate act of trust) + a manual Trust toggle in Settings to untrust/retrust. (The stricter "verify only after the first approved run" would need the `accept` run-signal — see dependencies.)
 - Voice storage: **in-memory `byRecipient` map**, with a reserved promotion path to `/voices/*.md` for dream refinement.
 
 ## Research touchstones
