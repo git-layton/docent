@@ -14,13 +14,12 @@
 // `<div id="root">` shell, so Codey sees route reachability + build errors but not the live rendered
 // UI. The richer client-rendered DOM read is the DEFERRED native-webview path (docs pt 8).
 //
-// v1 LOOK (vision, STUBBED with a flag): a screenshot → the vision sink (describeImage). The vision
-// SINK is fully wired and reused here; the SOURCE (a screenshot of the cross-origin localhost preview)
-// is the missing piece — there is NO screenshot command in Rust, and capturing a cross-origin
-// iframe/webview from JS is blocked by the same-origin wall. So lookAtPreview() gates on a vision
-// provider, attempts to obtain PNG bytes, and — finding none — FALLS BACK to the READ with a clear
-// note. The moment a `webview_screenshot` Rust command lands (returning PNG bytes), LOOK works end to
-// end with no other change here.
+// v1 LOOK (vision, LIVE on macOS): a screenshot → the vision sink (describeImage). The Rust
+// `webview_screenshot` command (screenshot.rs) snapshots the MAIN WKWebView — which paints the
+// cross-origin localhost preview iframe a JS canvas can't touch — and crops to the iframe rect. The
+// PNG flows into describeImage (Gemma 3 / cloud route). lookAtPreview() gates on a vision provider; if
+// there's none, or no screenshot (non-macOS, dev server not painted, capture error), it FALLS BACK to
+// the READ with a clear note. So LOOK degrades gracefully to READ rather than failing.
 
 import { invoke } from '@tauri-apps/api/core';
 import { useSpaceStore } from '../../../store/useSpaceStore';
@@ -48,12 +47,11 @@ function shellQuote(s: string): string {
 }
 
 /**
- * LOOK (vision) — STUBBED screenshot SOURCE, fully wired vision SINK.
+ * LOOK (vision) — captures the preview and routes it through the vision sink.
  *
  * Returns a description string when a vision provider exists AND a screenshot is obtainable, else null
  * (the caller then falls back to the READ). Gates on a configured/auto Vision Provider OR a chat model
- * that natively sees. Everything except `capturePreviewScreenshot` is production wiring; flip the stub
- * to a real `webview_screenshot` invoke and LOOK is live.
+ * that natively sees.
  */
 async function lookAtPreview(ctx: CapabilityContext, _url: string): Promise<string | null> {
   const { appSettings, integrations, models } = useSettingsStore.getState();
@@ -61,9 +59,8 @@ async function lookAtPreview(ctx: CapabilityContext, _url: string): Promise<stri
   const chatModelSees = modelSupportsVision(ctx.model);
   if (!route && !chatModelSees) return null; // no vision path → caller falls back to READ.
 
-  // ── STUB: the screenshot SOURCE. No Rust `webview_screenshot` command exists yet, and a JS capture
-  // of the cross-origin localhost preview is blocked by the same-origin wall (see file header). When
-  // the command lands it returns base64 PNG bytes; wire it here and the rest already works. ──
+  // Capture a PNG of the running app via the Rust webview_screenshot command (macOS). Null on any
+  // failure → caller falls back to the READ.
   const pngBytes: string | null = await capturePreviewScreenshot(_url);
   if (!pngBytes) return null; // no image → caller falls back to READ.
 
@@ -78,15 +75,28 @@ async function lookAtPreview(ctx: CapabilityContext, _url: string): Promise<stri
 }
 
 /**
- * STUB — obtain a PNG screenshot of the running preview. Returns null until a screenshot SOURCE exists.
+ * Obtain a base64 PNG screenshot of the running preview via the Rust `webview_screenshot` command.
  *
- * DEFERRED: needs a new Rust `webview_screenshot` command (macOS WKWebView capture is non-trivial),
- * registered in `generate_handler!` (auto-grants allow-app-local) and kept OFF allow-browser-remote in
- * app.toml — same isolation rule as run_command. Until then this resolves null and LOOK falls back to
- * the curl READ.
+ * The command snapshots the MAIN window's WKWebView — which paints the cross-origin localhost preview
+ * iframe that a JS canvas can't read — and crops to the iframe's on-screen rect (CSS points, set by the
+ * Preview panel when the human hits LOOK). No rect → it snaps the full webview. macOS-only and DENIED to
+ * the remote browser-panel webview (allow-app-local, never allow-browser-remote). Returns null on any
+ * failure (non-macOS, no dev server painted, capture error) so the caller cleanly falls back to the READ.
  */
 async function capturePreviewScreenshot(_url: string): Promise<string | null> {
-  return null;
+  try {
+    const rect = useUIStore.getState().codePreviewRect;
+    const png = await invoke<string>('webview_screenshot', {
+      x: rect?.x ?? 0,
+      y: rect?.y ?? 0,
+      width: rect?.width ?? 0,
+      height: rect?.height ?? 0,
+    });
+    return png && png.length > 0 ? png : null;
+  } catch (e) {
+    console.warn('[previewObserve] webview_screenshot failed, falling back to READ:', e);
+    return null;
+  }
 }
 
 export const previewObserveCapability: Capability = {

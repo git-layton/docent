@@ -10,6 +10,7 @@ mod imessage;
 mod calendar;
 mod notes;
 mod pty;
+mod screenshot;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -650,6 +651,18 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
         .to_string()
 }
 
+/// Normalize a keyword match into a [0,1] score comparable to the embedding path's cosine, so the
+/// frontend's cosine thresholds (memoryContext 0.35 / semanticDocs 0.3) and the `score × 150`
+/// interleaving stay correct when search_knowledge runs as the FALLBACK for search_knowledge_semantic.
+/// Coverage (fraction of distinct query terms found) dominates; repetition adds a small saturating
+/// bonus. Never exceeds 1.0 — a raw occurrence count must never reach the frontend as a "cosine".
+fn keyword_relevance(matched_distinct: usize, total_keywords: usize, total_occurrences: usize) -> f64 {
+    if total_keywords == 0 || matched_distinct == 0 { return 0.0; }
+    let coverage = matched_distinct as f64 / total_keywords as f64;
+    let occ = (total_occurrences as f64 / (total_keywords as f64 * 5.0)).min(1.0);
+    (coverage * 0.85 + occ * 0.15).min(1.0)
+}
+
 #[tauri::command]
 fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let root = knowledge_root();
@@ -688,11 +701,15 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
             let body = strip_frontmatter(&content);
             let body_lower = body.to_lowercase();
 
-            let score: usize = keywords.iter()
-                .map(|kw| body_lower.matches(*kw).count())
-                .sum();
-
-            if score == 0 { continue; }
+            let mut matched_distinct = 0usize;
+            let mut total_occurrences = 0usize;
+            for kw in &keywords {
+                let c = body_lower.matches(*kw).count();
+                if c > 0 { matched_distinct += 1; total_occurrences += c; }
+            }
+            if matched_distinct == 0 { continue; }
+            // [0,1] cosine-comparable score (not a raw count) — see keyword_relevance.
+            let score = keyword_relevance(matched_distinct, keywords.len(), total_occurrences);
 
             let title = extract_title(&content, &path);
             let snippet: String = body.chars().take(snippet_chars).collect();
@@ -706,7 +723,11 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
         }
     }
 
-    results.sort_by(|a, b| b["score"].as_u64().cmp(&a["score"].as_u64()));
+    results.sort_by(|a, b| {
+        let sa = a["score"].as_f64().unwrap_or(0.0);
+        let sb = b["score"].as_f64().unwrap_or(0.0);
+        sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(max_results);
 
     serde_json::json!({ "results": results })
@@ -1180,20 +1201,23 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
             let age = (now_secs - last_modified).max(0) as f64;
             let recency = (-std::f64::consts::LN_2 * age / HALF_LIFE_SECS).exp() as f32; // 1.0 fresh → 0.5 @30d
             let rank = cosine * (0.80 + 0.15 * recency + 0.05 * importance as f32);
-            Some((rank, cosine, path, content))
+            Some((cosine, rank, path, content))
         })
         .collect();
 
-    // Order by the blended rank; surface raw cosine as the score the frontend thresholds on.
+    // SELECTION is by raw cosine (relevance), so recency/importance can never evict a more-relevant
+    // memory from the returned window — the frontend filters on the cosine we return, so the kept set
+    // must be the top-by-cosine set (no recall regression). We only REORDER within it by the blend.
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Deduplicate: keep the top-ranked chunk per file (recency/importance are per-file, so this is
-    // still the highest-cosine chunk for that file).
+    // Deduplicate: keep the highest-cosine chunk per file.
     let mut seen_files = std::collections::HashSet::new();
     scored.retain(|(_, _, path, _)| seen_files.insert(path.clone()));
     scored.truncate(max_results);
+    // Now order the kept (most-relevant) set by the blended rank: a fresh, higher-confidence memory
+    // surfaces above a stale, weak one at comparable similarity, without dropping anything relevant.
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    let results: Vec<serde_json::Value> = scored.into_iter().map(|(_rank, cosine, path, content)| {
+    let results: Vec<serde_json::Value> = scored.into_iter().map(|(cosine, _rank, path, content)| {
         let snippet: String = content.chars().take(snippet_chars).collect();
         let title = extract_title_from_path(&path);
         serde_json::json!({ "path": path, "title": title, "snippet": snippet, "score": cosine })
@@ -3605,6 +3629,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            screenshot::webview_screenshot,
             get_active_tab,
             show_spotlight,
             hide_spotlight,
@@ -3720,6 +3745,23 @@ mod tests {
         assert!((0.05..=1.0).contains(&f), "importance must stay in [0.05,1.0], got {f}");
     }
 
+    // ── Keyword-fallback score normalization ──────────────────────────────────
+    #[test]
+    fn keyword_relevance_is_cosine_comparable() {
+        // No query terms / no match → 0 (never leaks as a passing "cosine").
+        assert_eq!(keyword_relevance(0, 0, 0), 0.0);
+        assert_eq!(keyword_relevance(0, 3, 0), 0.0);
+        // Full coverage scores high but never exceeds 1.0, even with heavy repetition.
+        let full = keyword_relevance(3, 3, 3);
+        assert!((0.85..=1.0).contains(&full), "full coverage should be >=0.85, got {full}");
+        assert!(keyword_relevance(2, 2, 1000) <= 1.0, "repetition must not exceed 1.0");
+        // More coverage ranks above less.
+        assert!(keyword_relevance(1, 3, 1) < full);
+        // A single term out of many stays below the frontend's 0.35/0.3 cosine gates — so weak
+        // keyword hits no longer trivially pass (the bug being fixed).
+        assert!(keyword_relevance(1, 4, 1) < 0.3, "weak partial match should be gated");
+    }
+
     // ── Capability ACL gating ─────────────────────────────────────────────────
     // Faithful, automated proof of the remote-isolation fix. We load the EXACT files
     // `tauri::generate_context!` consumes (gen/schemas/{acl-manifests,capabilities}.json),
@@ -3812,6 +3854,8 @@ mod tests {
             // Interactive terminal (PTY) — a remote page must NEVER reach an interactive shell with
             // the user's real credentials. These run the login shell; treat as maximally privileged.
             "pty_spawn", "pty_write", "pty_resize", "pty_kill",
+            // Screen capture — a remote page must NEVER snapshot the user's app window.
+            "webview_screenshot",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),

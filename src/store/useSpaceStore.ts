@@ -13,30 +13,17 @@ const generateId = (prefix: string) =>
 // Bump when the persisted schema changes in a breaking way — forces a clean reseed.
 // v3: Spaces are unified containers — each carries `kind` + its own `chatId`.
 // v4: one-time full reset — also wipes all conversations so DM/Space threads start fully isolated.
-const STORE_VERSION = '4';
+// v5: Code is a canvas, not a space — reseed to drop any stale dedicated "Code" space (space-code) +
+//     its Team thread left over from the old architecture, so spaces are uniform again.
+const STORE_VERSION = '5';
 
 const HOME_CHAT_ID = 'chat-home';
 
-// Stable id for the dedicated Code space — lets openCodeSpace() find-or-create one
-// permanent space (never duplicated) whose pinned agent is Codey. See design pt 7.
-export const CODE_SPACE_ID = 'space-code';
-// The Code space's deterministic conversation id. Exported so the chat pipeline can recognize the
-// Code conversation and apply its routing rule (Codey always drives; @-mentioned agents only advise).
-export const CODE_CHAT_ID = `chat-${CODE_SPACE_ID}`;
-// The Code space's SECOND conversation: the private "Team" group chat shown in the Code side rail —
-// the user's REAL agents (Alexis & co.), NEVER Codey. A normal channel chat with a distinct id, so
-// the chat pipeline routes it to its own participants (no Codey involvement) while Codey keeps the
-// center conversation. See docs/agentforge-code-design.md pt 9.
-export const TEAM_CHAT_ID = `team-chat-${CODE_SPACE_ID}`;
-
-/** The user's REAL roster — every agent EXCEPT Codey + the hidden built-ins (mirrors the
- *  AppSidebar visible-agent filter). These are the participants of the Code rail's Team chat. */
-function realRosterAgentIds(assistants: any[]): string[] {
-  const codeyId = resolveCodeyId(assistants);
-  return assistants
-    .filter((a: any) => a.id !== codeyId && a.id !== 'forge-dev' && a.id !== 'forge-guide' && a.id !== 'f-default')
-    .map((a: any) => a.id);
-}
+// Codey's coding conversation — a standalone DM with Codey that the code canvas surfaces wherever you
+// open it. NOT tied to a space: spaces are uniform (each has its own agent group chat); Codey is ONLY
+// the code-canvas copilot. Stable id so the canvas always reuses the one Codey thread. (Replaces the
+// old CODE_CHAT_ID / dedicated "Code" space, which incorrectly made Codey a space's chat driver.)
+export const CODEY_CHAT_ID = 'chat-codey';
 
 const defaultSpace: Space = {
   id: 'space-home',
@@ -107,16 +94,11 @@ interface SpaceStore {
   toggleFavorite(id: string): void;
   createSpace(name: string, agentIds?: string[], kind?: SpaceKind): Space;
   openAgentDm(agent: { id: string; name?: string }): string;
-  /** Open the dedicated "Code" space — pinned permanently to Codey so the rail + the
-   *  "Powered by" chip always show Codey, never the current space's agent. Finds the
-   *  existing Code space (stable id) or creates it, makes it active, and opens/focuses
-   *  the agentforge-code tool tab inside it. */
-  openCodeSpace(): string;
-  /** Backfill the Code rail's Team thread + `teamChatId` pointer for a pre-existing Code space that
-   *  was restored by hydrate (which never seeds teamChatId — only openCodeSpace did). Idempotent:
-   *  a no-op once the pointer equals TEAM_CHAT_ID, so a mount effect can call it without looping.
-   *  Lets a user who reopens DIRECTLY into a Code tab still see the Team rail. See docs pt 10. */
-  ensureCodeTeamThread(spaceId: string): void;
+  /** Open the code canvas (Codey's coding surface) in the CURRENT space — ensures the built-in Codey
+   *  + his standalone conversation exist, then opens/focuses the agentforge-code tool tab in the active
+   *  space. Code is a canvas, not a space; the space's own group chat stays the rail beside it.
+   *  Returns the tab id. */
+  openCodeCanvas(): string;
   deleteSpace(id: string): void;
   updateSpace(id: string, patch: Partial<Space>): void;
   setAgentGoal(spaceId: string, agentId: string, goal: string): void;
@@ -308,10 +290,11 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     return containerId;
   },
 
-  openCodeSpace: () => {
-    // A Code space is ALWAYS Codey's. If the built-in Codey was deleted, resolveCodeyId would
-    // fall back to an arbitrary agent — so re-seed the canonical Codey (same built-in definition
-    // useAgentStore seeds) before pinning, guaranteeing the pinned agent is genuinely Codey.
+  openCodeCanvas: () => {
+    // Code is a CANVAS, not a space. Ensure the built-in Codey exists (reseed if the user deleted it),
+    // make sure Codey's standalone conversation exists, then open the code-canvas surface IN THE CURRENT
+    // space — so that space's own agent group chat stays the rail beside it. No special space, no Team
+    // thread. Codey is only the code copilot; the rail is uniform with every other space.
     const agentStore = useAgentStore.getState();
     const hasCodey = agentStore.assistants.some(
       (a: any) => a.id === 'forge-dev' || a.role === 'Engineer' || a.name === 'Codey',
@@ -320,102 +303,22 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       agentStore.setAssistants((prev: any[]) => [...prev, CODEY_ASSISTANT]);
       agentStore.persist();
     }
-    const allAssistants = useAgentStore.getState().assistants;
-    const codeyId = resolveCodeyId(allAssistants) ?? 'forge-dev';
-    // The Code rail's private Team chat: the user's REAL agents (NOT Codey). Seed/backfill its thread
-    // alongside Codey's so the rail has a live, isolated group conversation pointed at the real roster.
-    const teamRoster = realRosterAgentIds(allAssistants);
-    const teamPrimaryId = teamRoster[0] ?? 'alexis';
-    const seedTeamThread = () => ensureChatThread(TEAM_CHAT_ID, {
-      kind: 'channel',
-      name: 'Team',
-      primaryAgentId: teamPrimaryId,
-      agentIds: teamRoster.length > 0 ? teamRoster : [teamPrimaryId],
-    });
-    let space = get().spaces.find(s => s.id === CODE_SPACE_ID);
+    const codeyId = resolveCodeyId(useAgentStore.getState().assistants) ?? 'forge-dev';
+    // Codey's conversation — a DM with just Codey (he naturally drives a one-agent thread). Shared by
+    // every code canvas so you keep one continuous Codey thread regardless of which space you opened it in.
+    ensureChatThread(CODEY_CHAT_ID, { kind: 'dm', name: 'Codey', primaryAgentId: codeyId, agentIds: [codeyId] });
 
-    if (!space) {
-      // Create the permanent Code space with a stable id, pinned to Codey so the rail +
-      // the "Powered by" chip always resolve to Codey (agentIds[0]) — never the current
-      // space's agent. Deterministic chatId keeps the thread isolated, mirroring openAgentDm.
-      const chatId = CODE_CHAT_ID;
-      ensureChatThread(chatId, {
-        kind: 'channel',
-        name: 'Code',
-        primaryAgentId: codeyId,
-        agentIds: [codeyId],
-      });
-      seedTeamThread();
-      const chatTabId = `tab-${CODE_SPACE_ID}`;
-      const chatTab: OmniTab = { id: chatTabId, type: 'space-log', label: 'Chat', spaceId: CODE_SPACE_ID };
-      space = {
-        id: CODE_SPACE_ID,
-        kind: 'space',
-        name: 'Code',
-        agentIds: [codeyId],
-        peopleIds: [],
-        tabIds: [chatTabId],
-        chatId,
-        teamChatId: TEAM_CHAT_ID,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      set(s => ({ spaces: [...s.spaces, space!], omniTabs: [...s.omniTabs, chatTab] }));
-    } else {
-      // Existing Code space — reconcile Codey + backfill the Team thread so installs that already
-      // created space-code (before the side rail shipped) pick up the rail without a store reset.
-      if (space.agentIds[0] !== codeyId) {
-        // Drifted off Codey (e.g. created during a Codey-less window, or a stale store). Re-pin so
-        // "Code is ALWAYS Codey's" holds — Codey primary, keeping any other agents the user added.
-        const nextAgentIds = [codeyId, ...space.agentIds.filter((id: string) => id !== codeyId)];
-        set(s => ({ spaces: s.spaces.map(sp => sp.id === CODE_SPACE_ID ? { ...sp, agentIds: nextAgentIds, updatedAt: Date.now() } : sp) }));
-      }
-      // Backfill the Team thread + teamChatId pointer for pre-existing spaces (idempotent: ensureChatThread
-      // no-ops if present; the pointer is only written when missing).
-      seedTeamThread();
-      if (space.teamChatId !== TEAM_CHAT_ID) {
-        set(s => ({ spaces: s.spaces.map(sp => sp.id === CODE_SPACE_ID ? { ...sp, teamChatId: TEAM_CHAT_ID, updatedAt: Date.now() } : sp) }));
-      }
-    }
-
-    // Make it active first (rail = Codey), then open/focus the Code tool tab IN this space.
-    get().setActiveSpaceId(CODE_SPACE_ID);
-    const existingTool = get().omniTabs.find(
-      t => t.spaceId === CODE_SPACE_ID && t.type === 'tool' && t.toolId === 'agentforge-code',
+    // Open (or focus) the code canvas in the CURRENT space — reuse an existing one rather than stacking.
+    const spaceId = get().activeSpaceId ?? undefined;
+    const existing = get().omniTabs.find(
+      t => t.spaceId === spaceId && t.type === 'tool' && t.toolId === 'agentforge-code',
     );
-    if (existingTool) {
-      set({ activeOmniTabId: existingTool.id });
+    if (existing) {
+      set({ activeOmniTabId: existing.id });
       get().persist();
-    } else {
-      get().openTab({ type: 'tool', toolId: 'agentforge-code', label: 'Code', spaceId: CODE_SPACE_ID });
+      return existing.id;
     }
-    return CODE_SPACE_ID;
-  },
-
-  ensureCodeTeamThread: (spaceId) => {
-    // The Team thread belongs to the Code space ONLY — guard so a stray caller can't stamp the shared
-    // TEAM_CHAT_ID onto a different space (which would leak the Code rail's thread into that space).
-    if (spaceId !== CODE_SPACE_ID) return;
-    const space = get().spaces.find(s => s.id === spaceId);
-    // Idempotent + loop guard: once the pointer equals TEAM_CHAT_ID, do nothing. This is the same
-    // condition a mount effect gates on, so after one backfill the effect's check is false and it
-    // never re-fires (mirrors openCodeSpace's idempotent backfill at line ~371).
-    if (!space || space.teamChatId === TEAM_CHAT_ID) return;
-
-    // Seed the Team thread (the user's REAL roster — NOT Codey) and set the pointer, reusing the exact
-    // same logic openCodeSpace uses, so the rail is wired identically whether you arrived via Home or
-    // by reopening straight into the Code tab.
-    const allAssistants = useAgentStore.getState().assistants;
-    const teamRoster = realRosterAgentIds(allAssistants);
-    const teamPrimaryId = teamRoster[0] ?? 'alexis';
-    ensureChatThread(TEAM_CHAT_ID, {
-      kind: 'channel',
-      name: 'Team',
-      primaryAgentId: teamPrimaryId,
-      agentIds: teamRoster.length > 0 ? teamRoster : [teamPrimaryId],
-    });
-    set(s => ({ spaces: s.spaces.map(sp => sp.id === spaceId ? { ...sp, teamChatId: TEAM_CHAT_ID, updatedAt: Date.now() } : sp) }));
-    get().persist();
+    return get().openTab({ type: 'tool', toolId: 'agentforge-code', label: 'Code', spaceId });
   },
 
   deleteSpace: (id) => {
@@ -532,9 +435,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });
     }
 
-    // Land on the active Space's chat (your agent) on launch, so the selected agent is front
-    // and center — Alexis by default, or whoever you were last with. The Home (StartPage) tab is
-    // kept available one click away. Fall back to Home only if the Space somehow has no chat tab.
+    // Land on the HOME screen (the StartPage overview of apps + agents) on launch — not straight into a
+    // conversation. Your space's chat is one click away (its Chat tab). Ensure a Home tab exists, then
+    // make it active.
     {
       const st = get();
       const sid = st.activeSpaceId ?? 'space-home';
@@ -543,8 +446,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         home = { id: generateId('tab'), type: 'home', label: 'Home', spaceId: sid };
         set(s => ({ omniTabs: [...s.omniTabs, home!] }));
       }
-      const chat = get().omniTabs.find(t => t.type === 'space-log' && t.spaceId === sid);
-      set({ activeOmniTabId: (chat ?? home).id });
+      set({ activeOmniTabId: home.id });
     }
 
     // Reconcile the active conversation with the active container's own thread,

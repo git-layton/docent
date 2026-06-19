@@ -29,6 +29,7 @@ import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, ge
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { assessConversationMemory } from './services/memoryPolicy';
+import { buildPlaybookRecord, retrievePlaybooks, formatProceduresBlock } from './services/appliedMemory';
 import { buildVoiceCard } from './services/voiceRuntime';
 import { normalizeVoiceProfile } from './services/voice';
 import { capabilityForRoute, type CapabilityContext } from './services/capabilities';
@@ -67,6 +68,7 @@ import { FormattedText } from './components/ui/FormattedText';
 import { OmniTabBar } from './components/OmniTabBar';
 import { StartPage } from './components/StartPage';
 import { ChatPanel } from './components/ChatPanel';
+import { DockedAgentRail } from './components/DockedAgentRail';
 import { BrowserTabContent } from './components/BrowserTabContent';
 import { MailInboxPanel } from './components/MailInboxPanel';
 import { MessagesPanel } from './components/MessagesPanel';
@@ -78,7 +80,7 @@ import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateC
 import { CmdKPalette } from './components/CmdKPalette';
 import { MarginaliaLayer } from './components/MarginaliaLayer';
 import { AgentVisionToggle } from './components/AgentVisionToggle';
-import { useSpaceStore, CODE_CHAT_ID, TEAM_CHAT_ID } from './store/useSpaceStore';
+import { useSpaceStore, CODEY_CHAT_ID } from './store/useSpaceStore';
 import { useMarginaliaStore } from './store/useMarginaliaStore';
 import { speak, cancelSpeech, resolveVoicePrefs } from './lib/voice';
 
@@ -213,7 +215,12 @@ export default function App() {
     for (const a of actions.filter(x => x.tool === 'memory' && (x.op === 'save' || x.op === 'update'))) {
       await persistAgentSelfMemory(a);
     }
-    const toolActions = actions.filter(x => x.tool !== 'memory');
+    // Playbook capture (local, no approval) — persist the reusable procedure. (A playbook.execute, if
+    // ever emitted, falls through to the approval gate below, where executeAgentAction throws on it.)
+    for (const a of actions.filter(x => x.tool === 'playbook' && x.op === 'capture')) {
+      await persistPlaybook(a);
+    }
+    const toolActions = actions.filter(x => x.tool !== 'memory' && !(x.tool === 'playbook' && x.op === 'capture'));
     for (const a of toolActions.filter(x => !actionNeedsApproval(x))) {
       try { showToast(`✓ ${await executeAgentAction(a)}`); }
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }
@@ -601,43 +608,28 @@ export default function App() {
   }, [chats, activeChatId, activeFolderId]);
   // Agents available to @-mention in the composer — the active container's participants. Populated
   // for DMs and Spaces alike so the @-picker (and Cmd+Shift+@) works everywhere, not just channels.
-  // In the Code conversation, any of the user's REAL agents can be summoned as an advisor (Codey still
-  // drives), so the picker offers the whole roster minus Codey himself + hidden built-ins.
   const channelParticipants = useMemo(() => {
-    if (activeChatId === CODE_CHAT_ID) {
-      const codeyId = resolveCodeyId(assistants);
-      return assistants
-        .filter((a: any) => a.id !== codeyId && a.id !== 'forge-guide' && a.id !== 'f-default')
-        .map((a: any) => ({ id: a.id, name: a.name }));
-    }
     if (!activeChat) return [];
     return getParticipantAgents(activeChat, assistants).map((a: any) => ({ id: a.id, name: a.name }));
-  }, [activeChat, activeChatId, assistants]);
+  }, [activeChat, assistants]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
 
-  // ── Code Team rail: a SECOND live conversation (the user's REAL agents — Alexis & co., NOT Codey),
-  // rendered concurrently with Codey's center chat inside AgentForgeCodePanel. These are derived in
-  // App.tsx (where the message store + render handlers live) and passed down; the panel owns the rail's
-  // own composer buffer + collapse. See docs/agentforge-code-design.md pt 9.
-  const teamMessages = useMemo(() => messages[TEAM_CHAT_ID] ?? [], [messages]);
-  const teamChat = useMemo(() => {
-    const c = chats.find(c => c.id === TEAM_CHAT_ID);
-    return c ? normalizeChatRecord(c) : null;
-  }, [chats]);
-  const teamParticipants = useMemo(
-    () => (teamChat ? getParticipantAgents(teamChat, assistants) : []),
-    [teamChat, assistants],
+  // ── Codey's coding conversation (CODEY_CHAT_ID) — the code canvas's CENTER chat. A standalone DM with
+  // Codey (the code copilot), independent of the active space. Derived here (where the message store +
+  // render handlers live) and passed to AgentForgeCodePanel; the panel owns the center composer's own
+  // buffer. The space's own group chat stays the co-pilot rail beside the canvas — uniform everywhere.
+  const codeyMessages = useMemo(() => messages[CODEY_CHAT_ID] ?? [], [messages]);
+  const codeyAgent = useMemo(
+    () => assistants.find((a: any) => a.id === resolveCodeyId(assistants)) ?? null,
+    [assistants],
   );
-  // The rail's "primary" agent — the chat header + composer label resolve to the team's primary
-  // participant (a real agent), never Codey/the global activeFolderId.
-  const teamPrimaryAgent = useMemo(
-    () => teamParticipants.find((a: any) => a.id === teamChat?.primaryAgentId) ?? teamParticipants[0] ?? null,
-    [teamParticipants, teamChat],
-  );
-  const teamChannelParticipants = useMemo(
-    () => teamParticipants.map((a: any) => ({ id: a.id, name: a.name })),
-    [teamParticipants],
-  );
+  // @-mention picker for Codey's chat — any real agent can be summoned as an advisor (Codey still drives).
+  const codeyChannelParticipants = useMemo(() => {
+    const codeyId = resolveCodeyId(assistants);
+    return assistants
+      .filter((a: any) => a.id !== codeyId && a.id !== 'forge-guide' && a.id !== 'f-default')
+      .map((a: any) => ({ id: a.id, name: a.name }));
+  }, [assistants]);
 
   // Keep dream cycle refs in sync (avoids stale closures in 24h timer)
   useEffect(() => { activeAssistantRef.current = activeAssistant; }, [activeAssistant]);
@@ -1258,6 +1250,33 @@ export default function App() {
     }
   }, [writeMemoryDeduped, showToast]);
 
+  // Playbook capture: the agent emits forge:action {tool:'playbook',op:'capture',title,steps[]} when the
+  // user asks to save a reusable procedure. Persisted verified (the user requested it) so it can be
+  // suggested later. Steps are natural-language intent + an optional soft tool hint — never bound actions.
+  const persistPlaybook = useCallback(async (a: any) => {
+    const rootPath = useMemoryStore.getState().agentForgePath;
+    if (!rootPath || !((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
+    const title = String(a?.title ?? '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const steps = (Array.isArray(a?.steps) ? a.steps : [])
+      .map((s: any) => (typeof s === 'string' ? { intent: s } : { intent: String(s?.intent ?? s?.step ?? ''), toolHint: s?.toolHint ?? s?.tool }))
+      .filter((s: any) => s.intent.trim());
+    if (!title || steps.length < 2) return; // a playbook needs a name and at least two steps
+    const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
+    const agent = _assistants.find((x: any) => x.id === _activeFolderId) ?? _assistants[0];
+    const agentId = agent?.id ?? 'default';
+    const { path, content } = buildPlaybookRecord({ rootPath, agentId, title, intent: a?.intent || title, steps, verified: true });
+    try {
+      const result = await invoke<{ blocked?: boolean; error?: string }>('write_memory', {
+        path, content, commitMessage: `playbook: ${title}`, agentId, contextTokens: null, ramState: null,
+      });
+      if (result?.blocked) { console.warn('[Playbook] write blocked:', result.error); return; }
+      invalidateMemorySummary();
+      showToast(`📋 Saved “${title}” as a playbook.`);
+    } catch (e) {
+      console.warn('[Playbook] Could not persist:', e);
+    }
+  }, [showToast]);
+
   const persistGatekeeperMemory = useCallback(async (chatId: string, userMsg: any, decision: ReturnType<typeof evaluateMemoryGate>, agent: any) => {
     if (!shouldPersistGatekeeperDecision(decision, userMsg.content)) return;
     const rootPath = useMemoryStore.getState().agentForgePath;
@@ -1826,6 +1845,8 @@ export default function App() {
       // for this message. Both reuse existing memory files + search_knowledge_semantic.
       const _memorySummary = await loadMemorySummary(_activeAssistant?.id);
       const { text: _relevantMemory, hits: _relevantMemoryHits } = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
+      // Known procedures (playbooks) relevant to this turn — a propose-don't-run block; '' when none match.
+      const _knownProcedures = formatProceduresBlock(await retrievePlaybooks(userMsg.content, _activeAssistant?.id));
       // Browsing-history recall — "remember that article I saw?" (privacy-filtered, dwell-gated).
       // Scoped to the Spaces this agent belongs to: it must not recall pages read in Spaces it was
       // never part of. Visits with no spaceId (legacy/outside a Space) are excluded by the scope.
@@ -1893,7 +1914,7 @@ export default function App() {
         // generic sticky-scope routing so a mentioned advisor never silences Codey: responders are
         // Codey + the mentioned advisors, with Codey last so he can synthesize their advice and own the
         // edits. No mention → just Codey. (Full Strategy-B decoupling is deferred — see docs pt 8.)
-        const isCodeChat = chatId === CODE_CHAT_ID;
+        const isCodeChat = chatId === CODEY_CHAT_ID;
         let routedAgents: any[];
         let _isScoped: boolean;
         let allParticipants: any[];
@@ -1975,7 +1996,7 @@ export default function App() {
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
             goal: _activeSpace?.agentGoals?.[agent.id], projectContext: _activeProjectContext,
           });
 
@@ -2038,7 +2059,7 @@ export default function App() {
               integrations: _integrations,
               models: _models,
               runIntegrationTools,
-              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
+              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
               goal: _activeSpace?.agentGoals?.[primaryAgent.id], projectContext: _activeProjectContext,
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
@@ -2104,7 +2125,7 @@ export default function App() {
             models: _models,
             runIntegrationTools,
             browserContext: _browserContext,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
             goal: _activeSpace?.agentGoals?.[_activeAssistant?.id], projectContext: _activeProjectContext,
         });
 
@@ -2254,14 +2275,13 @@ export default function App() {
     queueMicrotask(() => { void handleSendMessage(); });
   };
 
-  // ── Side-rail send (Code Team chat) — a SECOND, concurrent conversation ────────────────────────
-  // Sends the rail composer's text straight to a SPECIFIC chatId (the Code space's Team thread) via
-  // processChatRequest, which already keys its channel routing off the chat RECORD's participants — so
-  // the real-agent team responds with NO Codey involvement. Crucially this NEVER touches the global
-  // activeChatId/activeFolderId, so Codey's center conversation stays pinned and intact. The composer
-  // text + attachments come from the rail's own buffer (passed in), not useUIStore — see docs pt 9.
-  // This is the scoped, two-conversation slice of the deferred Strategy-B decoupling.
-  const handleSendTeamMessage = async (targetChatId: string, text: string, attachments: any[] = []) => {
+  // ── Code-canvas center send (Codey) — a SECOND, concurrent conversation ─────────────────────────
+  // Sends the canvas center composer's text straight to a SPECIFIC chatId (CODEY_CHAT_ID) via
+  // processChatRequest, which routes it to Codey (his standalone chat). NEVER touches the global
+  // activeChatId/activeFolderId, so the space's own group chat (the co-pilot rail) stays intact and the
+  // two conversations stream independently. Text + attachments come from the canvas's own buffer (passed
+  // in), not useUIStore. Generic over targetChatId so the canvas passes CODEY_CHAT_ID.
+  const handleSendCodeyMessage = async (targetChatId: string, text: string, attachments: any[] = []) => {
     if (isChatGenerating(targetChatId)) return;
     if (!text.trim() && attachments.length === 0) return;
     const _selectedModel = (() => {
@@ -2688,32 +2708,28 @@ export default function App() {
     onSlashCommand: handleSlashCommand,
   };
 
-  // ── Team-rail prop bags (Code side rail) — clones pointed at the Team thread + its real agents.
-  // The center keeps the bags above (Codey, global active) 100% intact; these differ only in the
-  // pointed-at messages/agent/participants. The rail's own input buffer + onSend are layered in by
-  // AgentForgeCodePanel (it owns that local state); everything else is shared/cosmetic. See pt 9.
-  const teamSpaceLogProps = {
+  // ── Code-canvas center prop bags (Codey) — clones of the global bags pointed at Codey's standalone
+  // conversation (CODEY_CHAT_ID) + Codey himself. They differ only in the pointed-at messages/agent/
+  // participants + per-chat generation; the canvas's own input buffer + onSend are layered in by
+  // AgentForgeCodePanel (it owns that local state). The space's group chat keeps the global bags (rail).
+  const codeySpaceLogProps = {
     ...spaceLogProps,
-    activeMessages: teamMessages,
-    activeAssistant: teamPrimaryAgent ?? activeAssistant,
+    activeMessages: codeyMessages,
+    activeAssistant: codeyAgent ?? activeAssistant,
     forgettingIndex: -1,
     showAgentIntro: false,
-    // The rail tracks the Team thread's OWN generation, independent of Codey's center chat — so both
-    // can stream at once and the rail's typing indicator never mirrors Codey's.
-    isGenerating: isChatGenerating(TEAM_CHAT_ID),
-    // Per-message actions must target the Team thread, not the global active chat (Codey) — otherwise a
-    // rail bookmark/edit cross-talks to Codey's bucket. (Send was already decoupled via onSendTeamMessage;
-    // toggleSpeak/addTask are chat-agnostic so they need no override.)
-    onBookmark: (msg: any) => handleBookmark(msg, TEAM_CHAT_ID),
-    onConfirmEdit: (msgId: string) => confirmEditMessage(msgId, TEAM_CHAT_ID),
+    // Codey's chat tracks its OWN generation, independent of the space group chat — both stream at once.
+    isGenerating: isChatGenerating(CODEY_CHAT_ID),
+    // Per-message actions target Codey's chat, not the global active (space) chat.
+    onBookmark: (msg: any) => handleBookmark(msg, CODEY_CHAT_ID),
+    onConfirmEdit: (msgId: string) => confirmEditMessage(msgId, CODEY_CHAT_ID),
   };
-  const teamChatInputBarProps = {
+  const codeyChatInputBarProps = {
     ...chatInputBarProps,
-    activeAssistant: teamPrimaryAgent ?? activeAssistant,
-    channelParticipants: teamChannelParticipants,
-    // Rail composer reflects + stops the Team thread, not the center (Codey) chat.
-    isGenerating: isChatGenerating(TEAM_CHAT_ID),
-    onStop: () => handleStop(TEAM_CHAT_ID),
+    activeAssistant: codeyAgent ?? activeAssistant,
+    channelParticipants: codeyChannelParticipants,
+    isGenerating: isChatGenerating(CODEY_CHAT_ID),
+    onStop: () => handleStop(CODEY_CHAT_ID),
   };
 
   // Render the content for any tab — the chat (space-log) is just another tab,
@@ -2754,17 +2770,14 @@ export default function App() {
       return <NotesPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'agentforge-code') {
-      // Chat-first Code: the panel renders Codey's conversation (the global ChatPanel) as its default
-      // body, with Files/Terminal/Preview as toggle panels. The Code space pins Codey as primary, so
-      // the global activeChatId/activeFolderId are already his when this tab is on screen.
+      // The code canvas: a chat-first surface with Codey (his standalone CODEY_CHAT_ID conversation) as
+      // the center + Files/Terminal/Preview toggle panels. It lives in a NORMAL space, so the space's own
+      // group chat is the co-pilot rail beside it (rendered below) — uniform with every other space.
       return (
         <AgentForgeCodePanel
-          spaceLogProps={spaceLogProps}
-          chatInputBarProps={chatInputBarProps}
-          onSendPrompt={handleSendPrompt}
-          teamSpaceLogProps={teamSpaceLogProps}
-          teamChatInputBarProps={teamChatInputBarProps}
-          onSendTeamMessage={handleSendTeamMessage}
+          codeySpaceLogProps={codeySpaceLogProps}
+          codeyChatInputBarProps={codeyChatInputBarProps}
+          onSendCodeyMessage={handleSendCodeyMessage}
         />
       );
     }
@@ -3009,52 +3022,34 @@ export default function App() {
             </>
           )}
 
-          {/* ── Co-pilot rail: the active agent, docked beside a tool/web/canvas tab ── */}
-          {/* The Code tool tab renders Codey's conversation inline already, so skip the rail there —
-              otherwise the chat would double-render beside itself. */}
-          {activeOmniTab && ['tool', 'web', 'code-canvas', 'doc'].includes(activeOmniTab.type)
-            && activeOmniTab.toolId !== 'agentforge-code' && (
-            copilotOpen ? (
-              <>
-                <div className="w-px shrink-0 bg-edge-2" />
-                <div className="relative shrink-0 w-[360px] min-w-[300px] flex flex-col border-l border-edge bg-panel">
-                  <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0">
-                    <Bot className="w-4 h-4 text-accent shrink-0" />
-                    <select
-                      value={activeAssistant?.id ?? ''}
-                      onChange={(e) => useAgentStore.getState().setActiveFolderId(e.target.value)}
-                      className="text-xs font-semibold text-ink bg-transparent outline-none flex-1 min-w-0 cursor-pointer"
-                      title="Switch agent"
-                    >
-                      {assistants.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
-                    <button
-                      onClick={() => toggleCopilot(false)}
-                      className="p-1 rounded-md text-ink-3 hover:text-ink hover:bg-inset transition-colors"
-                      title="Hide agent"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                    <ChatPanel
-                      mode="inline"
-                      spaceLogProps={spaceLogProps}
-                      chatInputBarProps={chatInputBarProps}
-                      onSendPrompt={handleSendPrompt}
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <button
-                onClick={() => toggleCopilot(true)}
-                className="shrink-0 w-9 flex flex-col items-center pt-3 border-l border-edge bg-panel text-ink-3 hover:text-ink hover:bg-wash transition-colors"
-                title="Show agent"
-              >
-                <Bot className="w-4 h-4" />
-              </button>
-            )
+          {/* ── Co-pilot rail: the active space's group chat, docked beside a tool/web/canvas tab (shared
+              chrome). Shows for the code canvas too — that's the space's group chat sitting beside Codey,
+              uniform with every other space (Codey's own chat is the canvas center, a separate thread). */}
+          {activeOmniTab && ['tool', 'web', 'code-canvas', 'doc'].includes(activeOmniTab.type) && (
+            <DockedAgentRail
+              open={copilotOpen}
+              onToggle={toggleCopilot}
+              icon={Bot}
+              collapsedTitle="Show agent"
+              hideTitle="Hide agent"
+              header={
+                <select
+                  value={activeAssistant?.id ?? ''}
+                  onChange={(e) => useAgentStore.getState().setActiveFolderId(e.target.value)}
+                  className="text-xs font-semibold text-ink bg-transparent outline-none flex-1 min-w-0 cursor-pointer"
+                  title="Switch agent"
+                >
+                  {assistants.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              }
+            >
+              <ChatPanel
+                mode="inline"
+                spaceLogProps={spaceLogProps}
+                chatInputBarProps={chatInputBarProps}
+                onSendPrompt={handleSendPrompt}
+              />
+            </DockedAgentRail>
           )}
         </div>
       </div>

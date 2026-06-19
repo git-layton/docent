@@ -60,6 +60,10 @@ interface UIStore {
   // panel). Lifted into shared state so the preview-observe capability ("Codey, look at this") reads
   // the EXACT same URL the human is looking at, instead of guessing localhost:3000. See docs pt 10.
   codePreviewUrl: string | null;
+  // The Preview iframe's on-screen rect (CSS points = getBoundingClientRect coords), set when the human
+  // asks Codey to LOOK. webview_screenshot crops the WKWebView snapshot to exactly this region so the
+  // vision model sees the running app, not the whole AgentForge window. Null → snapshot full webview.
+  codePreviewRect: { x: number; y: number; width: number; height: number } | null;
 
   // OS navigation
   activeOmniTabId: string | null;
@@ -103,6 +107,7 @@ interface UIStore {
   setHwProfile: (v: any) => void;
   setIsDbLoaded: (v: boolean) => void;
   setCodePreviewUrl: (v: string | null) => void;
+  setCodePreviewRect: (v: { x: number; y: number; width: number; height: number } | null) => void;
   setActiveOmniTabId: (id: string | null) => void;
   setIsCommandNodeExpanded: (v: boolean) => void;
   setCommandNodeWidth: (v: number) => void;
@@ -146,6 +151,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   hwProfile: null,
   isDbLoaded: false,
   codePreviewUrl: null,
+  codePreviewRect: null,
   activeOmniTabId: null,
   isCommandNodeExpanded: true,
   commandNodeWidth: 720,
@@ -200,6 +206,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setHwProfile: (v) => set({ hwProfile: v }),
   setIsDbLoaded: (v) => set({ isDbLoaded: v }),
   setCodePreviewUrl: (v) => set({ codePreviewUrl: v }),
+  setCodePreviewRect: (v) => set({ codePreviewRect: v }),
   setActiveOmniTabId: (id) => set({ activeOmniTabId: id }),
   setIsCommandNodeExpanded: (v) => set({ isCommandNodeExpanded: v }),
   setCommandNodeWidth: (v) => set({ commandNodeWidth: v }),

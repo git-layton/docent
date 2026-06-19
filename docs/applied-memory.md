@@ -55,16 +55,31 @@ Per-recipient harvesting only happens when the user explicitly opts that recipie
 and is still gated by the existing per-surface `voiceProfile.perSurface` toggles. We never harvest a
 relationship the user didn't choose.
 
+### Built (P2)
+- **Settings management UI** (shipped): "Voices by person" in Profile Settings lists each learned
+  relationship with toggle on/off, hand-edit, rebuild (iMessage), and remove. The 1:1 chat pill is the
+  other entry point.
+
 ### Deferred (follow-ups)
 - **Email per-recipient *learning*** (selection already works): grouping sent email by *recipient*
-  needs To/Cc from `mail_fetch_sent`, which touches the held Rust crate. Until then, email drafts use
-  an opted-in card if one exists, else global.
-- **Settings management UI**: a list of learned relationships (rebuild / hand-edit / disable) in
-  Profile Settings. Today the 1:1 chat pill is the only entry point.
+  needs To/Cc from `mail_fetch_sent`, i.e. a Rust change to the mail backend not yet made. Until then,
+  email drafts use an opted-in card if one exists, else global.
 - **iMessage group chats**: per-relationship voice is 1:1-only at first (one chatId can't
   disambiguate participants without a Rust change).
 
-## Procedural playbooks (DESIGNED — not yet built)
+## Procedural playbooks (LIVE — capture + suggest; enact via gated actions)
+
+> **Status:** the loop is wired. **Capture:** the agent emits `forge:action {tool:'playbook',op:'capture',…}`
+> when the user asks to save a procedure → `persistPlaybook` (App.tsx) → `buildPlaybookRecord` → stored
+> *verified* (the user requested it). **Suggest:** each turn, `retrievePlaybooks` finds verified
+> playbooks matching the intent and `formatProceduresBlock` injects a propose-don't-run block (threaded
+> as `knownProcedures` through `generateTextResponse`). **Enact:** the agent carries out the steps via
+> its NORMAL tools, one at a time — each individually approved by the existing gate — so there is no
+> special executor; the `executeAgentAction`-throws backstop covers a stray `playbook.execute`.
+>
+> **Deferred enhancements** (not blocking; like voice's P2 was): an explicit multi-step approval-card
+> for a `playbook.execute` path; run-tracking/reinforce + the stricter verify-on-first-run gate; a
+> Settings "Playbooks" management list; and dream-cycle `playbook_refine`.
 
 The safe, human-in-the-loop form of procedural/skill memory: the agent saves a reusable multi-step
 procedure and reuses/refines it. **Your acceptance is the verification signal** a personal assistant
@@ -87,7 +102,9 @@ After a multi-step sequence you accepted, the agent emits `forge:action {tool:'p
 A playbook becomes suggestable only after you **approve its first run** (`verified` flips true); a manual
 "Trust this playbook" toggle exists for power users.
 
-### Applied: two-phase, never autonomous
+### Applied: two-phase, never autonomous (DEFERRED stricter variant)
+> The shipped MVP enacts via normal individually-gated actions (see the status note above). The
+> explicit `playbook.execute` + multi-step approval-card flow below is the stricter variant, deferred.
 1. **Suggest** — `retrieveByTrigger('playbook', intent, agentId)` (filtered to `verified===true`) injects a
    `[KNOWN PROCEDURE — propose, do not run]` block near the Tier-2 slot; the agent offers to run it.
 2. **Approve** — `actionNeedsApproval({tool:'playbook',op:'execute'})` returns **true** → the existing
@@ -96,20 +113,21 @@ A playbook becomes suggestable only after you **approve its first run** (`verifi
    re-enters the pipeline, so any send/delete inside a playbook **still individually hits the gate.**
    A unit test locks both invariants.
 
-### Shared substrate (`src/services/appliedMemory.ts`, to build in P0)
-Pure-ish (must NOT import `llm.ts`): `buildAppliedRecord` (thin wrapper over `buildGatekeeperMemoryWrite`),
-`retrieveByTrigger` (calls `retrieveRelevantMemory`, then filters by type + trigger-tag + drops
-`personal`/`sensitive` off-surface), `reinforceAppliedMemory` (read-modify-write the accept counter via
-the dedup append path). Both subdirs auto-index (Rust prefix-LIKE + recursive collect) — **no Rust work**.
+### Shared substrate (`src/services/appliedMemory.ts`, BUILT)
+Pure (must NOT import `llm.ts`; no Tauri invoke). **Built + unit-tested:** `playbookTriggerSlug`,
+`buildPlaybookRecord` (filename = trigger slug, so re-capture updates in place; NL steps + optional soft
+hints; YAML-sanitized title), and `parsePlaybook` (round-trip). The invoke-based `retrieveByTrigger` /
+`reinforceAppliedMemory` land with the live wiring (they need Tauri + `retrieveRelevantMemory`). Both
+subdirs auto-index (Rust prefix-LIKE + recursive collect) — **no Rust work**.
 
 ## Phased plan & status
 
-- **P0** — `appliedMemory.ts` substrate + `playbook`/`voice_card` memory types — *deferred to land with playbooks (built against a real consumer, not speculatively)*
-- **P1** — per-relationship voice (data model, keying, selection, 1:1 learn pill) — **DONE**
-- **P2** — voice management UI in Profile Settings — *next*
-- **P3** — playbook capture (accumulate only; nothing executes) — *designed*
-- **P4** — playbook retrieve → suggest → gated multi-step execute — *designed*
-- **P5** — dream-cycle `playbook_refine`/`voice_refine` + Memory Inspector — *designed*
+- **P0** — `appliedMemory.ts` substrate (pure builders/parser) + `playbook`/`voice_card` types — **DONE** (`e499fe8`)
+- **P1** — per-relationship voice (data model, keying, selection, 1:1 learn pill) — **DONE** (`24adc37`)
+- **P2** — voice management UI in Profile Settings — **DONE** (`c6607e7`)
+- **P3** — playbook capture (foundation + safety backstop `e499fe8`; capture routing in `handleAgentActions`) — **DONE**
+- **P4** — playbook retrieve → suggest (enacted via normal individually-gated actions) — **DONE**; the explicit multi-step approval-card `playbook.execute` path — *deferred enhancement*
+- **P5** — dream-cycle `playbook_refine`/`voice_refine`, run-tracking/reinforce, Settings playbook list — *deferred enhancements*
 
 ## Decisions (locked with the user)
 - Playbook steps: **natural-language + optional tool hint**, re-derived & re-gated each run (not rigid templates).

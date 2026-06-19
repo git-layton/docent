@@ -212,6 +212,11 @@ at the local endpoint).
 
 ## Update 2026-06-16 (pt 7) — agent presence in Code: the "Powered by [agent]" chip
 
+> **⚠️ SUPERSEDED by pt 11 (2026-06-18).** The premise here — a *dedicated Code space* that *pins Codey
+> as its permanent agent* — was wrong. Code is a **canvas opened in any normal space**, not a space, and
+> the rail is that space's own group chat (Codey is only the canvas copilot). Kept for decision history.
+> The per-agent `defaultModelId` model (pt 6) and the gear/model editor still hold.
+
 Resolves the "the Code screen has nothing to talk to" confusion. Presence is split, not absent:
 - **Rail = who you talk to** (always there; defaults to Codey).
 - **Center = the work** (files / editor / terminal).
@@ -234,6 +239,13 @@ there is *you + Codey, fixed*, NOT a swappable group chat; normal/group spaces k
 hood, but Code's face is permanently, legibly Codey — no "who's driving?" moment.
 
 ## Update 2026-06-16 (pt 8) — chat-first Code (supersedes the files-first panel)
+
+> **⚠️ PARTLY SUPERSEDED by pt 11 (2026-06-18).** The **chat-first shape still holds** — the code surface
+> is a conversation with Codey + Files/Terminal/Preview toggle panels + a first-run hero. What changed: it
+> is NOT a dedicated `space-code` space, Codey is NOT pinned as a space's primary, and the center is NOT the
+> global `activeChatId`. Codey's conversation is a **standalone `CODEY_CHAT_ID` thread** rendered as the
+> canvas center (its own composer buffer); the surface opens in the **current** space. Read pt 11 for the
+> corrected wiring; the UI description (toggles, hero, gear) below is still accurate.
 
 The Code surface is now a **conversation with Codey**, not a files-first panel. This SUPERSEDES the
 Workspace / Linked / Activity / Terminal segmented tabs, the **"⚡ Powered by Codey" chip** (pt 7), and the
@@ -285,6 +297,13 @@ preview-observation; full Strategy-B decoupling of the send pipeline from the si
 are surfaced into Codey's prompt, not rebuilt here.
 
 ## Update 2026-06-17 (pt 9) — the Team side rail: a private group chat with your real agents
+
+> **⚠️ SUPERSEDED / REMOVED by pt 11 (2026-06-18).** The bespoke "Team" rail and its dedicated
+> `TEAM_CHAT_ID` thread were **deleted**. The instinct was right — you want your real agents in a group
+> chat beside the code — but it was built wrong: every space *already has* an agent group chat, surfaced
+> consistently as the docked co-pilot rail. Code now reuses **that** rail (no `TEAM_CHAT_ID`, no
+> `teamChatId` on Space). The two-conversation plumbing described below was kept but **inverted** — see pt
+> 11. This whole section describes a removed mechanism; kept only for decision history.
 
 The Code surface now carries a **second conversation** alongside Codey's: a collapsible **right rail that is a
 PRIVATE GROUP CHAT with the user's REAL agents** (Alexis & co. — the roster agents, **not** Codey). It's a
@@ -341,6 +360,14 @@ pin/memory scoping (the rest of full Strategy-B). The Team thread's participants
 create/backfill time — agents added to the roster later don't auto-join the existing Team thread (v1).
 
 ## Update 2026-06-17 (pt 10) — Codey-can-see (preview-observation) + rail teamChatId backfill
+
+> **⚠️ TWO CORRECTIONS (2026-06-18).** (1) **LOOK is now LIVE on macOS**, not stubbed — the Rust
+> `webview_screenshot` command shipped (`screenshot.rs`, registered in `generate_handler!`, on the
+> remote-isolation DENIED list), `capturePreviewScreenshot()` invokes it, and the catalog now carries
+> vision models (Gemma 3 4B/12B/27B), so the gated LOOK→`describeImage` path runs end to end (falling back
+> to READ off-macOS / when no vision route). (2) The **"rail teamChatId backfill" subsection below is
+> obsolete** — the Team rail it propped up was removed (pt 11), so `ensureCodeTeamThread`/`teamChatId` are
+> gone. **The READ verify-loop (preview-observe capability + the eye button) is unchanged and current.**
 
 Two things land here: the **verify loop** (Codey can finally *see* the running app at the Preview URL and
 self-correct), and a small **rail reliability fix** so the Team rail (pt 9) appears even when you reopen
@@ -410,3 +437,82 @@ thread and sets `teamChatId`, then persists. The Code panel calls it from a `use
 the action is a no-op once the pointer is set (it returns early, mutating nothing), so after one backfill the
 effect's condition is false and it never re-fires. Keeping the seeding in a store action (not inline in the
 panel) avoids exporting the module-private roster/thread helpers and keeps the logic in one place.
+
+## Update 2026-06-18 (pt 11) — Code is a CANVAS, not a space (supersedes pt 7–9; corrects pt 10)
+
+The model in pt 7–9 was a **fundamental inversion** of the intended design, caught in review. The
+correction, stated plainly:
+
+- **Spaces are UNIFORM.** There is **no dedicated "Code" space** and no "Coding partner" space session.
+  Every space is the same shape: the agents you added + their group chat + whatever tabs/canvases are open.
+- **The group chat is the constant.** A space's docked co-pilot rail and its full-page **Chat** tab are the
+  **same conversation** (the space's agents) — docked vs. full-page. That rail shows up **consistently in
+  every space**. (This already worked for normal spaces — both render `activeChatId`. The old Code *space*
+  was the only thing that broke it.)
+- **Codey is ONLY the code-canvas copilot** — not a space, not a chat driver, not pinned anywhere. You open
+  a code canvas inside whatever space you're in and chat with Codey *there*; the space's own group-chat rail
+  sits beside it exactly like everywhere else.
+- **Launch lands on Home** (the StartPage overview), not a conversation.
+
+So the mistake was making "Code" a *special space* (pt 7's permanent-Codey pin) with a *bespoke Team thread*
+(pt 9) — when Code is a **canvas** living inside ordinary spaces, and the rail is just the space's normal
+group chat. The chat-first UI shape from pt 8 (Codey center + Files/Terminal/Preview toggles + the hero) is
+unchanged; only its *homing* was wrong.
+
+### The key insight — the two-conversation plumbing INVERTED cleanly
+
+pt 9 built two concurrent conversations on one screen: **center = Codey (global `activeChatId`, pinned)** +
+**a separate "Team" bag** for the rail. The correct shape is the **inverse**, and it reuses the exact same
+plumbing:
+
+- **Center = Codey** on a **separate bag** pointed at a standalone `CODEY_CHAT_ID` thread (its own composer
+  buffer) — this is the old "Team bag" repurposed.
+- **Rail = the space's group chat** = the **normal co-pilot rail** (global `activeChatId` + the global
+  composer), now simply **un-suppressed** for the code canvas.
+
+No rewrite — a rename + a repoint + deleting the in-panel rail (the rail moved *out* of the panel to App.tsx's
+standard co-pilot rail).
+
+### What changed (implementation)
+
+- **Removed:** `CODE_SPACE_ID`, `openCodeSpace`, `TEAM_CHAT_ID`, `ensureCodeTeamThread`, `Space.teamChatId`,
+  `realRosterAgentIds` (all in `useSpaceStore`); the panel's Codey-pin `useEffect`; the in-panel `DockedAgentRail`
+  Team rail; the `&& toolId !== 'agentforge-code'` co-pilot-rail suppression in `App.tsx`.
+- **Renamed/repointed:** `CODE_CHAT_ID` → **`CODEY_CHAT_ID`** (`'chat-codey'`) — a standalone DM with Codey,
+  the canvas center. `handleSendTeamMessage` → **`handleSendCodeyMessage`** (same impl; sends to a specific
+  chatId via `processChatRequest`, never touching the global active chat). The App `team*` prop bags →
+  `codey*` bags pointed at `CODEY_CHAT_ID` + Codey. `AgentForgeCodePanel`'s `railInput`/`railDocs` →
+  `codeyInput`/`codeyDocs` (the **center** composer's own buffer); the center `ChatPanel` uses `hideHeader`
+  (the panel has its own header, and the global-coupled `ChatHeader` would otherwise mislabel the center).
+- **Added:** **`openCodeCanvas()`** — opens/focuses the `agentforge-code` tool tab in the **current** space
+  (`activeSpaceId`), ensures the Codey DM thread exists; it does **not** create or switch spaces. The Home
+  "Code" tile calls it.
+- **`STORE_VERSION` 4 → 5** — one-time reseed so any stale persisted `space-code` (+ its Team thread) is
+  dropped and spaces are uniform again.
+- **Launch on Home:** `hydrate` now makes the **`home` tab** active on launch (ensuring one exists), instead
+  of landing on the active space's chat.
+
+### What was KEPT (deliberately)
+
+- **Codey-drives-his-own-chat routing.** `processChatRequest`'s `isCodeChat` branch (now keyed on
+  `CODEY_CHAT_ID`) still forces Codey to respond + supports @-mentioned advisors (advisors advise, Codey
+  edits). This was **never** the problem the owner flagged — Codey driving *his own DM* is correct; the
+  *space* was the mistake. So it stayed, just renamed.
+- **Per-chat concurrent generation, `DockedAgentRail` (the shared rail chrome), the PTY terminal, file ops +
+  consent + the remote-isolation ACL, the LOOK screenshot (now live, pt 10 correction), `AGENTS.md` /
+  `loadProjectContext`, the workspace jail** — all untouched. Codey stays a built-in agent hidden from the
+  People roster (he's the canvas copilot, not a general agent).
+
+### Verified
+
+`tsc` clean, **878 vitest** (the old `openCodeSpace`/`ensureCodeTeamThread` suites replaced by an
+`openCodeCanvas` suite), no console errors. Preview-confirmed: the app launches on Home; opening Code shows
+the canvas **inside the current (Home) space** — Codey's "Build with Codey" center + Files/Terminal/Preview,
+with the space's agent (Alexis) as the group-chat rail beside it; **no "Code" space** appears in the sidebar.
+
+### Still deferred (knowingly)
+
+Fully **merging the code canvas with the single-artifact `code-canvas`/Canvas surface** (the
+"Code Canvas vs AgentForge Code" duplication from pt 3) — Codey's cockpit remains its own `agentforge-code`
+tool tab for now. Per-project Codey threads (today one shared `CODEY_CHAT_ID`). The pin/gatekeeper-memory
+scoping note from pt 9 is now moot (no Team thread). Multi-chat-per-project + a switcher.

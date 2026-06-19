@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useSpaceStore, CODE_CHAT_ID, TEAM_CHAT_ID } from '../../store/useSpaceStore'
+import { useSpaceStore, CODEY_CHAT_ID } from '../../store/useSpaceStore'
 import type { OmniTab, Space } from '../../types/omniTab'
 
 // ---------------------------------------------------------------------------
@@ -358,10 +358,10 @@ describe('hydrate — first-run seeding', () => {
     expect(omniTabs.some(t => t.type === 'home')).toBe(true)
   })
 
-  it('lands on the agent Chat (space-log) tab on first run', async () => {
+  it('lands on the Home screen (home tab) on first run', async () => {
     await useSpaceStore.getState().hydrate()
     const { omniTabs, activeOmniTabId } = useSpaceStore.getState()
-    expect(omniTabs.find(t => t.id === activeOmniTabId)?.type).toBe('space-log')
+    expect(omniTabs.find(t => t.id === activeOmniTabId)?.type).toBe('home')
   })
 
   it('sets activeSpaceId to space-home on first run', async () => {
@@ -397,7 +397,7 @@ describe('hydrate — restore from DB', () => {
     const savedActiveIds = { activeOmniTabId: 'tab-test', activeSpaceId: 'space-test' }
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
-      if (key === 'spaceStoreVersion') return '4'
+      if (key === 'spaceStoreVersion') return '5'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return savedActiveIds
@@ -426,7 +426,7 @@ describe('hydrate — restore from DB', () => {
     ]
 
     vi.mocked(db.get).mockImplementation(async (key: string) => {
-      if (key === 'spaceStoreVersion') return '4'
+      if (key === 'spaceStoreVersion') return '5'
       if (key === 'spaceStoreSpaces') return savedSpaces
       if (key === 'spaceStoreOmniTabs') return savedTabs
       if (key === 'spaceStoreActiveIds') return { activeOmniTabId: 'tab-a', activeSpaceId: 'space-a' }
@@ -547,168 +547,55 @@ describe('container model — per-container threads', () => {
 })
 
 // ---------------------------------------------------------------------------
-// openCodeSpace — "Code is Codey's space" (design pt 7). The Code surface must
-// land in a dedicated space pinned permanently to Codey so the rail + the
-// "Powered by" chip show Codey, not the current space's agent.
+// openCodeCanvas — Code is a CANVAS, not a space. It opens Codey's coding surface (the agentforge-code
+// tool tab) in the CURRENT space — so that space's own group chat stays the rail beside it — backed by
+// a standalone Codey conversation (CODEY_CHAT_ID). No dedicated "Code" space, no Team thread.
 // ---------------------------------------------------------------------------
 
-describe('openCodeSpace', () => {
+describe('openCodeCanvas', () => {
+  let spaceId: string
   beforeEach(() => {
     resetStore()
     useChatStore.setState({ chats: [], messages: {}, activeChatId: null })
-    // Codey is the built-in 'forge-dev' agent; the agent store is not mocked, so this
-    // is the same id resolveCodeyId() returns.
     useAgentStore.setState({ activeFolderId: 'alexis' })
+    // Be in a normal space — the canvas opens inside whatever space is active.
+    spaceId = useSpaceStore.getState().createSpace('Proj', ['alexis']).id
+    useSpaceStore.getState().setActiveSpaceId(spaceId)
   })
 
-  it('creates a dedicated Code space pinned to Codey (forge-dev) with the stable id', () => {
-    const id = useSpaceStore.getState().openCodeSpace()
-    expect(id).toBe('space-code')
-    const space = useSpaceStore.getState().spaces.find(s => s.id === 'space-code')
-    expect(space?.kind).toBe('space')
-    expect(space?.name).toBe('Code')
-    // The pinned agent (agentIds[0]) is what the rail + "Powered by" chip resolve.
-    expect(space?.agentIds).toEqual(['forge-dev'])
+  it('opens the agentforge-code tool tab in the CURRENT space and focuses it', () => {
+    const tabId = useSpaceStore.getState().openCodeCanvas()
+    const tab = useSpaceStore.getState().omniTabs.find(t => t.id === tabId)
+    expect(tab?.type).toBe('tool')
+    expect(tab?.toolId).toBe('agentforge-code')
+    expect(tab?.spaceId).toBe(spaceId)
+    expect(useSpaceStore.getState().activeOmniTabId).toBe(tabId)
   })
 
-  it('makes the Code space active so the rail = Codey', () => {
-    useSpaceStore.getState().openCodeSpace()
-    expect(useSpaceStore.getState().activeSpaceId).toBe('space-code')
-    // setActiveSpaceId drives the active agent to the space's primary (Codey).
-    expect(useAgentStore.getState().activeFolderId).toBe('forge-dev')
-  })
-
-  it('opens the agentforge-code tool tab inside the Code space and focuses it', () => {
-    useSpaceStore.getState().openCodeSpace()
-    const tab = useSpaceStore.getState().omniTabs.find(
-      t => t.spaceId === 'space-code' && t.type === 'tool' && t.toolId === 'agentforge-code',
-    )
-    expect(tab).toBeTruthy()
-    expect(useSpaceStore.getState().activeOmniTabId).toBe(tab!.id)
-  })
-
-  it('is idempotent — reuses the one Code space and never duplicates its tool tab', () => {
-    useSpaceStore.getState().openCodeSpace()
-    useSpaceStore.getState().openCodeSpace()
-    const spaces = useSpaceStore.getState().spaces.filter(s => s.id === 'space-code')
-    expect(spaces).toHaveLength(1)
-    const tools = useSpaceStore.getState().omniTabs.filter(
-      t => t.spaceId === 'space-code' && t.toolId === 'agentforge-code',
-    )
-    expect(tools).toHaveLength(1)
-  })
-
-  it('re-pins an existing Code space that drifted off Codey (self-heal)', () => {
-    // Simulate a Code space created during a Codey-less window — pinned to the wrong agent.
-    useSpaceStore.setState({
-      spaces: [{ id: 'space-code', kind: 'space', name: 'Code', agentIds: ['alexis'], peopleIds: [], tabIds: [], chatId: 'chat-space-code', createdAt: 1, updatedAt: 1 }],
-    })
-    useSpaceStore.getState().openCodeSpace()
-    const space = useSpaceStore.getState().spaces.find(s => s.id === 'space-code')
-    expect(space?.agentIds[0]).toBe('forge-dev')                       // Codey is primary again
-    expect(space?.agentIds).toContain('alexis')                        // other agents preserved
-    expect(useAgentStore.getState().activeFolderId).toBe('forge-dev')  // rail follows
-  })
-
-  it('does not disturb the existing Home space', () => {
-    useSpaceStore.getState().createSpace('Home', ['alexis'])
+  it('does NOT create a dedicated "Code" space — spaces stay uniform', () => {
     const before = useSpaceStore.getState().spaces.length
-    useSpaceStore.getState().openCodeSpace()
-    // Added exactly one space (the Code space) — the original is untouched.
-    expect(useSpaceStore.getState().spaces.length).toBe(before + 1)
+    useSpaceStore.getState().openCodeCanvas()
+    expect(useSpaceStore.getState().spaces.length).toBe(before)
+    expect(useSpaceStore.getState().spaces.some(s => s.id === 'space-code')).toBe(false)
+    // The active space is unchanged — opening Code does not yank you into another space.
+    expect(useSpaceStore.getState().activeSpaceId).toBe(spaceId)
   })
 
-  it('creates the Code conversation under the exported CODE_CHAT_ID as a Codey channel', () => {
-    // The chat-first Code surface renders this conversation as its default body; the chat pipeline
-    // recognizes it by CODE_CHAT_ID to apply the "Codey drives; @-mentions only advise" routing.
-    useSpaceStore.getState().openCodeSpace()
-    const space = useSpaceStore.getState().spaces.find(s => s.id === 'space-code')
-    expect(space?.chatId).toBe(CODE_CHAT_ID)
-    const chat = useChatStore.getState().chats.find((c: any) => c.id === CODE_CHAT_ID)
-    expect(chat?.kind).toBe('channel')
-    // Seeded with Codey only — default routing yields just Codey; advisors are resolved at send time
-    // against the full roster, never silencing Codey.
+  it('ensures a standalone Codey conversation (CODEY_CHAT_ID) as a DM with Codey', () => {
+    useSpaceStore.getState().openCodeCanvas()
+    const chat = useChatStore.getState().chats.find((c: any) => c.id === CODEY_CHAT_ID)
+    expect(chat).toBeTruthy()
     expect(chat?.primaryAgentId).toBe('forge-dev')
     expect(chat?.participantAgentIds).toEqual(['forge-dev'])
   })
 
-  // ── Team rail (pt 9): the Code space also seeds a SECOND conversation — the private "Team" group
-  // chat with the user's REAL agents (NOT Codey) — shown in the Code side rail.
-  it('seeds a separate Team group thread (TEAM_CHAT_ID) of the real roster, never Codey', () => {
-    useSpaceStore.getState().openCodeSpace()
-    const space = useSpaceStore.getState().spaces.find(s => s.id === 'space-code')
-    // The space carries a pointer to its Team thread, distinct from Codey's chatId.
-    expect(space?.teamChatId).toBe(TEAM_CHAT_ID)
-    expect(space?.teamChatId).not.toBe(space?.chatId)
-    const teamChat = useChatStore.getState().chats.find((c: any) => c.id === TEAM_CHAT_ID)
-    expect(teamChat?.kind).toBe('channel')
-    expect(teamChat?.name).toBe('Team')
-    // Real roster only — Codey (forge-dev) + hidden built-ins (forge-guide/f-default) excluded.
-    expect(teamChat?.participantAgentIds).not.toContain('forge-dev')
-    expect(teamChat?.participantAgentIds).not.toContain('forge-guide')
-    expect(teamChat?.participantAgentIds).not.toContain('f-default')
-    expect(teamChat?.participantAgentIds).toContain('alexis')
-    // A live (empty) messages bucket exists so the rail can read/append immediately.
-    expect(useChatStore.getState().messages[TEAM_CHAT_ID]).toEqual([])
-  })
-
-  it('backfills the Team thread + teamChatId pointer for a pre-existing Code space', () => {
-    // An install that created space-code BEFORE the side rail shipped — no teamChatId, no Team thread.
-    useSpaceStore.setState({
-      spaces: [{ id: 'space-code', kind: 'space', name: 'Code', agentIds: ['forge-dev'], peopleIds: [], tabIds: [], chatId: 'chat-space-code', createdAt: 1, updatedAt: 1 }],
-    })
-    useSpaceStore.getState().openCodeSpace()
-    const space = useSpaceStore.getState().spaces.find(s => s.id === 'space-code')
-    expect(space?.teamChatId).toBe(TEAM_CHAT_ID)
-    expect(useChatStore.getState().chats.some((c: any) => c.id === TEAM_CHAT_ID)).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// ensureCodeTeamThread — rail reliability backfill (docs pt 10). hydrate restores a pre-existing
-// Code space VERBATIM and never seeds teamChatId, so a user reopening DIRECTLY into the Code tab
-// would see no Team rail. The Code panel calls this on mount to backfill it, loop-guarded.
-// ---------------------------------------------------------------------------
-
-describe('ensureCodeTeamThread', () => {
-  beforeEach(() => {
-    resetStore()
-    useChatStore.setState({ chats: [], messages: {}, activeChatId: null })
-  })
-
-  it('backfills teamChatId + the Team thread when the Code space lacks the pointer', () => {
-    // Simulate hydrate restoring a Code space with NO teamChatId (the bug — only openCodeSpace set it).
-    useSpaceStore.setState({
-      spaces: [{ id: 'space-code', kind: 'space', name: 'Code', agentIds: ['forge-dev'], peopleIds: [], tabIds: [], chatId: 'chat-space-code', createdAt: 1, updatedAt: 1 }],
-    })
-    expect(useSpaceStore.getState().spaces[0].teamChatId).toBeUndefined()
-
-    useSpaceStore.getState().ensureCodeTeamThread('space-code')
-
-    const space = useSpaceStore.getState().spaces.find(s => s.id === 'space-code')
-    expect(space?.teamChatId).toBe(TEAM_CHAT_ID)
-    const teamChat = useChatStore.getState().chats.find((c: any) => c.id === TEAM_CHAT_ID)
-    expect(teamChat?.name).toBe('Team')
-    // Real roster only — Codey excluded (it's the user's team, separate from Codey).
-    expect(teamChat?.participantAgentIds).not.toContain('forge-dev')
-    expect(teamChat?.participantAgentIds).toContain('alexis')
-    expect(useChatStore.getState().messages[TEAM_CHAT_ID]).toEqual([])
-  })
-
-  it('is an idempotent no-op once teamChatId is set (loop guard for the mount effect)', () => {
-    useSpaceStore.setState({
-      spaces: [{ id: 'space-code', kind: 'space', name: 'Code', agentIds: ['forge-dev'], peopleIds: [], tabIds: [], chatId: 'chat-space-code', teamChatId: TEAM_CHAT_ID, createdAt: 1, updatedAt: 5 }],
-    })
-    const before = useSpaceStore.getState().spaces[0]
-    useSpaceStore.getState().ensureCodeTeamThread('space-code')
-    const after = useSpaceStore.getState().spaces[0]
-    // No mutation (same object reference / updatedAt) — so the panel's mount effect can't loop.
-    expect(after.updatedAt).toBe(before.updatedAt)
-    expect(after).toBe(before)
-  })
-
-  it('does nothing for an unknown space id', () => {
-    useSpaceStore.getState().ensureCodeTeamThread('space-does-not-exist')
-    expect(useChatStore.getState().chats.some((c: any) => c.id === TEAM_CHAT_ID)).toBe(false)
+  it('is idempotent — reuses the code canvas in the same space', () => {
+    const a = useSpaceStore.getState().openCodeCanvas()
+    const b = useSpaceStore.getState().openCodeCanvas()
+    expect(a).toBe(b)
+    const tools = useSpaceStore.getState().omniTabs.filter(
+      t => t.spaceId === spaceId && t.toolId === 'agentforge-code',
+    )
+    expect(tools).toHaveLength(1)
   })
 })

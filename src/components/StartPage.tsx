@@ -155,11 +155,10 @@ const APPS: AppEntry[] = [
     sub: 'Build with Codey',
     icon: FolderGit2,
     tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
-    // Code is Codey's space: switch to (or create) the dedicated Code space pinned to Codey, so the
-    // Code surface opens to a conversation with Codey. The Code tab opens inside that space, so we
-    // just consume the Home tab we came from.
+    // Code is a CANVAS (Codey's coding surface), not a space — open it in the CURRENT space so that
+    // space's own group chat stays the rail beside it. Consume the Home tab we launched from.
     open: (tabId) => {
-      useSpaceStore.getState().openCodeSpace();
+      useSpaceStore.getState().openCodeCanvas();
       if (tabId) useSpaceStore.getState().closeTab(tabId);
     },
   },

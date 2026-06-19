@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPlaybookRecord, parsePlaybook, playbookTriggerSlug } from '../../services/appliedMemory';
+import { buildPlaybookRecord, parsePlaybook, playbookTriggerSlug, formatProceduresBlock } from '../../services/appliedMemory';
 
 describe('playbookTriggerSlug', () => {
   it('slugifies, lowercases, caps length, and falls back', () => {
@@ -68,5 +68,25 @@ describe('buildPlaybookRecord', () => {
   it('parsePlaybook returns null for a non-playbook blob', () => {
     expect(parsePlaybook('just some text')).toBeNull();
     expect(parsePlaybook('')).toBeNull();
+  });
+});
+
+describe('formatProceduresBlock', () => {
+  const pb = { title: 'Weekly report', trigger: 'weekly-report', verified: true, accept: 0,
+    steps: [{ intent: 'pull metrics' }, { intent: 'draft email' }] };
+
+  it('returns empty string when there are no usable playbooks', () => {
+    expect(formatProceduresBlock([])).toBe('');
+    expect(formatProceduresBlock([{ ...pb, steps: [] }])).toBe('');
+  });
+
+  it('formats a propose-don\'t-run block with the title and numbered steps', () => {
+    const block = formatProceduresBlock([pb]);
+    expect(block).toContain('KNOWN PROCEDURES');
+    expect(block).toMatch(/offer, don't auto-run/i);
+    expect(block).toContain('ONE action at a time');   // the per-step gating instruction
+    expect(block).toContain('• Weekly report');
+    expect(block).toContain('1. pull metrics');
+    expect(block).toContain('2. draft email');
   });
 });

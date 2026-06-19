@@ -129,6 +129,7 @@ allow = [
   "update_inbox_capture",
   "upsert_graph_edge",
   "upsert_graph_node",
+  "webview_screenshot",
   "write_dream_log",
   "write_memory",
 ]

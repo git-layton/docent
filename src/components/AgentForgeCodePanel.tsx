@@ -5,14 +5,13 @@ import {
   FolderGit2, Folder, FileText, FolderPlus, FileInput, RotateCw, Trash2, Pencil,
   ExternalLink, Link2, Copy, RefreshCw, X, GitBranch, ChevronRight, Home, Search,
   ShieldAlert, Settings2, ChevronDown, TerminalSquare, Files, Monitor, CornerUpLeft, Unlink,
-  Users, PanelRightClose, Eye,
+  Eye,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useSpaceStore, TEAM_CHAT_ID } from '../store/useSpaceStore';
+import { useSpaceStore, CODEY_CHAT_ID } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
-import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { ChatPanel } from './ChatPanel';
 import type { SpaceLogProps, ChatInputBarProps } from './ChatPanel';
@@ -21,7 +20,6 @@ import { spaceHome, spacePath, relativeToSpace } from '../services/fileAccess/sp
 import { TerminalPane } from './TerminalPane';
 import { makeGrant } from '../services/fileAccess/consent';
 import { resolveCodeyId } from '../store/useAgentStore';
-import { db } from '../services/database';
 import { extractTextFromPDF } from '../services/pdfParser';
 import { modelSupportsVision, hasVisionProvider } from '../services/llm';
 import type { Provenance } from '../services/fileAccess/provenance';
@@ -61,25 +59,19 @@ function parentOf(path: string): string {
 }
 
 interface AgentForgeCodePanelProps {
-  spaceLogProps: SpaceLogProps;
-  chatInputBarProps: ChatInputBarProps;
-  onSendPrompt: (text: string) => void;
-  // ── Team rail (pt 9): a SECOND live conversation — the user's REAL agents (NOT Codey) — rendered
-  // beside Codey's center chat. The bags are pointed at the Team thread; this panel layers in the
-  // rail's OWN composer buffer so the two composers never share state. onSendTeamMessage sends to a
-  // specific chatId via processChatRequest, never touching the global active chat.
-  teamSpaceLogProps: SpaceLogProps;
-  teamChatInputBarProps: ChatInputBarProps;
-  onSendTeamMessage: (targetChatId: string, text: string, attachments: any[]) => void;
+  // The canvas CENTER is a chat with Codey (his standalone CODEY_CHAT_ID conversation). These bags are
+  // pointed at that thread + Codey; the panel layers in the center composer's OWN buffer so it never
+  // shares state with the space's group chat (the co-pilot rail beside the canvas). onSendCodeyMessage
+  // sends to a specific chatId via processChatRequest, never touching the global active (space) chat.
+  codeySpaceLogProps: SpaceLogProps;
+  codeyChatInputBarProps: ChatInputBarProps;
+  onSendCodeyMessage: (targetChatId: string, text: string, attachments: any[]) => void;
 }
 
 export function AgentForgeCodePanel({
-  spaceLogProps,
-  chatInputBarProps,
-  onSendPrompt,
-  teamSpaceLogProps,
-  teamChatInputBarProps,
-  onSendTeamMessage,
+  codeySpaceLogProps,
+  codeyChatInputBarProps,
+  onSendCodeyMessage,
 }: AgentForgeCodePanelProps) {
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
   const workspaceRoot = agentForgePath ? `${agentForgePath}/workspace` : '';
@@ -90,11 +82,10 @@ export function AgentForgeCodePanel({
   const spaceName = activeSpace?.name ?? 'Code';
   const rootPath = spaceHome(activeSpaceId);
 
-  // Codey drives Code. He's pinned as the Code space's primary, so the global active chat/agent are
-  // already his when this panel is on screen (setActiveSpaceId points activeChatId=chat-space-code +
-  // activeFolderId=Codey). We reuse the global ChatPanel rather than building a parallel chat.
+  // Codey is the code copilot — his standalone conversation (CODEY_CHAT_ID) is the canvas CENTER, fed by
+  // codeySpaceLogProps/codeyChatInputBarProps with its own composer buffer (below). No global activeChatId
+  // pinning: that stays the space's group chat, which renders as the co-pilot rail beside this canvas.
   const assistants = useAgentStore(s => s.assistants);
-  const activeFolderId = useAgentStore(s => s.activeFolderId);
   const models = useSettingsStore(s => s.models);
   const developerMode = useSettingsStore(s => s.appSettings.developerMode ?? false);
   const codeAgent = useMemo(() => {
@@ -102,69 +93,37 @@ export function AgentForgeCodePanel({
     return assistants.find((a: any) => a.id === codeyId) ?? assistants[0];
   }, [assistants]);
 
-  // Strategy A: the global chat is keyed off a single activeChatId + activeFolderId, so before the
-  // ChatPanel reads/sends, pin them to THIS Code space's conversation (Codey). Guards against drift if
-  // the co-pilot agent picker changed activeFolderId in another space. True decoupling (chatId-keyed
-  // send pipeline) is deferred — see docs pt 8.
-  const codeChatId = activeSpace?.chatId ?? null;
-  const codeyPrimaryId = activeSpace?.agentIds[0] ?? null;
-  useEffect(() => {
-    if (codeChatId && useChatStore.getState().activeChatId !== codeChatId) {
-      useChatStore.getState().setActiveChatId(codeChatId);
-    }
-    if (codeyPrimaryId && useAgentStore.getState().activeFolderId !== codeyPrimaryId) {
-      useAgentStore.getState().setActiveFolderId(codeyPrimaryId);
-    }
-  }, [codeChatId, codeyPrimaryId]);
-
   // Empty conversation → show the friendly first-run hero instead of a bare composer.
-  const isFirstRun = (spaceLogProps.activeMessages?.length ?? 0) === 0;
+  const isFirstRun = (codeySpaceLogProps.activeMessages?.length ?? 0) === 0;
 
   // ── Side panels (toggled open; default = just the conversation) ──
   const [sidePanel, setSidePanel] = useState<SidePanel | null>(null);
   const [showGear, setShowGear] = useState(false);
 
-  // ── Team rail (pt 9): a collapsible RIGHT rail that is a PRIVATE GROUP CHAT with the user's REAL
-  // agents (Alexis & co.) — a SEPARATE conversation from Codey's center chat, so you can talk things
-  // over with your team WITHOUT involving Codey. It reuses ChatPanel pointed at the Team thread. The
-  // rail owns its OWN composer buffer (railInput/railDocs) so the two composers never share state.
-  const teamChatId = activeSpace?.teamChatId ?? null;
-  // Rail reliability backfill (pt 10): hydrate restores a pre-existing Code space VERBATIM and never
-  // seeds teamChatId (only openCodeSpace did) — so a user who reopens DIRECTLY into the Code tab would
-  // see NO Team rail. Backfill it on mount when the active Code space lacks the pointer. Loop-guarded:
-  // ensureCodeTeamThread is a no-op once teamChatId === TEAM_CHAT_ID, and this effect's condition is
-  // false on the next render, so it never re-fires.
-  useEffect(() => {
-    if (activeSpaceId && activeSpace && activeSpace.teamChatId !== TEAM_CHAT_ID) {
-      useSpaceStore.getState().ensureCodeTeamThread(activeSpaceId);
-    }
-  }, [activeSpaceId, activeSpace?.teamChatId]);
-  const [teamRailOpen, setTeamRailOpen] = useState(false);
-  useEffect(() => { db.get('codeTeamRailOpen', false).then((v: any) => setTeamRailOpen(v === true)).catch(() => {}); }, []);
-  const toggleTeamRail = (v: boolean) => { setTeamRailOpen(v); void db.set('codeTeamRailOpen', v); };
-  const [railInput, setRailInput] = useState('');
-  const [railDocs, setRailDocs] = useState<any[]>([]);
-  const railFileInputRef = useRef<HTMLInputElement | null>(null);
-  const teamPrimaryName = (teamChatInputBarProps.activeAssistant as any)?.name ?? 'your team';
-  const sendTeamMessage = useCallback(() => {
-    if (!teamChatId) return;
-    if (!railInput.trim() && railDocs.length === 0) return;
-    onSendTeamMessage(teamChatId, railInput, railDocs);
-    setRailInput('');
-    setRailDocs([]);
-  }, [teamChatId, railInput, railDocs, onSendTeamMessage]);
+  // ── Center composer buffer (Codey) ──────────────────────────────────────────────────────────────
+  // The canvas center talks to Codey via its OWN input buffer (codeyInput/codeyDocs) — NOT the global
+  // useUIStore composer, which belongs to the space group chat (the co-pilot rail). Keeping them separate
+  // means typing/attaching here never touches the rail's composer, and the two conversations stay clean.
+  const [codeyInput, setCodeyInput] = useState('');
+  const [codeyDocs, setCodeyDocs] = useState<any[]>([]);
+  const codeyFileInputRef = useRef<HTMLInputElement | null>(null);
+  const sendCodeyMessage = useCallback(() => {
+    if (!codeyInput.trim() && codeyDocs.length === 0) return;
+    onSendCodeyMessage(CODEY_CHAT_ID, codeyInput, codeyDocs);
+    setCodeyInput('');
+    setCodeyDocs([]);
+  }, [codeyInput, codeyDocs, onSendCodeyMessage]);
 
-  // Rail-local file upload — writes into the rail's OWN attachment buffer (railDocs), not the global
-  // useUIStore the center composer uses, so attaching in the rail never touches Codey's composer.
-  // Mirrors App.handleChatFileUpload's text/image/PDF handling on a smaller surface.
-  const handleRailFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Center-local file upload — writes into the center's OWN attachment buffer (codeyDocs), not the global
+  // useUIStore the rail composer uses. Mirrors App.handleChatFileUpload's text/image/PDF handling.
+  const handleCodeyFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const ui = useSettingsStore.getState();
     if (file.size > 5 * 1024 * 1024) { setToast('File is too large. Max 5MB allowed.'); e.target.value = ''; return; }
     if (file.type === 'application/pdf') {
       try {
         const text = await extractTextFromPDF(file);
-        setRailDocs(prev => [...prev, { name: file.name, content: text, type: 'text/plain', isImage: false }]);
+        setCodeyDocs(prev => [...prev, { name: file.name, content: text, type: 'text/plain', isImage: false }]);
       } catch { setToast('Failed to parse PDF.'); }
       e.target.value = ''; return;
     }
@@ -175,10 +134,10 @@ export function AgentForgeCodePanel({
         setToast("This model can't read images. Turn on Image Understanding, or pick a vision model.");
         e.target.value = ''; return;
       }
-      reader.onloadend = () => setRailDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
+      reader.onloadend = () => setCodeyDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
       reader.readAsDataURL(file);
     } else {
-      reader.onloadend = () => setRailDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
+      reader.onloadend = () => setCodeyDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
       reader.readAsText(file);
     }
     e.target.value = '';
@@ -197,6 +156,7 @@ export function AgentForgeCodePanel({
   const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
   const [previewLive, setPreviewLive] = useState('');
   const [previewKey, setPreviewKey] = useState(0);
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   // Frame a URL in the iframe AND lift it into shared state so the preview-observe capability reads
   // the EXACT same URL the human is looking at (docs pt 10). Keeps the human view and Codey's read
@@ -213,9 +173,14 @@ export function AgentForgeCodePanel({
   const observePreview = useCallback(() => {
     if (!previewLive) { setToast('Enter a dev-server URL and hit Go first.'); return; }
     useUIStore.getState().setCodePreviewUrl(previewLive);
+    // Hand the LOOK screenshot the iframe's on-screen rect (CSS points) so it crops to the running app,
+    // not the whole AgentForge window. Null if unmeasurable → webview_screenshot snaps the full webview.
+    const el = previewFrameRef.current;
+    const r = el?.getBoundingClientRect();
+    useUIStore.getState().setCodePreviewRect(r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
     useUIStore.getState().setForcedTool('preview');
-    onSendPrompt('Look at the running preview and fix anything broken.');
-  }, [previewLive, onSendPrompt]);
+    onSendCodeyMessage(CODEY_CHAT_ID, 'Look at the running preview and fix anything broken.', []);
+  }, [previewLive, onSendCodeyMessage]);
 
   const log = useCallback((action: FileActivityEntry['action'], path: string, ok: boolean, detail?: string) => {
     useSettingsStore.getState().logFileActivity({
@@ -432,7 +397,7 @@ export function AgentForgeCodePanel({
                           prev.map((a: any) => a.id === codeAgent.id ? { ...a, defaultModelId: nextId } : a),
                         );
                         void useAgentStore.getState().persist();
-                        if (codeAgent.id === activeFolderId && nextId) {
+                        if (codeAgent.id === useAgentStore.getState().activeFolderId && nextId) {
                           useSettingsStore.getState().setSelectedModelId(nextId);
                         }
                       }}
@@ -482,13 +447,24 @@ export function AgentForgeCodePanel({
 
       {/* ── Body: the conversation (default) + an optional side panel ── */}
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* Codey's conversation — the global ChatPanel, pointed at chat-space-code + Codey. */}
+        {/* Codey's conversation (CODEY_CHAT_ID) — the canvas center, with its OWN composer buffer so it
+            never shares state with the space group chat (the co-pilot rail beside this canvas). */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden relative">
           <ChatPanel
             mode="inline"
-            spaceLogProps={{ ...spaceLogProps, hideEmptyState: true }}
-            chatInputBarProps={chatInputBarProps}
-            onSendPrompt={onSendPrompt}
+            hideHeader
+            spaceLogProps={{ ...codeySpaceLogProps, hideEmptyState: true }}
+            chatInputBarProps={{
+              ...codeyChatInputBarProps,
+              onSend: sendCodeyMessage,
+              inputValue: codeyInput,
+              onInputChange: setCodeyInput,
+              attachedDocsOverride: codeyDocs,
+              onAttachedDocsChange: (fn: (prev: any[]) => any[]) => setCodeyDocs(fn),
+              onChatFileUpload: handleCodeyFileUpload,
+              fileInputRef: codeyFileInputRef,
+            }}
+            onSendPrompt={(t: string) => onSendCodeyMessage(CODEY_CHAT_ID, t, [])}
           />
 
           {/* First-run hero — friendly prompt instead of an empty/confusing thread. Overlaid above the
@@ -515,7 +491,7 @@ export function AgentForgeCodePanel({
                   {['Scaffold a new project', 'Review my code', 'Fix a failing test'].map(p => (
                     <button
                       key={p}
-                      onClick={() => onSendPrompt(p)}
+                      onClick={() => onSendCodeyMessage(CODEY_CHAT_ID, p, [])}
                       className="px-3.5 py-2 rounded-xl text-xs font-semibold text-ink-2 border border-edge-2 hover:bg-wash transition-colors"
                     >
                       {p}
@@ -681,6 +657,7 @@ export function AgentForgeCodePanel({
             </div>
             {previewLive ? (
               <iframe
+                ref={previewFrameRef}
                 key={previewKey}
                 src={previewLive}
                 title="Preview"
@@ -697,53 +674,6 @@ export function AgentForgeCodePanel({
           </div>
         )}
 
-        {/* ── Team rail: a PRIVATE GROUP CHAT with your REAL agents (NOT Codey) ──
-            A SEPARATE conversation from Codey's center chat — talk things over with your team without
-            involving Codey. Reuses ChatPanel pointed at the Team thread, with the rail's OWN composer
-            buffer. Context-aware for free (the rail send reads the active Code space's ambient/project
-            context). Collapsible; the heavy ChatPanel only mounts when expanded. See docs pt 9. */}
-        {teamChatId && (
-          teamRailOpen ? (
-            <div className="w-[360px] xl:w-[420px] shrink-0 border-l border-edge flex flex-col overflow-hidden bg-panel">
-              <div className="h-10 flex items-center gap-2 px-3 border-b border-edge shrink-0">
-                <Users className="w-3.5 h-3.5 text-accent shrink-0" />
-                <span className="text-xs font-semibold text-ink">Team</span>
-                <span className="text-[10px] text-ink-3 truncate">private group chat</span>
-                <div className="flex-1" />
-                <button onClick={() => toggleTeamRail(false)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Collapse team chat"><PanelRightClose className="w-3.5 h-3.5" /></button>
-              </div>
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <ChatPanel
-                  mode="inline"
-                  hideHeader
-                  spaceLogProps={{ ...teamSpaceLogProps, hideEmptyState: true }}
-                  chatInputBarProps={{
-                    ...teamChatInputBarProps,
-                    // The rail composer runs its OWN buffer (not the global UI store) so it never
-                    // shares/corrupts the center (Codey) composer's text or attachments — including
-                    // its own file input + upload handler.
-                    onSend: sendTeamMessage,
-                    inputValue: railInput,
-                    onInputChange: setRailInput,
-                    attachedDocsOverride: railDocs,
-                    onAttachedDocsChange: (fn: (prev: any[]) => any[]) => setRailDocs(fn),
-                    onChatFileUpload: handleRailFileUpload,
-                    fileInputRef: railFileInputRef,
-                  }}
-                  onSendPrompt={(text: string) => { if (teamChatId) onSendTeamMessage(teamChatId, text, []); }}
-                />
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => toggleTeamRail(true)}
-              className="shrink-0 w-9 flex flex-col items-center pt-3 gap-1 border-l border-edge bg-panel text-ink-3 hover:text-ink hover:bg-wash transition-colors"
-              title={`Talk to ${teamPrimaryName} & your team — a private group chat, separate from Codey`}
-            >
-              <Users className="w-4 h-4" />
-            </button>
-          )
-        )}
       </div>
 
       {/* Toast */}

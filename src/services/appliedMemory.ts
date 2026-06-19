@@ -5,9 +5,13 @@
 // map for zero draft-time latency (see services/voice.ts); a voice_card type is reserved here for the
 // day the dream cycle should refine voices on disk.
 //
-// PURE helpers only (no llm.ts, no Tauri invoke) — mirrors the voice.ts / voiceRuntime.ts split so
-// this stays unit-testable and free of import cycles. The invoke-based retrieve/reinforce + the
-// App.tsx capture/execute wiring land with the integration step (see docs/applied-memory.md).
+// PURE helpers (buildPlaybookRecord / parsePlaybook / playbookTriggerSlug / formatProceduresBlock)
+// import nothing — unit-testable, no cycles. retrievePlaybooks is the one impure helper (Tauri invoke);
+// it must NOT import llm.ts (mirrors memoryContext.ts) to avoid the voiceRuntime→llm cycle class.
+
+import { invoke } from '@tauri-apps/api/core';
+
+const isTauri = () => !!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
 
 export interface PlaybookStep {
   intent: string;     // one-line natural-language step ("pull the latest metrics")
@@ -111,4 +115,54 @@ export const parsePlaybook = (content: string): Playbook | null => {
     }
   }
   return { title: title || trigger, trigger, steps, verified, accept };
+};
+
+/**
+ * Retrieve VERIFIED playbooks whose stored procedure is relevant to the current task intent. Reads the
+ * matched records and keeps only verified ones (the suggest-gate). Returns [] outside Tauri / on error.
+ */
+export const retrievePlaybooks = async (
+  intent: string,
+  agentId: string | null | undefined,
+  max = 2,
+): Promise<Playbook[]> => {
+  const q = (intent || '').trim();
+  if (q.length < 4 || !isTauri()) return [];
+  try {
+    const res = await invoke<{ results: Array<{ path: string; score: number }> }>('search_knowledge_semantic', {
+      query: q, agentId: agentId ?? null, maxResults: 6, snippetChars: 60,
+    });
+    const out: Playbook[] = [];
+    for (const hit of res?.results ?? []) {
+      if (out.length >= max) break;
+      if (!hit?.path || !hit.path.includes('/playbooks/')) continue;
+      const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: hit.path }).catch(() => ({ ok: false, content: '' }));
+      if (!read?.ok) continue;
+      const pb = parsePlaybook(read.content);
+      if (pb && pb.verified && pb.steps.length) out.push(pb);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * PURE — format verified playbooks into a system-prompt block. The agent OFFERS to run one and then
+ * carries it out via its NORMAL tool actions, one at a time (each individually approved) — there is no
+ * auto-run and no special executor. Returns '' when there are none.
+ */
+export const formatProceduresBlock = (playbooks: Playbook[]): string => {
+  const pbs = (playbooks ?? []).filter((p) => p && p.steps?.length);
+  if (!pbs.length) return '';
+  const body = pbs
+    .map((p) => `• ${p.title}\n${p.steps.map((s, i) => `   ${i + 1}. ${s.intent}`).join('\n')}`)
+    .join('\n');
+  return (
+    `[KNOWN PROCEDURES — offer, don't auto-run]\n` +
+    `You've saved these step-by-step procedures with the user for tasks like this one. If one is clearly ` +
+    `relevant, OFFER to do it; when the user agrees, carry out the steps yourself using your normal tools, ` +
+    `ONE action at a time — each is confirmed as usual, so never bundle steps or skip a confirmation. Adapt ` +
+    `the steps to the current context. Don't mention this block.\n${body}\n\n`
+  );
 };
