@@ -215,6 +215,7 @@ pub async fn mail_fetch_body(
 #[serde(rename_all = "camelCase")]
 pub struct SentMail {
     text: String,
+    to: Vec<String>,  // recipient addresses — lets "write like me" learn a per-recipient voice
 }
 
 /// Candidate Sent-folder names per provider (IMAP servers name this mailbox differently).
@@ -279,7 +280,7 @@ pub async fn mail_fetch_sent(
                     let text = parsed.body_text(0).map(|c| c.to_string()).unwrap_or_default();
                     let trimmed = text.trim();
                     if !trimmed.is_empty() {
-                        out.push(SentMail { text: trimmed.to_string() });
+                        out.push(SentMail { text: trimmed.to_string(), to: addr_emails(parsed.to()) });
                     }
                 }
             }

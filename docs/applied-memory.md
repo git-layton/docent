@@ -60,10 +60,13 @@ relationship the user didn't choose.
   relationship with toggle on/off, hand-edit, rebuild (iMessage), and remove. The 1:1 chat pill is the
   other entry point.
 
+### Built
+- **Email per-recipient *learning*** (shipped): `mail_fetch_sent` now returns recipient addresses
+  (`SentMail.to`, via the already-parsed message), `buildEmailRelationshipVoiceCard` distills from the
+  emails you've sent to one address, and a "learn their voice" button in the mail composer opts that
+  recipient in. Mirrors the iMessage 1:1 path.
+
 ### Deferred (follow-ups)
-- **Email per-recipient *learning*** (selection already works): grouping sent email by *recipient*
-  needs To/Cc from `mail_fetch_sent`, i.e. a Rust change to the mail backend not yet made. Until then,
-  email drafts use an opted-in card if one exists, else global.
 - **iMessage group chats**: per-relationship voice is 1:1-only at first (one chatId can't
   disambiguate participants without a Rust change).
 
@@ -81,11 +84,15 @@ relationship the user didn't choose.
 > (steps, trusted toggle, remove). **Refine:** the dream cycle's `playbook_refine` op cleans up a
 > playbook's steps over time (consolidating messy `## Update` sections), preserving its title/trust.
 >
-> **Genuine remaining dependencies** (surfaced, not silently dropped): (a) auto-incrementing the `accept`
-> run-counter needs an explicit "ran it" signal (`reinforcePlaybook(bumpAccept)` exists; nothing calls it
-> on a normal-action enactment yet); (b) `voice_refine` in the dream cycle needs voice cards promoted to
-> `/voices/*.md` files first (they live in `appSettings` today, which the dreamer doesn't read); (c) email
-> per-recipient *learning* needs To/Cc from a Rust `mail_fetch_sent` change (selection already works).
+> **Run-tracking shipped:** the agent emits a `playbook.execute` run signal (handled in `handleAgentActions`)
+> that verifies the playbook + bumps its `accept` counter — the steps themselves still run as normal
+> individually-gated actions. So the `accept` count + verify-on-first-run gate are now real.
+>
+> **Intentionally NOT built — `voice_refine` in the dream cycle.** It would need voice cards promoted to
+> `/voices/*.md` files first (they live in `appSettings`, which the dreamer doesn't read) — a real
+> architectural change for marginal value, because the **global voice already auto-refreshes** when stale
+> (the 14-day rebuild). The cheaper, equivalent win if per-recipient staleness matters is to extend that
+> existing auto-refresh effect to also rebuild stale `byRecipient` cards — recommended over a dream op.
 
 The safe, human-in-the-loop form of procedural/skill memory: the agent saves a reusable multi-step
 procedure and reuses/refines it. **Your acceptance is the verification signal** a personal assistant
@@ -133,7 +140,7 @@ subdirs auto-index (Rust prefix-LIKE + recursive collect) — **no Rust work**.
 - **P2** — voice management UI in Profile Settings — **DONE** (`c6607e7`)
 - **P3** — playbook capture (foundation + safety backstop `e499fe8`; capture routing in `handleAgentActions`) — **DONE**
 - **P4** — playbook retrieve → suggest → enact via normal gated actions, reviewed in the **multi-step approval card** (per-step + Approve all) — **DONE**
-- **P5** — dream-cycle `playbook_refine` + Settings "Playbooks" manager (view/trust/remove) — **DONE**; `voice_refine`, the `accept` run-counter, and email per-recipient learning remain (see dependencies above)
+- **P5** — dream-cycle `playbook_refine`, Settings "Playbooks" manager, the `accept` run-counter (`playbook.execute` signal), and email per-recipient learning — **DONE**. Only `voice_refine` is intentionally left (redundant with voice auto-refresh; see above).
 
 ## Decisions (locked with the user)
 - Playbook steps: **natural-language + optional tool hint**, re-derived & re-gated each run (not rigid templates).

@@ -29,7 +29,7 @@ import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, ge
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { assessConversationMemory } from './services/memoryPolicy';
-import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, formatProceduresBlock } from './services/appliedMemory';
+import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, reinforcePlaybook, formatProceduresBlock } from './services/appliedMemory';
 import { buildVoiceCard } from './services/voiceRuntime';
 import { normalizeVoiceProfile } from './services/voice';
 import { capabilityForRoute, type CapabilityContext } from './services/capabilities';
@@ -215,12 +215,25 @@ export default function App() {
     for (const a of actions.filter(x => x.tool === 'memory' && (x.op === 'save' || x.op === 'update'))) {
       await persistAgentSelfMemory(a);
     }
-    // Playbook capture (local, no approval) — persist the reusable procedure. (A playbook.execute, if
-    // ever emitted, falls through to the approval gate below, where executeAgentAction throws on it.)
+    // Playbook capture (local, no approval) — persist the reusable procedure.
     for (const a of actions.filter(x => x.tool === 'playbook' && x.op === 'capture')) {
       await persistPlaybook(a);
     }
-    const toolActions = actions.filter(x => x.tool !== 'memory' && !(x.tool === 'playbook' && x.op === 'capture'));
+    // Playbook run signal — logs that the user approved running a saved procedure: verify it + bump its
+    // accept counter. It runs NOTHING itself; the procedure's actual steps follow as normal gated actions.
+    for (const a of actions.filter(x => x.tool === 'playbook' && x.op === 'execute')) {
+      const rootPath = useMemoryStore.getState().agentForgePath;
+      const { assistants: _as, activeFolderId: _af } = useAgentStore.getState();
+      const agentId = (_as.find((x: any) => x.id === _af) ?? _as[0])?.id ?? 'default';
+      const key = String(a.trigger || a.title || '').trim();
+      if (rootPath && key) {
+        void reinforcePlaybook(rootPath, agentId, key, { verify: true, bumpAccept: true });
+        showToast(`▶ Running ${a.title ? `“${a.title}”` : 'playbook'}…`);
+      }
+    }
+    // All playbook ops are handled above (never via the connectors); the executeAgentAction throw on a
+    // raw playbook.execute remains only as a defensive backstop.
+    const toolActions = actions.filter(x => x.tool !== 'memory' && x.tool !== 'playbook');
     for (const a of toolActions.filter(x => !actionNeedsApproval(x))) {
       try { showToast(`✓ ${await executeAgentAction(a)}`); }
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }

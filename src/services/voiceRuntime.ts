@@ -154,6 +154,46 @@ export const buildRelationshipVoiceCard = async (
   return { card, sampleCounts: { imessage: mine.length } };
 };
 
+// Per-relationship voice for EMAIL: distill a card from only the emails the user has sent TO one
+// address (filtered by the recipient now returned by mail_fetch_sent). Mirrors buildRelationshipVoiceCard
+// for iMessage. Throws if there aren't enough emails to that person yet.
+export const buildEmailRelationshipVoiceCard = async (
+  address: string,
+  signal?: AbortSignal,
+): Promise<VoiceBuildResult> => {
+  const target = String(address || '').trim().toLowerCase();
+  if (!target) throw new Error('No recipient address to learn from.');
+  const { integrations } = useSettingsStore.getState();
+  const accounts = (((integrations as any).mailAccounts ?? []) as Array<{ provider: string; email: string }>) || [];
+  const raw: string[] = [];
+  for (const acct of accounts) {
+    try {
+      const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', { host: `mail:${acct.email}` })
+        .catch(() => ({ ok: false }) as { ok: boolean; password?: string });
+      if (!cred?.ok || !cred.password) continue;
+      const sent = await invoke<Array<{ text: string; to?: string[] }>>('mail_fetch_sent', {
+        provider: acct.provider, email: acct.email, password: cred.password, limit: 200,
+      });
+      for (const s of sent ?? []) {
+        if (!(s?.to ?? []).some((t) => String(t).toLowerCase().includes(target))) continue;
+        const body = cleanEmailBody(s?.text ?? '');
+        if (body) raw.push(body);
+      }
+    } catch {
+      /* skip an account we can't reach */
+    }
+  }
+  const samples = cleanSamples(raw);
+  if (samples.length < 3) {
+    throw new Error(`Not enough emails you've sent to ${address} yet to learn a separate voice.`);
+  }
+  const packed = `# EMAILS YOU SENT TO ${address.toUpperCase()}\n${packSamples(samples, 4000)}`;
+  const raw2 = await runModel(buildDistillSystemPrompt(), buildDistillUserPrompt(packed), signal);
+  const card = raw2.replace(/^```[a-zA-Z]*\n?/gm, '').replace(/```/g, '').trim();
+  if (!card) throw new Error('The model returned an empty voice profile — try again.');
+  return { card, sampleCounts: { email: samples.length } };
+};
+
 // Draft 1..n replies/messages in the user's voice. Surface decides the default option count
 // (texts get a few short choices; email gets one full draft).
 export const draftReply = async (

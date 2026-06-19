@@ -10,7 +10,7 @@ import { db } from '../services/database';
 import { invalidateUnreadCache } from '../lib/mailUnread';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForEmail } from '../services/voice';
-import { buildVoiceCard, draftReply } from '../services/voiceRuntime';
+import { buildVoiceCard, buildEmailRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
 
 interface MailHeader {
   uid: number;
@@ -433,6 +433,31 @@ export function MailInboxPanel() {
     }
   };
 
+  // Learn a separate voice for THIS recipient, from the emails the user has sent to them, and opt
+  // them in so future email drafts to them use it (falling back to the global voice otherwise).
+  const learnEmailRecipientVoice = async () => {
+    if (!compose || voiceBusy) return;
+    if (models.length === 0) { useUIStore.getState().showToast('Connect a model first to learn a voice.'); return; }
+    const relKey = relKeyForEmail(compose.to);
+    if (!relKey) { useUIStore.getState().showToast('Add a recipient address first.'); return; }
+    const addr = relKey.slice('mail:'.length);
+    setVoiceBusy(true);
+    try {
+      useUIStore.getState().showToast(`✍️ Learning how you write to ${addr}…`);
+      const { card, sampleCounts } = await buildEmailRelationshipVoiceCard(addr);
+      useSettingsStore.getState().setAppSettings((prev: any) => {
+        const cur = normalizeVoiceProfile(prev?.voiceProfile);
+        return { ...prev, voiceProfile: { ...cur, enabled: true, byRecipient: { ...(cur.byRecipient ?? {}), [relKey]: { card, optedIn: true, recipientName: compose.recipientName || addr, source: 'auto', lastBuiltAt: Date.now(), sampleCounts } } } };
+      });
+      await useSettingsStore.getState().persist();
+      useUIStore.getState().showToast(`✓ Saved a voice for ${addr} — emails to them now use it.`);
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not learn that voice.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
   const openMailSettings = () => {
     const s = useSettingsStore.getState();
     s.setProfileSettingsTab('integrations');
@@ -465,6 +490,16 @@ export function MailInboxPanel() {
           </span>
           <span className="text-xs text-ink-3">from {compose.account}</span>
           <div className="flex-1" />
+          {compose.to.trim() && (
+            <button
+              onClick={learnEmailRecipientVoice}
+              disabled={voiceBusy || sending}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-ink-3 hover:text-accent transition-colors disabled:opacity-40"
+              title={`Learn how you write to ${compose.recipientName || 'this recipient'} and use it for emails to them`}
+            >
+              learn their voice
+            </button>
+          )}
           <button
             onClick={draftEmailInVoice}
             disabled={voiceBusy || sending}

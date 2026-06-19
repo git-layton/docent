@@ -210,13 +210,12 @@ export const formatProceduresBlock = (playbooks: Playbook[]): string => {
   const pbs = (playbooks ?? []).filter((p) => p && p.steps?.length);
   if (!pbs.length) return '';
   const body = pbs
-    .map((p) => `• ${p.title}\n${p.steps.map((s, i) => `   ${i + 1}. ${s.intent}`).join('\n')}`)
+    .map((p) => `• ${p.title} (trigger: ${p.trigger})\n${p.steps.map((s, i) => `   ${i + 1}. ${s.intent}`).join('\n')}`)
     .join('\n');
   return (
     `[KNOWN PROCEDURES — offer, don't auto-run]\n` +
     `You've saved these step-by-step procedures with the user for tasks like this one. If one is clearly ` +
-    `relevant, OFFER to do it; when the user agrees, carry out the steps yourself using your normal tools, ` +
-    `ONE action at a time — each is confirmed as usual, so never bundle steps or skip a confirmation. Adapt ` +
+    `relevant, OFFER to do it; when the user agrees, FIRST emit \`\`\`forge:action {"tool":"playbook","op":"execute","trigger":"<the trigger>","title":"<the title>"}\`\`\` once to log the run, THEN carry out the steps yourself using your normal tools, ONE action at a time — each is confirmed as usual, so never bundle steps or skip a confirmation. Adapt ` +
     `the steps to the current context. Don't mention this block.\n${body}\n\n`
   );
 };
