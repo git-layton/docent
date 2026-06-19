@@ -238,7 +238,7 @@ export default function SpotlightBar() {
     // Create new chat if none active
     let chatId = activeChatId;
     let currentChats = chats;
-    let folderId = selectedAgentId || 'f-default';
+    const folderId = selectedAgentId || 'f-default';
     if (!chatId) {
       chatId = newId();
       const chat: Chat = { id: chatId, folderId, name: truncate(command, 32), updatedAt: Date.now() };

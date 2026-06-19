@@ -320,7 +320,7 @@ export function extractMemoryCandidateText(text: string): string {
   let cleaned = stripSystemPrefixes(text);
   cleaned = cleaned
     .replace(/^(please\s+)?(remember|save this to library|save to library|add this to library|add to library|save|note|take a note|add to memory|log this|pin this)\s*/i, '')
-    .replace(/^(this|that)\s*[:\-]?\s*/i, '')
+    .replace(/^(this|that)\s*[:-]?\s*/i, '')
     .trim();
   if (/^(this|that|save this|remember this|note this)$/i.test(cleaned)) return '';
   return cleaned;

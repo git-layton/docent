@@ -136,7 +136,7 @@ export function OmniSearch({
   const resultCount = 1 + displayed.length;
   const [activeIndex, setActiveIndex] = useState(0);
   useEffect(() => { setActiveIndex(0); }, [q]);
-  useEffect(() => { onActiveChange?.(!!q); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [q]);
+  useEffect(() => { onActiveChange?.(!!q);   }, [q]);
 
   // ── AI answer: a short, grounded reply streamed in for natural-language queries ──
   const [answer, setAnswer] = useState('');

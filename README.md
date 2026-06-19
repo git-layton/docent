@@ -47,7 +47,7 @@ Install and run:
 
 ```bash
 source scripts/use-local-node.sh # optional helper for this workstation
-npm install
+npm ci
 npm run tauri:dev
 ```
 

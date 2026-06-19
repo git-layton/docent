@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    name: Build & Test (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # fmt/clippy are advisory for now (the tree predates rustfmt/clippy gating),
+      # mirroring the warn-first ESLint baseline. Ratchet to blocking once the Rust
+      # source is formatted and clippy-clean (tracked in the audit backlog).
+      - name: Rust format check (advisory)
+        working-directory: src-tauri
+        run: cargo fmt --check
+        continue-on-error: true
+
+      - name: Clippy (advisory)
+        working-directory: src-tauri
+        run: cargo clippy --all-targets
+        continue-on-error: true
+
+      - name: Rust unit tests
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      - name: Audit (advisory, non-blocking)
+        run: npm audit --omit=dev
+        continue-on-error: true

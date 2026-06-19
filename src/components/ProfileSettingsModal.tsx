@@ -115,7 +115,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const playbookAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? null);
   const [playbooks, setPlaybooks] = useState<Array<Playbook & { path: string }>>([]);
   const loadPlaybooks = async () => { setPlaybooks(playbookAgentId ? await listPlaybooks(playbookAgentId) : []); };
-  useEffect(() => { void loadPlaybooks(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [playbookAgentId]);
+  useEffect(() => { void loadPlaybooks();   }, [playbookAgentId]);
   const togglePlaybookTrust = async (pb: Playbook & { path: string }) => {
     if (!agentForgePath || !playbookAgentId) return;
     await reinforcePlaybook(agentForgePath, playbookAgentId, pb.trigger, { verify: !pb.verified });

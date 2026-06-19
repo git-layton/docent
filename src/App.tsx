@@ -83,6 +83,7 @@ import { AgentVisionToggle } from './components/AgentVisionToggle';
 import { useSpaceStore, CODEY_CHAT_ID } from './store/useSpaceStore';
 import { useMarginaliaStore } from './store/useMarginaliaStore';
 import { speak, cancelSpeech, resolveVoicePrefs } from './lib/voice';
+import { generateId } from './lib/id';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -91,11 +92,6 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB Limit
 // Cosine cutoff for collapsing a near-identical memory in place (findDuplicateMemoryPath) — set well
 // above the 0.35 relevance threshold so only true restatements dedup, not merely related memories.
 const MEMORY_DEDUP_MIN_SCORE = 0.88;
-
-// ─── Utility Helpers ──────────────────────────────────────────────────────────
-
-const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
 
 // ─── UI Sub-components moved to src/components/ui/ ────────────────────────────
 // AgentIcon, BOT_COLORS, TypingIndicator, ThoughtProcess, FormattedText,
@@ -791,16 +787,16 @@ export default function App() {
      setIsFetchingImageModels(true);
      setImageTestState({ loading: false, error: null, successUrl: null });
      try {
-         let url, headers: any = {};
-         let provider = _appSettings.imageProvider;
-         let key = _activeImageKey;
+         let url; const headers: any = {};
+         const provider = _appSettings.imageProvider;
+         const key = _activeImageKey;
 
          if (!key && provider !== 'custom') throw new Error("API Key required to fetch models.");
 
          if (provider === 'google') {
              url = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`;
          } else {
-             let base = _appSettings.imageEndpoint || 'https://api.openai.com/v1';
+             const base = _appSettings.imageEndpoint || 'https://api.openai.com/v1';
              url = `${base.replace(/\/$/, '')}/models`;
              if (key) headers['Authorization'] = `Bearer ${key}`;
          }
@@ -849,9 +845,9 @@ export default function App() {
       try {
           let imageUrl = '';
           const promptText = "A cute cat wearing a yellow banana costume, high quality photorealistic.";
-          let provider = _appSettings.imageProvider;
-          let modelId = _appSettings.imageModelId || (provider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
-          let key = _activeImageKey;
+          const provider = _appSettings.imageProvider;
+          const modelId = _appSettings.imageModelId || (provider === 'google' ? 'imagen-3.0-generate-001' : 'dall-e-3');
+          const key = _activeImageKey;
 
           if (provider === 'google') {
               if (!key) throw new Error("Missing Google API Key.");
@@ -1123,7 +1119,7 @@ export default function App() {
     const _savedApps = ui.savedApps;
     const _saveAppData = ui.saveAppData;
     const id = (asNew || !_canvasContent.id) ? generateId('art') : _canvasContent.id;
-    let finalCanvas = { ..._canvasContent };
+    const finalCanvas = { ..._canvasContent };
     const curHist = finalCanvas.history || [{ timestamp: Date.now(), content: finalCanvas.content }];
     const curIdx = finalCanvas.historyIndex ?? 0;
     if (curHist[curIdx]?.content !== finalCanvas.content) {
@@ -1454,7 +1450,7 @@ export default function App() {
     if (!_editingModel.apiKey && !['custom', 'ollama', 'lmstudio', 'native'].includes(_editingModel.provider)) { ss.setFetchModelsError('Please enter your API Key first.'); return; }
     ss.setIsFetchingModels(true); ss.setFetchModelsError(null); ss.setFetchedModels([]); ss.setModelSearchQuery('');
     try {
-      let url = '', hdrs: any = {};
+      let url = ''; const hdrs: any = {};
       const { provider, endpoint, apiKey } = _editingModel;
 
       if (provider === 'google') {

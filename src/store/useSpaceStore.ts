@@ -6,9 +6,7 @@ import { useChatStore } from './useChatStore';
 import { useAgentStore, resolveCodeyId, CODEY_ASSISTANT } from './useAgentStore';
 import { normalizeChatRecord } from '../services/channels';
 import { projectContextPath, AGENTS_TEMPLATE } from '../services/fileAccess/spaces';
-
-const generateId = (prefix: string) =>
-  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+import { generateId } from '../lib/id';
 
 // Bump when the persisted schema changes in a breaking way — forces a clean reseed.
 // v3: Spaces are unified containers — each carries `kind` + its own `chatId`.

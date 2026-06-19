@@ -224,7 +224,7 @@ export const validateModel = async (model: any) => {
     const { provider, endpoint, apiKey } = model;
     if (provider === 'web-llm') return true;
 
-    let url, headers: any = {};
+    let url; const headers: any = {};
 
     if (provider === 'anthropic') {
       url = endpoint ? `${endpoint.replace(/\/messages$/, '')}/models` : 'https://api.anthropic.com/v1/models';
@@ -524,7 +524,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     }
   }
 
-  let contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
+  const contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
   const limit = contextLimit ? parseInt(contextLimit, 10) : 32000;
   if (contextUsed > limit) throw new Error('Attached documents exceed the context limit of this model.');
 
@@ -614,7 +614,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   if (!res.body) {
       const data = await res.json();
-      let text = provider === 'anthropic'
+      const text = provider === 'anthropic'
         ? (data.content?.find((b: any) => b.type === 'text')?.text || '')
         : stripThinkingTags(data.choices?.[0]?.message?.content || '');
       if (onChunk) {
