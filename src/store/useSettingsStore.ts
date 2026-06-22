@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
+import { stashSecretsForDisk, rehydrateSecrets } from '../services/secretVault';
 import { supportsVision } from '../services/llm';
 import { applyTheme, watchSystemTheme, DEFAULT_ACCENT, DEFAULT_THEME } from '../lib/theme';
 import type { ThemeMode } from '../lib/theme';
@@ -317,29 +318,39 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const accentColor: string = await db.get('accentColor', DEFAULT_ACCENT);
     applyTheme(theme, accentColor);
     watchSystemTheme(() => get().theme, () => get().accentColor);
+    // SEC-APIKEYS: pull model/integration secrets back out of the Keychain into the in-memory store
+    // (where llm.ts/integrations.ts expect them). Legacy plaintext still on disk is kept and flagged.
+    const { models: hydratedModels, integrations: hydratedIntegrations, needsMigration } =
+      await rehydrateSecrets(models, savedIntegrations);
     set(s => ({
       theme,
       accentColor,
-      models,
+      models: hydratedModels,
       userName,
       userProfile,
       userAvatar,
-      integrations: { ...s.integrations, ...savedIntegrations },
+      integrations: { ...s.integrations, ...hydratedIntegrations },
       appSettings: { ...s.appSettings, ...appSettings },
       selectedModelId: settings.selectedModelId ?? '',
       onboardingComplete,
     }));
+    // Migrate any legacy plaintext secret into the Keychain + redact the on-disk blob.
+    if (needsMigration) void get().persist();
   },
 
   persist: async () => {
     const { models, userName, userProfile, userAvatar, integrations, appSettings, selectedModelId, onboardingComplete, theme, accentColor } = get();
+    // SEC-APIKEYS: write REDACTED copies to disk — secrets go to the Keychain (a value is only blanked
+    // on disk once its Keychain write is confirmed, so a secret is never lost). In-memory state keeps
+    // the live secrets. Without Tauri this is a no-op and the blobs persist exactly as before.
+    const { models: diskModels, integrations: diskIntegrations } = await stashSecretsForDisk(models, integrations);
     await db.set('theme', theme);
     await db.set('accentColor', accentColor);
-    await db.set('models', models);
+    await db.set('models', diskModels);
     await db.set('userName', userName);
     await db.set('userProfile', userProfile);
     await db.set('userAvatar', userAvatar);
-    await db.set('integrations', integrations);
+    await db.set('integrations', diskIntegrations);
     await db.set('appSettings', appSettings);
     await db.set('settings', { selectedModelId });
     await db.set('onboardingComplete', onboardingComplete);
