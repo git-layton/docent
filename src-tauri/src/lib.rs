@@ -175,6 +175,10 @@ fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
     let output = std::process::Command::new("git")
         .args(args)
         .current_dir(cwd)
+        // Non-interactive: never let a git child block on a credential prompt or an interactive
+        // pager — a hung child would wedge GIT_LOCK and stall every Knowledge-Core writer.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_PAGER", "cat")
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -515,11 +519,15 @@ fn init_knowledge_core() -> serde_json::Value {
 ## Research\n- [[memory/research/research]]\n",
     );
 
-    let _ = run_git(&["init"], &root);
-    let _ = run_git(&["config", "user.email", "agent-forge@local"], &root);
-    let _ = run_git(&["config", "user.name", "Agent Forge"], &root);
-    let _ = run_git(&["add", "-A"], &root);
-    let _ = run_git(&["commit", "-m", "init: Knowledge Core initialized"], &root);
+    // MAINT-GITRACE: serialize first-init git against any concurrent writer / index thread.
+    {
+        let _git = git_guard();
+        let _ = run_git(&["init"], &root);
+        let _ = run_git(&["config", "user.email", "agent-forge@local"], &root);
+        let _ = run_git(&["config", "user.name", "Agent Forge"], &root);
+        let _ = run_git(&["add", "-A"], &root);
+        let _ = run_git(&["commit", "-m", "init: Knowledge Core initialized"], &root);
+    }
 
     serde_json::json!({ "initialized": true, "path": root.to_string_lossy() })
 }
@@ -756,6 +764,7 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
 
 #[tauri::command]
 fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
+    let _git = git_guard(); // MAINT-GITRACE: serialize with all other Knowledge-Core git mutations
     let repo_root = knowledge_root();
     let tasks_path = if let Some(ref aid) = agent_id {
         if !is_safe_agent_id(aid) {
@@ -798,6 +807,7 @@ fn complete_task(
     due_date: String,
     completed_at: String,
 ) -> serde_json::Value {
+    let _git = git_guard(); // MAINT-GITRACE: serialize with all other Knowledge-Core git mutations
     let repo_root = knowledge_root();
     let path = repo_root.join("memory").join("completed_tasks.md");
 
@@ -1112,9 +1122,14 @@ fn init_file_watcher() {
                 // git rm + commit; fall back to fs::remove_file
                 if let Ok(rel) = path.strip_prefix(&purge_root) {
                     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                    let git_ok = run_git(&["rm", "--force", &rel.to_string_lossy()], &purge_root)
-                        .and_then(|_| run_git(&["commit", "-m", &format!("purge: 7-day expiry {name}")], &purge_root))
-                        .is_ok();
+                    // MAINT-GITRACE: hold GIT_LOCK only around the git mutation — never across the
+                    // hourly sleep — so the unattended purge can't interleave with a foreground write.
+                    let git_ok = {
+                        let _git = git_guard();
+                        run_git(&["rm", "--force", &rel.to_string_lossy()], &purge_root)
+                            .and_then(|_| run_git(&["commit", "-m", &format!("purge: 7-day expiry {name}")], &purge_root))
+                            .is_ok()
+                    };
                     if !git_ok { let _ = std::fs::remove_file(&path); }
                 }
             }
