@@ -5,6 +5,20 @@ import {
 import { WysiwygEditor } from './ui/WysiwygEditor';
 import { useUIStore } from '../store/useUIStore';
 
+// SEC-CANVAS: agent-generated preview HTML runs with allow-scripts in a NULL-origin sandbox (so it
+// can't touch app cookies / the Tauri IPC bridge / parent DOM), but it could still beacon the canvas
+// contents out via fetch / XHR / WebSocket or a form post. Prepend a CSP that blocks all network
+// egress while still letting the preview render and run locally (inline + CDN scripts, styles,
+// data/https images). Closes the exfil channel without breaking functional previews — and delivers
+// the README's "safer generated-code previews" promise.
+const PREVIEW_CSP =
+  "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; " +
+  "connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none';";
+function withPreviewCsp(html: string): string {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">`;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => `${m}${meta}`) : `${meta}${html}`;
+}
+
 interface CanvasPanelProps {
   isGenerating: boolean;
   onHistoryNavigate: (direction: number) => void;
@@ -104,7 +118,7 @@ export function CanvasPanel({
           ) : isGenerating && !canvasContent.content ? (
             <div className="flex-1 flex flex-col items-center justify-center space-y-4 opacity-40"><RefreshCw className="w-12 h-12 animate-spin text-accent" /><span className="text-xs font-black uppercase tracking-widest">Building App...</span></div>
           ) : (
-            <iframe title="Preview" className="flex-1 w-full border-none bg-white" srcDoc={canvasContent.content} sandbox="allow-scripts allow-forms allow-modals" />
+            <iframe title="Preview" className="flex-1 w-full border-none bg-white" srcDoc={withPreviewCsp(canvasContent.content)} sandbox="allow-scripts allow-forms allow-modals" />
           )}
         </div>
       </div>
