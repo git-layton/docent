@@ -118,6 +118,30 @@ fn knowledge_root() -> PathBuf {
     normalize_path_lexically(knowledge_core_path())
 }
 
+/// SEC-SYMLINK: defend the lexical jail against symlink escapes — an in-jail symlink pointing outside
+/// the root must not let a read/write follow it out. The lexical `starts_with` check runs first; this
+/// then canonicalizes the deepest EXISTING ancestor of the candidate (the leaf may not exist yet for a
+/// write) and requires its REAL path to stay under canonicalize(root). If the root isn't materialized
+/// yet there's nothing to resolve, so the lexical check stands.
+fn assert_no_symlink_escape(root: &Path, candidate: &Path) -> Result<(), String> {
+    let canon_root = match std::fs::canonicalize(root) {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
+    let mut anc = candidate;
+    while !anc.exists() {
+        match anc.parent() {
+            Some(p) if p != anc => anc = p,
+            _ => return Ok(()), // no existing ancestor to resolve — lexical check already passed
+        }
+    }
+    match std::fs::canonicalize(anc) {
+        Ok(real) if real.starts_with(&canon_root) => Ok(()),
+        Ok(_) => Err("Path escapes the allowed root via a symlink".to_string()),
+        Err(_) => Ok(()),
+    }
+}
+
 fn knowledge_path_from_input(input: &str) -> Result<PathBuf, String> {
     let root = knowledge_root();
     let raw = PathBuf::from(input);
@@ -126,6 +150,7 @@ fn knowledge_path_from_input(input: &str) -> Result<PathBuf, String> {
     if !normalized.starts_with(&root) {
         return Err("Path is outside the Knowledge Core".to_string());
     }
+    assert_no_symlink_escape(&root, &normalized)?;
     Ok(normalized)
 }
 
@@ -147,6 +172,7 @@ fn workspace_path_from_input(input: &str) -> Result<PathBuf, String> {
     if !normalized.starts_with(&root) {
         return Err("Path is outside the agent workspace".to_string());
     }
+    assert_no_symlink_escape(&root, &normalized)?;
     Ok(normalized)
 }
 
@@ -3859,6 +3885,28 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // ── SEC-SYMLINK: in-jail symlink can't escape the root ────────────────────
+    #[cfg(unix)]
+    #[test]
+    fn symlink_escape_is_rejected() {
+        let base = std::env::temp_dir().join(format!("af-symtest-{}", std::process::id()));
+        let root = base.join("root");
+        let outside = base.join("outside");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        // A path through the in-jail symlink resolves OUTSIDE the root → rejected.
+        assert!(assert_no_symlink_escape(&root, &root.join("link").join("secret.txt")).is_err());
+        // A genuine in-root path (existing leaf) is allowed.
+        std::fs::write(root.join("ok.txt"), "y").unwrap();
+        assert!(assert_no_symlink_escape(&root, &root.join("ok.txt")).is_ok());
+        // A not-yet-existing leaf whose real parent is in-root is allowed (the write case).
+        assert!(assert_no_symlink_escape(&root, &root.join("new.txt")).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     // ── Retrieval importance weighting ────────────────────────────────────────
     #[test]
