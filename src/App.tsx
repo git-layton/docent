@@ -115,6 +115,11 @@ export default function App() {
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
   const appSettings = useSettingsStore(s => s.appSettings);
+  // SEC-RUNCMD: keep the backend Developer-Mode mirror (which gates run_command server-side) in sync
+  // with the UI toggle — fires on boot and on every change, from whichever panel flips it.
+  useEffect(() => {
+    invoke('set_developer_mode', { on: !!appSettings.developerMode }).catch(() => {});
+  }, [appSettings.developerMode]);
   const userProfile = useSettingsStore(s => s.userProfile);
   const userName = useSettingsStore(s => s.userName);
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);

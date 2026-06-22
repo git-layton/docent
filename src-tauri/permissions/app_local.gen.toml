@@ -118,6 +118,7 @@ allow = [
   "safe_write_file",
   "search_knowledge",
   "search_knowledge_semantic",
+  "set_developer_mode",
   "set_network_active",
   "setup_relay",
   "show_spotlight",

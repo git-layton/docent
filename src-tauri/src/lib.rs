@@ -888,6 +888,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static WATCHER_RUNNING: AtomicBool = AtomicBool::new(false);
 
+// SEC-RUNCMD: backend mirror of the frontend Developer-Mode toggle. run_command refuses to execute
+// unless this is true, so a renderer bug / bypass of CommandActionCard can't reach a shell. Synced
+// from the UI via set_developer_mode (an App.tsx effect fires on boot and every toggle).
+static DEV_MODE: AtomicBool = AtomicBool::new(false);
+
 // ─── Embedder Singleton ───────────────────────────────────────────────────────
 
 use std::sync::OnceLock;
@@ -1809,7 +1814,19 @@ fn fs_reveal(path: String) -> serde_json::Value {
 // Runs through the user's login shell so PATH/aliases match their terminal. Git commands borrow the
 // OS's already-configured credentials (Keychain helper / SSH agent) — no separate auth to manage.
 #[tauri::command]
-fn run_command(command: String, cwd: String) -> serde_json::Value {
+fn run_command(webview: tauri::Webview, command: String, cwd: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e, "stdout": "", "stderr": "" });
+    }
+    // SEC-RUNCMD: the shell only runs when Developer Mode is enabled in the BACKEND — the frontend
+    // CommandActionCard gate is now belt-and-suspenders, not the sole control.
+    if !DEV_MODE.load(Ordering::Relaxed) {
+        return serde_json::json!({ "ok": false, "error": "Developer Mode is disabled", "stdout": "", "stderr": "" });
+    }
+    // cwd must be an existing directory — never run in an attacker-arbitrary or nonexistent path.
+    if cwd.trim().is_empty() || !std::path::Path::new(&cwd).is_dir() {
+        return serde_json::json!({ "ok": false, "error": "invalid working directory", "stdout": "", "stderr": "" });
+    }
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     match std::process::Command::new(&shell)
         .arg("-lc")
@@ -1825,6 +1842,17 @@ fn run_command(command: String, cwd: String) -> serde_json::Value {
         }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "stdout": "", "stderr": "" }),
     }
+}
+
+/// SEC-RUNCMD: mirror the frontend Developer-Mode toggle into the backend (DEV_MODE) so run_command's
+/// gate is enforced server-side. Trusted local windows only.
+#[tauri::command]
+fn set_developer_mode(webview: tauri::Webview, on: bool) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
+    DEV_MODE.store(on, Ordering::Relaxed);
+    serde_json::json!({ "ok": true })
 }
 
 // ─── Legacy ───────────────────────────────────────────────────────────────────
@@ -3730,6 +3758,7 @@ pub fn run() {
             fs_delete_external,
             fs_reveal,
             run_command,
+            set_developer_mode,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
