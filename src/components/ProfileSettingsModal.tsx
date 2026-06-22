@@ -173,9 +173,16 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     if (!email || !password) return;
     setMailStatus({ state: 'testing' });
     try {
-      const count = await invoke<number>('mail_test_connection', { provider: mailProvider, email, password });
-      // Password → macOS Keychain (encrypted, local). Account metadata → settings (no secret there).
+      // SEC-KEYCHAIN: save the password to the Keychain FIRST so the test — and every later mail op —
+      // resolves it inside Rust; it never crosses the IPC boundary. Roll the key back if the test fails.
       await invoke('keychain_save', { host: `mail:${email}`, username: email, password });
+      let count: number;
+      try {
+        count = await invoke<number>('mail_test_connection', { provider: mailProvider, email });
+      } catch (testErr) {
+        await invoke('keychain_delete', { host: `mail:${email}` }).catch(() => {});
+        throw testErr;
+      }
       setIntegrations((prev: any) => {
         const rest = (prev.mailAccounts ?? []).filter((a: any) => a.email !== email);
         return { ...prev, mailAccounts: [...rest, { id: `mail-${Date.now()}`, provider: mailProvider, email }] };

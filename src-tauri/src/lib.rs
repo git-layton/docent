@@ -3046,7 +3046,7 @@ fn ensure_trusted_caller(webview: &tauri::Webview) -> Result<(), String> {
 
 // ─── macOS Keychain ──────────────────────────────────────────────────────────
 #[cfg(target_os = "macos")]
-mod keychain_impl {
+pub(crate) mod keychain_impl {
     const SERVICE: &str = "AgentForgeBrowser";
 
     // Store credentials as a JSON blob keyed by hostname so we can round-trip both username and password.
@@ -3108,6 +3108,16 @@ fn keychain_get(webview: tauri::Webview, host: String) -> serde_json::Value {
     }
     #[cfg(target_os = "macos")]
     {
+        // SEC-KEYCHAIN: mail passwords are resolved inside Rust (mail.rs `mail_password`) and must
+        // never be returned to the renderer — a `mail:` lookup yields presence/username only. Other
+        // hosts (browser autofill, model/integration keys) still round-trip until those paths move
+        // server-side too.
+        if host.starts_with("mail:") {
+            return match keychain_impl::get(&host) {
+                Some((username, _password)) => serde_json::json!({ "ok": true, "username": username }),
+                None => serde_json::json!({ "ok": false }),
+            };
+        }
         match keychain_impl::get(&host) {
             Some((username, password)) => serde_json::json!({ "ok": true, "username": username, "password": password }),
             None => serde_json::json!({ "ok": false }),

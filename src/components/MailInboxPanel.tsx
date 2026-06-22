@@ -80,10 +80,13 @@ function formatDate(raw: string): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-async function getPassword(account: string): Promise<string | null> {
-  const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', { host: `mail:${account}` })
-    .catch(() => ({ ok: false }) as { ok: boolean; password?: string });
-  return cred?.ok && cred.password ? cred.password : null;
+// SEC-KEYCHAIN: the app-specific password is resolved inside Rust (mail.rs) and is never returned to
+// the renderer. The UI only needs to know an account is connected (a credential exists) before
+// attempting a mail op — a `mail:` keychain lookup now yields presence/username only, no secret.
+async function hasSavedPassword(account: string): Promise<boolean> {
+  const cred = await invoke<{ ok: boolean }>('keychain_get', { host: `mail:${account}` })
+    .catch(() => ({ ok: false }));
+  return !!cred?.ok;
 }
 
 function quoteBody(body: MailBodyData, sel: MailRow): string {
@@ -138,10 +141,9 @@ export function MailInboxPanel() {
     try {
       const per = await Promise.all(
         accounts.map(async (acct): Promise<MailRow[]> => {
-          const pw = await getPassword(acct.email);
-          if (!pw) return [];
+          if (!(await hasSavedPassword(acct.email))) return [];
           const headers = await invoke<MailHeader[]>('mail_fetch_recent', {
-            provider: acct.provider, email: acct.email, password: pw, limit: 30,
+            provider: acct.provider, email: acct.email, limit: 30,
           }).catch(() => [] as MailHeader[]);
           return headers.map(h => ({ ...h, account: acct.email, provider: acct.provider }));
         }),
@@ -282,10 +284,9 @@ export function MailInboxPanel() {
     const flagged = !row.flagged;
     setFlaggedLocal(row, flagged);
     if (selected && selected.account === row.account && selected.uid === row.uid) setSelected({ ...selected, flagged });
-    const pw = await getPassword(row.account);
-    if (!pw) { setFlaggedLocal(row, !flagged); setActionError('No saved password — re-add the account in Settings.'); return; }
+    if (!(await hasSavedPassword(row.account))) { setFlaggedLocal(row, !flagged); setActionError('No saved password — re-add the account in Settings.'); return; }
     try {
-      await invoke('mail_set_flagged', { provider: row.provider, email: row.account, password: pw, uid: row.uid, flagged });
+      await invoke('mail_set_flagged', { provider: row.provider, email: row.account, uid: row.uid, flagged });
     } catch (e) {
       setFlaggedLocal(row, !flagged); // revert — server didn't change
       if (selected && selected.account === row.account && selected.uid === row.uid) setSelected({ ...selected, flagged: !flagged });
@@ -296,10 +297,9 @@ export function MailInboxPanel() {
   // Flip read state ON THE SERVER (optimistic, with revert + surfaced error) so the UI matches Gmail.
   const setSeen = async (row: MailRow, seen: boolean) => {
     setSeenLocal(row, seen);
-    const pw = await getPassword(row.account);
-    if (!pw) { setSeenLocal(row, !seen); setActionError('No saved password — re-add the account in Settings.'); return; }
+    if (!(await hasSavedPassword(row.account))) { setSeenLocal(row, !seen); setActionError('No saved password — re-add the account in Settings.'); return; }
     try {
-      await invoke('mail_set_seen', { provider: row.provider, email: row.account, password: pw, uid: row.uid, seen });
+      await invoke('mail_set_seen', { provider: row.provider, email: row.account, uid: row.uid, seen });
       invalidateUnreadCache(); // Home badge refetches next time it's shown
     } catch (e) {
       setSeenLocal(row, !seen); // revert — server didn't change
@@ -314,9 +314,8 @@ export function MailInboxPanel() {
     setBodyLoading(true);
     if (!row.seen) void setSeen(row, true); // auto mark-read, persisted to the server
     try {
-      const pw = await getPassword(row.account);
-      if (!pw) throw new Error('No saved password for this account');
-      const b = await invoke<MailBodyData>('mail_fetch_body', { provider: row.provider, email: row.account, password: pw, uid: row.uid });
+      if (!(await hasSavedPassword(row.account))) throw new Error('No saved password for this account');
+      const b = await invoke<MailBodyData>('mail_fetch_body', { provider: row.provider, email: row.account, uid: row.uid });
       setBody(b);
     } catch (e) {
       setBodyError(String(e));
@@ -335,14 +334,13 @@ export function MailInboxPanel() {
   const deleteMessage = async (row: MailRow) => {
     setRows(prev => prev.filter(r => !(r.account === row.account && r.uid === row.uid)));
     if (selected && selected.account === row.account && selected.uid === row.uid) { setSelected(null); setBody(null); }
-    const pw = await getPassword(row.account);
-    if (!pw) {
+    if (!(await hasSavedPassword(row.account))) {
       setRows(prev => [...prev, row]); // revert (sort happens in the view)
       setActionError('No saved password — re-add the account in Settings.');
       return;
     }
     try {
-      await invoke('mail_delete', { provider: row.provider, email: row.account, password: pw, uid: row.uid });
+      await invoke('mail_delete', { provider: row.provider, email: row.account, uid: row.uid });
     } catch (e) {
       setRows(prev => [...prev, row]); // revert — message still on the server
       setActionError(`Delete failed on the server: ${String(e)}`);
@@ -382,10 +380,9 @@ export function MailInboxPanel() {
     setSending(true);
     setSendError(null);
     try {
-      const pw = await getPassword(compose.account);
-      if (!pw) throw new Error(`No saved password for ${compose.account}`);
+      if (!(await hasSavedPassword(compose.account))) throw new Error(`No saved password for ${compose.account}`);
       await invoke('mail_send', {
-        provider: compose.provider, email: compose.account, password: pw,
+        provider: compose.provider, email: compose.account,
         to, cc, subject: compose.subject, body: compose.body, inReplyTo: compose.inReplyTo || null,
       });
       setCompose(null);

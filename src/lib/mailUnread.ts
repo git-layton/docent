@@ -27,12 +27,11 @@ export async function getUnreadTotal(accounts: MailAccount[]): Promise<number | 
     let anyOk = false;
     for (const acct of accounts) {
       try {
-        const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', { host: `mail:${acct.email}` });
-        if (!cred?.ok || !cred.password) continue;
+        const cred = await invoke<{ ok: boolean }>('keychain_get', { host: `mail:${acct.email}` });
+        if (!cred?.ok) continue;
         const n = await invoke<number>('mail_unread_count', {
           provider: acct.provider,
           email: acct.email,
-          password: cred.password,
         });
         total += n;
         anyOk = true;

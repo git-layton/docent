@@ -114,10 +114,10 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
       const accounts = ((useSettingsStore.getState().integrations as any)?.mailAccounts ?? []) as Array<{ email: string; provider: string }>;
       const acct = a.account ? accounts.find(x => x.email === a.account) : accounts[0];
       if (!acct) throw new Error('No mail account is connected');
-      const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', { host: `mail:${acct.email}` }).catch(() => ({ ok: false } as { ok: boolean; password?: string }));
-      if (!cred?.ok || !cred.password) throw new Error(`No saved password for ${acct.email}`);
+      const cred = await invoke<{ ok: boolean }>('keychain_get', { host: `mail:${acct.email}` }).catch(() => ({ ok: false }));
+      if (!cred?.ok) throw new Error(`No saved password for ${acct.email}`);
       await invoke('mail_send', {
-        provider: acct.provider, email: acct.email, password: cred.password,
+        provider: acct.provider, email: acct.email,
         to: Array.isArray(a.to) ? a.to : [a.to].filter(Boolean),
         cc: Array.isArray(a.cc) ? a.cc : [], subject: String(a.subject ?? ''), body: String(a.body ?? ''), inReplyTo: null,
       });

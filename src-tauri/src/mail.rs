@@ -19,6 +19,20 @@ fn imap_endpoint(provider: &str) -> Result<(&'static str, u16), String> {
     }
 }
 
+/// Resolve the saved app-specific password for an account from the macOS Keychain (SEC-KEYCHAIN).
+/// Keyed by `mail:<email>` — the host ProfileSettingsModal saves under. Resolving here means the
+/// secret never crosses the JS↔Rust boundary: no mail_* command takes a `password` param anymore.
+#[cfg(target_os = "macos")]
+fn mail_password(email: &str) -> Result<String, String> {
+    crate::keychain_impl::get(&format!("mail:{email}"))
+        .map(|(_user, password)| password)
+        .ok_or_else(|| format!("No saved password for {email}. Reconnect the account in Settings."))
+}
+#[cfg(not(target_os = "macos"))]
+fn mail_password(_email: &str) -> Result<String, String> {
+    Err("mail is only supported on macOS".to_string())
+}
+
 /// Verify IMAP credentials by logging in and selecting INBOX. Returns the message count on success.
 ///
 /// `imap` is a blocking client, so the work runs on a blocking thread to keep the async runtime free.
@@ -26,9 +40,9 @@ fn imap_endpoint(provider: &str) -> Result<(&'static str, u16), String> {
 pub async fn mail_test_connection(
     provider: String,
     email: String,
-    password: String,
 ) -> Result<u32, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder()
             .build()
@@ -69,10 +83,10 @@ pub struct MailHeader {
 pub async fn mail_fetch_recent(
     provider: String,
     email: String,
-    password: String,
     limit: u32,
 ) -> Result<Vec<MailHeader>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<MailHeader>, String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder()
             .build()
@@ -169,10 +183,10 @@ fn addr_emails(addr: Option<&mail_parser::Address>) -> Vec<String> {
 pub async fn mail_fetch_body(
     provider: String,
     email: String,
-    password: String,
     uid: u32,
 ) -> Result<MailBody, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<MailBody, String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder()
             .build()
@@ -233,10 +247,10 @@ fn sent_mailbox_candidates(provider: &str) -> &'static [&'static str] {
 pub async fn mail_fetch_sent(
     provider: String,
     email: String,
-    password: String,
     limit: u32,
 ) -> Result<Vec<SentMail>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SentMail>, String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder()
             .build()
@@ -298,11 +312,11 @@ pub async fn mail_fetch_sent(
 pub async fn mail_set_seen(
     provider: String,
     email: String,
-    password: String,
     uid: u32,
     seen: bool,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
         let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
@@ -322,11 +336,11 @@ pub async fn mail_set_seen(
 pub async fn mail_set_flagged(
     provider: String,
     email: String,
-    password: String,
     uid: u32,
     flagged: bool,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
         let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
@@ -346,9 +360,9 @@ pub async fn mail_set_flagged(
 pub async fn mail_unread_count(
     provider: String,
     email: String,
-    password: String,
 ) -> Result<u32, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
         let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
@@ -367,10 +381,10 @@ pub async fn mail_unread_count(
 pub async fn mail_delete(
     provider: String,
     email: String,
-    password: String,
     uid: u32,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
         let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
@@ -408,7 +422,6 @@ fn smtp_endpoint(provider: &str) -> Result<(&'static str, bool), String> {
 pub async fn mail_send(
     provider: String,
     email: String,
-    password: String,
     to: Vec<String>,
     cc: Vec<String>,
     subject: String,
@@ -441,6 +454,7 @@ pub async fn mail_send(
         }
         let message = builder.body(body).map_err(|e| format!("could not build message: {e}"))?;
 
+        let password = mail_password(&email)?;
         let (host, starttls) = smtp_endpoint(&provider)?;
         let creds = Credentials::new(email.clone(), password.clone());
         let mailer = if starttls {

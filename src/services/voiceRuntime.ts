@@ -83,14 +83,13 @@ export const harvestSentEmail = async (perAccount = 40, cap = 120): Promise<stri
   for (const acct of accounts) {
     if (out.length >= cap) break;
     try {
-      const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', {
+      const cred = await invoke<{ ok: boolean }>('keychain_get', {
         host: `mail:${acct.email}`,
-      }).catch(() => ({ ok: false }) as { ok: boolean; password?: string });
-      if (!cred?.ok || !cred.password) continue;
+      }).catch(() => ({ ok: false }));
+      if (!cred?.ok) continue;
       const sent = await invoke<Array<{ text: string }>>('mail_fetch_sent', {
         provider: acct.provider,
         email: acct.email,
-        password: cred.password,
         limit: perAccount,
       });
       for (const s of sent ?? []) {
@@ -168,11 +167,11 @@ export const buildEmailRelationshipVoiceCard = async (
   const raw: string[] = [];
   for (const acct of accounts) {
     try {
-      const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', { host: `mail:${acct.email}` })
-        .catch(() => ({ ok: false }) as { ok: boolean; password?: string });
-      if (!cred?.ok || !cred.password) continue;
+      const cred = await invoke<{ ok: boolean }>('keychain_get', { host: `mail:${acct.email}` })
+        .catch(() => ({ ok: false }));
+      if (!cred?.ok) continue;
       const sent = await invoke<Array<{ text: string; to?: string[] }>>('mail_fetch_sent', {
-        provider: acct.provider, email: acct.email, password: cred.password, limit: 200,
+        provider: acct.provider, email: acct.email, limit: 200,
       });
       for (const s of sent ?? []) {
         if (!(s?.to ?? []).some((t) => String(t).toLowerCase().includes(target))) continue;
