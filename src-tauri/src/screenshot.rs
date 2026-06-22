@@ -34,6 +34,22 @@ pub async fn webview_screenshot(
     use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
     use std::sync::mpsc;
 
+    // SEC-SCREENSHOT: defense-in-depth caller guard — the ACL already denies the remote browser-panel,
+    // but this also stops a misconfigured ACL from ever exposing a screen capture. And require an
+    // explicit, finite, in-bounds crop rect: a null/zero rect must NOT fall through to a FULL-window
+    // snapshot (which would capture mail, Keychain prompts, iMessage, etc.).
+    if !matches!(window.label(), "main" | "spotlight") {
+        return Err("screenshot not permitted from this window".into());
+    }
+    if !(x.is_finite() && y.is_finite() && width.is_finite() && height.is_finite())
+        || x < 0.0
+        || y < 0.0
+        || width <= 1.0
+        || height <= 1.0
+    {
+        return Err("a finite, in-bounds capture rect is required".into());
+    }
+
     let (tx, rx) = mpsc::channel::<Result<String, String>>();
 
     window
@@ -56,14 +72,13 @@ pub async fn webview_screenshot(
                 }
             };
             let config = unsafe { WKSnapshotConfiguration::new(mtm) };
-            // Crop to the iframe when a sane rect is supplied; otherwise leave the default (full webview).
-            if width > 1.0 && height > 1.0 {
-                let rect = CGRect {
-                    origin: CGPoint { x, y },
-                    size: CGSize { width, height },
-                };
-                unsafe { config.setRect(rect) };
-            }
+            // Rect was validated finite + in-bounds at the command boundary; always crop to it — never
+            // fall through to a full-window snapshot.
+            let rect = CGRect {
+                origin: CGPoint { x, y },
+                size: CGSize { width, height },
+            };
+            unsafe { config.setRect(rect) };
 
             // The completion block fires (on the main thread) once the snapshot is ready. It owns the only
             // surviving Sender, so `recv` below unblocks exactly when the PNG is encoded (or on failure).

@@ -187,6 +187,43 @@ fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+/// SSRF guard for backend-initiated HTTP downloads (download_model, browser_download_url): require
+/// http(s) and reject hosts that are loopback / private / link-local / unspecified IP literals (and
+/// "localhost"). NOTE: this does NOT resolve DNS and reqwest follows redirects, so a domain that
+/// resolves to a private IP isn't caught here — full resolve-and-pin SSRF hardening is tracked for the
+/// egress pass. This closes the obvious http://127.0.0.1 / http://169.254.169.254 (metadata) vectors.
+fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast()
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7
+                || (v6.segments()[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
+        }
+    }
+}
+
+fn egress_host_allowed(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "invalid URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!("scheme '{}' not allowed", parsed.scheme()));
+    }
+    let host = parsed.host_str().ok_or_else(|| "URL has no host".to_string())?;
+    if host.eq_ignore_ascii_case("localhost") {
+        return Err("downloads from localhost are not allowed".to_string());
+    }
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
+        if is_blocked_ip(ip) {
+            return Err("downloads from loopback/private/link-local addresses are not allowed".to_string());
+        }
+    }
+    Ok(())
+}
+
 fn parse_deletions(diff_stat: &str) -> u32 {
     // Match patterns like "3 deletions(-)" in git diff --stat output
     let mut last_n: Option<u32> = None;
@@ -2707,6 +2744,7 @@ async fn download_model(
     if !url.starts_with("https://") {
         return Err("Only HTTPS downloads are allowed".to_string());
     }
+    egress_host_allowed(&url)?; // SSRF: block loopback/private/link-local hosts even over https
     if !is_safe_gguf_name(&filename) {
         return Err("Invalid filename".to_string());
     }
@@ -3206,16 +3244,34 @@ fn browser_set_zoom(app: tauri::AppHandle, label: String, factor: f64) -> Result
 
 #[tauri::command]
 async fn browser_download_url(_app: tauri::AppHandle, url: String, filename: String) -> Result<String, String> {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("Only HTTP/HTTPS downloads allowed".to_string());
-    }
+    // SSRF: reject loopback/private/link-local hosts — this command is reachable from the remote
+    // browser-panel, so a page must not be able to make the backend fetch internal endpoints.
+    egress_host_allowed(&url)?;
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
         .build()
         .map_err(|e| e.to_string())?;
-    let bytes = client.get(&url)
-        .send().await.map_err(|e| e.to_string())?
-        .bytes().await.map_err(|e| e.to_string())?;
+    // Stream with a hard size cap so a remote-triggered download can't exhaust memory (the previous
+    // .bytes() buffered the entire body unbounded).
+    const MAX_DOWNLOAD: u64 = 256 * 1024 * 1024; // 256 MB
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    if let Some(len) = resp.content_length() {
+        if len > MAX_DOWNLOAD {
+            return Err("file exceeds the 256 MB download limit".to_string());
+        }
+    }
+    let mut downloaded: u64 = 0;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+        if downloaded > MAX_DOWNLOAD {
+            return Err("file exceeds the 256 MB download limit".to_string());
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    let bytes = buf;
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let downloads = std::path::PathBuf::from(home).join("Downloads");
     let _ = std::fs::create_dir_all(&downloads);
