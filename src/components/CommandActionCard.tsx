@@ -25,14 +25,17 @@ export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
 
   const command = (op.command ?? '').trim();
   const cwd = op.cwd && op.cwd.trim().length > 0 ? op.cwd : (agentForgePath ? `${agentForgePath}/workspace` : '');
-  const preapproved = !!developerMode && findGrant(grants, cwd, 'write')?.scope === 'folder';
+  // SEC-GRANTS: command auto-run requires a dedicated, unexpired COMMAND grant — a file-write grant in
+  // the repo no longer silently authorizes arbitrary shell.
+  const preapproved = !!developerMode && findGrant(grants, cwd, 'command', Date.now())?.scope === 'folder';
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [out, setOut] = useState<{ stdout: string; stderr: string; code: number | null } | null>(null);
 
   const run = useCallback(async (remember?: boolean) => {
     if (remember && cwd) {
-      useSettingsStore.getState().addFileGrant(makeGrant(cwd, 'folder', 'write', Date.now()));
+      // A command-scoped grant (not file-write), expiring in 24h so standing shell authority lapses.
+      useSettingsStore.getState().addFileGrant(makeGrant(cwd, 'folder', 'command', Date.now(), 24 * 60 * 60 * 1000));
     }
     setPhase('running');
     try {
