@@ -178,7 +178,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     visionProvider: 'auto',
     visionModelId: '',
     visionEndpoint: '',
-    dreamAutoEnabled: true,
+    dreamAutoEnabled: false, // opt-in: the Dream Cycle never auto-runs or auto-mutates memory until the user enables it (README: "manual-only")
     showContextWindowLine: false,
     developerMode: false,
     fileAccessGrants: {},

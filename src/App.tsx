@@ -36,6 +36,7 @@ import { capabilityForRoute, type CapabilityContext } from './services/capabilit
 import { evaluateDroppedMessages } from './services/contextEvaluator';
 import { computePinProfile } from './services/pinPersonalization';
 import { invoke } from '@tauri-apps/api/core';
+import { writeMemory, restoreArchivedFile } from './lib/ipc';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { NukeShieldModal } from './components/NukeShieldModal';
@@ -223,7 +224,10 @@ export default function App() {
       const agentId = (_as.find((x: any) => x.id === _af) ?? _as[0])?.id ?? 'default';
       const key = String(a.trigger || a.title || '').trim();
       if (rootPath && key) {
-        void reinforcePlaybook(rootPath, agentId, key, { verify: true, bumpAccept: true });
+        // SEC-PLAYBOOKVERIFY: a mere execute *signal* (which prompt-injected/hallucinated content can
+        // emit) must NEVER promote a procedure to verified/suggestable. Bump usage only; trust comes
+        // solely from explicit user capture. Omitting `verify` preserves the existing verified state.
+        void reinforcePlaybook(rootPath, agentId, key, { bumpAccept: true });
         showToast(`▶ Running ${a.title ? `“${a.title}”` : 'playbook'}…`);
       }
     }
@@ -451,13 +455,13 @@ export default function App() {
     const scheduleDream = () => {
       dreamTimerRef.current = setInterval(() => {
         const { appSettings: s } = useSettingsStore.getState();
-        if (s.dreamAutoEnabled === false) return;
+        if (s.dreamAutoEnabled !== true) return; // opt-in only — undefined/false never auto-runs
         runDreamCycle(activeAssistantRef.current ?? undefined, selectedModelRef.current ?? undefined);
       }, DREAM_INTERVAL_MS);
     };
     const warmupTimeout = setTimeout(() => {
       const { appSettings: s } = useSettingsStore.getState();
-      if (s.dreamAutoEnabled !== false) {
+      if (s.dreamAutoEnabled === true) {
         runDreamCycle(activeAssistantRef.current ?? undefined, selectedModelRef.current ?? undefined);
       }
       scheduleDream();
@@ -1611,13 +1615,11 @@ export default function App() {
 
             // Write merged content
             const targetFullPath = `${_agentForgePath}/${op.target_path}`;
-            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
+            const writeResult = await writeMemory({
               path: targetFullPath,
               content: op.merged_content,
-              commit_message: `dream: merge — ${op.description}`,
-              agent_id: activeAgent.id,
-              context_tokens: null,
-              ram_state: null,
+              commitMessage: `dream: merge — ${op.description}`,
+              agentId: activeAgent.id,
             });
             const gitCommits: string[] = [];
             if (writeResult.blocked) continue;
@@ -1656,13 +1658,11 @@ export default function App() {
             const newLen = op.updated_content.length;
             // Skip if more than 50% smaller (risky update)
             if (newLen < oldLen * 0.5) continue;
-            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
+            const writeResult = await writeMemory({
               path: op.target_path,
               content: op.updated_content,
-              commit_message: `dream: update — ${op.description}`,
-              agent_id: activeAgent.id,
-              context_tokens: null,
-              ram_state: null,
+              commitMessage: `dream: update — ${op.description}`,
+              agentId: activeAgent.id,
             });
             if (writeResult.blocked) continue;
             dreamItems.push({ id, type: 'updated', description: op.description, archive_paths: [], original_paths: [], target_file: op.target_path, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
@@ -1679,13 +1679,11 @@ export default function App() {
             const targetFullPath = `${_agentForgePath}/memory/${activeAgent.id}/insights/${slug}.md`;
             const sourceList = validSources.map((p: string) => `- ${p}`).join('\n');
             const content = `---\ntitle: "${insightTitle.replace(/"/g, '\\"')}"\ncreated_at: "${new Date().toISOString()}"\nmemory_type: insight\nevidence_state: inferred\nconfidence: medium\ntags: [insight, dream-insight, agent:${activeAgent.id}]\n---\n\n# ${insightTitle}\n\n${op.insight}\n\n## Synthesized from\n${sourceList}\n`;
-            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
+            const writeResult = await writeMemory({
               path: targetFullPath,
               content,
-              commit_message: `dream: insight — ${op.description}`,
-              agent_id: activeAgent.id,
-              context_tokens: null,
-              ram_state: null,
+              commitMessage: `dream: insight — ${op.description}`,
+              agentId: activeAgent.id,
             });
             if (writeResult.blocked) continue;
             dreamItems.push({ id, type: 'insight', description: `${op.title} — ${op.insight}`, archive_paths: [], original_paths: validSources, target_file: targetFullPath, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
@@ -1703,9 +1701,9 @@ export default function App() {
             const pb = existing ? parsePlaybook(existing.content) : null;
             if (!pb) continue;
             const rebuilt = buildPlaybookRecord({ rootPath: _agentForgePath, agentId: activeAgent.id, title: pb.title, intent: pb.trigger, steps, verified: pb.verified, accept: pb.accept });
-            const writeResult = await invoke<{ blocked: boolean; commit: string | null }>('write_memory', {
-              path: rebuilt.path, content: rebuilt.content, commit_message: `dream: playbook — ${op.description}`,
-              agent_id: activeAgent.id, context_tokens: null, ram_state: null,
+            const writeResult = await writeMemory({
+              path: rebuilt.path, content: rebuilt.content, commitMessage: `dream: playbook — ${op.description}`,
+              agentId: activeAgent.id,
             });
             if (writeResult.blocked) continue;
             dreamItems.push({ id, type: 'updated', description: `Refined playbook “${pb.title}”: ${op.description}`, archive_paths: [], original_paths: [], target_file: rebuilt.path, git_commits: writeResult.commit ? [writeResult.commit] : [], undone: false });
@@ -1771,7 +1769,7 @@ export default function App() {
       for (let i = 0; i < item.archive_paths.length; i++) {
         const archivePath = item.archive_paths[i];
         const originalPath = item.original_paths[i] ?? '';
-        await invoke('restore_archived_file', { archive_path: archivePath, original_path: originalPath });
+        await restoreArchivedFile({ archivePath, originalPath });
       }
       // For merges: delete the merged target file
       if (item.type === 'merged' && item.target_file) {
@@ -2965,9 +2963,9 @@ export default function App() {
           }
         }}
         onRestoreArchive={async (archivePath) => {
-          const result = await invoke<{ ok: boolean; error?: string }>('restore_archived_file', {
-            archive_path: archivePath,
-            original_path: '',
+          const result = await restoreArchivedFile({
+            archivePath,
+            originalPath: '',
           });
           if (!result.ok) throw new Error(result.error ?? 'Restore failed');
         }}

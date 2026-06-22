@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { writeMemory } from '../lib/ipc';
 import { generateTextResponse } from './llm';
 import { buildGroundingFrontmatter, buildBrowserChunkContext } from './grounding';
 import { slugify } from './research';
@@ -99,13 +99,10 @@ ${summary}
 - Word count: ${input.wordCount}
 `;
 
-  await invoke('write_memory', {
+  await writeMemory({
     path: filePath,
     content: fileContent,
-    commit_message: `web-capture: ${input.title.slice(0, 60)}`,
-    agent_id: null,
-    context_tokens: null,
-    ram_state: null,
+    commitMessage: `web-capture: ${input.title.slice(0, 60)}`,
   });
 
   return { summary, filename, skipped: false };

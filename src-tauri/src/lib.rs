@@ -400,8 +400,25 @@ fn sigcont_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
 
 // ─── 1.2 Nuke Shield ─────────────────────────────────────────────────────────
 
+/// Process-wide serialization for ALL Knowledge-Core git mutations. The agent workspace lives inside
+/// the same repo (see `commit_workspace`), and the background Dream Cycle issues write/archive calls
+/// concurrently with foreground writes — without this lock their `git stash`/`add`/`commit`/`pop`
+/// sequences interleave and can corrupt or lose memory. Poison-tolerant: a panic mid-mutation must not
+/// wedge every subsequent write. NON-reentrant — never acquire it twice on one call stack.
+static GIT_LOCK: Mutex<()> = Mutex::new(());
+fn git_guard() -> std::sync::MutexGuard<'static, ()> {
+    GIT_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[tauri::command]
 fn safe_write_file(path: String, content: String) -> serde_json::Value {
+    let _git = git_guard();
+    safe_write_file_inner(path, content)
+}
+
+/// Body of `safe_write_file`. The caller MUST already hold `GIT_LOCK` — `write_memory` calls this
+/// directly while holding the guard, so it must not re-acquire (the lock is non-reentrant).
+fn safe_write_file_inner(path: String, content: String) -> serde_json::Value {
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -455,6 +472,7 @@ fn safe_write_file(path: String, content: String) -> serde_json::Value {
 
 #[tauri::command]
 fn rollback_file(path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -515,6 +533,7 @@ fn write_memory(
     context_tokens: Option<u32>,
     ram_state: Option<String>,
 ) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -545,7 +564,7 @@ fn write_memory(
         .unwrap_or_default();
     let stashed = !stash_out.contains("No local changes");
 
-    let write_result = safe_write_file(file_path.to_string_lossy().to_string(), content.clone());
+    let write_result = safe_write_file_inner(file_path.to_string_lossy().to_string(), content.clone());
     if write_result["blocked"].as_bool().unwrap_or(false) {
         if stashed {
             let _ = run_git(&["stash", "pop"], &repo_root);
@@ -810,6 +829,7 @@ fn complete_task(
 
 #[tauri::command]
 fn revert_memory_commit(commit_hash: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let result = run_git(&["revert", "--no-edit", &commit_hash], &repo_root);
     serde_json::json!({ "ok": result.is_ok(), "output": result.unwrap_or_default() })
@@ -1243,6 +1263,7 @@ fn extract_title_from_path(path: &str) -> String {
 
 #[tauri::command]
 fn delete_memory_file(path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -1283,6 +1304,7 @@ fn delete_memory_file(path: String) -> serde_json::Value {
 
 #[tauri::command]
 fn archive_memory_file(path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -1326,6 +1348,7 @@ fn archive_memory_file(path: String) -> serde_json::Value {
 
 #[tauri::command]
 fn restore_archived_file(archive_path: String, original_path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let src = match knowledge_path_from_input(&archive_path) {
         Ok(p) => p,
@@ -1526,6 +1549,7 @@ fn read_dir_sorted(dir: &Path, rel_root: &Path) -> Result<Vec<serde_json::Value>
 
 /// Commit the current state of the Knowledge Core repo with a message (workspace lives inside it).
 fn commit_workspace(message: &str) {
+    let _git = git_guard();
     let root = knowledge_root();
     let _ = run_git(&["add", "-A"], &root);
     let _ = run_git(&["commit", "-m", message], &root);

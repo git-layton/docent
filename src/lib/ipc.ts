@@ -134,11 +134,19 @@ export function writeDreamLog(log: unknown): Promise<unknown> {
  * `originalPath`. (The current App.tsx call site passes snake_case and so is
  * broken; a later phase swaps it to this wrapper.)
  */
+/** Result shape returned by the Rust `restore_archived_file` command (serde_json). */
+export interface RestoreArchivedResult {
+  ok: boolean;
+  restored_path?: string;
+  commit?: string | null;
+  error?: string;
+}
+
 export function restoreArchivedFile(args: {
   archivePath: string;
   originalPath: string;
-}): Promise<unknown> {
-  return tauriInvoke<unknown>('restore_archived_file', {
+}): Promise<RestoreArchivedResult> {
+  return tauriInvoke<RestoreArchivedResult>('restore_archived_file', {
     archivePath: args.archivePath,
     originalPath: args.originalPath,
   });
