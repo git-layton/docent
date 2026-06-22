@@ -173,16 +173,12 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     if (!email || !password) return;
     setMailStatus({ state: 'testing' });
     try {
-      // SEC-KEYCHAIN: save the password to the Keychain FIRST so the test — and every later mail op —
-      // resolves it inside Rust; it never crosses the IPC boundary. Roll the key back if the test fails.
-      await invoke('keychain_save', { host: `mail:${email}`, username: email, password });
-      let count: number;
-      try {
-        count = await invoke<number>('mail_test_connection', { provider: mailProvider, email });
-      } catch (testErr) {
-        await invoke('keychain_delete', { host: `mail:${email}` }).catch(() => {});
-        throw testErr;
-      }
+      // SEC-KEYCHAIN: validate with the just-typed password BEFORE writing the Keychain, so a typo when
+      // re-adding an existing account can never clobber a previously-good saved credential. Persist only
+      // after the test passes — and verify the Keychain write actually succeeded.
+      const count = await invoke<number>('mail_test_connection', { provider: mailProvider, email, password });
+      const saved = await invoke<{ ok: boolean; error?: string }>('keychain_save', { host: `mail:${email}`, username: email, password });
+      if (!saved.ok) throw new Error(saved.error ?? 'Could not save the password to the Keychain.');
       setIntegrations((prev: any) => {
         const rest = (prev.mailAccounts ?? []).filter((a: any) => a.email !== email);
         return { ...prev, mailAccounts: [...rest, { id: `mail-${Date.now()}`, provider: mailProvider, email }] };

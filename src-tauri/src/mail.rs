@@ -40,9 +40,16 @@ fn mail_password(_email: &str) -> Result<String, String> {
 pub async fn mail_test_connection(
     provider: String,
     email: String,
+    // Pre-save probe: the connect form passes the just-typed password so we can validate BEFORE writing
+    // the Keychain (never clobbering a previously-good credential). None ⇒ resolve the saved password
+    // from the Keychain (re-testing an already-connected account).
+    password: Option<String>,
 ) -> Result<u32, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
-        let password = mail_password(&email)?;
+        let password = match password {
+            Some(p) if !p.trim().is_empty() => p,
+            _ => mail_password(&email)?,
+        };
         let (host, port) = imap_endpoint(&provider)?;
         let tls = native_tls::TlsConnector::builder()
             .build()
