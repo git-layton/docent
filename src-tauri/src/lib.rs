@@ -1787,7 +1787,10 @@ fn fs_probe_context(path: String) -> serde_json::Value {
 // ── Phase 3: real-filesystem ops (consent enforced in the frontend; ACL keeps remote out) ──
 
 #[tauri::command]
-fn fs_read_external(path: String) -> serde_json::Value {
+fn fs_read_external(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e, "content": "" });
+    }
     match std::fs::read_to_string(&path) {
         Ok(content) => serde_json::json!({ "ok": true, "content": content }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "content": "" }),
@@ -1795,7 +1798,10 @@ fn fs_read_external(path: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn fs_list_external(path: String) -> serde_json::Value {
+fn fs_list_external(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e, "entries": [] });
+    }
     let dir = PathBuf::from(&path);
     match read_dir_sorted(&dir, &dir) {
         Ok(entries) => serde_json::json!({ "ok": true, "entries": entries, "root": path }),
@@ -1804,9 +1810,15 @@ fn fs_list_external(path: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn fs_write_external(path: String, content: String) -> serde_json::Value {
+fn fs_write_external(webview: tauri::Webview, path: String, content: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     if let Some(parent) = PathBuf::from(&path).parent() {
-        let _ = std::fs::create_dir_all(parent);
+        // Propagate the failure instead of silently leaving a partial mkdir -p tree on disk.
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return serde_json::json!({ "ok": false, "error": format!("could not create parent directory: {e}") });
+        }
     }
     match std::fs::write(&path, content) {
         Ok(_) => serde_json::json!({ "ok": true }),
@@ -1815,7 +1827,10 @@ fn fs_write_external(path: String, content: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn fs_delete_external(path: String) -> serde_json::Value {
+fn fs_delete_external(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     let p = PathBuf::from(&path);
     let result = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
     match result {
@@ -1829,7 +1844,10 @@ fn fs_delete_external(path: String) -> serde_json::Value {
 /// (same reason as the System Settings openers). Read-only: it shows a path, never mutates anything —
 /// but it's still on the remote-isolation DENIED list so a web page can't probe the local filesystem.
 #[tauri::command]
-fn fs_reveal(path: String) -> serde_json::Value {
+fn fs_reveal(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     match std::process::Command::new("open").arg("-R").arg(&path).spawn() {
         Ok(_) => serde_json::json!({ "ok": true }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
