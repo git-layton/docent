@@ -23,6 +23,7 @@ import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
+import { trustOfToolSource } from './services/trust';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
 import { searchWebHistory, renderWebRecall } from './services/webHistory';
 import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds, mentionedAgentsInOrder } from './services/channels';
@@ -195,9 +196,12 @@ export default function App() {
   // Store action shorthands (imperative, for use in callbacks/effects)
   const showToast = useUIStore.getState().showToast;
 
-  // After an agent reply, run any forge:action blocks it emitted: auto-apply local writes (note/task/
-  // calendar create), queue sends/deletes for approval, and strip the raw blocks from the message.
-  const handleAgentActions = async (text: string, chatId: string, botId: string) => {
+  // After an agent reply, run any forge:action blocks it emitted, and strip the raw blocks from the
+  // message. `turnIngestedUntrusted` = this turn's context included untrusted-external content (a viewed
+  // web page / received mail / messages). When true (trust §3 rule 2) NOTHING auto-applies: agent
+  // self-memory + playbook capture/run are skipped (agent-initiated, the prime injection target) and
+  // every user-facing tool write routes to the approval queue instead of running silently.
+  const handleAgentActions = async (text: string, chatId: string, botId: string, turnIngestedUntrusted = false) => {
     const actions = parseAgentActions(text);
     if (actions.length === 0) return;
     const cleaned = stripActionBlocks(text);
@@ -207,38 +211,47 @@ export default function App() {
         [chatId]: (prev[chatId] ?? []).map((m: any) => (m.id === botId ? { ...m, content: cleaned } : m)),
       }));
     }
-    // Agent self-edit memory writes (local, no approval) are handled here, not via the connectors.
-    // Only save/update are honored — the agent can write/refresh its memory but never delete it.
-    for (const a of actions.filter(x => x.tool === 'memory' && (x.op === 'save' || x.op === 'update'))) {
-      await persistAgentSelfMemory(a);
-    }
-    // Playbook capture (local, no approval) — persist the reusable procedure.
-    for (const a of actions.filter(x => x.tool === 'playbook' && x.op === 'capture')) {
-      await persistPlaybook(a);
-    }
-    // Playbook run signal — logs that the user approved running a saved procedure: verify it + bump its
-    // accept counter. It runs NOTHING itself; the procedure's actual steps follow as normal gated actions.
-    for (const a of actions.filter(x => x.tool === 'playbook' && x.op === 'execute')) {
-      const rootPath = useMemoryStore.getState().agentForgePath;
-      const { assistants: _as, activeFolderId: _af } = useAgentStore.getState();
-      const agentId = (_as.find((x: any) => x.id === _af) ?? _as[0])?.id ?? 'default';
-      const key = String(a.trigger || a.title || '').trim();
-      if (rootPath && key) {
-        // SEC-PLAYBOOKVERIFY: a mere execute *signal* (which prompt-injected/hallucinated content can
-        // emit) must NEVER promote a procedure to verified/suggestable. Bump usage only; trust comes
-        // solely from explicit user capture. Omitting `verify` preserves the existing verified state.
-        void reinforcePlaybook(rootPath, agentId, key, { bumpAccept: true });
-        showToast(`▶ Running ${a.title ? `“${a.title}”` : 'playbook'}…`);
+    // Agent self-edit memory + playbook capture/run are local writes that normally apply with no
+    // approval. If the turn ingested untrusted content, skip them entirely — an injected block must not
+    // be able to silently write the agent's memory or plant/run a playbook.
+    const memAndPlaybookOps = actions.filter(x =>
+      (x.tool === 'memory' && (x.op === 'save' || x.op === 'update')) ||
+      (x.tool === 'playbook' && (x.op === 'capture' || x.op === 'execute')));
+    if (turnIngestedUntrusted && memAndPlaybookOps.length) {
+      showToast('Skipped agent memory/playbook writes — this turn included untrusted web/email content.');
+    } else {
+      // Agent self-edit memory writes. Only save/update are honored — never delete.
+      for (const a of actions.filter(x => x.tool === 'memory' && (x.op === 'save' || x.op === 'update'))) {
+        await persistAgentSelfMemory(a);
+      }
+      // Playbook capture — persist the reusable procedure.
+      for (const a of actions.filter(x => x.tool === 'playbook' && x.op === 'capture')) {
+        await persistPlaybook(a);
+      }
+      // Playbook run signal — bumps usage; runs NOTHING itself (the steps follow as normal gated actions).
+      for (const a of actions.filter(x => x.tool === 'playbook' && x.op === 'execute')) {
+        const rootPath = useMemoryStore.getState().agentForgePath;
+        const { assistants: _as, activeFolderId: _af } = useAgentStore.getState();
+        const agentId = (_as.find((x: any) => x.id === _af) ?? _as[0])?.id ?? 'default';
+        const key = String(a.trigger || a.title || '').trim();
+        if (rootPath && key) {
+          // SEC-PLAYBOOKVERIFY: a mere execute *signal* (which prompt-injected/hallucinated content can
+          // emit) must NEVER promote a procedure to verified/suggestable. Bump usage only; trust comes
+          // solely from explicit user capture. Omitting `verify` preserves the existing verified state.
+          void reinforcePlaybook(rootPath, agentId, key, { bumpAccept: true });
+          showToast(`▶ Running ${a.title ? `“${a.title}”` : 'playbook'}…`);
+        }
       }
     }
-    // All playbook ops are handled above (never via the connectors); the executeAgentAction throw on a
-    // raw playbook.execute remains only as a defensive backstop.
+    // Tool actions (note/task/calendar create, task complete, send, delete). Sends/deletes always need
+    // approval; when the turn ingested untrusted content, EVERY write needs approval too (trust rule 2),
+    // so it surfaces in the approval card rather than auto-applying.
     const toolActions = actions.filter(x => x.tool !== 'memory' && x.tool !== 'playbook');
-    for (const a of toolActions.filter(x => !actionNeedsApproval(x))) {
+    for (const a of toolActions.filter(x => !actionNeedsApproval(x, turnIngestedUntrusted))) {
       try { showToast(`✓ ${await executeAgentAction(a)}`); }
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }
     }
-    const needApproval = toolActions.filter(actionNeedsApproval);
+    const needApproval = toolActions.filter(x => actionNeedsApproval(x, turnIngestedUntrusted));
     if (needApproval.length) setPendingActions(prev => [...prev, ...needApproval]);
   };
   const saveGlobalPins = useMemoryStore.getState().saveGlobalPins;
@@ -2156,9 +2169,25 @@ export default function App() {
             goal: _activeSpace?.agentGoals?.[_activeAssistant?.id], projectContext: _activeProjectContext,
         });
 
-        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false } : m) }));
-        void handleAgentActions(response, chatId, botId);
-        if (!isImageRequest) void persistConversationMemory(chatId, userMsg, response, _activeAssistant, gatekeeperDecision, 'dm');
+        // Trust provenance for SEC-AUTOAPPLY: did THIS turn ingest untrusted-external content (text an
+        // attacker could influence)? Three full-content vectors that get concatenated into the prompt:
+        //   • _browserContext — the active web page body (set only when activeTab.content exists; web is
+        //     untrusted by definition)
+        //   • _toolContext from mail/messages — received comms (trustOfToolSource)
+        //   • _webRecall — snippets of previously-viewed web pages recalled for this query
+        // When present: forge:actions route to approval, agent self-memory/playbook writes are skipped,
+        // the turn is NOT auto-captured into durable memory, and the message is stamped untrustedTurn so
+        // the file_op widgets it renders (a SEPARATE auto-apply path) also force-preview workspace writes.
+        // NOTE: ambient open-tab *descriptors*, calendar/notes tool sources, and the memory READ path are
+        // intentionally NOT gated here — systematic per-chunk provenance is deferred to the backend
+        // enforcement layer (rebuilt from the supervisor-kernel design).
+        const turnIngestedUntrusted =
+          !!_browserContext ||
+          trustOfToolSource(_toolContext?.source) === 'untrusted-external' ||
+          !!_webRecall;
+        useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false, untrustedTurn: turnIngestedUntrusted } : m) }));
+        void handleAgentActions(response, chatId, botId, turnIngestedUntrusted);
+        if (!isImageRequest && !turnIngestedUntrusted) void persistConversationMemory(chatId, userMsg, response, _activeAssistant, gatekeeperDecision, 'dm');
 
         if (_generationMode === 'code' || _generationMode === 'doc') {
            const contentWithoutThink = response.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '');
@@ -2450,7 +2479,7 @@ export default function App() {
           elements.push(
             fop.action === 'command'
               ? <CommandActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} />
-              : <FileActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} />
+              : <FileActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} forcePreview={!!msg.untrustedTurn} />
           );
         } catch {
           // Incomplete while streaming — render nothing until the block closes and parses.

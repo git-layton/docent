@@ -15,11 +15,17 @@ export interface AgentAction {
   [k: string]: any;
 }
 
-/** Outbound (send) and destructive (delete) actions need explicit user approval. Running a saved
- * playbook also always needs approval — it expands into multiple real actions. */
-export function actionNeedsApproval(a: AgentAction): boolean {
+/** Outbound (send) and destructive (delete) actions need explicit user approval, and running a saved
+ * playbook always does (it expands into multiple real actions). Additionally — trust model §3 rule 2:
+ * "authority actions are never driven solely by untrusted content" — when the current turn ingested
+ * untrusted-external content (a viewed web page, received mail, or messages), even the normally
+ * auto-applied writes (note/task/calendar create, task complete) require approval, because
+ * prompt-injection rides in on exactly that content. */
+export function actionNeedsApproval(a: AgentAction, turnIngestedUntrusted = false): boolean {
   if (a.tool === 'playbook' && a.op === 'execute') return true;
-  return a.op === 'send' || a.op === 'delete';
+  if (a.op === 'send' || a.op === 'delete') return true;
+  if (turnIngestedUntrusted) return true;
+  return false;
 }
 
 /** Extract ```forge:action``` JSON blocks from an agent message. Tolerant — skips malformed blocks. */

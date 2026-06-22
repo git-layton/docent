@@ -20,6 +20,9 @@ interface Props {
   opKey: string;
   streaming: boolean;
   onToast: (msg: string) => void;
+  /** SEC-AUTOAPPLY: when the producing turn ingested untrusted-external content, workspace mutations
+   *  must NOT auto-apply (even under a standing grant) — they route to the preview/approve path. */
+  forcePreview?: boolean;
 }
 
 type Phase = 'idle' | 'preview' | 'running' | 'done' | 'denied' | 'error';
@@ -79,7 +82,7 @@ async function runOp(op: FileOp, tier: OpTier): Promise<{ ok: boolean; detail: s
   }
 }
 
-export function FileActionCard({ op, opKey, streaming, onToast }: Props) {
+export function FileActionCard({ op, opKey, streaming, onToast, forcePreview }: Props) {
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
   const grants = useSettingsStore(s => s.appSettings.fileAccessGrants);
   const workspaceRoot = agentForgePath ? `${agentForgePath}/workspace` : '/__no_workspace__';
@@ -125,12 +128,16 @@ export function FileActionCard({ op, opKey, streaming, onToast }: Props) {
   useEffect(() => {
     if (tier === 'invalid') return;
     if (streaming) return;
+    // SEC-AUTOAPPLY: if the producing turn ingested untrusted content, a workspace MUTATION must not
+    // auto-apply (even under a standing grant) — route it to preview/approve. Reads/lists are harmless.
+    const isMutation = op.action === 'write' || op.action === 'create' || op.action === 'delete' || op.action === 'move' || op.action === 'import';
+    if (forcePreview && isMutation) { setPhase('preview'); return; }
     if (!(tier === 'workspace' || preapproved)) { setPhase('preview'); return; }
     if (handled.has(opKey)) { if (phase === 'idle') setPhase('done'); return; }
     handled.add(opKey);
     void apply();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streaming, opKey, tier, preapproved]);
+  }, [streaming, opKey, tier, preapproved, forcePreview]);
 
   // For external write/delete we read the current contents so the user sees the actual change.
   useEffect(() => {

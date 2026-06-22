@@ -51,6 +51,17 @@ describe('agentActions — safety classification', () => {
     expect(actionNeedsApproval({ tool: 'playbook', op: 'execute', id: 'p1' })).toBe(true);
     expect(actionNeedsApproval({ tool: 'playbook', op: 'capture', title: 'Weekly report' })).toBe(false);
   });
+  it('requires approval for EVERY write when the turn ingested untrusted-external content (trust §3 rule 2)', () => {
+    // Actions that auto-apply on a trusted turn must route to approval once the turn included a viewed
+    // web page / received mail / messages — prompt-injection rides in on exactly that content.
+    expect(actionNeedsApproval({ tool: 'note', op: 'create', title: 'x' }, true)).toBe(true);
+    expect(actionNeedsApproval({ tool: 'task', op: 'create', title: 'x' }, true)).toBe(true);
+    expect(actionNeedsApproval({ tool: 'calendar', op: 'create', title: 'x', start: '2026-01-01' }, true)).toBe(true);
+    expect(actionNeedsApproval({ tool: 'task', op: 'complete', id: '1' }, true)).toBe(true);
+    expect(actionNeedsApproval({ tool: 'mail', op: 'send', to: ['a@b.c'] }, true)).toBe(true);
+    // A trusted turn (default / explicit false) keeps auto-applying local writes.
+    expect(actionNeedsApproval({ tool: 'note', op: 'create', title: 'x' }, false)).toBe(false);
+  });
 });
 
 describe('agentActions — playbook safety backstop', () => {
