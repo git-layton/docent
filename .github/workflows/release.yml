@@ -1,0 +1,68 @@
+name: Release
+
+# Cut a release by pushing a version tag:
+#   npm version patch        # bumps package.json + tags v2.0.1 (also bump tauri.conf.json + Cargo.toml)
+#   git push --follow-tags
+# This builds the macOS app, signs the update artifact, publishes a GitHub Release, and writes
+# the `latest.json` manifest that every installed copy polls on launch.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Build & publish (macOS arm64)
+    runs-on: macos-latest
+    permissions:
+      contents: write # create the GitHub Release + upload assets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build, sign & publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri update-signing key (minisign). Generated locally with `tauri signer generate`;
+          # the PRIVATE key + its password live only in repo secrets, never in git.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Apple Developer ID code signing + notarization. Until these secrets exist they resolve to
+          # empty strings and tauri-action skips signing (ships an ad-hoc/unsigned build). Add them in
+          # repo Settings → Secrets and re-tag to flip on a notarized, Gatekeeper-clean build — no edit here.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Agent Forge ${{ github.ref_name }}"
+          releaseBody: "See the assets below to download. The app auto-updates itself on next launch."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          args: --target aarch64-apple-darwin

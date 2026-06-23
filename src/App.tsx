@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 
 import { db } from './services/database';
+import { checkForUpdatesOnStartup } from './services/updater';
 import { extractTextFromPDF } from './services/pdfParser';
 import { useChatStore } from './store/useChatStore';
 import { useAgentStore, DEFAULT_ASSISTANT, resolveCodeyId } from './store/useAgentStore';
@@ -314,6 +315,9 @@ export default function App() {
     console.warn = (...args) => { capture('warn')(...args); originalWarn(...args); };
     return () => { console.log = originalLog; console.error = originalError; console.warn = originalWarn; };
   }, []);
+
+  // Auto-update: one silent check shortly after launch (no-op offline / in dev).
+  useEffect(() => { checkForUpdatesOnStartup(); }, []);
 
   // Spotlight window events
   useEffect(() => {
