@@ -308,6 +308,12 @@ describe('selectPrimaryToolRoute', () => {
     expect(selectPrimaryToolRoute(result)).toBe('web_search')
   })
 
+  it('should route to preview when forcedTool is preview ("Codey, look at this")', () => {
+    const result = evaluateMemoryGate({ text: 'Look at the running preview and fix anything broken.', forcedTool: 'preview' })
+    expect(result.toolRoutes).toContain('preview')
+    expect(selectPrimaryToolRoute(result)).toBe('preview')
+  })
+
   it('should route to calendar when calendar tool is enabled and text mentions scheduling', () => {
     const result = evaluateMemoryGate({
       text: 'Schedule a meeting for the project by Monday.',
@@ -578,6 +584,35 @@ describe('buildGatekeeperMemoryWrite', () => {
   it('path slug should contain the timestamp from the provided now date', () => {
     const { path } = buildBase()
     expect(path).toContain(String(baseDate.getTime()))
+  })
+
+  it('should capture the full exchange (asked + answer) when an answer is provided', () => {
+    const { content } = buildBase({
+      text: 'how should we name variables in this project?',
+      answer: 'Use camelCase for variables and PascalCase for components.',
+    })
+    expect(content).toContain('## Asked')
+    expect(content).toContain('how should we name variables in this project?')
+    expect(content).toContain('## Answer')
+    expect(content).toContain('Use camelCase for variables and PascalCase for components.')
+    // The answer-form body replaces the user-only "## Memory" section.
+    expect(content).not.toContain('## Memory')
+  })
+
+  it('should strip <think> reasoning from the captured answer', () => {
+    const { content } = buildBase({
+      text: 'what did we decide?',
+      answer: '<think>weighing options...</think>We decided to ship on Friday.',
+    })
+    expect(content).toContain('We decided to ship on Friday.')
+    expect(content).not.toContain('weighing options')
+    expect(content).not.toContain('<think>')
+  })
+
+  it('should keep the user-only "## Memory" body when no answer is provided', () => {
+    const { content } = buildBase()
+    expect(content).toContain('## Memory')
+    expect(content).not.toContain('## Answer')
   })
 })
 

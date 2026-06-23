@@ -23,6 +23,7 @@ import {
   ownerLabel,
   type CaptureItem,
 } from '../services/inbox';
+import { generateId } from '../lib/id';
 
 interface InboxPanelProps {
   agentForgePath: string;
@@ -30,9 +31,6 @@ interface InboxPanelProps {
   onToast: (msg: string) => void;
   onOpenChat?: () => void;
 }
-
-const generateId = (prefix: string) =>
-  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 function buildCaptureOpeningMessage(capture: CaptureItem): string {
   const parts: string[] = [];

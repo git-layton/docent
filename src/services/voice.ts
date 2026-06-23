@@ -5,11 +5,26 @@
 // then (a) inject it so agents compose in the user's voice, and (b) draft replies on demand.
 
 export type VoiceSurface = 'chat' | 'imessage' | 'email';
+export type RelationshipLabel = 'boss' | 'partner' | 'client' | 'family' | 'friend' | 'custom';
+
+// A voice the user has chosen to learn for ONE relationship (a specific person/thread). Lives in the
+// in-memory byRecipient map (synchronous, zero draft-time latency); promotable to a /voices record
+// later if the dream cycle should refine it. opted-in per recipient — never auto-built without consent.
+export interface RelationshipVoice {
+  card: string;
+  optedIn: boolean;
+  label?: RelationshipLabel;
+  recipientName?: string;        // display only — NOT used as the key (keys are PII-minimal slugs)
+  source?: 'auto' | 'user_edited';
+  lastBuiltAt?: number;
+  sampleCounts?: { imessage?: number; email?: number };
+}
 
 export interface VoiceProfile {
   enabled: boolean;
-  card: string; // distilled style card injected into prompts / used for drafting
+  card: string; // GLOBAL fallback style card — used whenever no opted-in per-recipient card applies
   perSurface: Record<VoiceSurface, boolean>;
+  byRecipient?: Record<string, RelationshipVoice>; // relKey (im:<chatId> / mail:<addr>) → voice
   lastBuiltAt?: number; // unix ms of the last successful build
   sampleCounts?: { imessage?: number; email?: number };
 }
@@ -20,18 +35,64 @@ export const DEFAULT_VOICE_PROFILE: VoiceProfile = {
   perSurface: { chat: true, imessage: true, email: true },
 };
 
-// Tolerate an older/partial persisted shape — never trust the blob's structure.
-export const normalizeVoiceProfile = (vp: any): VoiceProfile => ({
-  enabled: !!vp?.enabled,
-  card: typeof vp?.card === 'string' ? vp.card : '',
-  perSurface: {
-    chat: vp?.perSurface?.chat !== false,
-    imessage: vp?.perSurface?.imessage !== false,
-    email: vp?.perSurface?.email !== false,
-  },
-  lastBuiltAt: typeof vp?.lastBuiltAt === 'number' ? vp.lastBuiltAt : undefined,
-  sampleCounts: vp?.sampleCounts && typeof vp.sampleCounts === 'object' ? vp.sampleCounts : undefined,
+const RELATIONSHIP_LABELS: RelationshipLabel[] = ['boss', 'partner', 'client', 'family', 'friend', 'custom'];
+
+const normalizeRelationshipVoice = (rv: any): RelationshipVoice => ({
+  card: typeof rv?.card === 'string' ? rv.card : '',
+  optedIn: rv?.optedIn === true, // consent flag — only a real boolean true counts as opted-in
+
+  label: RELATIONSHIP_LABELS.includes(rv?.label) ? rv.label : undefined,
+  recipientName: typeof rv?.recipientName === 'string' ? rv.recipientName : undefined,
+  source: rv?.source === 'user_edited' ? 'user_edited' : rv?.source === 'auto' ? 'auto' : undefined,
+  lastBuiltAt: typeof rv?.lastBuiltAt === 'number' ? rv.lastBuiltAt : undefined,
+  sampleCounts: rv?.sampleCounts && typeof rv.sampleCounts === 'object' ? rv.sampleCounts : undefined,
 });
+
+// Tolerate an older/partial persisted shape — never trust the blob's structure.
+export const normalizeVoiceProfile = (vp: any): VoiceProfile => {
+  let byRecipient: Record<string, RelationshipVoice> | undefined;
+  if (vp?.byRecipient && typeof vp.byRecipient === 'object') {
+    byRecipient = {};
+    for (const [k, v] of Object.entries(vp.byRecipient)) {
+      if (typeof k === 'string' && k) byRecipient[k] = normalizeRelationshipVoice(v);
+    }
+  }
+  return {
+    enabled: !!vp?.enabled,
+    card: typeof vp?.card === 'string' ? vp.card : '',
+    perSurface: {
+      chat: vp?.perSurface?.chat !== false,
+      imessage: vp?.perSurface?.imessage !== false,
+      email: vp?.perSurface?.email !== false,
+    },
+    byRecipient,
+    lastBuiltAt: typeof vp?.lastBuiltAt === 'number' ? vp.lastBuiltAt : undefined,
+    sampleCounts: vp?.sampleCounts && typeof vp.sampleCounts === 'object' ? vp.sampleCounts : undefined,
+  };
+};
+
+// ─── Per-relationship keying & selection (pure) ──────────────────────────────────
+// Keys are PII-minimal stable slugs derived from signals already in hand at draft time — never the
+// raw phone/handle. iMessage keys on the chat id; email on the lowercased address.
+export const relKeyForImessage = (chatId: string | number | null | undefined): string | null =>
+  chatId === null || chatId === undefined || String(chatId).trim() === '' ? null : `im:${String(chatId).trim()}`;
+
+export const relKeyForEmail = (address: string | null | undefined): string | null => {
+  // Pull the first real address out of any form ("Name <a@b.com>", "a@b.com, c@d.com", bare addr).
+  const m = String(address ?? '').match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  return m ? `mail:${m[0].toLowerCase()}` : null;
+};
+
+// Pick the card to write with: an opted-in, non-empty per-recipient card when relKey matches, else
+// the global fallback. Returns '' only when there's no global card either. PURE — unit-tested.
+export const resolveRecipientCard = (vp: any, relKey?: string | null): string => {
+  const n = normalizeVoiceProfile(vp);
+  if (relKey && n.byRecipient) {
+    const rv = n.byRecipient[relKey];
+    if (rv && rv.optedIn && rv.card.trim()) return rv.card.trim();
+  }
+  return n.card.trim();
+};
 
 // Is the voice layer on, built, and enabled for this surface?
 export const voiceActiveFor = (vp: any, surface: VoiceSurface): boolean => {

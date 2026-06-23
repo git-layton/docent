@@ -36,6 +36,10 @@ reqwest = { version = "0.12", features = ["stream"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["time"] }
 scraper = "0.20"
+# Interactive terminal (PTY) backend for AgentForge Code — wezterm's cross-platform pty interface.
+portable-pty = "0.9"
+# Base64 of raw PTY bytes streamed over the pty:data event (never lossy-decode multibyte UTF-8 per read).
+base64 = "0.22"
 # Local-first mail layer (IMAP read; SMTP/parse added next). Uses native-tls = macOS Security.framework,
 # already in the tree, so no new TLS stack.
 imap = "2"
@@ -48,5 +52,10 @@ lettre = "0.11"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSDate", "NSCalendar", "NSArray", "NSError", "NSObject", "NSEnumerator"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSDate", "NSCalendar", "NSArray", "NSError", "NSObject", "NSEnumerator", "NSData", "NSDictionary"] }
 objc2-event-kit = { version = "0.3", features = ["EKEventStore", "EKEvent", "EKReminder", "EKCalendar", "EKCalendarItem", "EKObject", "EKTypes", "EKRecurrenceRule", "EKRecurrenceEnd", "EKSource", "block2"] }
+# Codey's "LOOK" eyes — capture the live Preview iframe (WKWebView.takeSnapshot) so a vision model can
+# SEE the running app. See screenshot.rs. CGGeometry → CGRect crop; AppKit → NSImage/PNG encode.
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-app-kit = { version = "0.3", features = ["NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics"] }
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfiguration", "block2"] }

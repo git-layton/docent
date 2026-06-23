@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Layers, FileText, Globe, Bot, Code, Wrench } from 'lucide-react';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useAgentStore } from '../store/useAgentStore';
+import { useMemoryStore } from '../store/useMemoryStore';
+import { searchKnowledgeDocs } from '../services/semanticDocs';
 import type { OmniTabType } from '../types/omniTab';
 
 // ---------------------------------------------------------------------------
@@ -11,7 +13,7 @@ import type { OmniTabType } from '../types/omniTab';
 // mounted once near the app modals.
 // ---------------------------------------------------------------------------
 
-type ResultKind = 'space' | 'tab' | 'agent';
+type ResultKind = 'space' | 'tab' | 'agent' | 'knowledge';
 interface Result {
   id: string;
   kind: ResultKind;
@@ -36,12 +38,16 @@ export function CmdKPalette(): React.ReactElement | null {
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Query to pre-fill on the next open — set when the palette is launched from
+  // elsewhere (e.g. the sidebar's top search box dispatches `forge:open-cmdk`).
+  const seedRef = useRef('');
 
   const spaces = useSpaceStore(s => s.spaces);
   const omniTabs = useSpaceStore(s => s.omniTabs);
   const assistants = useAgentStore(s => s.assistants);
 
-  // ⌘K / Ctrl+K to toggle; Esc to close
+  // ⌘K / Ctrl+K to toggle; Esc to close; `forge:open-cmdk` to open from anywhere
+  // (optionally seeded with a query, e.g. from the sidebar's top search box).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -51,12 +57,21 @@ export function CmdKPalette(): React.ReactElement | null {
         setOpen(false);
       }
     };
+    const onOpenEvent = (e: Event) => {
+      const q = (e as CustomEvent).detail?.query;
+      seedRef.current = typeof q === 'string' ? q : '';
+      setOpen(true);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('forge:open-cmdk', onOpenEvent as EventListener);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('forge:open-cmdk', onOpenEvent as EventListener);
+    };
   }, []);
 
   useEffect(() => {
-    if (open) { setQuery(''); setHighlight(0); setTimeout(() => inputRef.current?.focus(), 30); }
+    if (open) { setQuery(seedRef.current); seedRef.current = ''; setHighlight(0); setTimeout(() => inputRef.current?.focus(), 30); }
   }, [open]);
 
   const results = useMemo<Result[]>(() => {
@@ -87,6 +102,27 @@ export function CmdKPalette(): React.ReactElement | null {
       .slice(0, 30);
   }, [query, spaces, omniTabs, assistants]);
 
+  // Semantic Knowledge-Core hits — fetched (debounced, Tauri-guarded) as you type and listed below
+  // the navigational results, so ⌘K reaches your memos & notes by meaning, not just by name.
+  const [knowledge, setKnowledge] = useState<Result[]>([]);
+  useEffect(() => {
+    const q = query.trim();
+    if (!open || !q) { setKnowledge([]); return; }
+    let stale = false;
+    const t = setTimeout(async () => {
+      const docs = await searchKnowledgeDocs(q);
+      if (stale) return;
+      setKnowledge(docs.map(d => ({
+        id: d.id, kind: 'knowledge' as const, label: d.title, sublabel: d.sub || 'Knowledge', icon: FileText,
+        onSelect: () => { const mem = useMemoryStore.getState(); mem.setMemmoPanelTab('library'); mem.setShowMemmoPanel(true); },
+      })));
+    }, 300);
+    return () => { stale = true; clearTimeout(t); };
+  }, [query, open]);
+
+  // Navigational results first, semantic knowledge hits after (already score-sorted by the embedder).
+  const allResults = useMemo<Result[]>(() => [...results, ...knowledge], [results, knowledge]);
+
   if (!open) return null;
 
   const choose = (r: Result) => { r.onSelect(); setOpen(false); };
@@ -107,23 +143,23 @@ export function CmdKPalette(): React.ReactElement | null {
             value={query}
             onChange={e => { setQuery(e.target.value); setHighlight(0); }}
             onKeyDown={e => {
-              if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight(h => Math.min(h + 1, results.length - 1)); }
+              if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight(h => Math.min(h + 1, allResults.length - 1)); }
               else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)); }
-              else if (e.key === 'Enter' && results[highlight]) { e.preventDefault(); choose(results[highlight]); }
+              else if (e.key === 'Enter' && allResults[highlight]) { e.preventDefault(); choose(allResults[highlight]); }
             }}
             placeholder="Search spaces, tabs, agents…"
             className="flex-1 bg-transparent py-3.5 text-sm text-ink placeholder:text-ink-3 outline-none"
           />
         </div>
         <div className="max-h-[50vh] overflow-y-auto py-1">
-          {results.length === 0 ? (
+          {allResults.length === 0 ? (
             <div className="px-4 py-8 text-center text-xs text-ink-3">No matches</div>
           ) : (
-            results.map((r, i) => {
+            allResults.map((r, i) => {
               const Icon = r.icon;
               // When not searching, group results under a section header per kind.
-              const showHeader = !query.trim() && (i === 0 || results[i - 1].kind !== r.kind);
-              const sectionLabel = r.kind === 'space' ? 'Spaces' : r.kind === 'tab' ? 'Tabs' : 'Agents';
+              const showHeader = !query.trim() && (i === 0 || allResults[i - 1].kind !== r.kind);
+              const sectionLabel = r.kind === 'space' ? 'Spaces' : r.kind === 'tab' ? 'Tabs' : r.kind === 'knowledge' ? 'Knowledge' : 'Agents';
               return (
                 <div key={`${r.kind}-${r.id}`}>
                   {showHeader && (

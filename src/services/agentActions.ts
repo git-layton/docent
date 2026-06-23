@@ -15,9 +15,17 @@ export interface AgentAction {
   [k: string]: any;
 }
 
-/** Outbound (send) and destructive (delete) actions need explicit user approval. */
-export function actionNeedsApproval(a: AgentAction): boolean {
-  return a.op === 'send' || a.op === 'delete';
+/** Outbound (send) and destructive (delete) actions need explicit user approval, and running a saved
+ * playbook always does (it expands into multiple real actions). Additionally — trust model §3 rule 2:
+ * "authority actions are never driven solely by untrusted content" — when the current turn ingested
+ * untrusted-external content (a viewed web page, received mail, or messages), even the normally
+ * auto-applied writes (note/task/calendar create, task complete) require approval, because
+ * prompt-injection rides in on exactly that content. */
+export function actionNeedsApproval(a: AgentAction, turnIngestedUntrusted = false): boolean {
+  if (a.tool === 'playbook' && a.op === 'execute') return true;
+  if (a.op === 'send' || a.op === 'delete') return true;
+  if (turnIngestedUntrusted) return true;
+  return false;
 }
 
 /** Extract ```forge:action``` JSON blocks from an agent message. Tolerant — skips malformed blocks. */
@@ -56,6 +64,8 @@ export function describeAction(a: AgentAction): string {
     case 'note.delete': return `Delete a note`;
     case 'task.delete': return `Delete a to-do`;
     case 'calendar.delete': return `Delete a calendar event`;
+    case 'playbook.capture': return `Save “${a.title ?? 'this'}” as a reusable playbook`;
+    case 'playbook.execute': return `Run the “${a.title ?? a.id ?? ''}” playbook — you'll approve each step`;
     default: return `${a.tool} ${a.op}`;
   }
 }
@@ -104,10 +114,10 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
       const accounts = ((useSettingsStore.getState().integrations as any)?.mailAccounts ?? []) as Array<{ email: string; provider: string }>;
       const acct = a.account ? accounts.find(x => x.email === a.account) : accounts[0];
       if (!acct) throw new Error('No mail account is connected');
-      const cred = await invoke<{ ok: boolean; password?: string }>('keychain_get', { host: `mail:${acct.email}` }).catch(() => ({ ok: false } as { ok: boolean; password?: string }));
-      if (!cred?.ok || !cred.password) throw new Error(`No saved password for ${acct.email}`);
+      const cred = await invoke<{ ok: boolean }>('keychain_get', { host: `mail:${acct.email}` }).catch(() => ({ ok: false }));
+      if (!cred?.ok) throw new Error(`No saved password for ${acct.email}`);
       await invoke('mail_send', {
-        provider: acct.provider, email: acct.email, password: cred.password,
+        provider: acct.provider, email: acct.email,
         to: Array.isArray(a.to) ? a.to : [a.to].filter(Boolean),
         cc: Array.isArray(a.cc) ? a.cc : [], subject: String(a.subject ?? ''), body: String(a.body ?? ''), inReplyTo: null,
       });
@@ -116,6 +126,13 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
     case 'note.delete': { await getNotes().deleteNote(String(a.id)); return 'Deleted note'; }
     case 'task.delete': { await getTasks().deleteTask(String(a.id)); return 'Deleted to-do'; }
     case 'calendar.delete': { await getCalendar().deleteEvent(String(a.id)); return 'Deleted event'; }
+    // SAFETY BACKSTOP: a playbook is a PROPOSAL, never an executor. Approving a playbook.execute must
+    // re-emit each step as its own forge:action (so any per-step send/delete still hits the approval
+    // gate) — steps must NEVER run from here. Reaching this means the proposal-expansion was bypassed.
+    case 'playbook.execute':
+      throw new Error('A playbook cannot be executed directly — each step must be re-emitted and approved.');
+    case 'playbook.capture':
+      throw new Error('playbook.capture is persisted at the app layer, not run through the connectors.');
     default:
       throw new Error(`Unknown action: ${a.tool}.${a.op}`);
   }

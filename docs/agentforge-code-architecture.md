@@ -35,7 +35,7 @@ project-context file** (P6) and treating **verification/preview-observation as c
 
 ```
 ┌─ SURFACE (human) ───────────────────────────────────────────────┐
-│  Canvas (make)        Doc (write)        Code (dev) ── a space   │
+│  Canvas (make)        Doc (write)        Code (dev) ── a canvas  │
 │                                          ├ file tree             │
 │                                          ├ editor (CodeMirror)   │
 │                                          ├ terminal (PTY)        │
@@ -264,3 +264,24 @@ audit accuracy.
 - **Files:** `spaces.ts` (`projectContextPath` + `AGENTS_TEMPLATE`), `llm.ts` (param in buildSystemPrompt +
   generateTextResponse), `useSpaceStore.ts` (state + action), `App.tsx` (3 generateTextResponse call sites + the
   `systemPromptLen` memo), a trust/spaces test. Lean, no new surface.
+
+---
+
+## 10. Update 2026-06-18 — Code is a canvas in any space (corrects §2 + §7)
+
+The product model was corrected (full detail in `agentforge-code-design.md` pt 11). The technical content
+above — principles P1–P10, the three layers, the security model, the tool inventory, the build phases — is
+unchanged. Two **framing details predate the correction** and are fixed here:
+
+- **§2 diagram / "Code (dev) ── a space":** Code is **not** a space. It is a **canvas** (the `agentforge-code`
+  tool tab) opened inside any *normal* space via `useSpaceStore.openCodeCanvas()`. It never creates or
+  switches spaces — spaces are uniform.
+- **§7 "right rail = the conversation about the work; Codey follows along; one driver":** the surface became
+  **chat-first** (design pt 8), so the **canvas CENTER is the conversation with Codey** — his standalone
+  `CODEY_CHAT_ID` thread, from which he drives files/terminal/preview. The **docked rail is the SPACE's own
+  agent group chat** (the same conversation as that space's full-page Chat tab, consistent across every
+  space) — **not** Codey. §7's "standard docked rail, consistent with every tab" is now *more* true than
+  when written; only the *occupant* is corrected: the rail is your real agents; Codey is the center.
+
+Net: the architecture (engine, capabilities, security, phases) is as described; only "Code = a space" and
+"rail = Codey" were re-homed to "Code = a canvas in any space" and "rail = the space's group chat."

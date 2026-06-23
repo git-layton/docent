@@ -108,6 +108,23 @@ describe('fileAccess consent — grants', () => {
     expect(findGrant(readOnly, '/Users/me/Docs/a.md', 'read')).not.toBeNull();
   });
 
+  it('does NOT let a file-write grant authorize a command, or vice-versa (SEC-GRANTS)', () => {
+    // The folder grant above is effect 'write'; a command request must not match it.
+    expect(findGrant(grants, '/Users/me/Projects/app', 'command')).toBeNull();
+    const cmd = { c: makeGrant('/Users/me/Projects', 'folder', 'command', 1) };
+    expect(findGrant(cmd, '/Users/me/Projects/app', 'command')).not.toBeNull();
+    // ...and a command grant must not satisfy a file write or read.
+    expect(findGrant(cmd, '/Users/me/Projects/app', 'write')).toBeNull();
+    expect(findGrant(cmd, '/Users/me/Projects/app', 'read')).toBeNull();
+  });
+
+  it('skips expired grants when a clock is provided (SEC-GRANTS)', () => {
+    const expiring = { e: makeGrant('/Users/me/Repo', 'folder', 'command', 1000, 60_000) }; // expires at 61000
+    expect(findGrant(expiring, '/Users/me/Repo/x', 'command', 30_000)).not.toBeNull(); // before expiry
+    expect(findGrant(expiring, '/Users/me/Repo/x', 'command', 99_000)).toBeNull();     // after expiry
+    expect(findGrant(expiring, '/Users/me/Repo/x', 'command')).not.toBeNull();         // no clock ⇒ not enforced
+  });
+
   it('isPreapproved: workspace always, external only with a covering grant, command never', () => {
     expect(isPreapproved({ action: 'write', path: 'a.md', content: 'x' }, ROOT, {})).toBe(true);
     expect(isPreapproved({ action: 'write', path: '/Users/me/Desktop/report.md', content: 'x' }, ROOT, grants)).toBe(true);

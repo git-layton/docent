@@ -1,0 +1,62 @@
+# cargo-deny configuration for Agent Forge (src-tauri crate).
+# Goal: surface real security advisories and license problems, while staying
+# green on a healthy tree on day one (yanked-tolerant, version-dup is a warning).
+#
+# Run with: cargo deny --manifest-path src-tauri/Cargo.toml check
+
+[graph]
+# Only audit the macOS target the app actually ships on.
+targets = [
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-apple-darwin" },
+]
+all-features = true
+
+[advisories]
+# Database of RustSec advisories.
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Real vulnerabilities and unmaintained crates should fail the build.
+vulnerability = "deny"
+unmaintained = "warn"
+unsound = "warn"
+# Security notices we want to know about but not be blocked by on day one.
+notice = "warn"
+# Yanked crates are tolerated as a baseline so a single upstream yank can't
+# turn CI red without warning.
+yanked = "warn"
+# Advisories acknowledged and intentionally ignored go here (id strings).
+ignore = []
+
+[licenses]
+# Permissive licenses compatible with bundling llama.cpp (MIT) and the broad
+# transitive crate graph pulled in by Tauri / wry / webkit bindings.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+]
+# Require a fairly high textual match before trusting a detected license.
+confidence-threshold = 0.8
+
+[bans]
+# Multiple versions of the same crate are common in a large graph (Tauri etc.);
+# warn so it's visible without blocking.
+multiple-versions = "warn"
+wildcards = "warn"
+# Prefer the highest semver when the same crate appears at several versions.
+highlight = "all"
+allow = []
+deny = []
+
+[sources]
+# Only crates.io is an allowed registry; unknown registries/git sources fail.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

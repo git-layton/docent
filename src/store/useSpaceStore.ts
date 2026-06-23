@@ -1,19 +1,27 @@
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
 import { db } from '../services/database';
 import type { OmniTab, Space, SpaceKind } from '../types/omniTab';
 import { useChatStore } from './useChatStore';
-import { useAgentStore } from './useAgentStore';
+import { useAgentStore, resolveCodeyId, CODEY_ASSISTANT } from './useAgentStore';
 import { normalizeChatRecord } from '../services/channels';
-
-const generateId = (prefix: string) =>
-  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+import { projectContextPath, AGENTS_TEMPLATE } from '../services/fileAccess/spaces';
+import { generateId } from '../lib/id';
 
 // Bump when the persisted schema changes in a breaking way — forces a clean reseed.
 // v3: Spaces are unified containers — each carries `kind` + its own `chatId`.
 // v4: one-time full reset — also wipes all conversations so DM/Space threads start fully isolated.
-const STORE_VERSION = '4';
+// v5: Code is a canvas, not a space — reseed to drop any stale dedicated "Code" space (space-code) +
+//     its Team thread left over from the old architecture, so spaces are uniform again.
+const STORE_VERSION = '5';
 
 const HOME_CHAT_ID = 'chat-home';
+
+// Codey's coding conversation — a standalone DM with Codey that the code canvas surfaces wherever you
+// open it. NOT tied to a space: spaces are uniform (each has its own agent group chat); Codey is ONLY
+// the code-canvas copilot. Stable id so the canvas always reuses the one Codey thread. (Replaces the
+// old CODE_CHAT_ID / dedicated "Code" space, which incorrectly made Codey a space's chat driver.)
+export const CODEY_CHAT_ID = 'chat-codey';
 
 const defaultSpace: Space = {
   id: 'space-home',
@@ -69,6 +77,9 @@ interface SpaceStore {
   activeSpaceId: string | null;
   omniTabs: OmniTab[];
   activeOmniTabId: string | null;
+  /** The active space's AGENTS.md contents (project context). Empty until loaded; folded into the
+   *  agent's system prompt every turn (P6). Loaded by loadProjectContext on space switch + hydrate. */
+  activeProjectContext: string;
 
   setActiveTab(id: string): void;
   openTab(tab: Omit<OmniTab, 'id'>): string;
@@ -81,10 +92,18 @@ interface SpaceStore {
   toggleFavorite(id: string): void;
   createSpace(name: string, agentIds?: string[], kind?: SpaceKind): Space;
   openAgentDm(agent: { id: string; name?: string }): string;
+  /** Open the code canvas (Codey's coding surface) in the CURRENT space — ensures the built-in Codey
+   *  + his standalone conversation exist, then opens/focuses the agentforge-code tool tab in the active
+   *  space. Code is a canvas, not a space; the space's own group chat stays the rail beside it.
+   *  Returns the tab id. */
+  openCodeCanvas(): string;
   deleteSpace(id: string): void;
   updateSpace(id: string, patch: Partial<Space>): void;
   setAgentGoal(spaceId: string, agentId: string, goal: string): void;
   setActiveSpaceId(id: string | null): void;
+  /** Read spaces/<id>/AGENTS.md into activeProjectContext, creating it from AGENTS_TEMPLATE if missing
+   *  (fs_write auto-creates the dir + git-commits). Fire-and-forget; no-op outside Tauri. */
+  loadProjectContext(spaceId: string | null | undefined): Promise<void>;
 
   hydrate(): Promise<void>;
   persist(): Promise<void>;
@@ -95,6 +114,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
   activeSpaceId: null,
   omniTabs: [],
   activeOmniTabId: null,
+  activeProjectContext: '',
 
   setActiveTab: (id) => set({ activeOmniTabId: id }),
 
@@ -268,6 +288,37 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     return containerId;
   },
 
+  openCodeCanvas: () => {
+    // Code is a CANVAS, not a space. Ensure the built-in Codey exists (reseed if the user deleted it),
+    // make sure Codey's standalone conversation exists, then open the code-canvas surface IN THE CURRENT
+    // space — so that space's own agent group chat stays the rail beside it. No special space, no Team
+    // thread. Codey is only the code copilot; the rail is uniform with every other space.
+    const agentStore = useAgentStore.getState();
+    const hasCodey = agentStore.assistants.some(
+      (a: any) => a.id === 'forge-dev' || a.role === 'Engineer' || a.name === 'Codey',
+    );
+    if (!hasCodey) {
+      agentStore.setAssistants((prev: any[]) => [...prev, CODEY_ASSISTANT]);
+      agentStore.persist();
+    }
+    const codeyId = resolveCodeyId(useAgentStore.getState().assistants) ?? 'forge-dev';
+    // Codey's conversation — a DM with just Codey (he naturally drives a one-agent thread). Shared by
+    // every code canvas so you keep one continuous Codey thread regardless of which space you opened it in.
+    ensureChatThread(CODEY_CHAT_ID, { kind: 'dm', name: 'Codey', primaryAgentId: codeyId, agentIds: [codeyId] });
+
+    // Open (or focus) the code canvas in the CURRENT space — reuse an existing one rather than stacking.
+    const spaceId = get().activeSpaceId ?? undefined;
+    const existing = get().omniTabs.find(
+      t => t.spaceId === spaceId && t.type === 'tool' && t.toolId === 'agentforge-code',
+    );
+    if (existing) {
+      set({ activeOmniTabId: existing.id });
+      get().persist();
+      return existing.id;
+    }
+    return get().openTab({ type: 'tool', toolId: 'agentforge-code', label: 'Code', spaceId });
+  },
+
   deleteSpace: (id) => {
     set(s => ({ spaces: s.spaces.filter(sp => sp.id !== id) }));
     get().persist();
@@ -310,6 +361,30 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       if (primary) useAgentStore.getState().setActiveFolderId(primary);
     }
     get().persist();
+
+    // Fold this space's AGENTS.md into the agent's context (P6). Fire-and-forget so a slow/failed
+    // read never blocks the space switch; the prompt simply omits the block until it loads.
+    get().loadProjectContext(id).catch(() => {});
+  },
+
+  // Read (or seed) the active space's AGENTS.md into activeProjectContext. Guarded with the same
+  // __TAURI_INTERNALS__ check files.ts uses, so it's a no-op in non-Tauri/test environments. On a
+  // missing file, write the AGENTS_TEMPLATE (fs_write auto-creates the dir + git-commits) and use it.
+  loadProjectContext: async (spaceId) => {
+    if (!spaceId) { set({ activeProjectContext: '' }); return; }
+    if (!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
+    const path = projectContextPath(spaceId);
+    try {
+      const res = await invoke<{ ok: boolean; content?: string }>('fs_read', { path });
+      if (res?.ok) {
+        set({ activeProjectContext: res.content ?? '' });
+      } else {
+        await invoke('fs_write', { path, content: AGENTS_TEMPLATE });
+        set({ activeProjectContext: AGENTS_TEMPLATE });
+      }
+    } catch {
+      // Leave whatever's loaded; never throw out of a fire-and-forget caller.
+    }
   },
 
   hydrate: async () => {
@@ -358,9 +433,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       await db.set('spaceStoreActiveIds', { activeOmniTabId, activeSpaceId });
     }
 
-    // Land on the active Space's chat (your agent) on launch, so the selected agent is front
-    // and center — Alexis by default, or whoever you were last with. The Home (StartPage) tab is
-    // kept available one click away. Fall back to Home only if the Space somehow has no chat tab.
+    // Land on the HOME screen (the StartPage overview of apps + agents) on launch — not straight into a
+    // conversation. Your space's chat is one click away (its Chat tab). Ensure a Home tab exists, then
+    // make it active.
     {
       const st = get();
       const sid = st.activeSpaceId ?? 'space-home';
@@ -369,8 +444,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         home = { id: generateId('tab'), type: 'home', label: 'Home', spaceId: sid };
         set(s => ({ omniTabs: [...s.omniTabs, home!] }));
       }
-      const chat = get().omniTabs.find(t => t.type === 'space-log' && t.spaceId === sid);
-      set({ activeOmniTabId: (chat ?? home).id });
+      set({ activeOmniTabId: home.id });
     }
 
     // Reconcile the active conversation with the active container's own thread,
@@ -387,6 +461,10 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       const primary = active.agentIds[0];
       if (primary) useAgentStore.getState().setActiveFolderId(primary);
     }
+
+    // Load the active space's AGENTS.md into context once the active space is settled (P6).
+    // Fire-and-forget — hydrate must not block on a workspace read.
+    get().loadProjectContext(get().activeSpaceId).catch(() => {});
   },
 
   persist: async () => {

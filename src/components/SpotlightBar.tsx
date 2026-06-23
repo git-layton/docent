@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { writeMemory } from '../lib/ipc';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit } from '@tauri-apps/api/event';
 import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX } from 'lucide-react';
@@ -238,7 +239,7 @@ export default function SpotlightBar() {
     // Create new chat if none active
     let chatId = activeChatId;
     let currentChats = chats;
-    let folderId = selectedAgentId || 'f-default';
+    const folderId = selectedAgentId || 'f-default';
     if (!chatId) {
       chatId = newId();
       const chat: Chat = { id: chatId, folderId, name: truncate(command, 32), updatedAt: Date.now() };
@@ -341,11 +342,10 @@ export default function SpotlightBar() {
         const slug = slugify(tab?.title || command);
         const filename = `${now.toISOString().slice(0, 10)}-${slug}-${now.getTime()}.md`;
         const frontmatter = `---\ntitle: "${(tab?.title || command).replace(/"/g, "'")}"\nsource: "${tab?.url || ''}"\nagent: "${selectedAgent?.name || 'default'}"\ndate: "${now.toISOString()}"\n---\n\n`;
-        await invoke('write_memory', {
+        await writeMemory({
           path: `${kc.path}/memory/research/${filename}`,
           content: frontmatter + `**${command}**\n\n${finalContent}`,
-          commit_message: `spotlight: ${command.slice(0, 60)}`,
-          agent_id: null, context_tokens: null, ram_state: null,
+          commitMessage: `spotlight: ${command.slice(0, 60)}`,
         });
       } catch { /* best-effort */ }
 

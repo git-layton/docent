@@ -8,10 +8,12 @@ export type MemoryType =
   | 'medical'
   | 'research'
   | 'todo'
+  | 'playbook'    // applied memory: a reusable, trigger-keyed procedure (see services/appliedMemory.ts)
+  | 'voice_card'  // reserved: a per-relationship voice promoted from the in-memory byRecipient map
   | 'none';
 export type EvidenceState = 'first_party' | 'source_backed' | 'inferred' | 'needs_verification' | 'conflicting';
 export type ConfidenceLabel = 'low' | 'medium' | 'high';
-export type ToolRoute = 'memory_search' | 'web_search' | 'browser' | 'integrations' | 'files' | 'calendar' | 'another_agent' | 'none';
+export type ToolRoute = 'memory_search' | 'web_search' | 'browser' | 'integrations' | 'files' | 'calendar' | 'another_agent' | 'preview' | 'none';
 export type PrivacyLabel = 'normal' | 'personal' | 'sensitive';
 
 export interface MemoryGatekeeperInput {
@@ -48,10 +50,10 @@ export interface MemoryGatekeeperDecision {
 
 const CLASSIFICATIONS = ['skip', 'background', 'notable', 'explicit'] as const;
 const DESTINATIONS = ['agent_memory', 'channel_memory', 'library', 'task', 'inbox_only', 'skip'] as const;
-const MEMORY_TYPES = ['preference', 'decision', 'fact', 'project_context', 'medical', 'research', 'todo', 'none'] as const;
+const MEMORY_TYPES = ['preference', 'decision', 'fact', 'project_context', 'medical', 'research', 'todo', 'playbook', 'voice_card', 'none'] as const;
 const EVIDENCE_STATES = ['first_party', 'source_backed', 'inferred', 'needs_verification', 'conflicting'] as const;
 const CONFIDENCE_LABELS = ['low', 'medium', 'high'] as const;
-const TOOL_ROUTES = ['memory_search', 'web_search', 'browser', 'integrations', 'files', 'calendar', 'another_agent', 'none'] as const;
+const TOOL_ROUTES = ['memory_search', 'web_search', 'browser', 'integrations', 'files', 'calendar', 'another_agent', 'preview', 'none'] as const;
 const PRIVACY_LABELS = ['normal', 'personal', 'sensitive'] as const;
 
 const TRIVIAL_RE = /^(lol|lmao|haha|thanks|thank you|thx|ok|okay|yes|no|yep|nah|cool|nice|got it|sounds good|perfect)[.!?\s]*$/i;
@@ -139,6 +141,8 @@ function routeToolCandidates(input: MemoryGatekeeperInput, text: string, isExpli
   if (forced === 'workspace') routes.push('memory_search');
   if (forced === 'search') routes.push('web_search');
   if (forced === 'browse') routes.push('browser');
+  // 'preview' — the "Codey, look at this" affordance / preview-observe capability (docs pt 10).
+  if (forced === 'preview') routes.push('preview');
   if (forced) return routes.length > 0 ? routes : ['none'];
 
   if ((enabled.calendar_sync || enabled.google_calendar) && TASK_RE.test(text)) routes.push('calendar');
@@ -316,7 +320,7 @@ export function extractMemoryCandidateText(text: string): string {
   let cleaned = stripSystemPrefixes(text);
   cleaned = cleaned
     .replace(/^(please\s+)?(remember|save this to library|save to library|add this to library|add to library|save|note|take a note|add to memory|log this|pin this)\s*/i, '')
-    .replace(/^(this|that)\s*[:\-]?\s*/i, '')
+    .replace(/^(this|that)\s*[:-]?\s*/i, '')
     .trim();
   if (/^(this|that|save this|remember this|note this)$/i.test(cleaned)) return '';
   return cleaned;
@@ -348,6 +352,9 @@ export function buildGatekeeperMemoryWrite(input: {
   channelId?: string | null;
   text: string;
   decision: MemoryGatekeeperDecision;
+  // When present, the saved memory captures the whole exchange (what was asked + answered), not just
+  // the user's line. Used by salience-driven auto-capture; the explicit "remember this" path omits it.
+  answer?: string;
   now?: Date;
 }): { path: string; title: string; content: string } {
   const now = input.now ?? new Date();
@@ -363,6 +370,7 @@ export function buildGatekeeperMemoryWrite(input: {
       : `${input.rootPath}/memory/${agentId}/gatekeeper`;
   const path = `${basePath}/${slug}.md`;
   const candidate = extractMemoryCandidateText(input.text);
+  const answer = String(input.answer ?? '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const frontmatter = [
     '---',
     `title: ${yamlString(title)}`,
@@ -381,16 +389,30 @@ export function buildGatekeeperMemoryWrite(input: {
     '---',
   ].filter(Boolean).join('\n');
 
-  const body = [
-    frontmatter,
-    '',
-    `# ${title}`,
-    '',
-    `Gatekeeper reason: ${input.decision.reason}`,
-    '',
-    '## Memory',
-    candidate,
-  ].join('\n');
+  const body = answer
+    ? [
+        frontmatter,
+        '',
+        `# ${title}`,
+        '',
+        `Gatekeeper reason: ${input.decision.reason}`,
+        '',
+        '## Asked',
+        candidate || stripSystemPrefixes(input.text),
+        '',
+        '## Answer',
+        answer.slice(0, 1800),
+      ].join('\n')
+    : [
+        frontmatter,
+        '',
+        `# ${title}`,
+        '',
+        `Gatekeeper reason: ${input.decision.reason}`,
+        '',
+        '## Memory',
+        candidate,
+      ].join('\n');
 
   return { path, title, content: body };
 }

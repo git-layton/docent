@@ -352,7 +352,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       setKbSaved(false);
 
       let title = '';
-      let text = '';
+      const text = '';
       let isPrivate = false;
 
       try {

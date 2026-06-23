@@ -1,30 +1,40 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
   FolderGit2, Folder, FileText, FolderPlus, FileInput, RotateCw, Trash2, Pencil,
   ExternalLink, Link2, Copy, RefreshCw, X, GitBranch, ChevronRight, Home, Search,
-  ShieldAlert, Check, Clock, CornerUpLeft, Unlink,
+  ShieldAlert, Settings2, ChevronDown, TerminalSquare, Files, Monitor, CornerUpLeft, Unlink,
+  Eye,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useSpaceStore } from '../store/useSpaceStore';
-import { useToolContextStore } from '../store/useToolContextStore';
+import { useSpaceStore, CODEY_CHAT_ID } from '../store/useSpaceStore';
+import { useUIStore } from '../store/useUIStore';
+import { useAgentStore } from '../store/useAgentStore';
+import { ChatPanel } from './ChatPanel';
+import type { SpaceLogProps, ChatInputBarProps } from './ChatPanel';
 import { parseProvenance, provenanceComment, stripProvenance, importTargetName } from '../services/fileAccess/provenance';
 import { spaceHome, spacePath, relativeToSpace } from '../services/fileAccess/spaces';
-import { makeGrant, grantKey } from '../services/fileAccess/consent';
+import { TerminalPane } from './TerminalPane';
+import { makeGrant } from '../services/fileAccess/consent';
+import { resolveCodeyId } from '../store/useAgentStore';
+import { extractTextFromPDF } from '../services/pdfParser';
+import { modelSupportsVision, hasVisionProvider } from '../services/llm';
 import type { Provenance } from '../services/fileAccess/provenance';
-import type { FileActivityEntry, FileGrant, GrantScope } from '../services/fileAccess/types';
+import type { FileActivityEntry, GrantScope } from '../services/fileAccess/types';
 
-// AgentForge Code — the human-facing cockpit over the agent's file-access engine. It browses the
-// agent's workspace (~/AgentForge/workspace), brings in real files (recommending work-in-place for
-// repos vs a tracked copy for loose docs), and surfaces the grants + activity the engine already
-// records. The agent reaches the same files via ```file_op blocks; this is just the front door.
-// Phase 1 of the AgentForge Code roadmap (editor → terminal/git come next). See the design doc.
+// ── AgentForge Code — chat-first cockpit (pt 8) ────────────────────────────────
+// The Code surface is a CONVERSATION with Codey, the code copilot, who drives the work via the
+// app's existing chat machinery (the inline file_op diff cards + command-result cards flow through
+// renderMessageWithWidgets, so coding actions render right in the thread). Files / Terminal / Preview
+// are togglable side panels — NOT the default view, and NOT tabs. The default view is just Codey's
+// chat. The Files panel reuses the original browse/import/preview engine; Terminal reuses TerminalPane;
+// Preview frames a localhost dev server. See docs/agentforge-code-design.md pt 8.
 
 interface Entry { name: string; path: string; isDir: boolean; size: number }
-type View = 'workspace' | 'linked' | 'activity';
+type SidePanel = 'files' | 'terminal' | 'preview';
 interface Selected { path: string; content: string; provenance: Provenance | null }
 interface ImportRec { source: string; inProject: boolean; isRepo: boolean; root?: string }
 
@@ -48,19 +58,91 @@ function parentOf(path: string): string {
   return path.split('/').slice(0, -1).join('/');
 }
 
-export function AgentForgeCodePanel() {
+interface AgentForgeCodePanelProps {
+  // The canvas CENTER is a chat with Codey (his standalone CODEY_CHAT_ID conversation). These bags are
+  // pointed at that thread + Codey; the panel layers in the center composer's OWN buffer so it never
+  // shares state with the space's group chat (the co-pilot rail beside the canvas). onSendCodeyMessage
+  // sends to a specific chatId via processChatRequest, never touching the global active (space) chat.
+  codeySpaceLogProps: SpaceLogProps;
+  codeyChatInputBarProps: ChatInputBarProps;
+  onSendCodeyMessage: (targetChatId: string, text: string, attachments: any[]) => void;
+}
+
+export function AgentForgeCodePanel({
+  codeySpaceLogProps,
+  codeyChatInputBarProps,
+  onSendCodeyMessage,
+}: AgentForgeCodePanelProps) {
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
   const workspaceRoot = agentForgePath ? `${agentForgePath}/workspace` : '';
-  const grants = useSettingsStore(s => s.appSettings.fileAccessGrants ?? {});
-  const activity = useSettingsStore(s => s.appSettings.fileActivity ?? []);
-  const revokeFileGrant = useSettingsStore(s => s.revokeFileGrant);
   // A space ≈ a project; each gets its own home folder (spaces/<id>/) under the workspace jail, so its
   // files stay separate from other spaces'. See docs/agentforge-code-design.md.
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
-  const spaceName = useSpaceStore(s => s.spaces.find(x => x.id === s.activeSpaceId)?.name ?? 'Workspace');
+  const activeSpace = useSpaceStore(s => s.spaces.find(x => x.id === s.activeSpaceId) ?? null);
+  const spaceName = activeSpace?.name ?? 'Code';
   const rootPath = spaceHome(activeSpaceId);
 
-  const [view, setView] = useState<View>('workspace');
+  // Codey is the code copilot — his standalone conversation (CODEY_CHAT_ID) is the canvas CENTER, fed by
+  // codeySpaceLogProps/codeyChatInputBarProps with its own composer buffer (below). No global activeChatId
+  // pinning: that stays the space's group chat, which renders as the co-pilot rail beside this canvas.
+  const assistants = useAgentStore(s => s.assistants);
+  const models = useSettingsStore(s => s.models);
+  const developerMode = useSettingsStore(s => s.appSettings.developerMode ?? false);
+  const codeAgent = useMemo(() => {
+    const codeyId = resolveCodeyId(assistants);
+    return assistants.find((a: any) => a.id === codeyId) ?? assistants[0];
+  }, [assistants]);
+
+  // Empty conversation → show the friendly first-run hero instead of a bare composer.
+  const isFirstRun = (codeySpaceLogProps.activeMessages?.length ?? 0) === 0;
+
+  // ── Side panels (toggled open; default = just the conversation) ──
+  const [sidePanel, setSidePanel] = useState<SidePanel | null>(null);
+  const [showGear, setShowGear] = useState(false);
+
+  // ── Center composer buffer (Codey) ──────────────────────────────────────────────────────────────
+  // The canvas center talks to Codey via its OWN input buffer (codeyInput/codeyDocs) — NOT the global
+  // useUIStore composer, which belongs to the space group chat (the co-pilot rail). Keeping them separate
+  // means typing/attaching here never touches the rail's composer, and the two conversations stay clean.
+  const [codeyInput, setCodeyInput] = useState('');
+  const [codeyDocs, setCodeyDocs] = useState<any[]>([]);
+  const codeyFileInputRef = useRef<HTMLInputElement | null>(null);
+  const sendCodeyMessage = useCallback(() => {
+    if (!codeyInput.trim() && codeyDocs.length === 0) return;
+    onSendCodeyMessage(CODEY_CHAT_ID, codeyInput, codeyDocs);
+    setCodeyInput('');
+    setCodeyDocs([]);
+  }, [codeyInput, codeyDocs, onSendCodeyMessage]);
+
+  // Center-local file upload — writes into the center's OWN attachment buffer (codeyDocs), not the global
+  // useUIStore the rail composer uses. Mirrors App.handleChatFileUpload's text/image/PDF handling.
+  const handleCodeyFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const ui = useSettingsStore.getState();
+    if (file.size > 5 * 1024 * 1024) { setToast('File is too large. Max 5MB allowed.'); e.target.value = ''; return; }
+    if (file.type === 'application/pdf') {
+      try {
+        const text = await extractTextFromPDF(file);
+        setCodeyDocs(prev => [...prev, { name: file.name, content: text, type: 'text/plain', isImage: false }]);
+      } catch { setToast('Failed to parse PDF.'); }
+      e.target.value = ''; return;
+    }
+    const reader = new FileReader();
+    if (file.type.startsWith('image/')) {
+      const sel = ui.models.find(m => m.id === ui.selectedModelId) ?? ui.models[0] ?? null;
+      if (!modelSupportsVision(sel) && !hasVisionProvider(ui.appSettings, ui.integrations, ui.models)) {
+        setToast("This model can't read images. Turn on Image Understanding, or pick a vision model.");
+        e.target.value = ''; return;
+      }
+      reader.onloadend = () => setCodeyDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
+      reader.readAsDataURL(file);
+    } else {
+      reader.onloadend = () => setCodeyDocs(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
+      reader.readAsText(file);
+    }
+    e.target.value = '';
+  }, []);
+
   const [cwd, setCwd] = useState<string>(() => spaceHome(useSpaceStore.getState().activeSpaceId));
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -70,6 +152,37 @@ export function AgentForgeCodePanel() {
   const [toast, setToast] = useState<string | null>(null);
   const [importRec, setImportRec] = useState<ImportRec | null>(null);
 
+  // ── Preview: a localhost dev server framed in a sandboxed iframe (v1: manual URL, no auto-detect) ──
+  const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
+  const [previewLive, setPreviewLive] = useState('');
+  const [previewKey, setPreviewKey] = useState(0);
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Frame a URL in the iframe AND lift it into shared state so the preview-observe capability reads
+  // the EXACT same URL the human is looking at (docs pt 10). Keeps the human view and Codey's read
+  // identical — no guessing localhost:3000.
+  const goPreview = useCallback((raw: string) => {
+    const url = raw.trim();
+    setPreviewLive(url);
+    setPreviewKey(k => k + 1);
+    useUIStore.getState().setCodePreviewUrl(url || null);
+  }, []);
+
+  // "Codey, look at this" — force the preview-observe route and ask Codey to read the running app and
+  // fix anything broken (the verify loop). Sends through the normal Codey composer pipeline.
+  const observePreview = useCallback(() => {
+    if (!previewLive) { setToast('Enter a dev-server URL and hit Go first.'); return; }
+    useUIStore.getState().setCodePreviewUrl(previewLive);
+    // Hand the LOOK screenshot the iframe's on-screen rect (CSS points) so it crops to the running app,
+    // not the whole AgentForge window. If unmeasurable (null), webview_screenshot now errors and LOOK
+    // falls back to READ — it never captures the full window.
+    const el = previewFrameRef.current;
+    const r = el?.getBoundingClientRect();
+    useUIStore.getState().setCodePreviewRect(r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
+    useUIStore.getState().setForcedTool('preview');
+    onSendCodeyMessage(CODEY_CHAT_ID, 'Look at the running preview and fix anything broken.', []);
+  }, [previewLive, onSendCodeyMessage]);
+
   const log = useCallback((action: FileActivityEntry['action'], path: string, ok: boolean, detail?: string) => {
     useSettingsStore.getState().logFileActivity({
       id: `afc-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
@@ -78,7 +191,7 @@ export function AgentForgeCodePanel() {
   }, []);
 
   const load = useCallback(async () => {
-    if (!hasTauri) { setError('The workspace lives on disk — open AgentForge Code in the desktop app to browse it.'); return; }
+    if (!hasTauri) { setError('The workspace lives on disk — open the desktop app to browse it.'); return; }
     setLoading(true); setError(null);
     try {
       const res = await invoke<any>('fs_list', { path: cwd });
@@ -91,20 +204,11 @@ export function AgentForgeCodePanel() {
     }
   }, [cwd]);
 
-  useEffect(() => { if (view === 'workspace') void load(); }, [view, load]);
+  // Only fetch the file list while the Files panel is open (the default view is the chat).
+  useEffect(() => { if (sidePanel === 'files') void load(); }, [sidePanel, load]);
 
   // Follow the active space — jump to its home folder when you switch spaces.
   useEffect(() => { setCwd(rootPath); setSelected(null); }, [rootPath]);
-
-  // Publish what's on screen to the docked agent (workspace files are trusted-local → no source tag).
-  useEffect(() => {
-    const here = relativeToSpace(activeSpaceId, cwd);
-    const text = selected
-      ? `Open file "${relativeToSpace(activeSpaceId, selected.path)}" in space "${spaceName}":\n${selected.content.slice(0, 4000)}`
-      : `AgentForge Code — space "${spaceName}" /${here}\n` + entries.slice(0, 60).map(e => `${e.isDir ? '📁 ' : ''}${relativeToSpace(activeSpaceId, e.path)}`).join('\n');
-    useToolContextStore.getState().setToolContext({ label: selected ? `Code: ${relativeToSpace(activeSpaceId, selected.path)}` : `Code · ${spaceName}`, text });
-    return () => useToolContextStore.getState().clearToolContext();
-  }, [selected, entries, cwd, activeSpaceId, spaceName]);
 
   useEffect(() => {
     if (!toast) return;
@@ -185,8 +289,7 @@ export function AgentForgeCodePanel() {
     useSettingsStore.getState().addFileGrant(makeGrant(target, scope, 'write', Date.now()));
     log('write', target, true, `linked for in-place editing (${scope})`);
     setImportRec(null);
-    setView('linked');
-    setToast(`Linked ${target} — the agent can now work here in place`);
+    setToast(`Linked ${target} — Codey can now work here in place`);
   };
 
   // ── Provenance actions on the open file ───────────────────────────────────
@@ -227,181 +330,352 @@ export function AgentForgeCodePanel() {
     () => (query ? entries.filter(e => e.name.toLowerCase().includes(query.toLowerCase())) : entries),
     [entries, query],
   );
-  const grantList = useMemo(() => Object.entries(grants) as Array<[string, FileGrant]>, [grants]);
 
-  const Segment = ({ id, label }: { id: View; label: string }) => (
+  const toggle = (panel: SidePanel) => setSidePanel(prev => (prev === panel ? null : panel));
+
+  const ToggleButton = ({ panel, icon: Icon, label }: { panel: SidePanel; icon: any; label: string }) => (
     <button
-      onClick={() => { setView(id); setSelected(null); }}
+      onClick={() => toggle(panel)}
       className={clsx(
-        'px-3 py-1 rounded-md text-xs font-semibold transition-colors',
-        view === id ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2',
+        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+        sidePanel === panel ? 'bg-accent-soft text-accent border-accent/40' : 'text-ink-2 border-edge-2 hover:bg-wash',
       )}
-    >{label}</button>
+      title={`Toggle ${label}`}
+    >
+      <Icon className="w-3.5 h-3.5" /> {label}
+    </button>
   );
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel">
-      {/* Header */}
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel relative">
+      {/* ── Header: project name + gear + Files·Terminal·Preview toggles ── */}
       <div className="h-12 flex items-center gap-3 px-4 border-b border-edge shrink-0">
-        <FolderGit2 className="w-4 h-4 text-ink-3" />
-        <span className="text-sm font-semibold text-ink">Code</span>
-        <div className="flex items-center gap-1 ml-2 p-0.5 rounded-lg bg-inset">
-          <Segment id="workspace" label="Workspace" />
-          <Segment id="linked" label="Linked files" />
-          <Segment id="activity" label="Activity" />
-        </div>
+        <FolderGit2 className="w-4 h-4 text-ink-3 shrink-0" />
+        <span className="text-sm font-semibold text-ink truncate">{spaceName}</span>
         <div className="flex-1" />
-        {view === 'workspace' && (
-          <>
-            <button onClick={createFolder} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-ink-2 border border-edge-2 hover:bg-wash transition-colors" title="New folder">
-              <FolderPlus className="w-3.5 h-3.5" /> New folder
+
+        <ToggleButton panel="files" icon={Files} label="Files" />
+        <ToggleButton panel="terminal" icon={TerminalSquare} label="Terminal" />
+        <ToggleButton panel="preview" icon={Monitor} label="Preview" />
+
+        {/* ── Codey settings gear (model + Developer Mode + Edit agent) ── */}
+        {codeAgent && (
+          <div className="relative ml-1">
+            <button
+              onClick={() => setShowGear(v => !v)}
+              className={clsx(
+                'flex items-center gap-1 px-2 py-1.5 rounded-lg border transition-colors',
+                showGear ? 'bg-accent-soft text-accent border-accent/40' : 'text-ink-2 border-edge-2 hover:bg-wash',
+              )}
+              title={`${codeAgent.name}'s settings`}
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <ChevronDown className={clsx('w-3 h-3 text-ink-3 transition-transform', showGear && 'rotate-180')} />
             </button>
-            <button onClick={bringInFile} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity" title="Bring in a file">
-              <FileInput className="w-3.5 h-3.5" /> Bring in a file…
-            </button>
-            <button onClick={() => load()} disabled={loading} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Refresh">
-              <RotateCw className={clsx('w-3.5 h-3.5', loading && 'animate-spin')} />
-            </button>
-          </>
+
+            {showGear && (
+              <>
+                {/* Outside-click catcher — mirrors the import sheet's overlay/stopPropagation pattern. */}
+                <div className="fixed inset-0 z-40" onClick={() => setShowGear(false)} />
+                <div
+                  className="absolute right-0 top-full mt-2 z-50 w-72 bg-panel-2 rounded-xl border border-edge shadow-2xl p-4 flex flex-col gap-3.5"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-2">
+                    <Settings2 className="w-4 h-4 text-accent shrink-0" />
+                    <span className="text-sm font-bold text-ink truncate">{codeAgent.name}</span>
+                    <span className="text-[10px] uppercase tracking-widest font-semibold text-ink-3 ml-auto">Code copilot</span>
+                  </div>
+
+                  {/* Model — Codey's defaultModelId; applied live if he's the active agent. */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-semibold text-ink-2">Model</label>
+                    <select
+                      value={codeAgent.defaultModelId ?? ''}
+                      onChange={e => {
+                        const nextId = e.target.value;
+                        useAgentStore.getState().setAssistants((prev: any[]) =>
+                          prev.map((a: any) => a.id === codeAgent.id ? { ...a, defaultModelId: nextId } : a),
+                        );
+                        void useAgentStore.getState().persist();
+                        if (codeAgent.id === useAgentStore.getState().activeFolderId && nextId) {
+                          useSettingsStore.getState().setSelectedModelId(nextId);
+                        }
+                      }}
+                      className="w-full bg-inset border border-edge rounded-lg px-3 py-2 text-xs font-medium text-ink outline-none focus:border-accent"
+                    >
+                      <option value="">Use current model</option>
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Developer Mode — global setting surfaced here; gates the Terminal + Codey's commands. */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span className="text-[11px] font-semibold text-ink-2">Developer Mode</span>
+                      <span className="text-[10px] text-ink-3">Lets Codey run terminal commands.</span>
+                    </div>
+                    <button
+                      onClick={() => useSettingsStore.getState().setAppSettings((prev: any) => ({ ...prev, developerMode: !prev.developerMode }))}
+                      className={clsx('w-8 h-4 rounded-full transition-all relative shrink-0', developerMode ? 'bg-accent' : 'bg-edge-2')}
+                      role="switch"
+                      aria-checked={developerMode}
+                    >
+                      <div className={clsx('absolute top-0.5 w-3 h-3 rounded-full bg-panel transition-all', developerMode ? 'right-0.5' : 'left-0.5')} />
+                    </button>
+                  </div>
+
+                  {/* Full editor (tools, prompt) for Codey. */}
+                  <button
+                    onClick={() => {
+                      setShowGear(false);
+                      useAgentStore.getState().setEditingAssistant({ ...codeAgent });
+                      useAgentStore.getState().setAssistantSettingsTab('config');
+                      useAgentStore.getState().setShowAssistantSettings(true);
+                    }}
+                    className="flex items-center justify-center gap-1.5 mt-0.5 px-3 py-2 rounded-lg text-xs font-semibold text-accent border border-accent/30 hover:bg-accent-soft/40 transition-colors"
+                  >
+                    Codey&apos;s tools &amp; prompt <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
-      {/* ── Workspace view ── */}
-      {view === 'workspace' && (
-        <div className="flex-1 flex overflow-hidden">
-          {/* File list */}
-          <div className="w-80 shrink-0 border-r border-edge flex flex-col overflow-hidden">
-            {/* Breadcrumb + filter */}
-            <div className="px-3 py-2 border-b border-edge flex flex-col gap-2 shrink-0">
-              <div className="flex items-center gap-1 text-xs text-ink-3 flex-wrap">
-                <button onClick={() => { setCwd(rootPath); setSelected(null); }} className="flex items-center gap-1 hover:text-ink-2" title={spaceName}><Home className="w-3.5 h-3.5" /> {spaceName}</button>
-                {crumbs.map((seg, i) => (
-                  <span key={i} className="flex items-center gap-1">
-                    <ChevronRight className="w-3 h-3" />
-                    <button onClick={() => { setCwd(spacePath(activeSpaceId, crumbs.slice(0, i + 1).join('/'))); setSelected(null); }} className="hover:text-ink-2">{seg}</button>
-                  </span>
-                ))}
-              </div>
-              <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-inset">
-                <Search className="w-3.5 h-3.5 text-ink-3 shrink-0" />
-                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter files…" className="flex-1 bg-transparent text-xs text-ink outline-none" />
-                {query && <button onClick={() => setQuery('')} className="text-ink-3 hover:text-ink"><X className="w-3.5 h-3.5" /></button>}
+      {/* ── Body: the conversation (default) + an optional side panel ── */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* Codey's conversation (CODEY_CHAT_ID) — the canvas center, with its OWN composer buffer so it
+            never shares state with the space group chat (the co-pilot rail beside this canvas). */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden relative">
+          <ChatPanel
+            mode="inline"
+            hideHeader
+            spaceLogProps={{ ...codeySpaceLogProps, hideEmptyState: true }}
+            chatInputBarProps={{
+              ...codeyChatInputBarProps,
+              onSend: sendCodeyMessage,
+              inputValue: codeyInput,
+              onInputChange: setCodeyInput,
+              attachedDocsOverride: codeyDocs,
+              onAttachedDocsChange: (fn: (prev: any[]) => any[]) => setCodeyDocs(fn),
+              onChatFileUpload: handleCodeyFileUpload,
+              fileInputRef: codeyFileInputRef,
+            }}
+            onSendPrompt={(t: string) => onSendCodeyMessage(CODEY_CHAT_ID, t, [])}
+          />
+
+          {/* First-run hero — friendly prompt instead of an empty/confusing thread. Overlaid above the
+              composer; pointer-events pass through except on its own controls so the input stays usable. */}
+          {isFirstRun && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-8 pb-28 pointer-events-none">
+              <div className="pointer-events-auto flex flex-col items-center gap-4 max-w-md">
+                <div className="w-14 h-14 rounded-2xl bg-accent-soft flex items-center justify-center">
+                  <FolderGit2 className="w-7 h-7 text-accent" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-ink">Build with {codeAgent?.name ?? 'Codey'}</h2>
+                  <p className="text-sm text-ink-2 mt-1.5 leading-relaxed">
+                    Open a folder, or tell me what to build. I can write &amp; edit files, run commands, and research the web while we go.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    onClick={() => { setSidePanel('files'); void bringInFile(); }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity"
+                  >
+                    <FileInput className="w-3.5 h-3.5" /> Open a folder…
+                  </button>
+                  {['Scaffold a new project', 'Review my code', 'Fix a failing test'].map(p => (
+                    <button
+                      key={p}
+                      onClick={() => onSendCodeyMessage(CODEY_CHAT_ID, p, [])}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold text-ink-2 border border-edge-2 hover:bg-wash transition-colors"
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+          )}
+        </div>
 
-            <div className="flex-1 overflow-y-auto">
-              {error ? (
-                <div className="p-5 text-xs text-ink-3 leading-relaxed">{error}</div>
-              ) : loading && entries.length === 0 ? (
-                <div className="h-full flex items-center justify-center gap-2 text-ink-3"><RotateCw className="w-4 h-4 animate-spin" /> <span className="text-xs">Loading…</span></div>
-              ) : shown.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6 text-ink-3">
-                  <Folder className="w-7 h-7" />
-                  <p className="text-xs">{query ? 'No files match.' : 'This folder is empty. Ask an agent to create something, or bring in a file.'}</p>
-                </div>
-              ) : (
-                shown.map(e => (
-                  <div key={e.path} className={clsx('group flex items-center gap-2.5 px-3 py-2 border-b border-edge hover:bg-wash transition-colors cursor-pointer', selected?.path === e.path && 'bg-wash')} onClick={() => openEntry(e)}>
-                    {e.isDir ? <Folder className="w-4 h-4 text-accent shrink-0" /> : <FileText className="w-4 h-4 text-ink-3 shrink-0" />}
-                    <span className="flex-1 min-w-0 text-sm text-ink truncate">{e.name}</span>
-                    <span className="text-[10px] text-ink-3 group-hover:hidden">{e.isDir ? '' : formatSize(e.size)}</span>
-                    <div className="hidden group-hover:flex items-center gap-0.5">
-                      <button onClick={ev => { ev.stopPropagation(); renameEntry(e); }} className="p-1 rounded text-ink-3 hover:bg-inset hover:text-ink" title="Rename"><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={ev => { ev.stopPropagation(); reveal(absOf(e.path)); }} className="p-1 rounded text-ink-3 hover:bg-inset hover:text-ink" title="Reveal in Finder"><ExternalLink className="w-3.5 h-3.5" /></button>
-                      <button onClick={ev => { ev.stopPropagation(); deleteEntry(e); }} className="p-1 rounded text-ink-3 hover:bg-danger-soft hover:text-danger" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
+        {/* ── Files panel ── */}
+        {sidePanel === 'files' && (
+          <div className="w-[440px] xl:w-[520px] shrink-0 border-l border-edge flex flex-col overflow-hidden bg-panel-2">
+            <div className="h-10 flex items-center gap-2 px-3 border-b border-edge shrink-0">
+              <Files className="w-3.5 h-3.5 text-ink-3" />
+              <span className="text-xs font-semibold text-ink">Files</span>
+              <div className="flex-1" />
+              <button onClick={createFolder} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="New folder"><FolderPlus className="w-3.5 h-3.5" /></button>
+              <button onClick={bringInFile} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Bring in a file…"><FileInput className="w-3.5 h-3.5" /></button>
+              <button onClick={() => load()} disabled={loading} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Refresh"><RotateCw className={clsx('w-3.5 h-3.5', loading && 'animate-spin')} /></button>
+              <button onClick={() => setSidePanel(null)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Close"><X className="w-3.5 h-3.5" /></button>
+            </div>
+
+            <div className="flex-1 flex overflow-hidden">
+              {/* File list */}
+              <div className="w-1/2 shrink-0 border-r border-edge flex flex-col overflow-hidden">
+                <div className="px-3 py-2 border-b border-edge flex flex-col gap-2 shrink-0">
+                  <div className="flex items-center gap-1 text-xs text-ink-3 flex-wrap">
+                    <button onClick={() => { setCwd(rootPath); setSelected(null); }} className="flex items-center gap-1 hover:text-ink-2" title={spaceName}><Home className="w-3.5 h-3.5" /> {spaceName}</button>
+                    {crumbs.map((seg, i) => (
+                      <span key={i} className="flex items-center gap-1">
+                        <ChevronRight className="w-3 h-3" />
+                        <button onClick={() => { setCwd(spacePath(activeSpaceId, crumbs.slice(0, i + 1).join('/'))); setSelected(null); }} className="hover:text-ink-2">{seg}</button>
+                      </span>
+                    ))}
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Preview */}
-          <div className="flex-1 flex flex-col overflow-hidden bg-panel-2">
-            {selected ? (
-              <>
-                <div className="px-4 py-2.5 border-b border-edge shrink-0 flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-ink-3 shrink-0" />
-                  <span className="text-sm font-medium text-ink truncate flex-1">{selected.path}</span>
-                  <button onClick={() => reveal(absOf(selected.path))} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink" title="Reveal in Finder"><ExternalLink className="w-4 h-4" /></button>
+                  <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-inset">
+                    <Search className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+                    <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter files…" className="flex-1 bg-transparent text-xs text-ink outline-none" />
+                    {query && <button onClick={() => setQuery('')} className="text-ink-3 hover:text-ink"><X className="w-3.5 h-3.5" /></button>}
+                  </div>
                 </div>
-                {selected.provenance && (
-                  <div className="px-4 py-2.5 border-b border-edge bg-info-soft/30 shrink-0">
-                    <div className="flex items-center gap-2 text-xs text-ink-2">
-                      <Link2 className="w-3.5 h-3.5 text-info shrink-0" />
-                      <span className="truncate">Imported copy of <span className="font-mono">{selected.provenance.source}</span> · {relativeTime(new Date(selected.provenance.imported).getTime())}</span>
+
+                <div className="flex-1 overflow-y-auto">
+                  {error ? (
+                    <div className="p-5 text-xs text-ink-3 leading-relaxed">{error}</div>
+                  ) : loading && entries.length === 0 ? (
+                    <div className="h-full flex items-center justify-center gap-2 text-ink-3"><RotateCw className="w-4 h-4 animate-spin" /> <span className="text-xs">Loading…</span></div>
+                  ) : shown.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6 text-ink-3">
+                      <Folder className="w-7 h-7" />
+                      <p className="text-xs">{query ? 'No files match.' : 'This folder is empty. Ask Codey to create something, or bring in a file.'}</p>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <button onClick={() => reveal(selected.provenance!.source)} className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><ExternalLink className="w-3 h-3" /> Open original</button>
-                      <button onClick={reSync} className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><RefreshCw className="w-3 h-3" /> Re-sync</button>
-                      <button onClick={pushBack} className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><CornerUpLeft className="w-3 h-3" /> Push back</button>
-                      <button onClick={detach} className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><Unlink className="w-3 h-3" /> Detach</button>
+                  ) : (
+                    shown.map(e => (
+                      <div key={e.path} className={clsx('group flex items-center gap-2.5 px-3 py-2 border-b border-edge hover:bg-wash transition-colors cursor-pointer', selected?.path === e.path && 'bg-wash')} onClick={() => openEntry(e)}>
+                        {e.isDir ? <Folder className="w-4 h-4 text-accent shrink-0" /> : <FileText className="w-4 h-4 text-ink-3 shrink-0" />}
+                        <span className="flex-1 min-w-0 text-sm text-ink truncate">{e.name}</span>
+                        <span className="text-[10px] text-ink-3 group-hover:hidden">{e.isDir ? '' : formatSize(e.size)}</span>
+                        <div className="hidden group-hover:flex items-center gap-0.5">
+                          <button onClick={ev => { ev.stopPropagation(); renameEntry(e); }} className="p-1 rounded text-ink-3 hover:bg-inset hover:text-ink" title="Rename"><Pencil className="w-3.5 h-3.5" /></button>
+                          <button onClick={ev => { ev.stopPropagation(); reveal(absOf(e.path)); }} className="p-1 rounded text-ink-3 hover:bg-inset hover:text-ink" title="Reveal in Finder"><ExternalLink className="w-3.5 h-3.5" /></button>
+                          <button onClick={ev => { ev.stopPropagation(); deleteEntry(e); }} className="p-1 rounded text-ink-3 hover:bg-danger-soft hover:text-danger" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Preview of the selected file */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {selected ? (
+                  <>
+                    <div className="px-3 py-2 border-b border-edge shrink-0 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-ink-3 shrink-0" />
+                      <span className="text-xs font-medium text-ink truncate flex-1">{relativeToSpace(activeSpaceId, selected.path)}</span>
+                      <button onClick={() => reveal(absOf(selected.path))} className="p-1 rounded-lg text-ink-3 hover:bg-wash hover:text-ink" title="Reveal in Finder"><ExternalLink className="w-3.5 h-3.5" /></button>
                     </div>
+                    {selected.provenance && (
+                      <div className="px-3 py-2 border-b border-edge bg-info-soft/30 shrink-0">
+                        <div className="flex items-center gap-2 text-[11px] text-ink-2">
+                          <Link2 className="w-3.5 h-3.5 text-info shrink-0" />
+                          <span className="truncate">Imported copy of <span className="font-mono">{selected.provenance.source}</span> · {relativeTime(new Date(selected.provenance.imported).getTime())}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          <button onClick={() => reveal(selected.provenance!.source)} className="flex items-center gap-1 px-2 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><ExternalLink className="w-3 h-3" /> Open original</button>
+                          <button onClick={reSync} className="flex items-center gap-1 px-2 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><RefreshCw className="w-3 h-3" /> Re-sync</button>
+                          <button onClick={pushBack} className="flex items-center gap-1 px-2 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><CornerUpLeft className="w-3 h-3" /> Push back</button>
+                          <button onClick={detach} className="flex items-center gap-1 px-2 py-1 rounded-lg border border-edge-2 text-[11px] font-semibold text-ink-2 hover:bg-wash"><Unlink className="w-3 h-3" /> Detach</button>
+                        </div>
+                      </div>
+                    )}
+                    <pre className="flex-1 overflow-auto text-[12px] font-mono leading-relaxed text-ink-2 whitespace-pre-wrap px-3 py-2.5">{selected.content || '(empty file)'}</pre>
+                  </>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-3 text-center px-6">
+                    <FileText className="w-8 h-8" />
+                    <p className="text-xs max-w-[200px]">Select a file to preview it. This is the same workspace Codey reads and writes — changes stay in sync, git-versioned and undoable.</p>
                   </div>
                 )}
-                <pre className="flex-1 overflow-auto text-[12px] font-mono leading-relaxed text-ink-2 whitespace-pre-wrap px-4 py-3">{selected.content || '(empty file)'}</pre>
-              </>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Terminal panel (Developer-Mode gated) ── */}
+        {sidePanel === 'terminal' && (
+          <div className="w-[460px] xl:w-[560px] shrink-0 border-l border-edge flex flex-col overflow-hidden bg-panel">
+            <div className="h-10 flex items-center gap-2 px-3 border-b border-edge shrink-0">
+              <TerminalSquare className="w-3.5 h-3.5 text-ink-3" />
+              <span className="text-xs font-semibold text-ink">Terminal</span>
+              <div className="flex-1" />
+              <button onClick={() => setSidePanel(null)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Close"><X className="w-3.5 h-3.5" /></button>
+            </div>
+            {developerMode ? (
+              // rootPath is a jail-RELATIVE space home (spaces/<id>), so this joins to an absolute path.
+              <TerminalPane cwd={rootPath ? `${workspaceRoot}/${rootPath}` : workspaceRoot} />
             ) : (
-              <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-3 text-center px-8">
-                <FolderGit2 className="w-9 h-9" />
-                <p className="text-sm max-w-xs">Select a file to preview it. This is the same workspace your agents read and write — changes here and theirs stay in sync, git-versioned and undoable.</p>
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8 bg-panel">
+                <TerminalSquare className="w-9 h-9 text-ink-3" />
+                <p className="text-sm text-ink max-w-xs">Developer Mode lets Codey and you run a terminal here.</p>
+                <p className="text-xs text-ink-3 max-w-xs leading-relaxed">It opens a real shell in this project's workspace folder. Off by default — turn it on when you want to run commands.</p>
+                <button
+                  onClick={() => useSettingsStore.getState().setAppSettings((prev: any) => ({ ...prev, developerMode: true }))}
+                  className="mt-1 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity"
+                >
+                  <TerminalSquare className="w-3.5 h-3.5" /> Enable Developer Mode
+                </button>
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── Linked files view ── */}
-      {view === 'linked' && (
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-5 py-3 text-xs text-ink-3 border-b border-edge leading-relaxed">
-            Real files and folders you've allowed an agent to work in <span className="font-semibold text-ink-2">in place</span> (no copy). Revoke any time.
+        {/* ── Preview panel (frame a localhost dev server) ── */}
+        {sidePanel === 'preview' && (
+          <div className="w-[480px] xl:w-[620px] shrink-0 border-l border-edge flex flex-col overflow-hidden bg-panel">
+            <div className="h-10 flex items-center gap-2 px-3 border-b border-edge shrink-0">
+              <Monitor className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+              <form
+                className="flex-1 flex items-center gap-1.5"
+                onSubmit={e => { e.preventDefault(); goPreview(previewUrl); }}
+              >
+                <input
+                  value={previewUrl}
+                  onChange={e => setPreviewUrl(e.target.value)}
+                  placeholder="http://localhost:3000"
+                  spellCheck={false}
+                  className="flex-1 min-w-0 bg-inset border border-edge rounded-lg px-2.5 py-1 text-[11px] font-mono text-ink outline-none focus:border-accent"
+                />
+                <button type="submit" className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity">Go</button>
+              </form>
+              {previewLive && (
+                <>
+                  {/* "Codey, look at this" — Codey reads the running app at this URL and self-corrects
+                      (the verify loop). Forces the preview-observe capability. See docs pt 10. */}
+                  <button onClick={observePreview} className="p-1.5 rounded-lg text-accent hover:bg-accent-soft transition-colors" title="Ask Codey to look at the running preview and fix anything broken"><Eye className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setPreviewKey(k => k + 1)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Reload"><RotateCw className="w-3.5 h-3.5" /></button>
+                </>
+              )}
+              <button onClick={() => setSidePanel(null)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Close"><X className="w-3.5 h-3.5" /></button>
+            </div>
+            {previewLive ? (
+              <iframe
+                ref={previewFrameRef}
+                key={previewKey}
+                src={previewLive}
+                title="Preview"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                className="flex-1 w-full bg-white border-0"
+              />
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-2 text-ink-3 text-center px-8">
+                <Monitor className="w-9 h-9" />
+                <p className="text-sm text-ink max-w-xs">Preview a running app.</p>
+                <p className="text-xs text-ink-3 max-w-xs leading-relaxed">Start your dev server (e.g. via the Terminal), then enter its URL above and hit Go. Some servers block being framed — if it stays blank, that's their CSP.</p>
+              </div>
+            )}
           </div>
-          {grantList.length === 0 ? (
-            <div className="h-64 flex flex-col items-center justify-center gap-2 text-ink-3 text-center px-8">
-              <Link2 className="w-8 h-8" />
-              <p className="text-sm max-w-xs">No linked files yet. Use “Bring in a file…” and choose <span className="font-semibold">Work in place</span> for repo or project files.</p>
-            </div>
-          ) : grantList.map(([key, g]) => (
-            <div key={key} className="group flex items-center gap-3 px-5 py-3 border-b border-edge hover:bg-wash transition-colors">
-              <div className={clsx('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', g.scope === 'folder' ? 'bg-accent-soft text-accent' : 'bg-inset text-ink-3')}>
-                {g.scope === 'folder' ? <Folder className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-ink font-mono truncate">{g.path}</div>
-                <div className="text-[11px] text-ink-3">{g.scope === 'folder' ? 'Folder (and everything under it)' : 'This file'} · can {g.effect} · since {relativeTime(g.grantedAt)}</div>
-              </div>
-              <button onClick={() => reveal(g.path)} className="p-1.5 rounded-lg text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-inset hover:text-ink transition-all" title="Reveal in Finder"><ExternalLink className="w-4 h-4" /></button>
-              <button onClick={() => revokeFileGrant(grantKey(g))} className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-ink-3 border border-edge-2 hover:bg-danger-soft hover:text-danger hover:border-danger/40 transition-colors" title="Revoke access">Revoke</button>
-            </div>
-          ))}
-        </div>
-      )}
+        )}
 
-      {/* ── Activity view ── */}
-      {view === 'activity' && (
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-5 py-3 text-xs text-ink-3 border-b border-edge leading-relaxed">Every file and command action — yours and the agents' — newest first.</div>
-          {activity.length === 0 ? (
-            <div className="h-64 flex flex-col items-center justify-center gap-2 text-ink-3 text-center px-8">
-              <Clock className="w-8 h-8" />
-              <p className="text-sm">Nothing yet. File activity shows up here as a receipt.</p>
-            </div>
-          ) : activity.map(a => (
-            <div key={a.id} className="flex items-center gap-3 px-5 py-2.5 border-b border-edge">
-              <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center shrink-0', a.ok ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger')}>
-                {a.ok ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-ink truncate"><span className="font-semibold capitalize">{a.action}</span> <span className="font-mono text-ink-2">{a.path}</span></div>
-                {a.detail && <div className="text-[11px] text-ink-3 truncate">{a.detail}</div>}
-              </div>
-              <span className={clsx('text-[10px] uppercase tracking-widest font-semibold shrink-0', a.tier === 'external' ? 'text-warning' : a.tier === 'command' ? 'text-danger' : 'text-ink-3')}>{a.tier}</span>
-              <span className="text-[10px] text-ink-3 shrink-0 w-16 text-right">{relativeTime(a.at)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      </div>
 
       {/* Toast */}
       {toast && (

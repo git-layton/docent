@@ -83,10 +83,21 @@ function nowId() {
   return `cap-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 }
 
+// Constant-time compare so the admin token can't be brute-forced via response timing (length is
+// still observable, which is standard/acceptable). Owner tokens are a Map hash-lookup, not a char
+// compare, so they don't leak a prefix the same way.
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
 function authOwner(req) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
-  if (ADMIN_TOKEN && token === ADMIN_TOKEN) return { ownerId: 'all', admin: true };
+  if (!token) return null;
+  if (ADMIN_TOKEN && safeEqual(token, ADMIN_TOKEN)) return { ownerId: 'all', admin: true };
   const route = OWNER_TOKENS.get(token);
   return route ? { ...route, admin: false } : null;
 }

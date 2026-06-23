@@ -7,11 +7,13 @@ import {
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { normalizeVoiceProfile } from '../services/voice';
-import { buildVoiceCard } from '../services/voiceRuntime';
+import { buildVoiceCard, buildRelationshipVoiceCard } from '../services/voiceRuntime';
 import { VoiceSetupModal } from './VoiceSetupModal';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
+import { useAgentStore } from '../store/useAgentStore';
+import { listPlaybooks, reinforcePlaybook, type Playbook } from '../services/appliedMemory';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
@@ -73,6 +75,58 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     }
   };
 
+  // ── Per-relationship voices (the byRecipient map) — manage what was learned per person ──
+  const setRecipientVoice = (relKey: string, patch: any) => {
+    setAppSettings((prev: any) => {
+      const cur = normalizeVoiceProfile(prev?.voiceProfile);
+      const existing = cur.byRecipient?.[relKey];
+      if (!existing) return prev;
+      return { ...prev, voiceProfile: { ...cur, byRecipient: { ...cur.byRecipient, [relKey]: { ...existing, ...patch } } } };
+    });
+    void useSettingsStore.getState().persist();
+  };
+  const removeRecipientVoice = (relKey: string) => {
+    setAppSettings((prev: any) => {
+      const cur = normalizeVoiceProfile(prev?.voiceProfile);
+      if (!cur.byRecipient?.[relKey]) return prev;
+      const next = { ...cur.byRecipient };
+      delete next[relKey];
+      return { ...prev, voiceProfile: { ...cur, byRecipient: next } };
+    });
+    void useSettingsStore.getState().persist();
+  };
+  const rebuildRecipientVoice = async (relKey: string, recipientName?: string) => {
+    if (voiceBusy) return;
+    if (!relKey.startsWith('im:')) { useUIStore.getState().showToast('Rebuilding from messages is available for iMessage contacts.'); return; }
+    if (models.length === 0) { useUIStore.getState().showToast('Connect a model first to rebuild a voice.'); return; }
+    setVoiceBusy(true);
+    try {
+      const { card, sampleCounts } = await buildRelationshipVoiceCard(relKey.slice(3), recipientName);
+      setRecipientVoice(relKey, { card, sampleCounts, source: 'auto', lastBuiltAt: Date.now() });
+      useUIStore.getState().showToast(`✍️ Refreshed ${recipientName || 'their'} voice.`);
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not rebuild that voice.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  // ── Playbooks (saved procedures) — view, trust/untrust, remove ──
+  const playbookAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? null);
+  const [playbooks, setPlaybooks] = useState<Array<Playbook & { path: string }>>([]);
+  const loadPlaybooks = async () => { setPlaybooks(playbookAgentId ? await listPlaybooks(playbookAgentId) : []); };
+  useEffect(() => { void loadPlaybooks();   }, [playbookAgentId]);
+  const togglePlaybookTrust = async (pb: Playbook & { path: string }) => {
+    if (!agentForgePath || !playbookAgentId) return;
+    await reinforcePlaybook(agentForgePath, playbookAgentId, pb.trigger, { verify: !pb.verified });
+    await loadPlaybooks();
+  };
+  const removePlaybook = async (pb: Playbook & { path: string }) => {
+    try { await invoke('archive_memory_file', { path: pb.path }); }
+    catch { useUIStore.getState().showToast('Could not remove that playbook.'); return; }
+    await loadPlaybooks();
+  };
+
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -119,9 +173,12 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     if (!email || !password) return;
     setMailStatus({ state: 'testing' });
     try {
+      // SEC-KEYCHAIN: validate with the just-typed password BEFORE writing the Keychain, so a typo when
+      // re-adding an existing account can never clobber a previously-good saved credential. Persist only
+      // after the test passes — and verify the Keychain write actually succeeded.
       const count = await invoke<number>('mail_test_connection', { provider: mailProvider, email, password });
-      // Password → macOS Keychain (encrypted, local). Account metadata → settings (no secret there).
-      await invoke('keychain_save', { host: `mail:${email}`, username: email, password });
+      const saved = await invoke<{ ok: boolean; error?: string }>('keychain_save', { host: `mail:${email}`, username: email, password });
+      if (!saved.ok) throw new Error(saved.error ?? 'Could not save the password to the Keychain.');
       setIntegrations((prev: any) => {
         const rest = (prev.mailAccounts ?? []).filter((a: any) => a.email !== email);
         return { ...prev, mailAccounts: [...rest, { id: `mail-${Date.now()}`, provider: mailProvider, email }] };
@@ -482,10 +539,80 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                         );
                       })}
                     </div>
+                    {Object.keys(voice.byRecipient ?? {}).length > 0 && (
+                      <div>
+                        <label className="text-tiny font-black uppercase opacity-50 mb-1.5 block tracking-widest">Voices by person</label>
+                        <div className="space-y-2">
+                          {Object.entries(voice.byRecipient ?? {}).map(([relKey, rv]) => (
+                            <div key={relKey} className="rounded-xl border border-edge-2 bg-panel px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold truncate flex-1">{rv.recipientName || relKey.replace(/^(im|mail):/, '')}</span>
+                                <span className="text-tiny text-ink-3 shrink-0">
+                                  {relKey.startsWith('mail:') ? 'Email' : 'Messages'}{rv.lastBuiltAt ? ` · ${new Date(rv.lastBuiltAt).toLocaleDateString()}` : ''}
+                                </span>
+                                <button
+                                  onClick={() => setRecipientVoice(relKey, { optedIn: !rv.optedIn })}
+                                  title={rv.optedIn ? 'On — replies to them use this voice' : 'Off — replies to them use your global voice'}
+                                  className={`px-2 py-1 rounded-full text-tiny font-bold shrink-0 transition-all ${rv.optedIn ? 'bg-accent text-on-accent' : 'bg-inset text-ink-3 hover:text-ink'}`}
+                                >
+                                  {rv.optedIn ? 'On' : 'Off'}
+                                </button>
+                                {relKey.startsWith('im:') && (
+                                  <button onClick={() => rebuildRecipientVoice(relKey, rv.recipientName)} disabled={voiceBusy} className="p-1 text-ink-3 hover:text-accent disabled:opacity-50 shrink-0" title="Rebuild from your messages to them">
+                                    <Wand2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button onClick={() => removeRecipientVoice(relKey)} className="p-1 text-ink-3 hover:text-danger shrink-0" title="Remove this person's voice">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              <textarea
+                                value={rv.card}
+                                onChange={e => setRecipientVoice(relKey, { card: e.target.value, source: 'user_edited' })}
+                                rows={3}
+                                placeholder="Their voice card…"
+                                className="mt-2 w-full bg-inset border border-edge-2 rounded-lg px-3 py-2 text-tiny font-medium resize-none outline-none focus:border-secondary leading-relaxed"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-tiny text-ink-3 font-medium mt-1.5">A person's voice overrides your global voice when you reply to them. Add one from a 1:1 conversation in Messages.</p>
+                      </div>
+                    )}
+
                     <p className="text-tiny text-ink-3 font-medium">Your messages are read locally on this Mac to learn your style — only the resulting profile goes to the model you’ve connected.</p>
                   </div>
                 )}
               </div>
+
+              {/* Playbooks — saved procedures the agent can reuse */}
+              {playbooks.length > 0 && (
+                <div className="border-t border-edge pt-4 mt-4">
+                  <label className="text-tiny font-black uppercase opacity-50 mb-1.5 block tracking-widest">Playbooks</label>
+                  <div className="space-y-2">
+                    {playbooks.map((pb) => (
+                      <div key={pb.path} className="rounded-xl border border-edge-2 bg-panel px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold truncate flex-1">{pb.title}</span>
+                          <span className="text-tiny text-ink-3 shrink-0">{pb.steps.length} step{pb.steps.length !== 1 ? 's' : ''}{pb.accept > 0 ? ` · used ${pb.accept}×` : ''}</span>
+                          <button
+                            onClick={() => togglePlaybookTrust(pb)}
+                            title={pb.verified ? 'Trusted — the agent may offer to run this' : "Off — won't be suggested"}
+                            className={`px-2 py-1 rounded-full text-tiny font-bold shrink-0 transition-all ${pb.verified ? 'bg-accent text-on-accent' : 'bg-inset text-ink-3 hover:text-ink'}`}
+                          >{pb.verified ? 'Trusted' : 'Off'}</button>
+                          <button onClick={() => removePlaybook(pb)} className="p-1 text-ink-3 hover:text-danger shrink-0" title="Remove this playbook">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <ol className="mt-1.5 list-decimal list-inside space-y-0.5">
+                          {pb.steps.map((s, i) => <li key={i} className="text-tiny text-ink-2 leading-relaxed">{s.intent}</li>)}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-tiny text-ink-3 font-medium mt-1.5">Saved step-by-step procedures. When one is relevant the agent offers to run it — doing each step with your normal tools, confirmed one at a time.</p>
+                </div>
+              )}
 
               {/* User Guide section */}
               <div className="border-t border-edge pt-4 mt-4">

@@ -39,7 +39,9 @@ export type OpTier =
   | 'invalid';  // malformed op, never runs
 
 export type GrantScope = 'once' | 'file' | 'folder';
-export type GrantEffect = 'read' | 'write';
+// 'command' is a DISTINCT authority from file 'write': granting file-write in a repo must not also
+// authorize arbitrary shell execution there (SEC-GRANTS).
+export type GrantEffect = 'read' | 'write' | 'command';
 
 /** A standing permission the user gave for a real-filesystem path. `once` grants are never stored. */
 export interface FileGrant {
@@ -47,6 +49,9 @@ export interface FileGrant {
   scope: GrantScope;  // 'file' = this exact path, 'folder' = this path and anything under it
   effect: GrantEffect;
   grantedAt: number;
+  /** Epoch ms after which the grant is ignored. Undefined = no expiry. Command grants set this so
+   *  standing shell authority can't last forever. */
+  expiresAt?: number;
 }
 
 /** A receipt for the activity log. */

@@ -25,14 +25,17 @@ export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
 
   const command = (op.command ?? '').trim();
   const cwd = op.cwd && op.cwd.trim().length > 0 ? op.cwd : (agentForgePath ? `${agentForgePath}/workspace` : '');
-  const preapproved = !!developerMode && findGrant(grants, cwd, 'write')?.scope === 'folder';
+  // SEC-GRANTS: command auto-run requires a dedicated, unexpired COMMAND grant — a file-write grant in
+  // the repo no longer silently authorizes arbitrary shell.
+  const preapproved = !!developerMode && findGrant(grants, cwd, 'command', Date.now())?.scope === 'folder';
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [out, setOut] = useState<{ stdout: string; stderr: string; code: number | null } | null>(null);
 
   const run = useCallback(async (remember?: boolean) => {
     if (remember && cwd) {
-      useSettingsStore.getState().addFileGrant(makeGrant(cwd, 'folder', 'write', Date.now()));
+      // A command-scoped grant (not file-write), expiring in 24h so standing shell authority lapses.
+      useSettingsStore.getState().addFileGrant(makeGrant(cwd, 'folder', 'command', Date.now(), 24 * 60 * 60 * 1000));
     }
     setPhase('running');
     try {
@@ -59,7 +62,13 @@ export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
     if (preapproved) {
       if (handled.has(opKey)) return;
       handled.add(opKey);
-      void run();
+      // Ensure the backend DEV_MODE mirror is set BEFORE auto-running — otherwise a boot-time auto-run
+      // can race the App.tsx sync effect and run_command rejects with "Developer Mode is disabled"
+      // even though the UI shows it on.
+      void (async () => {
+        await invoke('set_developer_mode', { on: true }).catch(() => {});
+        await run();
+      })();
       return;
     }
     setPhase('preview');
@@ -140,7 +149,7 @@ export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setPhase('denied')} className="px-3 py-2 rounded-lg border border-edge-2 text-xs font-bold text-ink-2 hover:bg-wash transition-all">Deny</button>
           <button onClick={() => run(false)} className="px-3 py-2 rounded-lg bg-accent hover:bg-accent-strong text-on-accent text-xs font-bold transition-all active:scale-95">Run once</button>
-          <button onClick={() => run(true)} className="px-3 py-2 rounded-lg border border-edge-2 text-xs font-bold text-ink-2 hover:bg-wash transition-all">Always in this repo</button>
+          <button onClick={() => run(true)} title="Auto-run commands in this repo for 24 hours, then you'll be asked again." className="px-3 py-2 rounded-lg border border-edge-2 text-xs font-bold text-ink-2 hover:bg-wash transition-all">Trust this repo (24h)</button>
         </div>
       </div>
     </div>

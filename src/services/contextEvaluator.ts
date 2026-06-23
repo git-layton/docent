@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { writeMemory } from '../lib/ipc';
+import { logError } from '../lib/log';
 import { generateTextResponse } from './llm';
 import type { PinProfile } from './pinPersonalization';
 import { formatPinProfileForPrompt, isDuplicateOfRecentPins } from './pinPersonalization';
@@ -117,13 +119,11 @@ export const evaluateDroppedMessages = async (
     const content = item.action === 'SAVE'
       ? `# ${item.category ?? 'note'}: ${safeName}\n*Auto-saved from context · ${today}*${salientNote}\n\n${item.content}`
       : `<!-- context-log -->\n*${today}*: ${item.content}\n`;
-    await invoke('write_memory', {
+    await writeMemory({
       path,
       content,
-      commit_message: `context: auto-${item.action.toLowerCase()} ${item.category ?? 'note'}`,
-      agent_id: agent.id,
-      context_tokens: null,
-      ram_state: null,
-    }).catch(() => {});
+      commitMessage: `context: auto-${item.action.toLowerCase()} ${item.category ?? 'note'}`,
+      agentId: agent.id,
+    }).catch((e) => logError('contextEvaluator.autoSave', e));
   }
 };

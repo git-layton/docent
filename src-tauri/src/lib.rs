@@ -9,6 +9,8 @@ mod mail;
 mod imessage;
 mod calendar;
 mod notes;
+mod pty;
+mod screenshot;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -116,6 +118,30 @@ fn knowledge_root() -> PathBuf {
     normalize_path_lexically(knowledge_core_path())
 }
 
+/// SEC-SYMLINK: defend the lexical jail against symlink escapes — an in-jail symlink pointing outside
+/// the root must not let a read/write follow it out. The lexical `starts_with` check runs first; this
+/// then canonicalizes the deepest EXISTING ancestor of the candidate (the leaf may not exist yet for a
+/// write) and requires its REAL path to stay under canonicalize(root). If the root isn't materialized
+/// yet there's nothing to resolve, so the lexical check stands.
+fn assert_no_symlink_escape(root: &Path, candidate: &Path) -> Result<(), String> {
+    let canon_root = match std::fs::canonicalize(root) {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
+    let mut anc = candidate;
+    while !anc.exists() {
+        match anc.parent() {
+            Some(p) if p != anc => anc = p,
+            _ => return Ok(()), // no existing ancestor to resolve — lexical check already passed
+        }
+    }
+    match std::fs::canonicalize(anc) {
+        Ok(real) if real.starts_with(&canon_root) => Ok(()),
+        Ok(_) => Err("Path escapes the allowed root via a symlink".to_string()),
+        Err(_) => Ok(()),
+    }
+}
+
 fn knowledge_path_from_input(input: &str) -> Result<PathBuf, String> {
     let root = knowledge_root();
     let raw = PathBuf::from(input);
@@ -124,6 +150,7 @@ fn knowledge_path_from_input(input: &str) -> Result<PathBuf, String> {
     if !normalized.starts_with(&root) {
         return Err("Path is outside the Knowledge Core".to_string());
     }
+    assert_no_symlink_escape(&root, &normalized)?;
     Ok(normalized)
 }
 
@@ -145,6 +172,7 @@ fn workspace_path_from_input(input: &str) -> Result<PathBuf, String> {
     if !normalized.starts_with(&root) {
         return Err("Path is outside the agent workspace".to_string());
     }
+    assert_no_symlink_escape(&root, &normalized)?;
     Ok(normalized)
 }
 
@@ -173,12 +201,58 @@ fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
     let output = std::process::Command::new("git")
         .args(args)
         .current_dir(cwd)
+        // Non-interactive: never let a git child block on a credential prompt or an interactive
+        // pager — a hung child would wedge GIT_LOCK and stall every Knowledge-Core writer.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_PAGER", "cat")
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// SSRF guard for backend-initiated HTTP downloads (download_model, browser_download_url): require
+/// http(s) and reject hosts that are loopback / private / link-local / unspecified IP literals (and
+/// "localhost"). NOTE: this does NOT resolve DNS and reqwest follows redirects, so a domain that
+/// resolves to a private IP isn't caught here — full resolve-and-pin SSRF hardening is tracked for the
+/// egress pass. This closes the obvious http://127.0.0.1 / http://169.254.169.254 (metadata) vectors.
+fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast()
+        }
+        std::net::IpAddr::V6(v6) => {
+            // An IPv4-mapped address (e.g. ::ffff:127.0.0.1) must be judged by its V4 rules — V6
+            // is_loopback() is false for it, so it would otherwise slip past as a public host.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_blocked_ip(std::net::IpAddr::V4(v4));
+            }
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7
+                || (v6.segments()[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
+        }
+    }
+}
+
+fn egress_host_allowed(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "invalid URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!("scheme '{}' not allowed", parsed.scheme()));
+    }
+    let host = parsed.host_str().ok_or_else(|| "URL has no host".to_string())?;
+    if host.eq_ignore_ascii_case("localhost") {
+        return Err("downloads from localhost are not allowed".to_string());
+    }
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
+        if is_blocked_ip(ip) {
+            return Err("downloads from loopback/private/link-local addresses are not allowed".to_string());
+        }
+    }
+    Ok(())
 }
 
 fn parse_deletions(diff_stat: &str) -> u32 {
@@ -266,7 +340,7 @@ fn get_hardware_summary() -> HardwareSummary {
 
 #[tauri::command]
 fn get_system_stats(state: tauri::State<SysState>) -> serde_json::Value {
-    let mut sys = state.0.lock().unwrap();
+    let mut sys = state.0.lock().unwrap_or_else(|e| e.into_inner());
     sys.refresh_cpu_specifics(CpuRefreshKind::everything());
     sys.refresh_memory();
 
@@ -366,13 +440,13 @@ fn spawn_llama_server(
         .map_err(|e| e.to_string())?;
 
     let pid = child.id();
-    *state.pid.lock().unwrap() = Some(pid);
+    *state.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
     Ok(serde_json::json!({ "pid": pid }))
 }
 
 #[tauri::command]
 fn sigstop_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
-    let pid = *state.pid.lock().unwrap();
+    let pid = *state.pid.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(pid) = pid {
         let _ = std::process::Command::new("kill")
             .args(["-STOP", &pid.to_string()])
@@ -385,7 +459,7 @@ fn sigstop_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
 
 #[tauri::command]
 fn sigcont_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
-    let pid = *state.pid.lock().unwrap();
+    let pid = *state.pid.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(pid) = pid {
         let _ = std::process::Command::new("kill")
             .args(["-CONT", &pid.to_string()])
@@ -398,8 +472,25 @@ fn sigcont_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
 
 // ─── 1.2 Nuke Shield ─────────────────────────────────────────────────────────
 
+/// Process-wide serialization for ALL Knowledge-Core git mutations. The agent workspace lives inside
+/// the same repo (see `commit_workspace`), and the background Dream Cycle issues write/archive calls
+/// concurrently with foreground writes — without this lock their `git stash`/`add`/`commit`/`pop`
+/// sequences interleave and can corrupt or lose memory. Poison-tolerant: a panic mid-mutation must not
+/// wedge every subsequent write. NON-reentrant — never acquire it twice on one call stack.
+static GIT_LOCK: Mutex<()> = Mutex::new(());
+fn git_guard() -> std::sync::MutexGuard<'static, ()> {
+    GIT_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[tauri::command]
 fn safe_write_file(path: String, content: String) -> serde_json::Value {
+    let _git = git_guard();
+    safe_write_file_inner(path, content)
+}
+
+/// Body of `safe_write_file`. The caller MUST already hold `GIT_LOCK` — `write_memory` calls this
+/// directly while holding the guard, so it must not re-acquire (the lock is non-reentrant).
+fn safe_write_file_inner(path: String, content: String) -> serde_json::Value {
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -453,6 +544,7 @@ fn safe_write_file(path: String, content: String) -> serde_json::Value {
 
 #[tauri::command]
 fn rollback_file(path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -495,11 +587,15 @@ fn init_knowledge_core() -> serde_json::Value {
 ## Research\n- [[memory/research/research]]\n",
     );
 
-    let _ = run_git(&["init"], &root);
-    let _ = run_git(&["config", "user.email", "agent-forge@local"], &root);
-    let _ = run_git(&["config", "user.name", "Agent Forge"], &root);
-    let _ = run_git(&["add", "-A"], &root);
-    let _ = run_git(&["commit", "-m", "init: Knowledge Core initialized"], &root);
+    // MAINT-GITRACE: serialize first-init git against any concurrent writer / index thread.
+    {
+        let _git = git_guard();
+        let _ = run_git(&["init"], &root);
+        let _ = run_git(&["config", "user.email", "agent-forge@local"], &root);
+        let _ = run_git(&["config", "user.name", "Agent Forge"], &root);
+        let _ = run_git(&["add", "-A"], &root);
+        let _ = run_git(&["commit", "-m", "init: Knowledge Core initialized"], &root);
+    }
 
     serde_json::json!({ "initialized": true, "path": root.to_string_lossy() })
 }
@@ -513,6 +609,7 @@ fn write_memory(
     context_tokens: Option<u32>,
     ram_state: Option<String>,
 ) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -543,7 +640,7 @@ fn write_memory(
         .unwrap_or_default();
     let stashed = !stash_out.contains("No local changes");
 
-    let write_result = safe_write_file(file_path.to_string_lossy().to_string(), content.clone());
+    let write_result = safe_write_file_inner(file_path.to_string_lossy().to_string(), content.clone());
     if write_result["blocked"].as_bool().unwrap_or(false) {
         if stashed {
             let _ = run_git(&["stash", "pop"], &repo_root);
@@ -649,6 +746,18 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
         .to_string()
 }
 
+/// Normalize a keyword match into a [0,1] score comparable to the embedding path's cosine, so the
+/// frontend's cosine thresholds (memoryContext 0.35 / semanticDocs 0.3) and the `score × 150`
+/// interleaving stay correct when search_knowledge runs as the FALLBACK for search_knowledge_semantic.
+/// Coverage (fraction of distinct query terms found) dominates; repetition adds a small saturating
+/// bonus. Never exceeds 1.0 — a raw occurrence count must never reach the frontend as a "cosine".
+fn keyword_relevance(matched_distinct: usize, total_keywords: usize, total_occurrences: usize) -> f64 {
+    if total_keywords == 0 || matched_distinct == 0 { return 0.0; }
+    let coverage = matched_distinct as f64 / total_keywords as f64;
+    let occ = (total_occurrences as f64 / (total_keywords as f64 * 5.0)).min(1.0);
+    (coverage * 0.85 + occ * 0.15).min(1.0)
+}
+
 #[tauri::command]
 fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let root = knowledge_root();
@@ -687,11 +796,15 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
             let body = strip_frontmatter(&content);
             let body_lower = body.to_lowercase();
 
-            let score: usize = keywords.iter()
-                .map(|kw| body_lower.matches(*kw).count())
-                .sum();
-
-            if score == 0 { continue; }
+            let mut matched_distinct = 0usize;
+            let mut total_occurrences = 0usize;
+            for kw in &keywords {
+                let c = body_lower.matches(*kw).count();
+                if c > 0 { matched_distinct += 1; total_occurrences += c; }
+            }
+            if matched_distinct == 0 { continue; }
+            // [0,1] cosine-comparable score (not a raw count) — see keyword_relevance.
+            let score = keyword_relevance(matched_distinct, keywords.len(), total_occurrences);
 
             let title = extract_title(&content, &path);
             let snippet: String = body.chars().take(snippet_chars).collect();
@@ -705,7 +818,11 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
         }
     }
 
-    results.sort_by(|a, b| b["score"].as_u64().cmp(&a["score"].as_u64()));
+    results.sort_by(|a, b| {
+        let sa = a["score"].as_f64().unwrap_or(0.0);
+        let sb = b["score"].as_f64().unwrap_or(0.0);
+        sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(max_results);
 
     serde_json::json!({ "results": results })
@@ -715,6 +832,7 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
 
 #[tauri::command]
 fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
+    let _git = git_guard(); // MAINT-GITRACE: serialize with all other Knowledge-Core git mutations
     let repo_root = knowledge_root();
     let tasks_path = if let Some(ref aid) = agent_id {
         if !is_safe_agent_id(aid) {
@@ -757,6 +875,7 @@ fn complete_task(
     due_date: String,
     completed_at: String,
 ) -> serde_json::Value {
+    let _git = git_guard(); // MAINT-GITRACE: serialize with all other Knowledge-Core git mutations
     let repo_root = knowledge_root();
     let path = repo_root.join("memory").join("completed_tasks.md");
 
@@ -788,6 +907,7 @@ fn complete_task(
 
 #[tauri::command]
 fn revert_memory_commit(commit_hash: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let result = run_git(&["revert", "--no-edit", &commit_hash], &repo_root);
     serde_json::json!({ "ok": result.is_ok(), "output": result.unwrap_or_default() })
@@ -798,6 +918,11 @@ fn revert_memory_commit(commit_hash: String) -> serde_json::Value {
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static WATCHER_RUNNING: AtomicBool = AtomicBool::new(false);
+
+// SEC-RUNCMD: backend mirror of the frontend Developer-Mode toggle. run_command refuses to execute
+// unless this is true, so a renderer bug / bypass of CommandActionCard can't reach a shell. Synced
+// from the UI via set_developer_mode (an App.tsx effect fires on boot and every toggle).
+static DEV_MODE: AtomicBool = AtomicBool::new(false);
 
 // ─── Embedder Singleton ───────────────────────────────────────────────────────
 
@@ -822,6 +947,22 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
     if na == 0.0 || nb == 0.0 { 0.0 } else { dot / (na * nb) }
+}
+
+/// Memory "importance" in [0.05, 1.0], parsed from the gatekeeper frontmatter so retrieval can
+/// prefer higher-confidence, better-sourced memories. A weak signal by design — it only modulates
+/// ranking, never the relevance threshold. Mirrors the confidence/evidence labels in memoryGatekeeper.ts.
+fn parse_memory_importance(content: &str) -> f32 {
+    let head = content.chars().take(1200).collect::<String>().to_lowercase();
+    let mut score: f32 = if head.contains("confidence: high") { 1.0 }
+        else if head.contains("confidence: low") { 0.3 }
+        else { 0.6 }; // medium / unlabeled
+    if head.contains("evidence_state: needs_verification") || head.contains("evidence_state: conflicting") {
+        score *= 0.6;
+    } else if head.contains("evidence_state: inferred") {
+        score *= 0.85;
+    }
+    score.clamp(0.05, 1.0)
 }
 
 /// Split document text into embeddable chunks.
@@ -862,10 +1003,15 @@ fn open_index_db() -> Result<rusqlite::Connection, String> {
             chunk_index   INTEGER NOT NULL,
             content       TEXT NOT NULL,
             vector        BLOB NOT NULL,
-            last_modified INTEGER NOT NULL
+            last_modified INTEGER NOT NULL,
+            importance    REAL NOT NULL DEFAULT 0.5
         );
         CREATE INDEX IF NOT EXISTS idx_bv_file ON brain_vectors(file_path);",
     ).map_err(|e| e.to_string())?;
+    // Migration for indexes created before the importance column existed. Older rows keep the 0.5
+    // default until their file is touched and re-indexed; the duplicate-column error is expected on
+    // fresh DBs (where CREATE TABLE already added it) and is intentionally ignored.
+    let _ = conn.execute("ALTER TABLE brain_vectors ADD COLUMN importance REAL NOT NULL DEFAULT 0.5", []);
     Ok(conn)
 }
 
@@ -933,6 +1079,7 @@ fn init_file_watcher() {
                     .and_then(|m| m.modified().ok())
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs() as i64).unwrap_or(0);
+                let importance = parse_memory_importance(&content);
 
                 let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path]);
 
@@ -944,7 +1091,7 @@ fn init_file_watcher() {
 
                 let texts: Vec<&str> = chunks.iter().map(|s| s.as_str()).collect();
                 let embeddings = {
-                    let guard = embedder.lock().unwrap();
+                    let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
                     match guard.embed(texts, None) { Ok(e) => e, Err(e) => { eprintln!("[embedder] embed error: {e}"); continue; } }
                 };
 
@@ -952,8 +1099,8 @@ fn init_file_watcher() {
                     let chunk_id = format!("{file_path}#{i}");
                     let blob: Vec<u8> = vector.iter().flat_map(|f| f.to_le_bytes()).collect();
                     let _ = conn.execute(
-                        "INSERT OR REPLACE INTO brain_vectors (chunk_id, file_path, chunk_index, content, vector, last_modified) VALUES (?1,?2,?3,?4,?5,?6)",
-                        rusqlite::params![chunk_id, &file_path, i as i64, chunk, blob, mtime],
+                        "INSERT OR REPLACE INTO brain_vectors (chunk_id, file_path, chunk_index, content, vector, last_modified, importance) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                        rusqlite::params![chunk_id, &file_path, i as i64, chunk, blob, mtime, importance as f64],
                     );
                 }
                 let _ = conn.execute("UPDATE pending_index SET status='indexed' WHERE file_path=?1", rusqlite::params![&file_path]);
@@ -1048,9 +1195,14 @@ fn init_file_watcher() {
                 // git rm + commit; fall back to fs::remove_file
                 if let Ok(rel) = path.strip_prefix(&purge_root) {
                     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                    let git_ok = run_git(&["rm", "--force", &rel.to_string_lossy()], &purge_root)
-                        .and_then(|_| run_git(&["commit", "-m", &format!("purge: 7-day expiry {name}")], &purge_root))
-                        .is_ok();
+                    // MAINT-GITRACE: hold GIT_LOCK only around the git mutation — never across the
+                    // hourly sleep — so the unattended purge can't interleave with a foreground write.
+                    let git_ok = {
+                        let _git = git_guard();
+                        run_git(&["rm", "--force", &rel.to_string_lossy()], &purge_root)
+                            .and_then(|_| run_git(&["commit", "-m", &format!("purge: 7-day expiry {name}")], &purge_root))
+                            .is_ok()
+                    };
                     if !git_ok { let _ = std::fs::remove_file(&path); }
                 }
             }
@@ -1105,7 +1257,7 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
     };
 
     let query_vec: Vec<f32> = {
-        let guard = embedder.lock().unwrap();
+        let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
         match guard.embed(vec![query.as_str()], None) {
             Ok(mut e) if !e.is_empty() => e.remove(0),
             _ => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
@@ -1123,14 +1275,14 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
         .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
     let library_prefix = root.join("library").to_string_lossy().to_string();
 
-    let rows: Vec<(String, String, Vec<u8>)> = {
+    let rows: Vec<(String, String, Vec<u8>, i64, f64)> = {
         let mut stmt = match conn.prepare(
-            "SELECT file_path, content, vector FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
+            "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
         ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)) };
 
         stmt.query_map(
             rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%")],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         ).map(|it| it.flatten().collect()).unwrap_or_default()
     };
 
@@ -1138,27 +1290,45 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
         return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars));
     }
 
-    let mut scored: Vec<(f32, String, String)> = rows.into_iter()
-        .filter_map(|(path, content, blob)| {
+    // Re-rank like the Generative-Agents retrieval score: relevance (cosine) stays dominant, but at
+    // comparable similarity a recent, higher-confidence memory beats a stale, weak one. Recency and
+    // importance only MODULATE order (±20%); the cosine pre-filter (>0.25) and the returned `score`
+    // remain raw cosine, so the frontend relevance thresholds keep their exact meaning.
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64).unwrap_or(0);
+    const HALF_LIFE_SECS: f64 = 30.0 * 24.0 * 60.0 * 60.0; // ~half weight at 30 days old
+
+    let mut scored: Vec<(f32, f32, String, String)> = rows.into_iter()
+        .filter_map(|(path, content, blob, last_modified, importance)| {
             let vec: Vec<f32> = blob.chunks_exact(4)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                 .collect();
-            let score = cosine_similarity(&query_vec, &vec);
-            if score > 0.25 { Some((score, path, content)) } else { None }
+            let cosine = cosine_similarity(&query_vec, &vec);
+            if cosine <= 0.25 { return None; }
+            let age = (now_secs - last_modified).max(0) as f64;
+            let recency = (-std::f64::consts::LN_2 * age / HALF_LIFE_SECS).exp() as f32; // 1.0 fresh → 0.5 @30d
+            let rank = cosine * (0.80 + 0.15 * recency + 0.05 * importance as f32);
+            Some((cosine, rank, path, content))
         })
         .collect();
 
+    // SELECTION is by raw cosine (relevance), so recency/importance can never evict a more-relevant
+    // memory from the returned window — the frontend filters on the cosine we return, so the kept set
+    // must be the top-by-cosine set (no recall regression). We only REORDER within it by the blend.
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Deduplicate: keep highest-scoring chunk per file
+    // Deduplicate: keep the highest-cosine chunk per file.
     let mut seen_files = std::collections::HashSet::new();
-    scored.retain(|(_, path, _)| seen_files.insert(path.clone()));
+    scored.retain(|(_, _, path, _)| seen_files.insert(path.clone()));
     scored.truncate(max_results);
+    // Now order the kept (most-relevant) set by the blended rank: a fresh, higher-confidence memory
+    // surfaces above a stale, weak one at comparable similarity, without dropping anything relevant.
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    let results: Vec<serde_json::Value> = scored.into_iter().map(|(score, path, content)| {
+    let results: Vec<serde_json::Value> = scored.into_iter().map(|(cosine, _rank, path, content)| {
         let snippet: String = content.chars().take(snippet_chars).collect();
         let title = extract_title_from_path(&path);
-        serde_json::json!({ "path": path, "title": title, "snippet": snippet, "score": score })
+        serde_json::json!({ "path": path, "title": title, "snippet": snippet, "score": cosine })
     }).collect();
 
     serde_json::json!({ "results": results })
@@ -1181,6 +1351,7 @@ fn extract_title_from_path(path: &str) -> String {
 
 #[tauri::command]
 fn delete_memory_file(path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -1221,6 +1392,7 @@ fn delete_memory_file(path: String) -> serde_json::Value {
 
 #[tauri::command]
 fn archive_memory_file(path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let file_path = match knowledge_path_from_input(&path) {
         Ok(p) => p,
@@ -1264,6 +1436,7 @@ fn archive_memory_file(path: String) -> serde_json::Value {
 
 #[tauri::command]
 fn restore_archived_file(archive_path: String, original_path: String) -> serde_json::Value {
+    let _git = git_guard();
     let repo_root = knowledge_root();
     let src = match knowledge_path_from_input(&archive_path) {
         Ok(p) => p,
@@ -1464,6 +1637,7 @@ fn read_dir_sorted(dir: &Path, rel_root: &Path) -> Result<Vec<serde_json::Value>
 
 /// Commit the current state of the Knowledge Core repo with a message (workspace lives inside it).
 fn commit_workspace(message: &str) {
+    let _git = git_guard();
     let root = knowledge_root();
     let _ = run_git(&["add", "-A"], &root);
     let _ = run_git(&["commit", "-m", message], &root);
@@ -1618,7 +1792,10 @@ fn fs_probe_context(path: String) -> serde_json::Value {
 // ── Phase 3: real-filesystem ops (consent enforced in the frontend; ACL keeps remote out) ──
 
 #[tauri::command]
-fn fs_read_external(path: String) -> serde_json::Value {
+fn fs_read_external(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e, "content": "" });
+    }
     match std::fs::read_to_string(&path) {
         Ok(content) => serde_json::json!({ "ok": true, "content": content }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "content": "" }),
@@ -1626,7 +1803,10 @@ fn fs_read_external(path: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn fs_list_external(path: String) -> serde_json::Value {
+fn fs_list_external(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e, "entries": [] });
+    }
     let dir = PathBuf::from(&path);
     match read_dir_sorted(&dir, &dir) {
         Ok(entries) => serde_json::json!({ "ok": true, "entries": entries, "root": path }),
@@ -1635,9 +1815,15 @@ fn fs_list_external(path: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn fs_write_external(path: String, content: String) -> serde_json::Value {
+fn fs_write_external(webview: tauri::Webview, path: String, content: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     if let Some(parent) = PathBuf::from(&path).parent() {
-        let _ = std::fs::create_dir_all(parent);
+        // Propagate the failure instead of silently leaving a partial mkdir -p tree on disk.
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return serde_json::json!({ "ok": false, "error": format!("could not create parent directory: {e}") });
+        }
     }
     match std::fs::write(&path, content) {
         Ok(_) => serde_json::json!({ "ok": true }),
@@ -1646,7 +1832,10 @@ fn fs_write_external(path: String, content: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn fs_delete_external(path: String) -> serde_json::Value {
+fn fs_delete_external(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     let p = PathBuf::from(&path);
     let result = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
     match result {
@@ -1660,7 +1849,10 @@ fn fs_delete_external(path: String) -> serde_json::Value {
 /// (same reason as the System Settings openers). Read-only: it shows a path, never mutates anything —
 /// but it's still on the remote-isolation DENIED list so a web page can't probe the local filesystem.
 #[tauri::command]
-fn fs_reveal(path: String) -> serde_json::Value {
+fn fs_reveal(webview: tauri::Webview, path: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
     match std::process::Command::new("open").arg("-R").arg(&path).spawn() {
         Ok(_) => serde_json::json!({ "ok": true }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
@@ -1671,7 +1863,19 @@ fn fs_reveal(path: String) -> serde_json::Value {
 // Runs through the user's login shell so PATH/aliases match their terminal. Git commands borrow the
 // OS's already-configured credentials (Keychain helper / SSH agent) — no separate auth to manage.
 #[tauri::command]
-fn run_command(command: String, cwd: String) -> serde_json::Value {
+fn run_command(webview: tauri::Webview, command: String, cwd: String) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e, "stdout": "", "stderr": "" });
+    }
+    // SEC-RUNCMD: the shell only runs when Developer Mode is enabled in the BACKEND — the frontend
+    // CommandActionCard gate is now belt-and-suspenders, not the sole control.
+    if !DEV_MODE.load(Ordering::Relaxed) {
+        return serde_json::json!({ "ok": false, "error": "Developer Mode is disabled", "stdout": "", "stderr": "" });
+    }
+    // cwd must be an existing directory — never run in an attacker-arbitrary or nonexistent path.
+    if cwd.trim().is_empty() || !std::path::Path::new(&cwd).is_dir() {
+        return serde_json::json!({ "ok": false, "error": "invalid working directory", "stdout": "", "stderr": "" });
+    }
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     match std::process::Command::new(&shell)
         .arg("-lc")
@@ -1687,6 +1891,17 @@ fn run_command(command: String, cwd: String) -> serde_json::Value {
         }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "stdout": "", "stderr": "" }),
     }
+}
+
+/// SEC-RUNCMD: mirror the frontend Developer-Mode toggle into the backend (DEV_MODE) so run_command's
+/// gate is enforced server-side. Trusted local windows only.
+#[tauri::command]
+fn set_developer_mode(webview: tauri::Webview, on: bool) -> serde_json::Value {
+    if let Err(e) = ensure_trusted_caller(&webview) {
+        return serde_json::json!({ "ok": false, "error": e });
+    }
+    DEV_MODE.store(on, Ordering::Relaxed);
+    serde_json::json!({ "ok": true })
 }
 
 // ─── Legacy ───────────────────────────────────────────────────────────────────
@@ -1878,7 +2093,7 @@ fn detect_active_tab_preferred(preferred: Option<&str>) -> serde_json::Value {
 fn get_active_tab(cache: tauri::State<TabCache>, preferred: Option<String>) -> serde_json::Value {
     // Return pre-fetched value from shortcut handler (captured before focus steal),
     // but only if it matches the preferred browser (or no preference set)
-    if let Some(cached) = cache.0.lock().unwrap().take() {
+    if let Some(cached) = cache.0.lock().unwrap_or_else(|e| e.into_inner()).take() {
         let cached_browser = cached.get("browser").and_then(|b| b.as_str()).unwrap_or("");
         let pref = preferred.as_deref().unwrap_or("auto");
         if pref == "auto" || pref.is_empty() || cached_browser == pref || cached_browser.is_empty() {
@@ -2447,7 +2662,7 @@ fn set_network_active(
 ) -> Result<(), String> {
     use std::sync::atomic::Ordering;
 
-    let mut ns = state.lock().unwrap();
+    let mut ns = state.lock().unwrap_or_else(|e| e.into_inner());
 
     // Stop existing threads if any
     if let Some(flag) = ns.stop_flag.take() {
@@ -2464,7 +2679,7 @@ fn set_network_active(
             });
         }
         ns.active = false;
-        ns.peers.lock().unwrap().clear();
+        ns.peers.lock().unwrap_or_else(|e| e.into_inner()).clear();
         return Ok(());
     }
 
@@ -2531,7 +2746,7 @@ fn set_network_active(
             let typ = v["type"].as_str().unwrap_or("");
             let ip = addr.ip().to_string();
             let now = net_now_secs();
-            let mut peers = peers_l.lock().unwrap();
+            let mut peers = peers_l.lock().unwrap_or_else(|e| e.into_inner());
             if typ == "bye" {
                 peers.retain(|p| p.peer.id != id);
             } else if typ == "heartbeat" {
@@ -2553,10 +2768,10 @@ fn set_network_active(
 
 #[tauri::command]
 fn get_network_peers(state: tauri::State<Mutex<NetworkState>>) -> Vec<NetworkPeer> {
-    let ns = state.lock().unwrap();
+    let ns = state.lock().unwrap_or_else(|e| e.into_inner());
     if !ns.active { return vec![]; }
     let cutoff = net_now_secs().saturating_sub(45);
-    let result: Vec<NetworkPeer> = ns.peers.lock().unwrap()
+    let result: Vec<NetworkPeer> = ns.peers.lock().unwrap_or_else(|e| e.into_inner())
         .iter()
         .filter(|p| p.last_seen_secs >= cutoff)
         .map(|p| p.peer.clone())
@@ -2606,12 +2821,13 @@ async fn download_model(
     if !url.starts_with("https://") {
         return Err("Only HTTPS downloads are allowed".to_string());
     }
+    egress_host_allowed(&url)?; // SSRF: block loopback/private/link-local hosts even over https
     if !is_safe_gguf_name(&filename) {
         return Err("Invalid filename".to_string());
     }
 
     // Clear any stale cancel flag
-    { dl_state.cancels.lock().unwrap().insert(filename.clone(), false); }
+    { dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename.clone(), false); }
 
     let dir = models_dir();
     let part_path = dir.join(format!("{}.part", filename));
@@ -2630,7 +2846,7 @@ async fn download_model(
 
     while let Some(chunk) = stream.next().await {
         // Check cancel flag
-        if *dl_state.cancels.lock().unwrap().get(&filename).unwrap_or(&false) {
+        if *dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false) {
             drop(file);
             let _ = std::fs::remove_file(&part_path);
             return Err("cancelled".to_string());
@@ -2655,7 +2871,7 @@ async fn download_model(
 
 #[tauri::command]
 fn cancel_download(filename: String, dl_state: tauri::State<'_, DownloadState>) {
-    dl_state.cancels.lock().unwrap().insert(filename, true);
+    dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename, true);
 }
 
 #[tauri::command]
@@ -2666,10 +2882,10 @@ async fn start_local_model(
     llama_state: tauri::State<'_, LlamaState>,
 ) -> Result<String, String> {
     // Kill any running server first (drop lock before await)
-    let existing_pid = { *llama_state.pid.lock().unwrap() };
+    let existing_pid = { *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) };
     if let Some(pid) = existing_pid {
         kill_llama(pid);
-        { *llama_state.pid.lock().unwrap() = None; }
+        { *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = None; }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
@@ -2700,7 +2916,7 @@ async fn start_local_model(
         .map_err(|e| format!("Failed to spawn llama-server: {}", e))?;
 
     let pid = child.id();
-    *llama_state.pid.lock().unwrap() = Some(pid);
+    *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
 
     // Poll health endpoint — 60 × 500ms = 30s
     let health_url = format!("http://127.0.0.1:{}/health", port);
@@ -2945,7 +3161,7 @@ fn ensure_trusted_caller(webview: &tauri::Webview) -> Result<(), String> {
 
 // ─── macOS Keychain ──────────────────────────────────────────────────────────
 #[cfg(target_os = "macos")]
-mod keychain_impl {
+pub(crate) mod keychain_impl {
     const SERVICE: &str = "AgentForgeBrowser";
 
     // Store credentials as a JSON blob keyed by hostname so we can round-trip both username and password.
@@ -3007,6 +3223,16 @@ fn keychain_get(webview: tauri::Webview, host: String) -> serde_json::Value {
     }
     #[cfg(target_os = "macos")]
     {
+        // SEC-KEYCHAIN: mail passwords are resolved inside Rust (mail.rs `mail_password`) and must
+        // never be returned to the renderer — a `mail:` lookup yields presence/username only. Other
+        // hosts (browser autofill, model/integration keys) still round-trip until those paths move
+        // server-side too.
+        if host.starts_with("mail:") {
+            return match keychain_impl::get(&host) {
+                Some((username, _password)) => serde_json::json!({ "ok": true, "username": username }),
+                None => serde_json::json!({ "ok": false }),
+            };
+        }
         match keychain_impl::get(&host) {
             Some((username, password)) => serde_json::json!({ "ok": true, "username": username, "password": password }),
             None => serde_json::json!({ "ok": false }),
@@ -3095,16 +3321,34 @@ fn browser_set_zoom(app: tauri::AppHandle, label: String, factor: f64) -> Result
 
 #[tauri::command]
 async fn browser_download_url(_app: tauri::AppHandle, url: String, filename: String) -> Result<String, String> {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("Only HTTP/HTTPS downloads allowed".to_string());
-    }
+    // SSRF: reject loopback/private/link-local hosts — this command is reachable from the remote
+    // browser-panel, so a page must not be able to make the backend fetch internal endpoints.
+    egress_host_allowed(&url)?;
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
         .build()
         .map_err(|e| e.to_string())?;
-    let bytes = client.get(&url)
-        .send().await.map_err(|e| e.to_string())?
-        .bytes().await.map_err(|e| e.to_string())?;
+    // Stream with a hard size cap so a remote-triggered download can't exhaust memory (the previous
+    // .bytes() buffered the entire body unbounded).
+    const MAX_DOWNLOAD: u64 = 256 * 1024 * 1024; // 256 MB
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    if let Some(len) = resp.content_length() {
+        if len > MAX_DOWNLOAD {
+            return Err("file exceeds the 256 MB download limit".to_string());
+        }
+    }
+    let mut downloaded: u64 = 0;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+        if downloaded > MAX_DOWNLOAD {
+            return Err("file exceeds the 256 MB download limit".to_string());
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    let bytes = buf;
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let downloads = std::path::PathBuf::from(home).join("Downloads");
     let _ = std::fs::create_dir_all(&downloads);
@@ -3442,6 +3686,7 @@ pub fn run() {
             pid: Mutex::new(None),
         })
         .manage(DownloadState::default())
+        .manage(pty::PtyState::default())
         .manage(TabCache::default())
         .manage(Mutex::new(NetworkState::default()))
         .manage(SysState(Mutex::new(System::new_with_specifics(
@@ -3487,7 +3732,7 @@ pub fn run() {
                             } else {
                                 // Capture active tab NOW — browser still has focus at this point
                                 let tab = detect_active_tab_preferred(None);
-                                *handle.state::<TabCache>().0.lock().unwrap() = Some(tab);
+                                *handle.state::<TabCache>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(tab);
                                 let _ = w.show();
                                 let _ = w.set_focus();
                             }
@@ -3504,15 +3749,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        // Clean Exit hook: SIGCONT + SIGKILL the llama sidecar on window destroy
+        // Clean Exit hook: SIGCONT + SIGKILL the llama sidecar on window destroy, and reap every
+        // live PTY session so no zombie shells / dev-servers outlive the app.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let app = window.app_handle();
                 let state = app.state::<LlamaState>();
-                let pid = *state.pid.lock().unwrap();
+                let pid = *state.pid.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(pid) = pid {
                     kill_llama(pid);
                 }
+                pty::kill_all_sessions(app);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -3560,6 +3807,12 @@ pub fn run() {
             fs_delete_external,
             fs_reveal,
             run_command,
+            set_developer_mode,
+            pty::pty_spawn,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_kill,
+            screenshot::webview_screenshot,
             get_active_tab,
             show_spotlight,
             hide_spotlight,
@@ -3656,6 +3909,64 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    // ── SEC-SYMLINK: in-jail symlink can't escape the root ────────────────────
+    #[cfg(unix)]
+    #[test]
+    fn symlink_escape_is_rejected() {
+        let base = std::env::temp_dir().join(format!("af-symtest-{}", std::process::id()));
+        let root = base.join("root");
+        let outside = base.join("outside");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        // A path through the in-jail symlink resolves OUTSIDE the root → rejected.
+        assert!(assert_no_symlink_escape(&root, &root.join("link").join("secret.txt")).is_err());
+        // A genuine in-root path (existing leaf) is allowed.
+        std::fs::write(root.join("ok.txt"), "y").unwrap();
+        assert!(assert_no_symlink_escape(&root, &root.join("ok.txt")).is_ok());
+        // A not-yet-existing leaf whose real parent is in-root is allowed (the write case).
+        assert!(assert_no_symlink_escape(&root, &root.join("new.txt")).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ── Retrieval importance weighting ────────────────────────────────────────
+    #[test]
+    fn parse_memory_importance_reads_confidence_and_evidence() {
+        // High confidence, first-party → top importance.
+        let hi = parse_memory_importance("---\nconfidence: high\nevidence_state: first_party\n---\n# x");
+        assert!((hi - 1.0).abs() < 1e-6, "high/first_party should be 1.0, got {hi}");
+        // Low confidence → low importance.
+        let lo = parse_memory_importance("---\nconfidence: low\n---\n");
+        assert!((lo - 0.3).abs() < 1e-6, "low should be 0.3, got {lo}");
+        // Unlabeled (no frontmatter) → medium default.
+        assert!((parse_memory_importance("# just a note") - 0.6).abs() < 1e-6);
+        // needs_verification discounts even high confidence (1.0 * 0.6 = 0.6).
+        let nv = parse_memory_importance("confidence: high\nevidence_state: needs_verification");
+        assert!(nv > 0.55 && nv < 0.65, "needs_verification should discount high→~0.6, got {nv}");
+        // Output always stays within bounds.
+        let f = parse_memory_importance("confidence: low\nevidence_state: conflicting");
+        assert!((0.05..=1.0).contains(&f), "importance must stay in [0.05,1.0], got {f}");
+    }
+
+    // ── Keyword-fallback score normalization ──────────────────────────────────
+    #[test]
+    fn keyword_relevance_is_cosine_comparable() {
+        // No query terms / no match → 0 (never leaks as a passing "cosine").
+        assert_eq!(keyword_relevance(0, 0, 0), 0.0);
+        assert_eq!(keyword_relevance(0, 3, 0), 0.0);
+        // Full coverage scores high but never exceeds 1.0, even with heavy repetition.
+        let full = keyword_relevance(3, 3, 3);
+        assert!((0.85..=1.0).contains(&full), "full coverage should be >=0.85, got {full}");
+        assert!(keyword_relevance(2, 2, 1000) <= 1.0, "repetition must not exceed 1.0");
+        // More coverage ranks above less.
+        assert!(keyword_relevance(1, 3, 1) < full);
+        // A single term out of many stays below the frontend's 0.35/0.3 cosine gates — so weak
+        // keyword hits no longer trivially pass (the bug being fixed).
+        assert!(keyword_relevance(1, 4, 1) < 0.3, "weak partial match should be gated");
+    }
+
     // ── Capability ACL gating ─────────────────────────────────────────────────
     // Faithful, automated proof of the remote-isolation fix. We load the EXACT files
     // `tauri::generate_context!` consumes (gen/schemas/{acl-manifests,capabilities}.json),
@@ -3745,6 +4056,11 @@ mod tests {
             "fs_list", "fs_read", "fs_write", "fs_mkdir", "fs_delete", "fs_move", "fs_import",
             "fs_probe_context", "fs_read_external", "fs_list_external", "fs_write_external",
             "fs_delete_external", "fs_reveal", "run_command",
+            // Interactive terminal (PTY) — a remote page must NEVER reach an interactive shell with
+            // the user's real credentials. These run the login shell; treat as maximally privileged.
+            "pty_spawn", "pty_write", "pty_resize", "pty_kill",
+            // Screen capture — a remote page must NEVER snapshot the user's app window.
+            "webview_screenshot",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),

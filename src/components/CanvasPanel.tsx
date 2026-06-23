@@ -5,6 +5,30 @@ import {
 import { WysiwygEditor } from './ui/WysiwygEditor';
 import { useUIStore } from '../store/useUIStore';
 
+// SEC-CANVAS: agent-generated preview HTML runs with allow-scripts in a NULL-origin sandbox (so it
+// can't touch app cookies / the Tauri IPC bridge / parent DOM), but it could still beacon the canvas
+// contents out via fetch / XHR / WebSocket or a form post. Prepend a CSP that blocks all network
+// egress while still letting the preview render and run locally (inline + CDN scripts, styles,
+// data/https images). Closes the exfil channel without breaking functional previews — and delivers
+// the README's "safer generated-code previews" promise.
+// connect-src 'none' (default) blocks scripted network egress — fetch / XHR / WebSocket / sendBeacon —
+// so generated code can't beacon the canvas contents out. The user can opt a TRUSTED preview into
+// network access (allowNetwork ⇒ connect-src https:) so a legitimately-interactive generated app isn't
+// silently broken. Either way form-action/object-src/base-uri stay locked and the iframe is null-origin
+// (no app cookies / IPC / parent DOM). Note: img-src inherits https:, so pixel-GET exfil is still
+// possible — acceptable because the only data in the null-origin frame is the model-generated content.
+function previewCsp(allowNetwork: boolean): string {
+  const connect = allowNetwork ? "connect-src https:;" : "connect-src 'none';";
+  return (
+    "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; " +
+    `${connect} form-action 'none'; object-src 'none'; base-uri 'none';`
+  );
+}
+function withPreviewCsp(html: string, allowNetwork: boolean): string {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${previewCsp(allowNetwork)}">`;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => `${m}${meta}`) : `${meta}${html}`;
+}
+
 interface CanvasPanelProps {
   isGenerating: boolean;
   onHistoryNavigate: (direction: number) => void;
@@ -27,6 +51,9 @@ export function CanvasPanel({
   const canvasTab = useUIStore(s => s.canvasTab);
   const savedApps = useUIStore(s => s.savedApps);
   const { setCanvasContent, setCanvasTab, setIsSidebarOpen, setSaveAppData, setShowSaveModal } = useUIStore.getState();
+  // SEC-CANVAS: previews are network-blocked by default; the user can opt a trusted preview into
+  // network access so legitimately-interactive generated apps aren't silently broken.
+  const [allowPreviewNetwork, setAllowPreviewNetwork] = React.useState(false);
   return (
     <div className={`${canvasContent.isStandalone ? 'w-full' : 'w-1/2'} h-full flex flex-col bg-panel z-50 min-w-0 transition-all duration-300 relative overflow-hidden shadow-2xl border-l border-edge`}>
       <div className="h-16 border-b border-edge flex items-center justify-between px-4 bg-panel-2 shrink-0">
@@ -104,7 +131,19 @@ export function CanvasPanel({
           ) : isGenerating && !canvasContent.content ? (
             <div className="flex-1 flex flex-col items-center justify-center space-y-4 opacity-40"><RefreshCw className="w-12 h-12 animate-spin text-accent" /><span className="text-xs font-black uppercase tracking-widest">Building App...</span></div>
           ) : (
-            <iframe title="Preview" className="flex-1 w-full border-none bg-white" srcDoc={canvasContent.content} sandbox="allow-scripts allow-forms allow-modals" />
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest border-b border-edge bg-inset text-ink-3 shrink-0">
+                <span>{allowPreviewNetwork ? '🌐 Network enabled for this preview' : '🛡 Network blocked in preview'}</span>
+                <button
+                  onClick={() => setAllowPreviewNetwork(v => !v)}
+                  title={allowPreviewNetwork ? 'Block this preview from making network requests' : 'Allow network requests — only if you trust this generated code'}
+                  className="px-2 py-0.5 rounded border border-edge hover:bg-panel text-ink-2"
+                >
+                  {allowPreviewNetwork ? 'Disable' : 'Enable network'}
+                </button>
+              </div>
+              <iframe title="Preview" className="flex-1 w-full border-none bg-white" srcDoc={withPreviewCsp(canvasContent.content, allowPreviewNetwork)} sandbox="allow-scripts allow-forms allow-modals" />
+            </div>
           )}
         </div>
       </div>

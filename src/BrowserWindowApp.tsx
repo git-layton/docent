@@ -319,7 +319,7 @@ export function BrowserWindowApp() {
       setKbSaved(false);
 
       let title = '';
-      let text = '';
+      const text = '';
       let isPrivate = false;
 
       try {

@@ -25,6 +25,7 @@ interface MessageListProps {
   onToast: (msg: string) => void;
   /** Send a prompt as the user — enables grounded quick-action chips under the opening reply. */
   onSendPrompt?: (text: string) => void;
+  hideEmptyState?: boolean;
 }
 
 export function MessageList({
@@ -40,6 +41,7 @@ export function MessageList({
   onRenderMessage,
   onToast,
   onSendPrompt,
+  hideEmptyState,
 }: MessageListProps) {
   // Chips appear only at the very start of a conversation (greeting + reply),
   // once the agent has finished its opening message.
@@ -200,6 +202,8 @@ export function MessageList({
             )}
             <div ref={messagesEndRef} className="h-4" />
           </div>
+        ) : hideEmptyState ? (
+          <div ref={messagesEndRef} className="h-4" />
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center opacity-20 pointer-events-none grayscale pb-20">
             <AgentIcon agent={activeAssistant} sizeClass="w-16 h-16" containerClass="p-4 rounded-3xl mb-4" />

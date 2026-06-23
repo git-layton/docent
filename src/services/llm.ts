@@ -224,7 +224,7 @@ export const validateModel = async (model: any) => {
     const { provider, endpoint, apiKey } = model;
     if (provider === 'web-llm') return true;
 
-    let url, headers: any = {};
+    let url; const headers: any = {};
 
     if (provider === 'anthropic') {
       url = endpoint ? `${endpoint.replace(/\/messages$/, '')}/models` : 'https://api.anthropic.com/v1/models';
@@ -289,13 +289,21 @@ export const getSystemPromptBreakdown = (params: {
   return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal, voiceProfile }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
 
   if (agent.role) prompt += `[YOUR ROLE]\nIn this workspace you are acting as the "${agent.role}". Lean into that specialty when deciding what to contribute.\n\n`;
   if (goal) prompt += `[YOUR STANDING GOAL IN THIS SPACE]\n${goal}\nKeep steering toward this across the conversation.\n\n`;
+
+  // Per-space project context (AGENTS.md, P6). TRUSTED-LOCAL — the user authored this file, so it's
+  // read as instructions (NOT fenced as untrusted like web/inbound-comms content). It's the durable
+  // "how this project works" memory: build/test commands, conventions, gotchas. Capped so a long file
+  // can't blow the budget; prune ruthlessly upstream.
+  if (projectContext && String(projectContext).trim()) {
+    prompt += `[PROJECT CONTEXT - AGENTS.md]\nThis is the project's own notes for how to work in this space — written by the user. Follow it: build/test commands, conventions, and gotchas live here.\n${String(projectContext).slice(0, 4000)}\n\n`;
+  }
 
   const activeTools = Object.keys(agent.tools ?? {}).filter(k => agent.tools[k]);
   if (activeTools.length > 0) prompt += `[ACTIVE TOOLS]\n${activeTools.join(', ')}\n\n`;
@@ -352,13 +360,21 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     `- {"tool":"calendar","op":"create","title":"…","start":"YYYY-MM-DD or ISO","end":"…"?,"allDay":true?}\n` +
     `- {"tool":"message","op":"send","to":"conversation or contact name","text":"…"}\n` +
     `- {"tool":"mail","op":"send","to":["addr"],"subject":"…","body":"…"}\n` +
+    `- {"tool":"memory","op":"save","title":"…","content":"a durable fact, preference, or decision worth remembering across future conversations"}\n` +
+    `- {"tool":"playbook","op":"capture","title":"…","intent":"the kind of task this is for","steps":[{"intent":"step 1","toolHint":"optional tool"},{"intent":"step 2"}]}  // when the user asks to save a repeatable, multi-step procedure (≥2 steps)\n` +
     `- {"tool":"note|task|calendar","op":"delete","id":"…"}\n` +
-    `Creating a note/to-do/event applies automatically. Sending a message/email or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
+    `Creating a note/to-do/event applies automatically. Sending a message/email or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Use memory.save when YOU notice something durable worth carrying forward (it's written to your own private memory, not shown as a message, and you'll see it again automatically) — restating the same thing just updates it, so don't worry about duplicates. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
 
   // Tier 2 — relevant memory retrieved for THIS message (semantic, gated by relevance). Placed near
   // the end so it sits close to the user's turn (mitigates "lost in the middle").
   if (relevantMemory) {
     prompt += `[RELEVANT MEMORY FOR THIS MESSAGE]\nRetrieved from your knowledge base because it's relevant to what was just said — use it if helpful:\n${String(relevantMemory).slice(0, 3000)}\n\n`;
+  }
+
+  // Known procedures (playbooks) relevant to this turn — already formatted as a propose-don't-run block
+  // by appliedMemory.formatProceduresBlock; the agent enacts steps via its normal, individually-gated tools.
+  if (knownProcedures) {
+    prompt += String(knownProcedures).slice(0, 2000);
   }
 
   // "Write like me" — when the user asks the agent to draft something they'll send AS THEMSELVES,
@@ -433,7 +449,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
 const stripThinkingTags = (text: string): string =>
   text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal, voiceProfile }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -488,7 +504,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, webRecall, goal, voiceProfile })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
@@ -508,7 +524,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     }
   }
 
-  let contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
+  const contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
   const limit = contextLimit ? parseInt(contextLimit, 10) : 32000;
   if (contextUsed > limit) throw new Error('Attached documents exceed the context limit of this model.');
 
@@ -598,7 +614,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   if (!res.body) {
       const data = await res.json();
-      let text = provider === 'anthropic'
+      const text = provider === 'anthropic'
         ? (data.content?.find((b: any) => b.type === 'text')?.text || '')
         : stripThinkingTags(data.choices?.[0]?.message?.content || '');
       if (onChunk) {

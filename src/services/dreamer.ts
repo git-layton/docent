@@ -5,6 +5,8 @@ export type DreamerOp =
   | { type: 'merge'; description: string; source_paths: string[]; target_path: string; merged_content: string }
   | { type: 'prune'; description: string; source_path: string }
   | { type: 'update'; description: string; target_path: string; updated_content: string }
+  | { type: 'insight'; description: string; title: string; insight: string; source_paths: string[] }
+  | { type: 'playbook_refine'; description: string; target_path: string; steps: Array<{ intent: string; toolHint?: string }> }
   | { type: 'notice'; description: string; title: string; body: string; agentId?: string };
 
 export interface DreamerPlan {
@@ -13,15 +15,27 @@ export interface DreamerPlan {
 
 export function buildDreamerSystemPrompt(): string {
   return `You are the Dreamer — a background agent for Agent Forge that runs while the user is away.
-You have two jobs: consolidate memory and surface proactive insights.
+You have three jobs: consolidate memory, synthesize durable insights, and surface proactive notices.
 
 MEMORY JOBS:
 1. MERGE: Combine multiple related files about the same topic into one coherent document
 2. PRUNE: Archive files that are outdated, redundant, or contain only completed tasks
 3. UPDATE: Refresh a file by cleaning up stale content (fix vague date references, remove checked-off items)
 
+INSIGHT JOB:
+4. INSIGHT: Synthesize a NEW, higher-level realization that spans MULTIPLE memory files and is not already written down anywhere. This is reflection — turning many concrete memories into one durable generalization the agent should carry forward and act on in future conversations. Unlike a notice (a transient nudge to the user), an insight is permanent knowledge that gets SAVED back into memory.
+
+   Examples: "Across several notes the user consistently prefers concise, bulleted answers and reacts badly to long preamble." / "This user's projects repeatedly stall at the deployment step — proactively raise deployment early." / "The user's tone is warmest in the evenings and terse in the mornings."
+
+   - Ground every insight in at least 2 specific source files, and cite their exact paths.
+   - Only generate an insight when there is a real, non-obvious pattern across files. Do NOT restate a single file, and do NOT invent a pattern that the files don't clearly support.
+   - Write the insight as a durable statement of what is now known (1-3 sentences), phrased so a future version of the agent can act on it.
+
+PLAYBOOK JOB:
+5. PLAYBOOK_REFINE: A playbook file (memory_type: playbook, under .../playbooks/) is a saved step-by-step procedure. If one has accumulated messy "## Update" sections from repeated captures, or has redundant/stale/out-of-order steps, propose a CLEANED step list — consolidate duplicates, fix ordering, keep it tight. Only refine when there is a clear improvement; never invent steps the file doesn't support, and preserve the procedure's actual intent. (You only return the refined steps; the procedure's title and trust status are preserved automatically.)
+
 NOTICE JOB:
-4. NOTICE: Surface something the user should know or act on. Only generate a notice when a clear MEMS psychological trigger is present:
+6. NOTICE: Surface something the user should know or act on. Only generate a notice when a clear MEMS psychological trigger is present:
 
    ZEIGARNIK (unfinished business): A task, goal, or question explicitly mentioned in notes has no completion marker and appears unresolved. Example: "I was going to call the doctor" with no follow-up anywhere in the files.
 
@@ -61,6 +75,19 @@ Required schema:
       "updated_content": "<full updated markdown content>"
     },
     {
+      "type": "insight",
+      "description": "One-line internal reason this insight was synthesized",
+      "title": "Short headline for the insight (under 60 chars)",
+      "insight": "The durable generalization, 1-3 sentences, grounded in the cited sources",
+      "source_paths": ["<exact full path from file list>", "<exact full path from file list>", "..."]
+    },
+    {
+      "type": "playbook_refine",
+      "description": "Plain English: what was cleaned up and why",
+      "target_path": "<exact full playbook path from the file list (must contain /playbooks/)>",
+      "steps": [{ "intent": "step 1 in plain language", "toolHint": "optional tool name" }, { "intent": "step 2" }]
+    },
+    {
       "type": "notice",
       "description": "One-line internal reason this notice was generated",
       "title": "Short headline (under 60 chars)",
@@ -76,6 +103,8 @@ Rules:
 - Descriptions must be plain English, not technical ("Combined 3 voice memos about Project Bakery" not "merged files")
 - For merge target_path, use a relative path within the agent's memory directory — do NOT use an absolute path
 - Never include a source file's path as the target_path of its own merge
+- For insights: cite at least 2 source_paths drawn from the file list; never fabricate a pattern that the files don't support
+- For playbook_refine: target_path must be an existing /playbooks/ file from the list; return at least 2 steps; only refine when it's a clear improvement
 - For notices: use MEMS triggers listed above as the bar. Do not invent or generalise — only surface a notice when a specific file or pattern clearly qualifies.
 - Return { "operations": [] } if nothing needs doing
 - Do NOT output any text outside the JSON object`;
@@ -112,7 +141,7 @@ export function buildDreamerUserMessage(
   const dateLine = context?.currentDate ? `\nCurrent date: ${context.currentDate}` : '';
 
   return `Analyze the memory files for agent "${agentName}" (id: ${agentId}).${dateLine}
-Review for consolidation opportunities AND anything worth surfacing as a notice.
+Review for consolidation opportunities, durable cross-file insights worth remembering, AND anything worth surfacing as a notice.
 
 File inventory (${memoryFiles.length} files):
 ${inventory}${truncationNote}

@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
-
-const generateId = (prefix: string) =>
-  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+import { generateId } from '../lib/id';
 
 export interface RecurringEvent {
   id: string;

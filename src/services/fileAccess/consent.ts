@@ -79,11 +79,14 @@ export function findGrant(
   grants: Record<string, FileGrant> | undefined,
   path: string,
   effect: GrantEffect,
+  now?: number,
 ): FileGrant | null {
   if (!grants || !path) return null;
   const target = trimSlash(path);
   for (const g of Object.values(grants)) {
-    if (g.effect !== effect && !(effect === 'read' && g.effect === 'write')) continue; // write grant implies read
+    if (now !== undefined && g.expiresAt !== undefined && now > g.expiresAt) continue; // expired grant
+    // write implies read (lesser privilege), but NOT command — shell authority is its own grant.
+    if (g.effect !== effect && !(effect === 'read' && g.effect === 'write')) continue;
     const gp = trimSlash(g.path);
     if (g.scope === 'file' && gp === target) return g;
     if (g.scope === 'folder' && (target === gp || target.startsWith(gp + '/'))) return g;
@@ -91,9 +94,11 @@ export function findGrant(
   return null;
 }
 
-/** Build a grant record + the key it should be stored under. `once` scope is never persisted. */
-export function makeGrant(path: string, scope: GrantScope, effect: GrantEffect, now: number): FileGrant {
-  return { path: trimSlash(path), scope, effect, grantedAt: now };
+/** Build a grant record + the key it should be stored under. `once` scope is never persisted.
+ *  Pass `ttlMs` to make the grant expire (command grants use this — standing shell authority should
+ *  not be permanent). */
+export function makeGrant(path: string, scope: GrantScope, effect: GrantEffect, now: number, ttlMs?: number): FileGrant {
+  return { path: trimSlash(path), scope, effect, grantedAt: now, ...(ttlMs ? { expiresAt: now + ttlMs } : {}) };
 }
 
 export function grantKey(grant: FileGrant): string {
