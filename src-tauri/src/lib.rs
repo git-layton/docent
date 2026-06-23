@@ -340,7 +340,7 @@ fn get_hardware_summary() -> HardwareSummary {
 
 #[tauri::command]
 fn get_system_stats(state: tauri::State<SysState>) -> serde_json::Value {
-    let mut sys = state.0.lock().unwrap();
+    let mut sys = state.0.lock().unwrap_or_else(|e| e.into_inner());
     sys.refresh_cpu_specifics(CpuRefreshKind::everything());
     sys.refresh_memory();
 
@@ -440,13 +440,13 @@ fn spawn_llama_server(
         .map_err(|e| e.to_string())?;
 
     let pid = child.id();
-    *state.pid.lock().unwrap() = Some(pid);
+    *state.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
     Ok(serde_json::json!({ "pid": pid }))
 }
 
 #[tauri::command]
 fn sigstop_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
-    let pid = *state.pid.lock().unwrap();
+    let pid = *state.pid.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(pid) = pid {
         let _ = std::process::Command::new("kill")
             .args(["-STOP", &pid.to_string()])
@@ -459,7 +459,7 @@ fn sigstop_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
 
 #[tauri::command]
 fn sigcont_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
-    let pid = *state.pid.lock().unwrap();
+    let pid = *state.pid.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(pid) = pid {
         let _ = std::process::Command::new("kill")
             .args(["-CONT", &pid.to_string()])
@@ -1091,7 +1091,7 @@ fn init_file_watcher() {
 
                 let texts: Vec<&str> = chunks.iter().map(|s| s.as_str()).collect();
                 let embeddings = {
-                    let guard = embedder.lock().unwrap();
+                    let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
                     match guard.embed(texts, None) { Ok(e) => e, Err(e) => { eprintln!("[embedder] embed error: {e}"); continue; } }
                 };
 
@@ -1257,7 +1257,7 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
     };
 
     let query_vec: Vec<f32> = {
-        let guard = embedder.lock().unwrap();
+        let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
         match guard.embed(vec![query.as_str()], None) {
             Ok(mut e) if !e.is_empty() => e.remove(0),
             _ => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
@@ -2093,7 +2093,7 @@ fn detect_active_tab_preferred(preferred: Option<&str>) -> serde_json::Value {
 fn get_active_tab(cache: tauri::State<TabCache>, preferred: Option<String>) -> serde_json::Value {
     // Return pre-fetched value from shortcut handler (captured before focus steal),
     // but only if it matches the preferred browser (or no preference set)
-    if let Some(cached) = cache.0.lock().unwrap().take() {
+    if let Some(cached) = cache.0.lock().unwrap_or_else(|e| e.into_inner()).take() {
         let cached_browser = cached.get("browser").and_then(|b| b.as_str()).unwrap_or("");
         let pref = preferred.as_deref().unwrap_or("auto");
         if pref == "auto" || pref.is_empty() || cached_browser == pref || cached_browser.is_empty() {
@@ -2662,7 +2662,7 @@ fn set_network_active(
 ) -> Result<(), String> {
     use std::sync::atomic::Ordering;
 
-    let mut ns = state.lock().unwrap();
+    let mut ns = state.lock().unwrap_or_else(|e| e.into_inner());
 
     // Stop existing threads if any
     if let Some(flag) = ns.stop_flag.take() {
@@ -2679,7 +2679,7 @@ fn set_network_active(
             });
         }
         ns.active = false;
-        ns.peers.lock().unwrap().clear();
+        ns.peers.lock().unwrap_or_else(|e| e.into_inner()).clear();
         return Ok(());
     }
 
@@ -2746,7 +2746,7 @@ fn set_network_active(
             let typ = v["type"].as_str().unwrap_or("");
             let ip = addr.ip().to_string();
             let now = net_now_secs();
-            let mut peers = peers_l.lock().unwrap();
+            let mut peers = peers_l.lock().unwrap_or_else(|e| e.into_inner());
             if typ == "bye" {
                 peers.retain(|p| p.peer.id != id);
             } else if typ == "heartbeat" {
@@ -2768,10 +2768,10 @@ fn set_network_active(
 
 #[tauri::command]
 fn get_network_peers(state: tauri::State<Mutex<NetworkState>>) -> Vec<NetworkPeer> {
-    let ns = state.lock().unwrap();
+    let ns = state.lock().unwrap_or_else(|e| e.into_inner());
     if !ns.active { return vec![]; }
     let cutoff = net_now_secs().saturating_sub(45);
-    let result: Vec<NetworkPeer> = ns.peers.lock().unwrap()
+    let result: Vec<NetworkPeer> = ns.peers.lock().unwrap_or_else(|e| e.into_inner())
         .iter()
         .filter(|p| p.last_seen_secs >= cutoff)
         .map(|p| p.peer.clone())
@@ -2827,7 +2827,7 @@ async fn download_model(
     }
 
     // Clear any stale cancel flag
-    { dl_state.cancels.lock().unwrap().insert(filename.clone(), false); }
+    { dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename.clone(), false); }
 
     let dir = models_dir();
     let part_path = dir.join(format!("{}.part", filename));
@@ -2846,7 +2846,7 @@ async fn download_model(
 
     while let Some(chunk) = stream.next().await {
         // Check cancel flag
-        if *dl_state.cancels.lock().unwrap().get(&filename).unwrap_or(&false) {
+        if *dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false) {
             drop(file);
             let _ = std::fs::remove_file(&part_path);
             return Err("cancelled".to_string());
@@ -2871,7 +2871,7 @@ async fn download_model(
 
 #[tauri::command]
 fn cancel_download(filename: String, dl_state: tauri::State<'_, DownloadState>) {
-    dl_state.cancels.lock().unwrap().insert(filename, true);
+    dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename, true);
 }
 
 #[tauri::command]
@@ -2882,10 +2882,10 @@ async fn start_local_model(
     llama_state: tauri::State<'_, LlamaState>,
 ) -> Result<String, String> {
     // Kill any running server first (drop lock before await)
-    let existing_pid = { *llama_state.pid.lock().unwrap() };
+    let existing_pid = { *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) };
     if let Some(pid) = existing_pid {
         kill_llama(pid);
-        { *llama_state.pid.lock().unwrap() = None; }
+        { *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = None; }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
@@ -2916,7 +2916,7 @@ async fn start_local_model(
         .map_err(|e| format!("Failed to spawn llama-server: {}", e))?;
 
     let pid = child.id();
-    *llama_state.pid.lock().unwrap() = Some(pid);
+    *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
 
     // Poll health endpoint — 60 × 500ms = 30s
     let health_url = format!("http://127.0.0.1:{}/health", port);
@@ -3732,7 +3732,7 @@ pub fn run() {
                             } else {
                                 // Capture active tab NOW — browser still has focus at this point
                                 let tab = detect_active_tab_preferred(None);
-                                *handle.state::<TabCache>().0.lock().unwrap() = Some(tab);
+                                *handle.state::<TabCache>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(tab);
                                 let _ = w.show();
                                 let _ = w.set_focus();
                             }
@@ -3755,7 +3755,7 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 let app = window.app_handle();
                 let state = app.state::<LlamaState>();
-                let pid = *state.pid.lock().unwrap();
+                let pid = *state.pid.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(pid) = pid {
                     kill_llama(pid);
                 }
