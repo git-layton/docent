@@ -79,7 +79,8 @@ async function lookAtPreview(ctx: CapabilityContext, _url: string): Promise<stri
  *
  * The command snapshots the MAIN window's WKWebView — which paints the cross-origin localhost preview
  * iframe that a JS canvas can't read — and crops to the iframe's on-screen rect (CSS points, set by the
- * Preview panel when the human hits LOOK). No rect → it snaps the full webview. macOS-only and DENIED to
+ * Preview panel when the human hits LOOK). An unmeasurable/zero rect now ERRORS (no full-window
+ * fallback) and LOOK degrades to READ. macOS-only and DENIED to
  * the remote browser-panel webview (allow-app-local, never allow-browser-remote). Returns null on any
  * failure (non-macOS, no dev server painted, capture error) so the caller cleanly falls back to the READ.
  */

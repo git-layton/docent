@@ -224,6 +224,11 @@ fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
             v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast()
         }
         std::net::IpAddr::V6(v6) => {
+            // An IPv4-mapped address (e.g. ::ffff:127.0.0.1) must be judged by its V4 rules — V6
+            // is_loopback() is false for it, so it would otherwise slip past as a public host.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_blocked_ip(std::net::IpAddr::V4(v4));
+            }
             v6.is_loopback()
                 || v6.is_unspecified()
                 || (v6.segments()[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7

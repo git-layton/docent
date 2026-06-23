@@ -174,7 +174,8 @@ export function AgentForgeCodePanel({
     if (!previewLive) { setToast('Enter a dev-server URL and hit Go first.'); return; }
     useUIStore.getState().setCodePreviewUrl(previewLive);
     // Hand the LOOK screenshot the iframe's on-screen rect (CSS points) so it crops to the running app,
-    // not the whole AgentForge window. Null if unmeasurable → webview_screenshot snaps the full webview.
+    // not the whole AgentForge window. If unmeasurable (null), webview_screenshot now errors and LOOK
+    // falls back to READ — it never captures the full window.
     const el = previewFrameRef.current;
     const r = el?.getBoundingClientRect();
     useUIStore.getState().setCodePreviewRect(r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
