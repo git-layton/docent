@@ -335,6 +335,32 @@ describe('selectPrimaryToolRoute', () => {
     expect(result.toolRoutes).toContain('browser')
   })
 
+  it('should fall back to keyless browser search when web search is unusable', () => {
+    // web_search tool off → the keyless browser path handles the search
+    const off = evaluateMemoryGate({ text: 'Search for the latest news about Mars.' })
+    expect(off.toolRoutes).toContain('browser')
+    expect(off.toolRoutes).not.toContain('web_search')
+    expect(selectPrimaryToolRoute(off)).toBe('browser')
+
+    // web_search tool on but no key configured (webSearchUsable: false) → still keyless browser
+    const noKey = evaluateMemoryGate({
+      text: 'Search for the latest news about Mars.',
+      enabledTools: { web_search: true },
+      webSearchUsable: false,
+    })
+    expect(noKey.toolRoutes).toContain('browser')
+    expect(noKey.toolRoutes).not.toContain('web_search')
+
+    // web_search tool on AND a key configured → prefer the API path
+    const api = evaluateMemoryGate({
+      text: 'Search for the latest news about Mars.',
+      enabledTools: { web_search: true },
+      webSearchUsable: true,
+    })
+    expect(api.toolRoutes).toContain('web_search')
+    expect(selectPrimaryToolRoute(api)).toBe('web_search')
+  })
+
   it('should route to files when attachedFiles are present', () => {
     const result = evaluateMemoryGate({
       text: 'Here is some background info.',

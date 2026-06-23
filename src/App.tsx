@@ -1856,6 +1856,13 @@ export default function App() {
       let toolUsed = null;
       let toolData = "";
       let foundSources: any[] = [];
+      // Whether API web search (Brave/Tavily) is actually usable — both require a configured key.
+      // When neither is, the gatekeeper falls back to the keyless browser path for search intents.
+      const _integrations: any = useSettingsStore.getState().integrations ?? {};
+      const _webSearchUsable = !!(
+        (_integrations.brave?.enabled && _integrations.brave?.apiKey) ||
+        (_integrations.tavily?.enabled && _integrations.tavily?.apiKey)
+      );
       const gatekeeperDecision = evaluateMemoryGate({
         text: userMsg.content,
         agentId: _activeAssistant?.id ?? null,
@@ -1863,6 +1870,7 @@ export default function App() {
         chatId,
         forcedTool: _forcedTool,
         enabledTools: _activeAssistant?.tools ?? {},
+        webSearchUsable: _webSearchUsable,
         attachedFiles: userMsg.attachedFiles ?? [],
       });
 
