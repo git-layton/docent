@@ -836,7 +836,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {appSettings.imageProvider !== 'none' && (
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
-                       {/* Key Handling */}
+                       {/* Key Handling — inherit status is shown as a note; the key field stays editable so you can override. */}
                        {appSettings.imageProvider === 'google' && hasImplicitGoogleKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
                              <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.
@@ -845,27 +845,26 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
                              <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.
                           </div>
-                       ) : (
-                          <div className="flex flex-col gap-2">
-                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
-                             <input
-                                type="password"
-                                value={
-                                   appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
-                                   appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
-                                   integrations.customImage?.apiKey || ''
-                                }
-                                onChange={e => {
-                                   const val = e.target.value;
-                                   if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } }));
-                                   else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } }));
-                                   else setIntegrations((prev: any) => ({ ...prev, customImage: { ...prev.customImage, apiKey: val } }));
-                                }}
-                                placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
-                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
-                             />
-                          </div>
-                       )}
+                       ) : null}
+                       <div className="flex flex-col gap-2">
+                          <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
+                          <input
+                             type="password"
+                             value={
+                                appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
+                                appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
+                                integrations.customImage?.apiKey || ''
+                             }
+                             onChange={e => {
+                                const val = e.target.value;
+                                if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } }));
+                                else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } }));
+                                else setIntegrations((prev: any) => ({ ...prev, customImage: { ...prev.customImage, apiKey: val } }));
+                             }}
+                             placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
+                             className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                          />
+                       </div>
 
                        {/* Custom Endpoint Field */}
                        {appSettings.imageProvider === 'custom' && (
@@ -975,13 +974,15 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {(appSettings.visionProvider === 'google' || appSettings.visionProvider === 'openai' || appSettings.visionProvider === 'anthropic' || appSettings.visionProvider === 'custom') && (
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
+                       {/* Inherit status is shown as a note; the key field stays editable so you can override. */}
                        {appSettings.visionProvider === 'google' && hasImplicitGoogleKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.</div>
                        ) : appSettings.visionProvider === 'openai' && hasImplicitOpenAIKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.</div>
                        ) : appSettings.visionProvider === 'anthropic' && hasImplicitAnthropicKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Anthropic API Key from Chat Models.</div>
-                       ) : appSettings.visionProvider !== 'custom' ? (
+                       ) : null}
+                       {appSettings.visionProvider !== 'custom' ? (
                           <div className="flex flex-col gap-2">
                              <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
                              <input
