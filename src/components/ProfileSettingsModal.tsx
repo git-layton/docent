@@ -698,12 +698,35 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                       await db.set('onboardingComplete', false);
                       const { useSettingsStore: ss } = await import('../store/useSettingsStore');
                       ss.getState().setOnboardingComplete(false);
+                      ss.getState().setOnboardingInitialStep(1);
                       ss.getState().setShowOnboarding(true);
                       onClose();
                     }}
                     className="text-xs font-bold text-primary hover:text-primary-hover transition-colors"
                   >
                     Re-run →
+                  </button>
+                </div>
+              </div>
+
+              {/* iPhone capture — opens the wizard directly into the optional capture branch */}
+              <div className="border-t border-edge pt-4 mt-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-ink">Set up iPhone capture</p>
+                    <p className="text-xs text-ink-3 mt-0.5">Share links, photos &amp; notes from your iPhone (relay + Tailscale + Shortcut)</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const { useSettingsStore: ss } = await import('../store/useSettingsStore');
+                      // Step 5 = the relay step, first screen of the optional capture branch.
+                      ss.getState().setOnboardingInitialStep(5);
+                      ss.getState().setShowOnboarding(true);
+                      onClose();
+                    }}
+                    className="text-xs font-bold text-primary hover:text-primary-hover transition-colors"
+                  >
+                    Set up →
                   </button>
                 </div>
               </div>
