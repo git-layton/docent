@@ -42,6 +42,7 @@ export function VoiceSetupModal({ onClose }: { onClose: () => void }) {
 
   const selectedURI = appSettings.ttsVoiceURI;
   const rate = appSettings.ttsRate ?? 1;
+  const pitch = appSettings.ttsPitch ?? 1;
 
   const ui = (navigator.language || 'en-US').toLowerCase();
   const sorted = useMemo(
@@ -66,7 +67,7 @@ export function VoiceSetupModal({ onClose }: { onClose: () => void }) {
       return;
     }
     setPlayingURI(voiceURI ?? 'sel');
-    speak(SAMPLE, { voiceURI: voiceURI || effectiveURI, rate }, {
+    speak(SAMPLE, { voiceURI: voiceURI || effectiveURI, rate, pitch }, {
       onEnd: () => setPlayingURI(null),
       onError: () => setPlayingURI(null),
     });
@@ -171,6 +172,19 @@ export function VoiceSetupModal({ onClose }: { onClose: () => void }) {
               className="flex-1 accent-accent"
             />
             <span className="w-8 text-right tabular-nums text-ink-2">{rate.toFixed(2)}</span>
+          </label>
+        </div>
+
+        {/* Pitch */}
+        <div className="mb-5">
+          <label className="flex items-center gap-3 text-tiny font-bold text-ink-3">
+            <span className="w-12 shrink-0 uppercase tracking-widest">Pitch</span>
+            <input
+              type="range" min={0.5} max={1.5} step={0.05} value={pitch}
+              onChange={e => setAppSettings((prev: any) => ({ ...prev, ttsPitch: parseFloat(e.target.value) }))}
+              className="flex-1 accent-accent"
+            />
+            <span className="w-8 text-right tabular-nums text-ink-2">{pitch.toFixed(2)}</span>
           </label>
         </div>
 

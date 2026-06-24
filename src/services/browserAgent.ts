@@ -21,6 +21,7 @@ import {
   buildClickScript,
   buildTypeScript,
   buildScrollScript,
+  buildHighlightScript,
   type Observation,
   type AgentElement,
 } from './browserAnnotator';
@@ -305,6 +306,21 @@ async function callModelOnce(modelConfig: any, system: string, user: string, sig
   return String(data.choices?.[0]?.message?.content ?? '');
 }
 
+// Best-effort: visibly highlight the passage the answer came from on the live page and scroll it
+// into view (transparent browsing). Never throws and never affects the returned result — a failure
+// here is purely cosmetic. We highlight the most relevant sentence of the answer, falling back to
+// the whole answer, so the on-page anchor tracks a real quote rather than a meta-summary.
+async function highlightAnswerOnPage(answer: string): Promise<void> {
+  try {
+    const text = (answer || '').trim();
+    if (!text) return;
+    // Prefer the first substantial sentence; it usually carries the cited fact.
+    const sentence = (text.match(/[^.!?\n]{12,}[.!?]?/) ?? [text])[0].trim();
+    const snippet = (sentence || text).slice(0, 240);
+    await invoke('browser_eval', { label: BROWSER_LABEL, script: buildHighlightScript(snippet) });
+  } catch { /* cosmetic only — ignore */ }
+}
+
 // ─── Orchestrator ───────────────────────────────────────────────────────────────
 
 export async function runBrowserAgent(opts: RunBrowserAgentOptions): Promise<BrowseResult> {
@@ -356,6 +372,7 @@ export async function runBrowserAgent(opts: RunBrowserAgentOptions): Promise<Bro
 
       if (action.verb === 'DONE') {
         const answer = reasoning || 'The agent finished without producing an answer.';
+        if (!aborted()) await highlightAnswerOnPage(answer);
         onProgress?.({ step, maxSteps, action: 'done', url: obs.url });
         return { answer, sources, steps: step, transcript, reachedBudget: false };
       }

@@ -24,6 +24,10 @@ export interface MemoryGatekeeperInput {
   chatId?: string | null;
   forcedTool?: string | null;
   enabledTools?: Record<string, boolean>;
+  // Whether the API web-search path (Brave/Tavily) is actually usable — i.e. a key is configured.
+  // Optional; defaults to "usable" so existing callers are unchanged. When false, a search intent
+  // falls back to the keyless `browser` route instead of the silently-failing API path.
+  webSearchUsable?: boolean;
   sourcePaths?: string[];
   sourceUrls?: string[];
   attachedFiles?: Array<{ name?: string; type?: string; isImage?: boolean }>;
@@ -147,7 +151,14 @@ function routeToolCandidates(input: MemoryGatekeeperInput, text: string, isExpli
 
   if ((enabled.calendar_sync || enabled.google_calendar) && TASK_RE.test(text)) routes.push('calendar');
   if (enabled.local_workspace && !isExplicitMemory && MEMORY_SEARCH_RE.test(text)) routes.push('memory_search');
-  if (enabled.web_search && WEB_SEARCH_RE.test(text)) routes.push('web_search');
+  // Search intent: prefer the API path (Brave/Tavily) only when it's actually usable — the agent has
+  // web_search on AND a key is configured. Otherwise fall back to the KEYLESS `browser` path, which
+  // drives the embedded tab via DuckDuckGo and needs no key. This makes "search the web" work out of
+  // the box and avoids routing to an API that would silently return nothing without a key.
+  if (WEB_SEARCH_RE.test(text)) {
+    if (enabled.web_search && input.webSearchUsable !== false) routes.push('web_search');
+    else routes.push('browser');
+  }
   if (BROWSER_RE.test(text)) routes.push('browser');
   if (FILES_RE.test(text) || (input.attachedFiles?.length ?? 0) > 0) routes.push('files');
   if (Object.keys(enabled).some(key => enabled[key] && ['slack', 'gmail', 'google_drive', 'google_calendar', 'gus'].includes(key)) && INTEGRATIONS_RE.test(text)) {

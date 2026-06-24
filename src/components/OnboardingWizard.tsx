@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   Copy,
   ExternalLink,
-  Globe,
   Loader2,
   Radio,
   Server,
@@ -25,8 +24,6 @@ import { db } from '../services/database';
 import { ModelStorePanel } from './ModelStorePanel';
 import { recommendSetup } from '../data/modelCatalog';
 import { supportsVision } from '../services/llm';
-// @ts-ignore — nativeFetch is a plain JS file without a declaration
-import { fetchWithRetry } from '../utils/nativeFetch';
 
 interface Props {
   onClose: () => void;
@@ -49,13 +46,22 @@ interface RelayStatus {
   tailscaleHostname: string | null;
 }
 
-const TOTAL_STEPS = 8;
+// First-run is essentials-only: Welcome → Profile → Model → Done.
+const ESSENTIAL_STEPS = 4;
+// The opt-in iPhone-capture branch reuses the original Relay → Tailscale → Shortcut steps.
+const CAPTURE_RELAY = 5;
+const CAPTURE_TAILSCALE = 6;
+const CAPTURE_SHORTCUT = 7;
+const STEP_DONE = ESSENTIAL_STEPS; // 4
 const genId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
+// Progress reflects the essentials only, so first-run never shows "step 3 of 8".
+// The optional capture branch sits at 100% (you've finished the essentials to get there).
 function ProgressBar({ step }: { step: number }) {
-  const pct = Math.round(((step - 1) / (TOTAL_STEPS - 1)) * 100);
+  const clamped = Math.min(step, ESSENTIAL_STEPS);
+  const pct = Math.round(((clamped - 1) / (ESSENTIAL_STEPS - 1)) * 100);
   return (
     <div className="w-full h-0.5 bg-inset rounded-full overflow-hidden mb-8">
       <div
@@ -115,6 +121,22 @@ function StepIcon({ children, color }: { children: React.ReactNode; color: strin
   );
 }
 
+// Makes the developer-grade capture steps unmistakably optional — most people can skip them.
+function OptionalBanner({ onSkip }: { onSkip: () => void }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-inset border border-edge">
+      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-wash text-ink-3 shrink-0">Optional</span>
+      <p className="text-mini text-ink-2 flex-1 leading-relaxed">You can set this up later in Settings. Most people can skip this.</p>
+      <button
+        onClick={onSkip}
+        className="text-mini font-black uppercase tracking-widest text-ink-3 hover:text-ink-2 transition-colors shrink-0"
+      >
+        Skip for now
+      </button>
+    </div>
+  );
+}
+
 // ─── Step 1: Welcome ──────────────────────────────────────────────────────────
 
 function StepWelcome({ onNext }: { onNext: () => void }) {
@@ -128,14 +150,14 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
           Welcome to Agent Forge
         </h1>
         <p className="text-sm text-ink-2 max-w-xs mx-auto leading-relaxed">
-          Your personal AI command center. Let's get everything set up — it takes about two minutes.
+          Your personal AI command center. Let's get the essentials set up — it takes about a minute.
         </p>
       </div>
       <div className="w-full max-w-xs space-y-2.5 text-left">
         {[
-          'Personalize your agents with your profile',
+          'Tell your agents about you',
           'Connect an AI model',
-          'Set up one-tap iPhone capture',
+          "Optional extras live in Settings",
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-3 text-sm text-ink-2">
             <div className="w-5 h-5 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
@@ -210,6 +232,7 @@ function StepProfile({ onNext }: { onNext: () => void }) {
         <Btn variant="ghost" onClick={onNext} className="w-full">
           Skip for now
         </Btn>
+        <p className="text-mini text-ink-3 text-center leading-relaxed">You can edit this anytime in Settings.</p>
       </div>
     </div>
   );
@@ -236,6 +259,8 @@ const PROVIDERS = [
     keyLabel: null,
     keyPlaceholder: null,
     getKeyUrl: null,
+    getKeyButtonLabel: null,
+    keySteps: null as string[] | null,
     pricingUrl: null,
   },
   {
@@ -250,10 +275,17 @@ const PROVIDERS = [
     context: 1000000,
     local: false,
     free: true,
-    freeNote: "Gemini has a free tier — check Google's current pricing",
+    freeNote: 'Google gives you a free tier — for everyday personal use you won\'t be charged.',
     keyLabel: 'Google AI API key',
     keyPlaceholder: 'AIza…',
     getKeyUrl: 'https://aistudio.google.com/apikey',
+    getKeyButtonLabel: 'Open Google AI Studio',
+    keySteps: [
+      'Open the page below — it opens in your real browser and signs in with your Google account.',
+      'Click "Create API key" (you can pick "Create in new project" if it asks).',
+      'Copy the key it shows — it starts with "AIza".',
+      'Paste it into Step 2 below.',
+    ],
     pricingUrl: GOOGLE_PRICING_URL,
   },
   {
@@ -272,6 +304,13 @@ const PROVIDERS = [
     keyLabel: 'Anthropic API key',
     keyPlaceholder: 'sk-ant-…',
     getKeyUrl: 'https://console.anthropic.com/settings/keys',
+    getKeyButtonLabel: 'Open Anthropic Console',
+    keySteps: [
+      'Open the page below — it opens in your real browser and signs in to the Anthropic Console.',
+      'Click "Create Key", give it a name like "Agent Forge".',
+      'Copy the key it shows — it starts with "sk-ant-". You only see it once, so copy it now.',
+      'Paste it into Step 2 below.',
+    ],
     pricingUrl: null,
   },
   {
@@ -290,6 +329,13 @@ const PROVIDERS = [
     keyLabel: 'OpenAI API key',
     keyPlaceholder: 'sk-…',
     getKeyUrl: 'https://platform.openai.com/api-keys',
+    getKeyButtonLabel: 'Open OpenAI Platform',
+    keySteps: [
+      'Open the page below — it opens in your real browser and signs in to the OpenAI platform.',
+      'Click "Create new secret key", give it a name like "Agent Forge".',
+      'Copy the key it shows — it starts with "sk-". You only see it once, so copy it now.',
+      'Paste it into Step 2 below.',
+    ],
     pricingUrl: null,
   },
 ];
@@ -386,14 +432,16 @@ function ModelConnectForm({
         </button>
       </div>
 
-      {provider.free && provider.freeNote && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-inset border border-edge">
-          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free tier</span>
-          <p className="text-mini text-ink-2 flex-1">{provider.freeNote}</p>
-          {provider.pricingUrl && (
-            <button onClick={() => openUrl(provider.pricingUrl!)} className="inline-flex items-center gap-1 text-mini font-bold text-primary hover:underline shrink-0">
-              Pricing <ExternalLink className="w-2.5 h-2.5" />
-            </button>
+      {/* Demystify the API key up front (cloud providers only) — answer cost + effort
+          anxiety before the user ever sees the password field. */}
+      {provider.keyLabel && (
+        <div className="rounded-2xl bg-inset border border-edge p-4 space-y-2">
+          <span className="inline-flex items-center text-micro font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-success-soft text-success">Free · about a minute</span>
+          <p className="text-xs text-ink-2 leading-relaxed">
+            An API key is just a free password from {provider.name} that lets Agent Forge talk to their AI. It takes about a minute to create and costs nothing for normal personal use. You'll paste it once, here, and it's stored securely on your Mac.
+          </p>
+          {provider.freeNote && (
+            <p className="text-xs font-bold text-success leading-relaxed">{provider.freeNote}</p>
           )}
         </div>
       )}
@@ -409,25 +457,35 @@ function ModelConnectForm({
         </div>
       )}
 
+      {/* Step 1 · Get your free key — mirrors the trusted Mail app-password walkthrough. */}
+      {provider.keyLabel && provider.getKeyUrl && provider.keySteps && (
+        <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
+          <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Step 1 · Get your free key</span>
+          <ol className="text-xs text-ink-2 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
+            {provider.keySteps.map((s, i) => <li key={i}>{s}</li>)}
+          </ol>
+          <button
+            onClick={() => openUrl(provider.getKeyUrl!).catch(() => {})}
+            className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-accent text-on-accent hover:bg-accent-strong transition-all shadow-sm"
+          ><ExternalLink className="w-3.5 h-3.5" /> {provider.getKeyButtonLabel ?? 'Get your key'}</button>
+          {provider.pricingUrl && (
+            <button onClick={() => openUrl(provider.pricingUrl!)} className="self-start inline-flex items-center gap-1 text-mini font-bold text-primary hover:underline">
+              See what's free <ExternalLink className="w-2.5 h-2.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Step 2 · Paste your key */}
       {provider.keyLabel && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-tiny font-black uppercase tracking-widest text-ink-3">{provider.keyLabel}</label>
-            {provider.getKeyUrl && (
-              <button
-                onClick={() => openUrl(provider.getKeyUrl!)}
-                className="flex items-center gap-1 text-tiny font-bold text-primary hover:underline"
-              >
-                Get key <ExternalLink className="w-2.5 h-2.5" />
-              </button>
-            )}
-          </div>
+        <div className="rounded-2xl border border-edge bg-inset p-4 space-y-1.5">
+          <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Step 2 · Paste your key</label>
           <input
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder={provider.keyPlaceholder ?? ''}
-            className="w-full bg-inset border border-edge rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-primary transition-colors"
+            className="w-full bg-panel border border-edge rounded-xl px-4 py-2.5 text-xs font-mono outline-none focus:border-primary transition-colors"
           />
         </div>
       )}
@@ -492,6 +550,8 @@ function ModelConnectForm({
           </Btn>
         </div>
       )}
+
+      <p className="text-mini text-ink-3 text-center leading-relaxed pt-1">Not sure? You can switch models or add another anytime in Settings.</p>
     </div>
   );
 }
@@ -500,6 +560,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const [hw, setHw] = useState<{ totalMb: number; chip: string; isAppleSilicon: boolean } | null>(null);
   const [connectingProvider, setConnectingProvider] = useState<typeof PROVIDERS[0] | null>(null);
   const [connectingModelId, setConnectingModelId] = useState<string | undefined>(undefined);
+  const [showLocalSetup, setShowLocalSetup] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [detected, setDetected] = useState(0);
@@ -557,6 +618,10 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const currentModels = useSettingsStore(s => s.models);
   const gb = hw ? hw.totalMb / 1024 : 0;
   const rec = hw ? recommendSetup({ totalMb: hw.totalMb, isAppleSilicon: hw.isAppleSilicon }) : null;
+  // Local models genuinely need Apple Silicon + >=8GB; below that ModelStorePanel refuses. Don't let
+  // the user walk into the guided local screen on an unsupported Mac — its "runs privately on your
+  // Mac" copy would contradict the panel's refusal. Gate the card and nudge Gemini instead.
+  const localCapable = !!hw && hw.isAppleSilicon && hw.totalMb >= 8192;
   const gemini = PROVIDERS.find(p => p.id === 'gemini')!;
 
   function startConnect(provider: typeof PROVIDERS[0], modelId?: string) {
@@ -570,6 +635,70 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
     store.setModels((prev: any[]) => prev.some((m: any) => m.id === newModel.id) ? prev : [...prev, newModel]);
     store.setSelectedModelId(newModel.id);
     store.persist();
+  }
+
+  // Guided LOCAL setup — wraps ModelStorePanel with reassurance + what-happens-next framing.
+  if (showLocalSetup) {
+    return (
+      <div className="flex flex-col gap-5">
+        <div className="flex items-center gap-3">
+          <StepIcon color="bg-blue-50 dark:bg-blue-900/30">
+            <Server className="w-6 h-6 text-blue-500" />
+          </StepIcon>
+          <div>
+            <h2 className="text-xl font-black tracking-tight text-ink">Run AI privately on your Mac</h2>
+            <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">This takes a few minutes to download, then runs 100% private on your Mac — nothing ever leaves your computer.</p>
+          </div>
+        </div>
+
+        {/* What to expect */}
+        <div className="space-y-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
+          <span className="inline-flex items-center text-micro font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-secondary/15 text-secondary">Private · Free · Offline</span>
+          <div className="space-y-2">
+            {[
+              { icon: '🔒', text: 'Your conversations never leave this Mac — no account, no cloud, no API costs ever.' },
+              { icon: '⏬', text: "It's a one-time download of a few gigabytes. After that it loads instantly." },
+              { icon: '⚡', text: `It runs on your ${hw?.chip || 'Mac'}${hw?.isAppleSilicon ? ' using Apple Silicon' : ''} — about as smart as your Mac can handle.` },
+            ].map((item, i) => (
+              <div key={i} className="flex items-start gap-2.5 text-xs text-blue-800 dark:text-blue-300">
+                <span className="shrink-0 w-5 text-center">{item.icon}</span>
+                <span className="leading-relaxed">{item.text}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-mini text-blue-600 dark:text-blue-400 leading-relaxed border-t border-blue-200 dark:border-blue-700 pt-3">
+            Cloud models like Gemini are smarter on most Macs, but local keeps everything 100% private. You can switch anytime in Settings.
+          </p>
+        </div>
+
+        {/* What happens next */}
+        <div className="space-y-2">
+          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Setup — about 5 minutes, mostly waiting on the download</p>
+          {[
+            'Pick the recommended model below and tap Download.',
+            'We\'ll set it up and start it automatically — you\'ll see a progress bar, then "Ready".',
+            'Tap "Use this model" and you\'re done — your agents now run entirely on your Mac.',
+          ].map((s, i) => (
+            <div key={i} className="flex items-start gap-2.5 text-xs text-ink-2">
+              <span className="shrink-0 w-4 h-4 rounded-full bg-primary/10 dark:bg-primary/20 text-primary flex items-center justify-center font-black text-micro mt-0.5">{i + 1}</span>
+              <span className="leading-relaxed">{s}</span>
+            </div>
+          ))}
+        </div>
+
+        <ModelStorePanel ramMb={hw?.totalMb ?? 0} isAppleSilicon={hw?.isAppleSilicon} mode="recommended" onModelReady={handleLocalReady} />
+
+        <div className="flex flex-col gap-2">
+          {currentModels.length > 0 && (
+            <Btn onClick={onNext} className="w-full">Continue <ArrowRight className="w-4 h-4" /></Btn>
+          )}
+          <Btn variant="ghost" onClick={() => setShowLocalSetup(false)} className="w-full">
+            <ChevronLeft className="w-3.5 h-3.5" /> Back to choices
+          </Btn>
+        </div>
+        <p className="text-mini text-ink-3 text-center leading-relaxed">Changed your mind? You can add a cloud model anytime in Settings.</p>
+      </div>
+    );
   }
 
   if (connectingProvider) {
@@ -664,7 +793,13 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
                   Stays on your device, works offline, free — nothing leaves your computer. As smart as your {hw?.chip || 'Mac'} can run.
                 </p>
                 <p className="text-[10px] font-bold text-ink-3">📄 ~32K-token context (the on-device engine's limit)</p>
-                <ModelStorePanel ramMb={hw?.totalMb ?? 0} isAppleSilicon={hw?.isAppleSilicon} mode="recommended" onModelReady={handleLocalReady} />
+                {localCapable ? (
+                  <Btn onClick={() => setShowLocalSetup(true)} className="w-full">
+                    Run on your Mac <ArrowRight className="w-4 h-4" />
+                  </Btn>
+                ) : (
+                  <p className="text-[11px] text-ink-3 leading-relaxed rounded-xl bg-inset border border-edge px-3 py-2">Needs an Apple Silicon Mac with 8GB+ of memory — Gemini's free tier is the better fit here.</p>
+                )}
               </div>
             );
             const Cloud = (
@@ -754,133 +889,14 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
       ) : (
         <Btn variant="ghost" onClick={onSkip} className="w-full">I'll set this up later</Btn>
       )}
+      <p className="text-mini text-ink-3 text-center leading-relaxed">Not sure? You can switch models or add another anytime in Settings.</p>
     </div>
   );
 }
 
-// ─── Step 5: Brave Search ─────────────────────────────────────────────────────
-
-function StepBraveSearch({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  const integrations = useSettingsStore(s => s.integrations);
-  const setIntegrations = useSettingsStore(s => s.setIntegrations);
-  const [apiKey, setApiKey] = useState(integrations.brave?.apiKey ?? '');
-  const [status, setStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
-  const [errorMsg, setErrorMsg] = useState('');
-
-  async function testAndSave() {
-    const key = apiKey.trim();
-    if (!key) return;
-    setStatus('testing');
-    setErrorMsg('');
-    try {
-      await fetchWithRetry(`https://api.search.brave.com/res/v1/web/search?q=test&count=1`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json', 'X-Subscription-Token': key },
-      }, 0);
-      setIntegrations((prev: any) => ({ ...prev, brave: { enabled: true, apiKey: key } }));
-      await useSettingsStore.getState().persist();
-      setStatus('ok');
-      setTimeout(onNext, 700);
-    } catch (e: any) {
-      setErrorMsg(e.message ?? String(e));
-      setStatus('error');
-    }
-  }
-
-  function skipAndSave() {
-    if (apiKey.trim()) {
-      setIntegrations((prev: any) => ({ ...prev, brave: { enabled: true, apiKey: apiKey.trim() } }));
-      useSettingsStore.getState().persist();
-    }
-    onSkip();
-  }
-
-  const alreadyConnected = integrations.brave?.enabled && integrations.brave?.apiKey;
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
-        <StepIcon color="bg-orange-50 dark:bg-orange-900/30">
-          <Globe className="w-6 h-6 text-orange-500" />
-        </StepIcon>
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-ink">Web Search</h2>
-          <p className="text-xs text-ink-2 mt-0.5">Let Alexis and your other bots search the live internet.</p>
-        </div>
-      </div>
-
-      {/* Brave pitch */}
-      <div className="rounded-2xl border-2 border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-4 space-y-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-black text-orange-900 dark:text-orange-100">Brave Search API</p>
-          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free tier</span>
-          <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-orange-500 text-white shrink-0">Recommended</span>
-        </div>
-        <p className="text-xs text-orange-800 dark:text-orange-300 leading-relaxed">
-          Privacy-first search engine with its own independent index. The free tier gives you 2,000 queries/month — plenty for daily use.
-        </p>
-        <div className="grid grid-cols-2 gap-2 text-tiny text-orange-700 dark:text-orange-400">
-          <div className="space-y-0.5">
-            <p className="font-black">Free ✓</p>
-            <p>2,000 queries/month</p>
-            <p>No credit card needed</p>
-            <p>Independent index</p>
-          </div>
-          <div className="space-y-0.5">
-            <p className="font-black text-ink-3">How to get a key</p>
-            <p>Sign up at brave.com/search/api</p>
-            <p>Create a free plan app</p>
-            <p>Copy the API key below</p>
-          </div>
-        </div>
-        <button
-          onClick={() => openUrl('https://brave.com/search/api/')}
-          className="flex items-center gap-1 text-tiny font-black text-orange-700 dark:text-orange-400 hover:underline"
-        >
-          brave.com/search/api <ExternalLink className="w-2.5 h-2.5" />
-        </button>
-      </div>
-
-      {alreadyConnected && status === 'idle' ? (
-        <div className="flex items-center gap-3 p-4 rounded-2xl bg-success-soft border border-success/30">
-          <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
-          <p className="text-sm font-bold text-success">Brave Search already connected</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder="BSA..."
-            className="w-full bg-inset border border-edge rounded-xl px-4 py-3 text-sm font-mono outline-none focus:border-primary transition-colors"
-          />
-          {status === 'error' && <p className="text-xs text-danger">{errorMsg}</p>}
-          {status === 'ok' && (
-            <div className="flex items-center gap-2 text-success">
-              <CheckCircle2 className="w-4 h-4" />
-              <span className="text-xs font-bold">Connected!</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2">
-        {(alreadyConnected && status === 'idle') ? (
-          <Btn onClick={onNext} className="w-full">Continue <ArrowRight className="w-4 h-4" /></Btn>
-        ) : (
-          <Btn onClick={testAndSave} disabled={!apiKey.trim() || status === 'testing' || status === 'ok'} className="w-full">
-            {status === 'testing' ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Testing…</> : <>Connect Brave Search <ArrowRight className="w-4 h-4" /></>}
-          </Btn>
-        )}
-        <Btn variant="ghost" onClick={skipAndSave} className="w-full">Skip for now</Btn>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step 6: Relay ────────────────────────────────────────────────────────────
+// ─── Optional capture branch · Relay ──────────────────────────────────────────
+// Web search used to live here as a forced step; it now lives in Settings
+// (keyless browser search already works by default), so first-run stays essentials-only.
 
 function StepRelay({
   onNext,
@@ -934,6 +950,8 @@ function StepRelay({
           <p className="text-xs text-ink-2 mt-0.5">Your personal inbox server.</p>
         </div>
       </div>
+
+      <OptionalBanner onSkip={onSkip} />
 
       {/* How capture works — full system diagram */}
       <div className="p-4 rounded-2xl bg-inset border border-edge">
@@ -1030,7 +1048,7 @@ function StepRelay({
   );
 }
 
-// ─── Step 7: Tailscale ────────────────────────────────────────────────────────
+// ─── Optional capture branch · Tailscale ──────────────────────────────────────
 
 function StepTailscale({
   onNext,
@@ -1067,6 +1085,8 @@ function StepTailscale({
           <p className="text-xs text-ink-2 mt-0.5">Works on your home Wi-Fi now. Tailscale makes it work everywhere.</p>
         </div>
       </div>
+
+      <OptionalBanner onSkip={onSkip} />
 
       {/* Plain-language explainer */}
       <div className="space-y-3 p-4 rounded-2xl bg-secondary/5 dark:bg-secondary/10 border border-secondary/20 dark:border-secondary/30">
@@ -1172,7 +1192,7 @@ function StepTailscale({
   );
 }
 
-// ─── Step 8: iOS Shortcut ─────────────────────────────────────────────────────
+// ─── Optional capture branch · iOS Shortcut ───────────────────────────────────
 
 function StepShortcut({
   relayResult,
@@ -1222,6 +1242,8 @@ function StepShortcut({
           <p className="text-xs text-ink-2 mt-0.5">Share anything to Agent Forge in two taps.</p>
         </div>
       </div>
+
+      <OptionalBanner onSkip={onSkip} />
 
       {/* What is a Shortcut? */}
       <div className="p-4 rounded-2xl bg-error/5 dark:bg-error/10 border border-error/20 dark:border-error/30">
@@ -1303,25 +1325,23 @@ function StepShortcut({
   );
 }
 
-// ─── Step 9: Done ─────────────────────────────────────────────────────────────
+// ─── Step 4: Done ─────────────────────────────────────────────────────────────
 
 function StepDone({
-  relayOk, tailscaleOk, shortcutDone, onFinish,
+  relayOk, tailscaleOk, shortcutDone, onStartCapture, onFinish,
 }: {
-  relayOk: boolean; tailscaleOk: boolean; shortcutDone: boolean; onFinish: () => void;
+  relayOk: boolean; tailscaleOk: boolean; shortcutDone: boolean; onStartCapture: () => void; onFinish: () => void;
 }) {
   const models = useSettingsStore(s => s.models);
   const userProfile = useSettingsStore(s => s.userProfile);
-  const integrations = useSettingsStore(s => s.integrations);
 
-  const items = [
+  // The two essentials — what first-run is really about.
+  const essentials = [
     { label: 'Personal profile', done: !!userProfile },
     { label: 'AI model connected', done: models.length > 0 },
-    { label: 'Web search', done: !!(integrations.brave?.enabled && integrations.brave?.apiKey) || !!(integrations.tavily?.enabled && integrations.tavily?.apiKey) },
-    { label: 'Capture relay', done: relayOk },
-    { label: 'Tailscale', done: tailscaleOk },
-    { label: 'iPhone Shortcut', done: shortcutDone },
   ];
+  // Did the user already set up iPhone capture in the optional branch?
+  const captureDone = relayOk || tailscaleOk || shortcutDone;
 
   function openAlexis() {
     useAgentStore.getState().setActiveFolderId('alexis');
@@ -1340,7 +1360,7 @@ function StepDone({
         </p>
       </div>
       <div className="w-full max-w-xs space-y-2">
-        {items.map((item, i) => (
+        {essentials.map((item, i) => (
           <div key={i} className={`flex items-center gap-3 py-2 px-3 rounded-xl transition-colors ${item.done ? '' : 'opacity-40'}`}>
             {item.done
               ? <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
@@ -1352,6 +1372,36 @@ function StepDone({
             </span>
           </div>
         ))}
+      </div>
+
+      {/* Optional: iPhone capture — a power-user extra, offered but never forced. */}
+      <div className="w-full max-w-xs rounded-2xl border border-edge bg-inset p-4 text-left space-y-2">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+            <Smartphone className="w-5 h-5 text-blue-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-sm font-black text-ink">iPhone capture</p>
+              <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-wash text-ink-3 shrink-0">Optional</span>
+            </div>
+            <p className="text-tiny text-ink-2 mt-0.5 leading-relaxed">
+              {captureDone ? 'Set up — share links, photos and notes from your iPhone.' : 'Share links, photos and notes to Agent Forge in two taps.'}
+            </p>
+          </div>
+        </div>
+        {captureDone ? (
+          <div className="flex items-center gap-1.5 text-tiny font-black uppercase tracking-widest text-success">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Set up
+          </div>
+        ) : (
+          <button
+            onClick={onStartCapture}
+            className="text-tiny font-black uppercase tracking-widest text-primary hover:underline"
+          >
+            Set up now →
+          </button>
+        )}
       </div>
 
       {/* Alexis intro */}
@@ -1398,14 +1448,24 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
     scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [step]);
 
-  const next = () => setStep(s => Math.min(s + 1, TOTAL_STEPS));
+  // Essentials advance linearly (Welcome → Profile → Model → Done).
+  const next = () => setStep(s => Math.min(s + 1, STEP_DONE));
   const back = () => setStep(s => Math.max(s - 1, 1));
+
+  // The optional iPhone-capture branch. Entered from the Done screen (or deep-linked
+  // from Settings via initialStep=CAPTURE_RELAY); always returns to Done when finished.
+  const startCapture = () => setStep(CAPTURE_RELAY);
+  const finishCapture = () => setStep(STEP_DONE);
+  const inCapture = step >= CAPTURE_RELAY;
 
   async function finish() {
     useSettingsStore.getState().setOnboardingComplete(true);
     await db.set('onboardingComplete', true);
     onClose();
   }
+
+  // Back is meaningful only while stepping through the essentials (steps 2-3).
+  const canGoBack = step > 1 && step < STEP_DONE;
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-xl p-4">
@@ -1415,7 +1475,7 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
         <div className="flex items-center justify-between px-6 pt-5 shrink-0">
           <button
             onClick={back}
-            className={`p-1.5 rounded-xl transition-all ${step > 1 && step < TOTAL_STEPS ? 'hover:bg-wash text-ink-3' : 'invisible'}`}
+            className={`p-1.5 rounded-xl transition-all ${canGoBack ? 'hover:bg-wash text-ink-3' : 'invisible'}`}
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -1429,39 +1489,43 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
 
         {/* Scrollable body */}
         <div ref={scrollRef} className="overflow-y-auto flex-1 px-8 pb-8 pt-4 custom-scrollbar">
-          <ProgressBar step={step} />
+          {/* Hide the essentials progress bar inside the optional capture branch. */}
+          {!inCapture && <ProgressBar step={step} />}
 
+          {/* Essentials */}
           {step === 1 && <StepWelcome onNext={next} />}
           {step === 2 && <StepProfile onNext={next} />}
           {step === 3 && <StepModel onNext={next} onSkip={next} />}
-          {step === 4 && <StepBraveSearch onNext={next} onSkip={next} />}
-          {step === 5 && (
-            <StepRelay
-              onNext={next}
-              onSkip={next}
-              onResult={r => { setRelayResult(r); setRelayOk(true); }}
-            />
-          )}
-          {step === 6 && (
-            <StepTailscale
-              onNext={h => { setTailscaleHostname(h); setTailscaleOk(!!h); next(); }}
-              onSkip={() => setStep(8)}
-            />
-          )}
-          {step === 7 && (
-            <StepShortcut
-              relayResult={relayResult}
-              tailscaleHostname={tailscaleHostname}
-              onNext={() => { setShortcutDone(true); next(); }}
-              onSkip={next}
-            />
-          )}
-          {step === 8 && (
+          {step === STEP_DONE && (
             <StepDone
               relayOk={relayOk}
               tailscaleOk={tailscaleOk}
               shortcutDone={shortcutDone}
+              onStartCapture={startCapture}
               onFinish={finish}
+            />
+          )}
+
+          {/* Optional iPhone-capture branch — reuses the original Relay/Tailscale/Shortcut steps */}
+          {step === CAPTURE_RELAY && (
+            <StepRelay
+              onNext={() => setStep(CAPTURE_TAILSCALE)}
+              onSkip={finishCapture}
+              onResult={r => { setRelayResult(r); setRelayOk(true); }}
+            />
+          )}
+          {step === CAPTURE_TAILSCALE && (
+            <StepTailscale
+              onNext={h => { setTailscaleHostname(h); setTailscaleOk(!!h); setStep(CAPTURE_SHORTCUT); }}
+              onSkip={() => setStep(CAPTURE_SHORTCUT)}
+            />
+          )}
+          {step === CAPTURE_SHORTCUT && (
+            <StepShortcut
+              relayResult={relayResult}
+              tailscaleHostname={tailscaleHostname}
+              onNext={() => { setShortcutDone(true); finishCapture(); }}
+              onSkip={finishCapture}
             />
           )}
         </div>

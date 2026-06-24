@@ -2,6 +2,7 @@
 // former App.tsx tool if-chain (route 'web_search'); behavior-identical.
 import { fetchWithRetry } from '../../llm';
 import { useUIStore } from '../../../store/useUIStore';
+import { browseCapability } from './browse';
 import type { Capability, CapabilityContext, CapabilityResult } from '../types';
 
 export const webSearchCapability: Capability = {
@@ -118,13 +119,19 @@ export const webSearchCapability: Capability = {
         if (foundSources.length > 0) {
             const searchResults = foundSources.map(s => `- ${s.title}: ${s.snippet} (URL: ${s.url})`).join('\n');
             toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\n${searchResults}\n[END SEARCH]`;
-        } else {
-            toolData += `\n\n[SYSTEM NOTE: WEB SEARCH RESULTS]\nNo relevant results found online.\n[END SEARCH]`;
         }
+        // Zero results falls through to the keyless-browser fallback below.
     } catch (e: any) {
         console.error('Web search failed:', e);
-        useUIStore.getState().showToast("Web search failed. Check console logs.");
-        toolData += `\n\n[SYSTEM NOTE: WEB SEARCH FAILED]\nThe web search encountered an error: ${e.message}\n[END SEARCH]`;
+        // Swallow — a dead API path (bad/missing key, rate limit, network) is handled by the fallback below.
+    }
+
+    // Runtime fallback: the API path (Tavily/Brave/Wikipedia) returned nothing or errored. Rather than
+    // dead-end a web query, drive the KEYLESS in-app browser search instead — no API key required, which
+    // matches the gatekeeper routing (no key → 'browser') and keeps "search the web" working out of the box.
+    if (foundSources.length === 0) {
+        ctx.setStatus('🔍 No direct results — searching the web…');
+        return await browseCapability.execute(ctx);
     }
 
     const summary = searchResultCount > 0

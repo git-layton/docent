@@ -2,13 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
   MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
-  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles
+  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { normalizeVoiceProfile } from '../services/voice';
 import { buildVoiceCard, buildRelationshipVoiceCard } from '../services/voiceRuntime';
 import { VoiceSetupModal } from './VoiceSetupModal';
+import { FullDiskAccessGrant } from './FullDiskAccessGrant';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -202,21 +203,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
   // iMessage — there are no credentials; it reads the local Messages database, which needs Full Disk
   // Access. "Connecting" = probing that we can open chat.db. We flip `imessage.enabled` once verified.
-  const [imsgStatus, setImsgStatus] = useState<{ state: 'idle' | 'checking' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
   const imessageEnabled = !!(integrations as any).imessage?.enabled;
-
-  const handleImessageCheck = async () => {
-    setImsgStatus({ state: 'checking' });
-    try {
-      const count = await invoke<number>('imessage_check_access');
-      setIntegrations((prev: any) => ({ ...prev, imessage: { enabled: true } }));
-      await useSettingsStore.getState().persist();
-      setImsgStatus({ state: 'ok', msg: `Connected — ${count.toLocaleString()} conversations` });
-    } catch (e) {
-      setIntegrations((prev: any) => ({ ...prev, imessage: { enabled: false } }));
-      setImsgStatus({ state: 'error', msg: String(e) });
-    }
-  };
+  // The grant + verify flow lives in the shared <FullDiskAccessGrant> control (reused by the first-run
+  // Messages wizard); on a successful probe its onVerified persists imessage.enabled.
 
   // Calendar — choose where events live (local store vs the native macOS calendar via EventKit),
   // grant access, pick which calendars to show, and migrate existing local birthdays/events over.
@@ -412,19 +401,74 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   };
 
   const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); setVisionTestState({ loading: false, error: null, successUrl: null }); };
+
+  // ── Master-detail navigation (settings IA redesign) ──
+  // Normalize legacy tab values that other code still deep-links with.
+  type SectionId = 'you' | 'models' | 'connect' | 'privacy';
+  const normalizeSection = (tab: string | undefined): SectionId => {
+    switch (tab) {
+      case 'models': return 'models';
+      case 'connect': case 'integrations': return 'connect';
+      case 'privacy': case 'advanced': return 'privacy';
+      case 'you': case 'profile': case 'appearance': default: return 'you';
+    }
+  };
+  const activeSection = normalizeSection(profileSettingsTab);
+  const [settingsSearch, setSettingsSearch] = useState('');
+  const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof User }> = [
+    { id: 'you', label: 'You', icon: User },
+    { id: 'models', label: 'AI Models', icon: Layers },
+    { id: 'connect', label: 'Connect your apps', icon: Link },
+    { id: 'privacy', label: 'Privacy & control', icon: ShieldCheck },
+  ];
+  const q = settingsSearch.trim().toLowerCase();
+  // Search filters the rail: only show sections whose label matches a non-empty query.
+  const visibleSections = q ? SECTIONS.filter(s => s.label.toLowerCase().includes(q)) : SECTIONS;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-      <div className="bg-panel w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]">
+      <div className="bg-panel w-full max-w-4xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center mb-6 shrink-0">
-          <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><Settings className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">System Settings</h3></div>
+          <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><Settings className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Settings</h3></div>
           <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
         </div>
-        <div className="flex gap-1 border-b border-edge mb-6 shrink-0">
-          {['profile', 'appearance', 'integrations', 'advanced'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-primary border-b-2 border-primary' : 'text-ink-3'}`}>{tab === 'profile' ? 'My Profile' : tab === 'appearance' ? 'Appearance' : tab === 'integrations' ? 'Integrations' : 'Advanced'}</button>)}
-        </div>
-        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-          {profileSettingsTab === 'profile' ? (
-            <div>
+        <div className="flex-1 min-h-0 flex gap-6">
+          {/* Left rail — search + section list */}
+          <nav className="w-56 shrink-0 flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-1">
+            <input
+              type="text"
+              value={settingsSearch}
+              onChange={e => setSettingsSearch(e.target.value)}
+              placeholder="Search settings…"
+              className="w-full bg-inset border border-edge-2 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-secondary"
+            />
+            <div className="flex flex-col gap-1">
+              {visibleSections.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setProfileSettingsTab(id)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${activeSection === id ? 'bg-accent text-on-accent' : 'text-ink-2 hover:bg-wash'}`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" /> <span className="truncate">{label}</span>
+                </button>
+              ))}
+              {visibleSections.length === 0 && (
+                <p className="text-tiny text-ink-3 px-3 py-2 font-medium">No sections match “{settingsSearch}”.</p>
+              )}
+            </div>
+            {/* Per-agent settings — a link-out, not a section */}
+            <button
+              onClick={() => { useAgentStore.getState().setShowAssistantSettings(true); onClose(); }}
+              className="mt-auto flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-ink-3 hover:text-ink border border-dashed border-edge-2 hover:bg-wash transition-all text-left"
+            >
+              <ExternalLink className="w-4 h-4 shrink-0" /> <span className="truncate">Per-agent settings</span>
+            </button>
+          </nav>
+
+          {/* Right pane — active section content */}
+          <div className="flex-1 min-w-0 overflow-y-auto custom-scrollbar pr-2">
+          {activeSection === 'you' ? (
+            <div className="space-y-6">
               {/* Avatar */}
               <div className="mb-6 flex items-center gap-5">
                 <div className="relative shrink-0">
@@ -473,14 +517,14 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 />
                 <p className="text-tiny text-ink-3 mt-1.5 font-medium">All agents will address you by this name.</p>
               </div>
-              <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">About Me (Global Context)</label>
+              <label className="text-tiny font-black uppercase opacity-50 mb-2 block tracking-widest">About you</label>
               <textarea value={userProfile} onChange={e => setUserProfile(e.target.value)} rows={8} className="w-full bg-inset border-2 border-edge-2 rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-secondary " placeholder="" />
 
               {/* Automated Profile Update Toggle */}
               <div className="mt-6 flex items-center justify-between p-4 rounded-2xl border border-edge bg-inset ">
                  <div className="flex flex-col">
-                    <span className="text-sm font-bold block">Allow Profile Updates</span>
-                    <span className="text-tiny text-ink-3 font-medium tracking-wide">AI can autonomously propose updates to your profile from chat conversations.</span>
+                    <span className="text-sm font-bold block">Let agents suggest profile edits</span>
+                    <span className="text-tiny text-ink-3 font-medium tracking-wide">Agents can propose updates to your profile from chats — you approve every change; nothing is saved automatically.</span>
                  </div>
                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, allowProfileUpdates: !prev.allowProfileUpdates }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.allowProfileUpdates ? 'bg-primary' : 'bg-inset '}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.allowProfileUpdates ? 'right-0.5' : 'left-0.5'}`} />
@@ -642,31 +686,6 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
 
-              {/* AI Models */}
-              <div className="border-t border-edge pt-4 mt-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-bold text-ink">AI Models</p>
-                    <p className="text-xs text-ink-3 mt-0.5">
-                      {models.length > 0
-                        ? `${models.length} connected · add another anytime`
-                        : 'Connect a model to power your agents'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const ss = useSettingsStore.getState();
-                      ss.setWizardStep(3);
-                      ss.setShowModelWizard(true);
-                      onClose();
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-accent text-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong transition-all shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Connect a model
-                  </button>
-                </div>
-              </div>
-
               {/* Setup Wizard */}
               <div className="border-t border-edge pt-4 mt-4">
                 <div className="flex items-center justify-between">
@@ -679,6 +698,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                       await db.set('onboardingComplete', false);
                       const { useSettingsStore: ss } = await import('../store/useSettingsStore');
                       ss.getState().setOnboardingComplete(false);
+                      ss.getState().setOnboardingInitialStep(1);
                       ss.getState().setShowOnboarding(true);
                       onClose();
                     }}
@@ -688,9 +708,29 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   </button>
                 </div>
               </div>
-            </div>
-          ) : profileSettingsTab === 'appearance' ? (
-            <div className="space-y-6">
+
+              {/* iPhone capture — opens the wizard directly into the optional capture branch */}
+              <div className="border-t border-edge pt-4 mt-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-ink">Set up iPhone capture</p>
+                    <p className="text-xs text-ink-3 mt-0.5">Share links, photos &amp; notes from your iPhone (relay + Tailscale + Shortcut)</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const { useSettingsStore: ss } = await import('../store/useSettingsStore');
+                      // Step 5 = the relay step, first screen of the optional capture branch.
+                      ss.getState().setOnboardingInitialStep(5);
+                      ss.getState().setShowOnboarding(true);
+                      onClose();
+                    }}
+                    className="text-xs font-bold text-primary hover:text-primary-hover transition-colors"
+                  >
+                    Set up →
+                  </button>
+                </div>
+              </div>
+
               {/* Theme mode */}
               <div>
                 <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Theme</label>
@@ -759,8 +799,33 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
             </div>
-          ) : profileSettingsTab === 'integrations' ? (
+          ) : activeSection === 'models' ? (
             <div className="space-y-6">
+
+              {/* AI Models */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-ink">AI Models</p>
+                    <p className="text-xs text-ink-3 mt-0.5">
+                      {models.length > 0
+                        ? `${models.length} connected · add another anytime`
+                        : 'Connect a model to power your agents'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const ss = useSettingsStore.getState();
+                      ss.setWizardStep(3);
+                      ss.setShowModelWizard(true);
+                      onClose();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-accent text-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong transition-all shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Connect a model
+                  </button>
+                </div>
+              </div>
 
               {/* Image Generation Tooling - Engineered UX */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
@@ -783,7 +848,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {appSettings.imageProvider !== 'none' && (
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
-                       {/* Key Handling */}
+                       {/* Key Handling — inherit status is shown as a note; the key field stays editable so you can override. */}
                        {appSettings.imageProvider === 'google' && hasImplicitGoogleKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
                              <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.
@@ -792,27 +857,26 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
                              <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.
                           </div>
-                       ) : (
-                          <div className="flex flex-col gap-2">
-                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
-                             <input
-                                type="password"
-                                value={
-                                   appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
-                                   appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
-                                   integrations.customImage?.apiKey || ''
-                                }
-                                onChange={e => {
-                                   const val = e.target.value;
-                                   if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } }));
-                                   else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } }));
-                                   else setIntegrations((prev: any) => ({ ...prev, customImage: { ...prev.customImage, apiKey: val } }));
-                                }}
-                                placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
-                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
-                             />
-                          </div>
-                       )}
+                       ) : null}
+                       <div className="flex flex-col gap-2">
+                          <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
+                          <input
+                             type="password"
+                             value={
+                                appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
+                                appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
+                                integrations.customImage?.apiKey || ''
+                             }
+                             onChange={e => {
+                                const val = e.target.value;
+                                if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } }));
+                                else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } }));
+                                else setIntegrations((prev: any) => ({ ...prev, customImage: { ...prev.customImage, apiKey: val } }));
+                             }}
+                             placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
+                             className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                          />
+                       </div>
 
                        {/* Custom Endpoint Field */}
                        {appSettings.imageProvider === 'custom' && (
@@ -831,7 +895,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                        {/* Fetch Models & Model Selection */}
                        <div className="flex flex-col gap-2 border-t border-edge pt-4">
                            <div className="flex items-center justify-between">
-                              <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Target Model ID</label>
+                              <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Which model to use</label>
                               <button onClick={fetchImageModels} disabled={isFetchingImageModels || !activeImageKey} className="text-tiny font-black uppercase tracking-widest text-primary hover:text-primary-dark dark:text-secondary-light dark:hover:text-white disabled:opacity-50 transition-all flex items-center gap-1">
                                   {isFetchingImageModels ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />} Fetch Models
                               </button>
@@ -888,10 +952,10 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {/* Output Preference */}
                  {appSettings.imageProvider !== 'none' && (
                      <div className="pt-2 border-t border-edge ">
-                        <span className="text-tiny font-black uppercase opacity-50 mb-3 block tracking-widest">Image Delivery Method</span>
+                        <span className="text-tiny font-black uppercase opacity-50 mb-3 block tracking-widest">Where new images appear</span>
                         <div className="flex bg-wash p-1.5 rounded-xl">
-                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'canvas' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'canvas' ? 'bg-white  shadow-sm text-primary dark:text-white' : 'text-ink-3 hover:text-ink-2 dark:hover:text-ink-2'}`}>Canvas Artifact</button>
-                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white  shadow-sm text-primary dark:text-white' : 'text-ink-3 hover:text-ink-2 dark:hover:text-ink-2'}`}>In-Chat Message</button>
+                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'canvas' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'canvas' ? 'bg-white  shadow-sm text-primary dark:text-white' : 'text-ink-3 hover:text-ink-2 dark:hover:text-ink-2'}`}>Open in Canvas</button>
+                           <button onClick={() => setAppSettings((prev: any) => ({ ...prev, defaultImageOutput: 'document' } as any))} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${(appSettings as any).defaultImageOutput === 'document' ? 'bg-white  shadow-sm text-primary dark:text-white' : 'text-ink-3 hover:text-ink-2 dark:hover:text-ink-2'}`}>Show in chat</button>
                         </div>
                      </div>
                  )}
@@ -922,13 +986,15 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {(appSettings.visionProvider === 'google' || appSettings.visionProvider === 'openai' || appSettings.visionProvider === 'anthropic' || appSettings.visionProvider === 'custom') && (
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
+                       {/* Inherit status is shown as a note; the key field stays editable so you can override. */}
                        {appSettings.visionProvider === 'google' && hasImplicitGoogleKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.</div>
                        ) : appSettings.visionProvider === 'openai' && hasImplicitOpenAIKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.</div>
                        ) : appSettings.visionProvider === 'anthropic' && hasImplicitAnthropicKey ? (
                           <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Anthropic API Key from Chat Models.</div>
-                       ) : appSettings.visionProvider !== 'custom' ? (
+                       ) : null}
+                       {appSettings.visionProvider !== 'custom' ? (
                           <div className="flex flex-col gap-2">
                              <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
                              <input
@@ -989,6 +1055,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     </div>
                  )}
               </div>
+            </div>
+          ) : activeSection === 'connect' ? (
+            <div className="space-y-6">
 
               {/* Brave Search Integration */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
@@ -1000,7 +1069,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                               <span className="text-sm font-black uppercase tracking-widest block">Brave Search</span>
                               <span className="text-micro font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400">2,000 free/mo</span>
                             </div>
-                            <span className="text-xs text-ink-3 font-medium mt-0.5">Privacy-focused web search. Free tier included. <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" className="text-secondary hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
+                            <span className="text-xs text-ink-3 font-medium mt-0.5">Privacy-focused web search — needs a free API key. <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" className="text-secondary hover:underline font-bold inline-flex items-center gap-1">Get API Key <Link className="w-2.5 h-2.5"/></a></span>
                          </div>
                      </div>
                      <button onClick={() => setIntegrations((prev: any) => ({ ...prev, brave: { ...prev.brave, enabled: !prev.brave?.enabled } }))} className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${integrations.brave?.enabled ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-primary text-white hover:bg-primary-hover'}`}>{integrations.brave?.enabled ? 'Enabled' : 'Enable'}</button>
@@ -1048,7 +1117,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
                 {integrations.slack?.enabled && (
                   <div className="animate-in slide-in-from-top-2 pt-4 border-t border-edge flex flex-col gap-3">
-                    <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Bot Token</label>
+                    <label className="text-tiny font-black uppercase tracking-widest text-ink-3">Slack connection key (Bot Token)</label>
                     <input
                       type="password"
                       value={integrations.slack?.botToken || ''}
@@ -1078,7 +1147,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     </div>
                     <div className="flex flex-col">
                       <span className="text-sm font-black uppercase tracking-widest block">Mail accounts</span>
-                      <span className="text-xs text-ink-3 font-medium mt-0.5">Gmail &amp; iCloud over IMAP — app password, no web login. Add as many as you like.</span>
+                      <span className="text-xs text-ink-3 font-medium mt-0.5">Gmail &amp; iCloud — a one-time app password, no web login. Add as many as you like.</span>
                     </div>
                   </div>
                   {!addingMail && (
@@ -1200,45 +1269,29 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     </div>
                     <div className="flex flex-col">
                       <span className="text-sm font-black uppercase tracking-widest block">iMessage</span>
-                      <span className="text-xs text-ink-3 font-medium mt-0.5">Your iMessage &amp; SMS, read straight from this Mac. No account — just a one-time permission.</span>
+                      <span className="text-xs text-ink-3 font-medium mt-0.5">Your iMessage &amp; SMS, read straight from this Mac. No account — just a one-time permission. Nothing leaves your Mac.</span>
                     </div>
                   </div>
-                  {imessageEnabled
-                    ? <span className="flex items-center gap-1.5 text-xs font-bold text-success-light shrink-0"><CheckCircle2 className="w-4 h-4" /> Connected</span>
-                    : (
-                      <button
-                        onClick={handleImessageCheck}
-                        disabled={imsgStatus.state === 'checking'}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0 disabled:opacity-40"
-                      >
-                        {imsgStatus.state === 'checking' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />}
-                        {imsgStatus.state === 'checking' ? 'Checking…' : 'Connect'}
-                      </button>
-                    )}
+                  {imessageEnabled && (
+                    <span className="flex items-center gap-1.5 text-xs font-bold text-success-light shrink-0"><CheckCircle2 className="w-4 h-4" /> Connected</span>
+                  )}
                 </div>
 
                 <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
                   <span className="text-tiny font-black uppercase tracking-widest text-ink-3">One-time setup</span>
                   <ol className="text-xs text-ink-3 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
                     <li>Open <span className="font-bold">Full Disk Access</span> and switch on <span className="font-bold">Agent Forge</span> (so it can read your message history).</li>
-                    <li>Click <span className="font-bold">Connect</span> above to verify.</li>
+                    <li>Click <span className="font-bold">Check access</span> below to verify.</li>
                     <li>The first time you send, macOS asks to let Agent Forge control Messages — click <span className="font-bold">OK</span>.</li>
                   </ol>
-                  <button
-                    onClick={() => invoke('imessage_open_fda_settings').catch(() => {})}
-                    className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
-                  ><ExternalLink className="w-3.5 h-3.5" /> Open Full Disk Access</button>
+                  <FullDiskAccessGrant
+                    autoProbe={imessageEnabled}
+                    onVerified={() => {
+                      setIntegrations((prev: any) => ({ ...prev, imessage: { ...(prev.imessage ?? {}), enabled: true } }));
+                      void useSettingsStore.getState().persist();
+                    }}
+                  />
                 </div>
-
-                {imsgStatus.state === 'ok' && (
-                  <span className="text-tiny font-bold text-success-light">✓ {imsgStatus.msg}</span>
-                )}
-                {imsgStatus.state === 'error' && (
-                  <div className="text-tiny font-bold text-error break-words flex flex-col gap-1">
-                    <span>✗ {imsgStatus.msg}</span>
-                    <span className="text-ink-3 font-medium">↑ Turn on Full Disk Access for Agent Forge, then click Connect again. (A full quit &amp; relaunch may be needed after granting.)</span>
-                  </div>
-                )}
               </div>
 
               {/* Calendar — local store vs the native macOS Calendar (EventKit). Native syncs to iPhone via iCloud. */}
@@ -1433,7 +1486,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   <div className="flex items-center gap-3">
                     <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2"><Layers className="w-5 h-5 text-secondary" /></div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest block">GUS</span>
+                      <span className="text-sm font-black uppercase tracking-widest block">Salesforce Work Items</span>
                       <span className="text-xs text-ink-3 font-medium mt-0.5">Salesforce Agile Accelerator — query work items, stories, and sprints.</span>
                     </div>
                   </div>
@@ -1465,7 +1518,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                       />
                     </div>
                     <p className="text-tiny text-ink-3 leading-relaxed">
-                      Get a session token via Salesforce CLI: <span className="font-mono bg-wash px-1 rounded">sf org display --target-org &lt;alias&gt;</span> and copy the Access Token. Or create a Connected App with OAuth to get a long-lived token.
+                      Get a session token via Salesforce CLI: <span className="font-mono bg-wash px-1 rounded">sf org display --target-org &lt;alias&gt;</span> and copy the Access Token. Or create a Connected App with OAuth to get a long-lived token. Not sure how? Ask your Salesforce admin.
                     </p>
                     {integrations.gus?.instanceUrl && integrations.gus?.accessToken && (
                       <div className="flex items-center gap-2 text-tiny font-black uppercase tracking-widest text-success-light">
@@ -1476,12 +1529,15 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 )}
               </div>
 
+            </div>
+          ) : (
+            <div className="space-y-6">
               {/* Context Window Line */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-wash rounded-xl shadow-sm border border-edge-2"><Eye className="w-5 h-5 text-ink-3" /></div>
                   <div className="flex flex-col">
-                    <span className="text-sm font-black uppercase tracking-widest ">Context Window Line</span>
+                    <span className="text-sm font-black uppercase tracking-widest ">Show where context ends</span>
                     <span className="text-xs text-ink-3 font-medium mt-0.5">Show a subtle divider in chat where the agent's memory begins — older messages are no longer in context.</span>
                   </div>
                 </div>
@@ -1496,7 +1552,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-[#F9F4EE] dark:bg-[#5C452E]/20 rounded-xl shadow-sm border border-[#EEDCC4] dark:border-[#5C452E]/30"><CalendarDays className="w-5 h-5 text-accent" /></div>
                   <div className="flex flex-col">
-                    <span className="text-sm font-black uppercase tracking-widest ">Local Planner</span>
+                    <span className="text-sm font-black uppercase tracking-widest ">Built-in task list</span>
                     <span className="text-xs text-ink-3 font-medium mt-0.5">Events & reminders saved to <code className="bg-wash px-1 rounded text-mini">~/AgentForge/memory/tasks.md</code></span>
                     <span className="text-tiny text-ink-3 mt-0.5">Enable the "Local Planner" tool on an agent to let it add tasks.</span>
                   </div>
@@ -1504,9 +1560,6 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 <span className="px-4 py-2 rounded-xl text-tiny font-black uppercase tracking-widest bg-success-light/20 text-success border border-success-light/30">Active</span>
               </div>
 
-            </div>
-          ) : (
-            <div className="space-y-6">
               {/* Developer Mode — gates agent shell/command execution */}
               <div className="p-5 rounded-2xl border border-edge bg-panel">
                 <div className="flex items-center justify-between gap-4">
@@ -1522,7 +1575,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
               {/* File access grants */}
               <div className="p-5 rounded-2xl border border-edge bg-panel">
-                <span className="text-sm font-black uppercase tracking-widest">File Access Grants</span>
+                <span className="text-sm font-black uppercase tracking-widest">Folders agents can use</span>
                 <span className="block text-xs text-ink-3 font-medium mt-0.5 mb-3">Standing permissions agents have to files outside their workspace.</span>
                 {Object.keys(appSettings.fileAccessGrants ?? {}).length === 0 ? (
                   <p className="text-xs text-ink-3 italic">No standing grants. Agents are confined to <code className="bg-wash px-1 rounded text-mini">~/AgentForge/workspace</code> unless you approve a path.</p>
@@ -1532,7 +1585,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                       <div key={key} className="flex items-center gap-3 p-2.5 rounded-xl bg-inset">
                         <div className="flex flex-col min-w-0 flex-1">
                           <span className="text-xs font-mono text-ink-2 truncate">{g.path}</span>
-                          <span className="text-[10px] text-ink-3 uppercase tracking-widest font-bold">{g.scope} · {g.effect}</span>
+                          <span className="text-[10px] text-ink-3 uppercase tracking-widest font-bold">{g.scope} · {g.effect === 'write' ? 'can read & write' : 'can read'}</span>
                         </div>
                         <button onClick={() => useSettingsStore.getState().revokeFileGrant(key)} className="px-2.5 py-1.5 rounded-lg border border-edge-2 text-[10px] font-bold text-ink-2 hover:bg-wash uppercase tracking-widest">Revoke</button>
                       </div>
@@ -1562,6 +1615,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               </div>
             </div>
           )}
+          </div>
         </div>
         <button onClick={onClose} className="w-full py-5 bg-accent text-on-accent font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 shrink-0 active:scale-[0.98] transition-all">Done</button>
       </div>

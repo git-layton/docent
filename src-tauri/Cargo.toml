@@ -28,6 +28,10 @@ tauri-plugin-fs = "2"
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
+# In-app auto-update: pulls signed releases from GitHub, verifies the minisign signature
+# (pubkey in tauri.conf.json), and swaps the bundle in place. `process` provides relaunch().
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 sysinfo = "0.30"
 notify = "6"
 rusqlite = { version = "0.31", features = ["bundled"] }

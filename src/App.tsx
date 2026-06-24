@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 
 import { db } from './services/database';
+import { checkForUpdatesOnStartup } from './services/updater';
 import { extractTextFromPDF } from './services/pdfParser';
 import { useChatStore } from './store/useChatStore';
 import { useAgentStore, DEFAULT_ASSISTANT, resolveCodeyId } from './store/useAgentStore';
@@ -314,6 +315,9 @@ export default function App() {
     console.warn = (...args) => { capture('warn')(...args); originalWarn(...args); };
     return () => { console.log = originalLog; console.error = originalError; console.warn = originalWarn; };
   }, []);
+
+  // Auto-update: one silent check shortly after launch (no-op offline / in dev).
+  useEffect(() => { checkForUpdatesOnStartup(); }, []);
 
   // Spotlight window events
   useEffect(() => {
@@ -1852,6 +1856,13 @@ export default function App() {
       let toolUsed = null;
       let toolData = "";
       let foundSources: any[] = [];
+      // Whether API web search (Brave/Tavily) is actually usable — both require a configured key.
+      // When neither is, the gatekeeper falls back to the keyless browser path for search intents.
+      const _integrations: any = useSettingsStore.getState().integrations ?? {};
+      const _webSearchUsable = !!(
+        (_integrations.brave?.enabled && _integrations.brave?.apiKey) ||
+        (_integrations.tavily?.enabled && _integrations.tavily?.apiKey)
+      );
       const gatekeeperDecision = evaluateMemoryGate({
         text: userMsg.content,
         agentId: _activeAssistant?.id ?? null,
@@ -1859,6 +1870,7 @@ export default function App() {
         chatId,
         forcedTool: _forcedTool,
         enabledTools: _activeAssistant?.tools ?? {},
+        webSearchUsable: _webSearchUsable,
         attachedFiles: userMsg.attachedFiles ?? [],
       });
 

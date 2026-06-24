@@ -146,7 +146,7 @@ export function AssistantSettingsModal({
                     <div>
                     <div className="flex items-center justify-between mb-2">
                        <label className="text-tiny font-black uppercase opacity-50 block tracking-widest">System Prompt</label>
-                       <button onClick={handleEnhanceSystemPrompt} disabled={isEnhancingPrompt || !editingAssistant.prompt || models.length === 0} className="flex items-center gap-1 text-tiny font-black uppercase text-accent hover:text-accent-strong disabled:opacity-40"><Wand2 className={`w-3.5 h-3.5 ${isEnhancingPrompt ? 'animate-spin' : ''}`} /> Polish</button>
+                       <button onClick={handleEnhanceSystemPrompt} disabled={isEnhancingPrompt || !editingAssistant.prompt || models.length === 0} className="flex items-center gap-1 text-tiny font-black uppercase text-accent hover:text-accent-strong disabled:opacity-40"><Wand2 className={`w-3.5 h-3.5 ${isEnhancingPrompt ? 'animate-spin' : ''}`} /> Improve with AI</button>
                     </div>
                     <textarea value={editingAssistant.prompt} onChange={e => setEditingAssistant((prev: any) => ({ ...prev, prompt: e.target.value }))} rows={8} className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-4 text-sm font-medium resize-none outline-none focus:border-accent text-ink custom-scrollbar" placeholder="You are a helpful assistant..." />
                     </div>
@@ -160,7 +160,7 @@ export function AssistantSettingsModal({
                         onChange={e => setEditingAssistant((prev: any) => ({ ...prev, defaultModelId: e.target.value }))}
                         className="w-full bg-inset border-2 border-edge rounded-2xl px-5 py-3 text-sm font-medium outline-none focus:border-accent text-ink"
                       >
-                        <option value="">Use current model</option>
+                        <option value="">Same as the rest of the app (default)</option>
                         {models.map((m) => (
                           <option key={m.id} value={m.id}>{m.name}</option>
                         ))}
@@ -182,7 +182,7 @@ export function AssistantSettingsModal({
                     {/* Core Drive */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <label className="text-tiny font-black uppercase opacity-50 block tracking-widest">Core Drive</label>
+                        <label className="text-tiny font-black uppercase opacity-50 block tracking-widest">Guiding principle</label>
                         <button
                           onClick={() => setEditingAssistant((prev: any) => ({ ...prev, driveEnabled: !prev.driveEnabled }))}
                           className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${editingAssistant.driveEnabled !== false ? 'bg-accent' : 'bg-edge-2'}`}
@@ -347,8 +347,8 @@ export function AssistantSettingsModal({
                      className="w-full flex items-center justify-center gap-2 py-2.5 mt-3 rounded-xl border border-primary/30 text-xs font-bold text-primary dark:text-secondary-muted hover:bg-primary/10 transition-all disabled:opacity-50"
                    >
                      {isDreamRunning
-                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Dream Cycle Running...</>
-                       : <><Brain className="w-3.5 h-3.5" /> Run Dream Cycle</>
+                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Organizing memories…</>
+                       : <><Brain className="w-3.5 h-3.5" /> Review & organize memories</>
                      }
                    </button>
                  </div>
