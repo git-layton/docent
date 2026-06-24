@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
   MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
-  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles
+  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
@@ -412,19 +412,74 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   };
 
   const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); setVisionTestState({ loading: false, error: null, successUrl: null }); };
+
+  // ── Master-detail navigation (settings IA redesign) ──
+  // Normalize legacy tab values that other code still deep-links with.
+  type SectionId = 'you' | 'models' | 'connect' | 'privacy';
+  const normalizeSection = (tab: string | undefined): SectionId => {
+    switch (tab) {
+      case 'models': return 'models';
+      case 'connect': case 'integrations': return 'connect';
+      case 'privacy': case 'advanced': return 'privacy';
+      case 'you': case 'profile': case 'appearance': default: return 'you';
+    }
+  };
+  const activeSection = normalizeSection(profileSettingsTab);
+  const [settingsSearch, setSettingsSearch] = useState('');
+  const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof User }> = [
+    { id: 'you', label: 'You', icon: User },
+    { id: 'models', label: 'AI Models', icon: Layers },
+    { id: 'connect', label: 'Connect your apps', icon: Link },
+    { id: 'privacy', label: 'Privacy & control', icon: ShieldCheck },
+  ];
+  const q = settingsSearch.trim().toLowerCase();
+  // Search filters the rail: only show sections whose label matches a non-empty query.
+  const visibleSections = q ? SECTIONS.filter(s => s.label.toLowerCase().includes(q)) : SECTIONS;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-      <div className="bg-panel w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]">
+      <div className="bg-panel w-full max-w-4xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center mb-6 shrink-0">
           <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><Settings className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Settings</h3></div>
           <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
         </div>
-        <div className="flex gap-1 border-b border-edge mb-6 shrink-0">
-          {['profile', 'appearance', 'integrations', 'advanced'].map(tab => <button key={tab} onClick={() => setProfileSettingsTab(tab)} className={`pb-3 px-4 text-xs font-black uppercase tracking-widest transition-all ${profileSettingsTab === tab ? 'text-primary border-b-2 border-primary' : 'text-ink-3'}`}>{tab === 'profile' ? 'My Profile' : tab === 'appearance' ? 'Appearance' : tab === 'integrations' ? 'Integrations' : 'Advanced'}</button>)}
-        </div>
-        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-          {profileSettingsTab === 'profile' ? (
-            <div>
+        <div className="flex-1 min-h-0 flex gap-6">
+          {/* Left rail — search + section list */}
+          <nav className="w-56 shrink-0 flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-1">
+            <input
+              type="text"
+              value={settingsSearch}
+              onChange={e => setSettingsSearch(e.target.value)}
+              placeholder="Search settings…"
+              className="w-full bg-inset border border-edge-2 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-secondary"
+            />
+            <div className="flex flex-col gap-1">
+              {visibleSections.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setProfileSettingsTab(id)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${activeSection === id ? 'bg-accent text-on-accent' : 'text-ink-2 hover:bg-wash'}`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" /> <span className="truncate">{label}</span>
+                </button>
+              ))}
+              {visibleSections.length === 0 && (
+                <p className="text-tiny text-ink-3 px-3 py-2 font-medium">No sections match “{settingsSearch}”.</p>
+              )}
+            </div>
+            {/* Per-agent settings — a link-out, not a section */}
+            <button
+              onClick={() => { useAgentStore.getState().setShowAssistantSettings(true); onClose(); }}
+              className="mt-auto flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-ink-3 hover:text-ink border border-dashed border-edge-2 hover:bg-wash transition-all text-left"
+            >
+              <ExternalLink className="w-4 h-4 shrink-0" /> <span className="truncate">Per-agent settings</span>
+            </button>
+          </nav>
+
+          {/* Right pane — active section content */}
+          <div className="flex-1 min-w-0 overflow-y-auto custom-scrollbar pr-2">
+          {activeSection === 'you' ? (
+            <div className="space-y-6">
               {/* Avatar */}
               <div className="mb-6 flex items-center gap-5">
                 <div className="relative shrink-0">
@@ -642,31 +697,6 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
 
-              {/* AI Models */}
-              <div className="border-t border-edge pt-4 mt-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-bold text-ink">AI Models</p>
-                    <p className="text-xs text-ink-3 mt-0.5">
-                      {models.length > 0
-                        ? `${models.length} connected · add another anytime`
-                        : 'Connect a model to power your agents'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const ss = useSettingsStore.getState();
-                      ss.setWizardStep(3);
-                      ss.setShowModelWizard(true);
-                      onClose();
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-accent text-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong transition-all shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Connect a model
-                  </button>
-                </div>
-              </div>
-
               {/* Setup Wizard */}
               <div className="border-t border-edge pt-4 mt-4">
                 <div className="flex items-center justify-between">
@@ -688,9 +718,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   </button>
                 </div>
               </div>
-            </div>
-          ) : profileSettingsTab === 'appearance' ? (
-            <div className="space-y-6">
+
               {/* Theme mode */}
               <div>
                 <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Theme</label>
@@ -759,8 +787,33 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
             </div>
-          ) : profileSettingsTab === 'integrations' ? (
+          ) : activeSection === 'models' ? (
             <div className="space-y-6">
+
+              {/* AI Models */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-ink">AI Models</p>
+                    <p className="text-xs text-ink-3 mt-0.5">
+                      {models.length > 0
+                        ? `${models.length} connected · add another anytime`
+                        : 'Connect a model to power your agents'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const ss = useSettingsStore.getState();
+                      ss.setWizardStep(3);
+                      ss.setShowModelWizard(true);
+                      onClose();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-accent text-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong transition-all shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Connect a model
+                  </button>
+                </div>
+              </div>
 
               {/* Image Generation Tooling - Engineered UX */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
@@ -989,6 +1042,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     </div>
                  )}
               </div>
+            </div>
+          ) : activeSection === 'connect' ? (
+            <div className="space-y-6">
 
               {/* Brave Search Integration */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
@@ -1476,6 +1532,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 )}
               </div>
 
+            </div>
+          ) : (
+            <div className="space-y-6">
               {/* Context Window Line */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -1504,9 +1563,6 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 <span className="px-4 py-2 rounded-xl text-tiny font-black uppercase tracking-widest bg-success-light/20 text-success border border-success-light/30">Active</span>
               </div>
 
-            </div>
-          ) : (
-            <div className="space-y-6">
               {/* Developer Mode — gates agent shell/command execution */}
               <div className="p-5 rounded-2xl border border-edge bg-panel">
                 <div className="flex items-center justify-between gap-4">
@@ -1522,7 +1578,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
               {/* File access grants */}
               <div className="p-5 rounded-2xl border border-edge bg-panel">
-                <span className="text-sm font-black uppercase tracking-widest">File Access Grants</span>
+                <span className="text-sm font-black uppercase tracking-widest">Folders agents can use</span>
                 <span className="block text-xs text-ink-3 font-medium mt-0.5 mb-3">Standing permissions agents have to files outside their workspace.</span>
                 {Object.keys(appSettings.fileAccessGrants ?? {}).length === 0 ? (
                   <p className="text-xs text-ink-3 italic">No standing grants. Agents are confined to <code className="bg-wash px-1 rounded text-mini">~/AgentForge/workspace</code> unless you approve a path.</p>
@@ -1562,6 +1618,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               </div>
             </div>
           )}
+          </div>
         </div>
         <button onClick={onClose} className="w-full py-5 bg-accent text-on-accent font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 shrink-0 active:scale-[0.98] transition-all">Done</button>
       </div>
