@@ -235,7 +235,8 @@ export function AppSidebar(_: AppSidebarProps) {
                         useAgentStore.getState().setAssistantSettingsTab('config');
                         useAgentStore.getState().setShowAssistantSettings(true);
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-ink-3 hover:text-accent transition-all p-1"
+                      className="opacity-60 group-hover:opacity-100 text-ink-3 hover:text-accent transition-all p-1"
+                      title="Assistant settings"
                     >
                       <Edit2 className="w-3 h-3" />
                     </button>

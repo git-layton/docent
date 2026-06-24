@@ -115,6 +115,22 @@ function StepIcon({ children, color }: { children: React.ReactNode; color: strin
   );
 }
 
+// Makes the developer-grade capture steps unmistakably optional — most people can skip them.
+function OptionalBanner({ onSkip }: { onSkip: () => void }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-inset border border-edge">
+      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-wash text-ink-3 shrink-0">Optional</span>
+      <p className="text-mini text-ink-2 flex-1 leading-relaxed">You can set this up later in Settings. Most people can skip this.</p>
+      <button
+        onClick={onSkip}
+        className="text-mini font-black uppercase tracking-widest text-ink-3 hover:text-ink-2 transition-colors shrink-0"
+      >
+        Skip for now
+      </button>
+    </div>
+  );
+}
+
 // ─── Step 1: Welcome ──────────────────────────────────────────────────────────
 
 function StepWelcome({ onNext }: { onNext: () => void }) {
@@ -135,7 +151,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
         {[
           'Personalize your agents with your profile',
           'Connect an AI model',
-          'Set up one-tap iPhone capture',
+          'Set up one-tap iPhone capture (optional, set up anytime)',
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-3 text-sm text-ink-2">
             <div className="w-5 h-5 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
@@ -935,6 +951,8 @@ function StepRelay({
         </div>
       </div>
 
+      <OptionalBanner onSkip={onSkip} />
+
       {/* How capture works — full system diagram */}
       <div className="p-4 rounded-2xl bg-inset border border-edge">
         <p className="text-tiny font-black uppercase tracking-widest text-ink-3 mb-3">How capture works</p>
@@ -1067,6 +1085,8 @@ function StepTailscale({
           <p className="text-xs text-ink-2 mt-0.5">Works on your home Wi-Fi now. Tailscale makes it work everywhere.</p>
         </div>
       </div>
+
+      <OptionalBanner onSkip={onSkip} />
 
       {/* Plain-language explainer */}
       <div className="space-y-3 p-4 rounded-2xl bg-secondary/5 dark:bg-secondary/10 border border-secondary/20 dark:border-secondary/30">
@@ -1222,6 +1242,8 @@ function StepShortcut({
           <p className="text-xs text-ink-2 mt-0.5">Share anything to Agent Forge in two taps.</p>
         </div>
       </div>
+
+      <OptionalBanner onSkip={onSkip} />
 
       {/* What is a Shortcut? */}
       <div className="p-4 rounded-2xl bg-error/5 dark:bg-error/10 border border-error/20 dark:border-error/30">
