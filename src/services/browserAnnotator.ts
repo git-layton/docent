@@ -114,3 +114,50 @@ export function buildTypeScript(index: number, value: string): string {
 export function buildScrollScript(): string {
   return `(function(){ try { window.scrollBy(0, Math.round(window.innerHeight*0.85)); } catch(_){} })();`;
 }
+
+/**
+ * Find the on-page passage that best matches `snippet` (the agent's answer/quote), wash it with a
+ * visible highlight, and smooth-scroll it into view — so the user can SEE where the answer came
+ * from (transparent browsing). Best-effort and null-safe: matches case-insensitively on a chunk of
+ * the snippet, progressively shortening from the first ~8 words to tolerate paraphrase, and is a
+ * silent no-op if nothing matches. `snippet` is JSON.stringify'd into the script to escape it.
+ */
+export function buildHighlightScript(snippet: string): string {
+  const s = JSON.stringify(snippet || '');
+  return `(function(){
+  try {
+    var snippet = ${s};
+    if (!snippet) return;
+    // Build progressively shorter candidate phrases from the first words of the snippet, so we can
+    // still anchor on a paraphrased answer where only the opening clause matches verbatim.
+    var words = snippet.replace(/\\s+/g,' ').trim().split(' ').filter(Boolean);
+    if (!words.length) return;
+    var candidates = [];
+    var lens = [8, 6, 4, 3];
+    for (var li=0; li<lens.length; li++){
+      var n = Math.min(lens[li], words.length);
+      var phrase = words.slice(0, n).join(' ').toLowerCase();
+      if (phrase.length >= 8 && candidates.indexOf(phrase) < 0) candidates.push(phrase);
+    }
+    if (!candidates.length) return;
+    // Walk text nodes and find the closest containing element whose text includes a candidate.
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var target = null;
+    var node;
+    while ((node = walker.nextNode())) {
+      var txt = (node.textContent || '').replace(/\\s+/g,' ').toLowerCase();
+      if (!txt || txt.length < 8) continue;
+      for (var ci=0; ci<candidates.length; ci++){
+        if (txt.indexOf(candidates[ci]) >= 0) { target = node.parentElement; break; }
+      }
+      if (target) break;
+    }
+    if (!target) return;
+    target.style.backgroundColor = 'rgba(250, 204, 21, .45)';
+    target.style.outline = '2px solid rgba(250, 204, 21, .9)';
+    target.style.borderRadius = '3px';
+    target.style.scrollMarginTop = '80px';
+    try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(_){ target.scrollIntoView(); }
+  } catch(_){}
+})();`;
+}
