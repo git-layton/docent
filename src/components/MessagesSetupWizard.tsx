@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useState } from 'react';
 import {
-  MessageCircle, ShieldCheck, Send, ArrowRight, ChevronLeft, Check, CheckCircle2,
-  Loader2, ExternalLink, Users, Reply,
+  MessageCircle, ShieldCheck, Send, ArrowRight, ChevronLeft, CheckCircle2, Users, Reply,
 } from 'lucide-react';
+import { FullDiskAccessGrant } from './FullDiskAccessGrant';
 
 const TOTAL = 3;
 
@@ -18,22 +17,6 @@ type AccessState = { state: 'idle' | 'checking' | 'ok' | 'error'; count?: number
 export function MessagesSetupWizard({ onComplete }: { onComplete: (accessOk: boolean) => void }) {
   const [step, setStep] = useState(1);
   const [access, setAccess] = useState<AccessState>({ state: 'idle' });
-
-  const check = useCallback(async () => {
-    setAccess({ state: 'checking' });
-    try {
-      const count = await invoke<number>('imessage_check_access');
-      setAccess({ state: 'ok', count });
-    } catch (e) {
-      setAccess({ state: 'error', msg: String(e) });
-    }
-  }, []);
-
-  // Auto-probe when the user lands on the Full Disk Access step — catches the case where access was
-  // already granted (e.g. via Settings) so we can skip straight ahead.
-  useEffect(() => {
-    if (step === 2) check();
-  }, [step, check]);
 
   const finish = () => onComplete(access.state === 'ok');
 
@@ -119,30 +102,7 @@ export function MessagesSetupWizard({ onComplete }: { onComplete: (accessOk: boo
                 ))}
               </ol>
 
-              <button
-                onClick={() => invoke('imessage_open_fda_settings').catch(() => {})}
-                className="flex items-center justify-center gap-2 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Open Full Disk Access
-              </button>
-
-              {/* Live access status */}
-              <div className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-colors ${
-                access.state === 'ok' ? 'bg-success-soft border-success/30'
-                : access.state === 'checking' ? 'bg-inset border-edge'
-                : access.state === 'error' ? 'bg-inset border-edge'
-                : 'bg-inset border-edge'
-              }`}>
-                {access.state === 'checking' && <Loader2 className="w-5 h-5 animate-spin text-ink-3 shrink-0" />}
-                {access.state === 'ok' && <CheckCircle2 className="w-5 h-5 text-success shrink-0" />}
-                {(access.state === 'error' || access.state === 'idle') && <ShieldCheck className="w-5 h-5 text-ink-3 shrink-0" />}
-                <div className="min-w-0 flex-1">
-                  {access.state === 'checking' && <p className="text-sm text-ink-2">Checking access…</p>}
-                  {access.state === 'ok' && <p className="text-sm font-bold text-success">Connected — {(access.count ?? 0).toLocaleString()} conversations found</p>}
-                  {access.state === 'error' && <p className="text-sm text-ink-2">Not detected yet — flip the switch, then check again.</p>}
-                  {access.state === 'idle' && <p className="text-sm text-ink-2">Grant access, then check.</p>}
-                </div>
-              </div>
+              <FullDiskAccessGrant autoProbe onVerified={(count) => setAccess({ state: 'ok', count })} />
 
               {access.state === 'ok' ? (
                 <button
@@ -152,18 +112,9 @@ export function MessagesSetupWizard({ onComplete }: { onComplete: (accessOk: boo
                   Continue <ArrowRight className="w-4 h-4" />
                 </button>
               ) : (
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={check}
-                    disabled={access.state === 'checking'}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-xs font-black uppercase tracking-widest border border-edge-2 text-ink-2 hover:bg-wash transition-all disabled:opacity-40"
-                  >
-                    {access.state === 'checking' ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking…</> : <><Check className="w-3.5 h-3.5" /> I've enabled it — check again</>}
-                  </button>
-                  <button onClick={() => setStep(3)} className="text-[11px] font-semibold text-ink-3 hover:text-ink py-1 transition-colors">
-                    Continue anyway
-                  </button>
-                </div>
+                <button onClick={() => setStep(3)} className="w-full text-[11px] font-semibold text-ink-3 hover:text-ink py-1 transition-colors text-center">
+                  Continue anyway
+                </button>
               )}
             </div>
           )}

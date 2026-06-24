@@ -9,6 +9,7 @@ import { useUIStore } from '../store/useUIStore';
 import { normalizeVoiceProfile } from '../services/voice';
 import { buildVoiceCard, buildRelationshipVoiceCard } from '../services/voiceRuntime';
 import { VoiceSetupModal } from './VoiceSetupModal';
+import { FullDiskAccessGrant } from './FullDiskAccessGrant';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -202,21 +203,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
   // iMessage — there are no credentials; it reads the local Messages database, which needs Full Disk
   // Access. "Connecting" = probing that we can open chat.db. We flip `imessage.enabled` once verified.
-  const [imsgStatus, setImsgStatus] = useState<{ state: 'idle' | 'checking' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
   const imessageEnabled = !!(integrations as any).imessage?.enabled;
-
-  const handleImessageCheck = async () => {
-    setImsgStatus({ state: 'checking' });
-    try {
-      const count = await invoke<number>('imessage_check_access');
-      setIntegrations((prev: any) => ({ ...prev, imessage: { enabled: true } }));
-      await useSettingsStore.getState().persist();
-      setImsgStatus({ state: 'ok', msg: `Connected — ${count.toLocaleString()} conversations` });
-    } catch (e) {
-      setIntegrations((prev: any) => ({ ...prev, imessage: { enabled: false } }));
-      setImsgStatus({ state: 'error', msg: String(e) });
-    }
-  };
+  // The grant + verify flow lives in the shared <FullDiskAccessGrant> control (reused by the first-run
+  // Messages wizard); on a successful probe its onVerified persists imessage.enabled.
 
   // Calendar — choose where events live (local store vs the native macOS calendar via EventKit),
   // grant access, pick which calendars to show, and migrate existing local birthdays/events over.
@@ -1260,42 +1249,26 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                       <span className="text-xs text-ink-3 font-medium mt-0.5">Your iMessage &amp; SMS, read straight from this Mac. No account — just a one-time permission. Nothing leaves your Mac.</span>
                     </div>
                   </div>
-                  {imessageEnabled
-                    ? <span className="flex items-center gap-1.5 text-xs font-bold text-success-light shrink-0"><CheckCircle2 className="w-4 h-4" /> Connected</span>
-                    : (
-                      <button
-                        onClick={handleImessageCheck}
-                        disabled={imsgStatus.state === 'checking'}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0 disabled:opacity-40"
-                      >
-                        {imsgStatus.state === 'checking' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />}
-                        {imsgStatus.state === 'checking' ? 'Checking…' : 'Connect'}
-                      </button>
-                    )}
+                  {imessageEnabled && (
+                    <span className="flex items-center gap-1.5 text-xs font-bold text-success-light shrink-0"><CheckCircle2 className="w-4 h-4" /> Connected</span>
+                  )}
                 </div>
 
                 <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
                   <span className="text-tiny font-black uppercase tracking-widest text-ink-3">One-time setup</span>
                   <ol className="text-xs text-ink-3 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
                     <li>Open <span className="font-bold">Full Disk Access</span> and switch on <span className="font-bold">Agent Forge</span> (so it can read your message history).</li>
-                    <li>Click <span className="font-bold">Connect</span> above to verify.</li>
+                    <li>Click <span className="font-bold">Check access</span> below to verify.</li>
                     <li>The first time you send, macOS asks to let Agent Forge control Messages — click <span className="font-bold">OK</span>.</li>
                   </ol>
-                  <button
-                    onClick={() => invoke('imessage_open_fda_settings').catch(() => {})}
-                    className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
-                  ><ExternalLink className="w-3.5 h-3.5" /> Open Full Disk Access</button>
+                  <FullDiskAccessGrant
+                    autoProbe={imessageEnabled}
+                    onVerified={() => {
+                      setIntegrations((prev: any) => ({ ...prev, imessage: { ...(prev.imessage ?? {}), enabled: true } }));
+                      void useSettingsStore.getState().persist();
+                    }}
+                  />
                 </div>
-
-                {imsgStatus.state === 'ok' && (
-                  <span className="text-tiny font-bold text-success-light">✓ {imsgStatus.msg}</span>
-                )}
-                {imsgStatus.state === 'error' && (
-                  <div className="text-tiny font-bold text-error break-words flex flex-col gap-1">
-                    <span>✗ {imsgStatus.msg}</span>
-                    <span className="text-ink-3 font-medium">↑ Turn on Full Disk Access for Agent Forge, then click Connect again. (A full quit &amp; relaunch may be needed after granting.)</span>
-                  </div>
-                )}
               </div>
 
               {/* Calendar — local store vs the native macOS Calendar (EventKit). Native syncs to iPhone via iCloud. */}
