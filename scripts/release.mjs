@@ -86,7 +86,7 @@ if (dryRun) {
 // --- commit, tag, push ----------------------------------------------------
 sh(`git add ${files.join(' ')}`)
 sh(`git commit -m "release: v${next}"`)
-sh(`git tag v${next}`)
+sh(`git tag -a v${next} -m "v${next}"`) // annotated so --follow-tags pushes it
 console.log(sh('git push --follow-tags'))
 console.log(`\n  ✅ Released v${next}. CI is building & publishing now.`)
 console.log(`     Track it:  gh run watch $(gh run list --workflow=release.yml -L1 --json databaseId --jq '.[0].databaseId') -R git-layton/agent-forge\n`)
