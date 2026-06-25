@@ -74,8 +74,10 @@ edit needed (they're already referenced in `release.yml`):
 | `APPLE_PASSWORD` | an **app-specific password** (appleid.apple.com → Sign-In & Security) |
 | `APPLE_TEAM_ID` | your 10-char Team ID |
 
-Until these exist they resolve to empty strings and CI ships an unsigned build, so everything
-works today and upgrades the moment you add them.
+Until you have an Apple account, the `APPLE_*` env vars in `release.yml` are **commented out** (not
+wired to empty secrets) so CI ships an unsigned build — an empty `APPLE_CERTIFICATE` makes the
+bundler attempt and fail a keychain import. To turn signing on: add the secrets above **and**
+uncomment those env lines, then re-tag.
 
 ## Manual "Check for updates"
 

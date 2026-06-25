@@ -49,15 +49,18 @@ jobs:
           # the PRIVATE key + its password live only in repo secrets, never in git.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple Developer ID code signing + notarization. Until these secrets exist they resolve to
-          # empty strings and tauri-action skips signing (ships an ad-hoc/unsigned build). Add them in
-          # repo Settings → Secrets and re-tag to flip on a notarized, Gatekeeper-clean build — no edit here.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Apple Developer ID signing + notarization is intentionally OFF for now → ships an unsigned
+          # build (first launch needs right-click → Open, or `xattr -dr com.apple.quarantine`).
+          # IMPORTANT: these must be UNSET when you have no Apple account. Wiring them to missing
+          # secrets sets them to empty strings, and the bundler treats an empty APPLE_CERTIFICATE as
+          # "import this cert" then fails the keychain import. To enable a notarized build later: add
+          # the APPLE_* repo secrets AND uncomment the lines below, then re-tag.
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Agent Forge ${{ github.ref_name }}"
