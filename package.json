@@ -22,7 +22,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "release:check": "npm run typecheck && npm run lint && npm test && npm run build"
+    "release:check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

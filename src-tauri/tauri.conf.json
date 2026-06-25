@@ -41,7 +41,10 @@
     ],
     "resources": [
       "../scripts/forge-relay.mjs"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   },
   "plugins": {
     "updater": {
