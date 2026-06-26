@@ -6,9 +6,12 @@ to turn into issues/tasks later.
 
 ## First-run experience
 
-1. **Setup wizard did not appear on startup.** Expected an onboarding wizard on
-   first launch; it never showed. (Possible regression or first-run detection not
-   triggering on a fresh install.)
+1. **Setup wizard did not appear on startup.** ✅ **FIXED (v2.0.4).** First launch
+   had been deliberately changed to skip the wizard and land on an empty Home. Now
+   the app **requires a connected model**: if none exists it opens setup and won't
+   let you dismiss it until a model is connected (downloaded, detected, imported
+   `.gguf`, or API). The first connected model becomes the default. This also
+   recovers the "model downloaded but never connected" dead-end.
 
 2. **Landed on Home with a chat tab already open — confusing.** The mix of the
    Home page *and* an already-open chat tab is disorienting on first run.

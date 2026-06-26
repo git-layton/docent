@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search } from 'lucide-react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search, FolderOpen } from 'lucide-react';
 import { MODEL_CATALOG, type CatalogModel } from '../data/modelCatalog';
 import { supportsVision } from '../services/llm';
 
@@ -39,6 +40,7 @@ function genId(prefix: string) {
 export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'full' }: ModelStorePanelProps) {
   const [states, setStates] = useState<Record<string, ModelState>>({});
   const [search, setSearch] = useState('');
+  const [importing, setImporting] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
   const ramGb = Math.floor(ramMb / 1024);
 
@@ -171,6 +173,39 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     }
   }
 
+  // Connect a .gguf the user already has on disk (anywhere) — the bundled llama-server
+  // can load any local model file, so this works without LM Studio / Ollama.
+  async function handleImport() {
+    try {
+      const selected = await openDialog({ multiple: false, filters: [{ name: 'GGUF model', extensions: ['gguf'] }] });
+      if (!selected || typeof selected !== 'string') return;
+      setImporting(true);
+      const fname = selected.split('/').pop() || 'model.gguf';
+      const name = fname.replace(/\.gguf$/i, '');
+      const endpoint = await invoke<string>('start_local_model', { modelPath: selected, port: DEFAULT_PORT, mmprojPath: null });
+      onModelReady({
+        id: genId('native'), name, provider: 'native', modelId: name,
+        endpoint, apiKey: '', contextLimit: ENGINE_CONTEXT,
+        canImage: supportsVision(fname), isLocal: true,
+      });
+    } catch (err: any) {
+      console.error('[AgentForge] model import failed', err);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const importRow = (
+    <button
+      onClick={handleImport}
+      disabled={importing}
+      className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-ink-2 border border-edge rounded-xl hover:bg-inset transition-colors disabled:opacity-50"
+    >
+      {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+      {importing ? 'Loading model…' : 'Use a .gguf I already have'}
+    </button>
+  );
+
   if (isAppleSilicon === false) {
     return (
       <div className="text-center py-8 text-sm text-ink-2">
@@ -210,7 +245,10 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       topTier[0];
     if (!pick) return null;
     return (
-      <ModelCard model={pick} state={states[pick.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />
+      <>
+        <ModelCard model={pick} state={states[pick.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />
+        {importRow}
+      </>
     );
   }
 
@@ -278,6 +316,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
           ))}
         </div>
       )}
+      {importRow}
     </div>
   );
 }

@@ -436,13 +436,21 @@ export default function App() {
         }
       } catch (e) { console.warn('[AgentForge] Auto-detect skipped:', e); }
 
-      // First launch no longer force-opens the setup wizard. Land users on Home with their
-      // agent; model setup is on-demand — the empty chat bar nudges them into the
-      // "Connect a model" flow, and full setup (capture, iPhone, …) lives in Settings.
-      const onboardingDone = await db.get('onboardingComplete', false);
-      if (!onboardingDone) {
-        await db.set('onboardingComplete', true);
-        useSettingsStore.getState().setOnboardingComplete(true);
+      // Agent Forge is unusable without at least one connected model. If none is
+      // configured — a fresh install, or a setup that never finished — open the setup
+      // wizard and keep the user there until a model is connected, instead of dropping
+      // them into an empty, no-model app. Onboarding is marked complete only once a
+      // model exists (see the effect watching models.length, which closes the wizard).
+      const ssNow = useSettingsStore.getState();
+      if (ssNow.models.length === 0) {
+        ssNow.setOnboardingInitialStep(1);
+        ssNow.setShowOnboarding(true);
+      } else {
+        const onboardingDone = await db.get('onboardingComplete', false);
+        if (!onboardingDone) {
+          await db.set('onboardingComplete', true);
+          ssNow.setOnboardingComplete(true);
+        }
       }
 
       // First-time agent intro card
@@ -648,6 +656,18 @@ export default function App() {
     return getParticipantAgents(activeChat, assistants).map((a: any) => ({ id: a.id, name: a.name }));
   }, [activeChat, assistants]);
   const selectedModel = useMemo(() => models.find(m => m.id === selectedModelId) ?? models[0] ?? null, [models, selectedModelId]);
+
+  // Onboarding gate: once at least one model is connected (downloaded, detected,
+  // imported, or API), the first one becomes the default (if none chosen yet),
+  // onboarding is marked complete, and the setup wizard closes.
+  useEffect(() => {
+    if (models.length === 0 || !showOnboarding) return;
+    const ss = useSettingsStore.getState();
+    if (!ss.selectedModelId) ss.setSelectedModelId(models[0].id);
+    db.set('onboardingComplete', true);
+    ss.setOnboardingComplete(true);
+    ss.setShowOnboarding(false);
+  }, [models.length, showOnboarding]);
 
   // ── Codey's coding conversation (CODEY_CHAT_ID) — the code canvas's CENTER chat. A standalone DM with
   // Codey (the code copilot), independent of the active space. Derived here (where the message store +
@@ -3188,7 +3208,12 @@ export default function App() {
 
       {/* Onboarding wizard */}
       {showOnboarding && (
-        <OnboardingWizard onClose={() => { useSettingsStore.getState().setShowOnboarding(false); useSettingsStore.getState().setOnboardingInitialStep(1); }} initialStep={onboardingInitialStep} />
+        <OnboardingWizard onClose={() => {
+          const ss = useSettingsStore.getState();
+          // Gate: the app needs a model. Don't let setup be dismissed until one is connected.
+          if (ss.models.length === 0) { useUIStore.getState().showToast('Connect a model to start using Agent Forge.'); return; }
+          ss.setShowOnboarding(false); ss.setOnboardingInitialStep(1);
+        }} initialStep={onboardingInitialStep} />
       )}
 
       {/* Agent action approval — sends/deletes the agent wants to run (local writes auto-applied) */}
