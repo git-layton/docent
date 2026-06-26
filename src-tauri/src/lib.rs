@@ -3007,7 +3007,7 @@ async fn start_local_model(
         server_args.push(mmproj);
     }
 
-    let child = std::process::Command::new(&sidecar_path)
+    let mut child = std::process::Command::new(&sidecar_path)
         .args(&server_args)
         .spawn()
         .map_err(|e| format!("Failed to spawn llama-server: {}", e))?;
@@ -3015,10 +3015,19 @@ async fn start_local_model(
     let pid = child.id();
     *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
 
-    // Poll health endpoint — 60 × 500ms = 30s
+    // Poll the health endpoint until the server is ready. A big model (a 40GB 70B can
+    // take minutes to map into memory) needs a generous window — the old 30s cap made
+    // large models impossible to load. We bail out immediately if the engine process
+    // dies (e.g. it ran out of memory) so we don't wait the full window on a failure.
     let health_url = format!("http://127.0.0.1:{}/health", port);
     let client = reqwest::Client::new();
-    for _ in 0..60 {
+    for _ in 0..1200 { // up to ~10 minutes (1200 × 500ms)
+        if let Ok(Some(status)) = child.try_wait() {
+            *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            return Err(format!(
+                "The model engine quit while loading ({status}). The model may be too large for this Mac's memory — try a smaller one."
+            ));
+        }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         if let Ok(resp) = client.get(&health_url).send().await {
             if resp.status().is_success() {
@@ -3026,7 +3035,7 @@ async fn start_local_model(
             }
         }
     }
-    Err("llama-server did not become ready within 30s".to_string())
+    Err("The model didn't finish loading in time. If it's a very large model, this Mac may not have enough memory — try a smaller one.".to_string())
 }
 
 // ─── Browser Co-pilot Commands ───────────────────────────────────────────────
