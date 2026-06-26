@@ -2833,40 +2833,106 @@ async fn download_model(
     let part_path = dir.join(format!("{}.part", filename));
     let final_path = dir.join(&filename);
 
-    let client = reqwest::Client::new();
-    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
-    }
-    let total = response.content_length().unwrap_or(0);
+    let client = reqwest::Client::builder()
+        .user_agent("AgentForge")
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
 
-    let mut file = std::fs::File::create(&part_path).map_err(|e| e.to_string())?;
-    let mut downloaded: u64 = 0;
-    let mut stream = response.bytes_stream();
+    // Resumable, retrying download. A multi-GB GGUF runs for a long time, and any
+    // dropped connection previously failed the whole transfer ("error decoding
+    // response body"). We keep the .part file and, on each attempt, request a byte
+    // Range so we resume from whatever is already on disk instead of restarting.
+    const MAX_ATTEMPTS: u32 = 8;
+    let mut attempt: u32 = 0;
 
-    while let Some(chunk) = stream.next().await {
-        // Check cancel flag
+    loop {
+        attempt += 1;
         if *dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false) {
-            drop(file);
             let _ = std::fs::remove_file(&part_path);
             return Err("cancelled".to_string());
         }
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        use std::io::Write;
-        file.write_all(&chunk).map_err(|e| e.to_string())?;
-        downloaded += chunk.len() as u64;
-        let pct = if total > 0 { (downloaded * 100 / total) as f64 } else { 0.0 };
-        let _ = app.emit("download-progress", serde_json::json!({
-            "filename": filename,
-            "pct": pct,
-            "downloaded_mb": downloaded as f64 / 1_048_576.0,
-            "total_mb": total as f64 / 1_048_576.0,
-        }));
-    }
 
-    drop(file);
-    std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
-    final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string())
+        let resume_from = std::fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0);
+        let mut req = client.get(&url);
+        if resume_from > 0 {
+            req = req.header(reqwest::header::RANGE, format!("bytes={}-", resume_from));
+        }
+
+        let response = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                if attempt < MAX_ATTEMPTS {
+                    tokio::time::sleep(std::time::Duration::from_secs(3 * attempt as u64)).await;
+                    continue;
+                }
+                return Err(e.to_string());
+            }
+        };
+
+        let status = response.status();
+        // The .part already holds the whole file (Range starts at/after EOF).
+        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && resume_from > 0 {
+            std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
+            return final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string());
+        }
+        if !status.is_success() {
+            return Err(format!("HTTP {}", status));
+        }
+
+        // 206 => the server honored the Range and we append; otherwise (e.g. 200)
+        // it ignored it, so start the file fresh.
+        let resuming = resume_from > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
+        let body_len = response.content_length().unwrap_or(0);
+        let total = if resuming { resume_from + body_len } else { body_len };
+        let mut downloaded: u64 = if resuming { resume_from } else { 0 };
+
+        let mut file = if resuming {
+            std::fs::OpenOptions::new().append(true).open(&part_path).map_err(|e| e.to_string())?
+        } else {
+            std::fs::File::create(&part_path).map_err(|e| e.to_string())?
+        };
+
+        let mut stream = response.bytes_stream();
+        let mut interrupted = false;
+
+        while let Some(chunk) = stream.next().await {
+            if *dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false) {
+                drop(file);
+                let _ = std::fs::remove_file(&part_path);
+                return Err("cancelled".to_string());
+            }
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(_) => { interrupted = true; break; } // connection dropped; resume next attempt
+            };
+            use std::io::Write;
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+            let pct = if total > 0 { (downloaded * 100 / total) as f64 } else { 0.0 };
+            let _ = app.emit("download-progress", serde_json::json!({
+                "filename": filename,
+                "pct": pct,
+                "downloaded_mb": downloaded as f64 / 1_048_576.0,
+                "total_mb": total as f64 / 1_048_576.0,
+            }));
+        }
+
+        drop(file);
+
+        if interrupted {
+            if attempt < MAX_ATTEMPTS
+                && !*dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false)
+            {
+                tokio::time::sleep(std::time::Duration::from_secs(3 * attempt as u64)).await;
+                continue; // resume from the bytes just written
+            }
+            return Err("download interrupted (network error after multiple retries)".to_string());
+        }
+
+        std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
+        return final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string());
+    }
 }
 
 #[tauri::command]
