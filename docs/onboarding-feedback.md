@@ -31,13 +31,21 @@ to turn into issues/tasks later.
      (e.g. a small popup or an indicator in the top bar) so setup can continue in
      parallel.
 
-6. **BUG — model download failed: `error decoding response body`.** After a long
-   wait, downloading **Llama 3.3 70B** (General, 41.5 GB) failed with
-   `error decoding response body`.
-   - Needs investigation — likely an HTTP/streaming or response-parsing issue in
-     the model-download path (timeout, chunked/partial body, or a non-JSON error
-     response being parsed as JSON). The size + long wait suggests a timeout or
-     dropped connection mid-stream.
+6. **BUG — model download failed: `error decoding response body`.** ✅ **FIXED
+   (v2.0.3).** A dropped connection mid-stream failed the whole transfer, and a
+   retry truncated the `.part` and restarted from zero. `download_model` now
+   resumes via a `Range` header and retries transient drops with backoff.
+
+7. **BUG — app re-downloads a model that's already present.** ✅ **FIXED (v2.0.3).**
+   A second download started even though the full `.gguf` already existed.
+   `download_model` now short-circuits when the file exists and rejects a second
+   concurrent fetch of the same file; the UI also guards re-entry.
+
+## Future (nice-to-have, not now)
+
+- **Import an existing model from another folder.** Let the user point at a `.gguf`
+  they already have elsewhere instead of only downloading into `~/AgentForge/models`.
+  Skipped for now unless it turns out trivial.
 
 ## Desired direction (summary)
 
