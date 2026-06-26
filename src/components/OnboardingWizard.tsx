@@ -561,6 +561,8 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const [connectingProvider, setConnectingProvider] = useState<typeof PROVIDERS[0] | null>(null);
   const [connectingModelId, setConnectingModelId] = useState<string | undefined>(undefined);
   const [showLocalSetup, setShowLocalSetup] = useState(false);
+  const [showCloud, setShowCloud] = useState(false);
+  const [showAllLocal, setShowAllLocal] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [detected, setDetected] = useState(0);
@@ -622,7 +624,6 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   // the user walk into the guided local screen on an unsupported Mac — its "runs privately on your
   // Mac" copy would contradict the panel's refusal. Gate the card and nudge Gemini instead.
   const localCapable = !!hw && hw.isAppleSilicon && hw.totalMb >= 8192;
-  const gemini = PROVIDERS.find(p => p.id === 'gemini')!;
 
   function startConnect(provider: typeof PROVIDERS[0], modelId?: string) {
     setConnectingProvider(provider);
@@ -686,13 +687,16 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           ))}
         </div>
 
-        <ModelStorePanel ramMb={hw?.totalMb ?? 0} isAppleSilicon={hw?.isAppleSilicon} mode="recommended" onModelReady={handleLocalReady} />
+        <ModelStorePanel ramMb={hw?.totalMb ?? 0} isAppleSilicon={hw?.isAppleSilicon} mode={showAllLocal ? 'full' : 'recommended'} onModelReady={handleLocalReady} />
+        <button onClick={() => setShowAllLocal(v => !v)} className="text-mini font-black text-primary hover:underline text-center w-full">
+          {showAllLocal ? 'Show just the recommended model' : 'See all models'}
+        </button>
 
         <div className="flex flex-col gap-2">
           {currentModels.length > 0 && (
             <Btn onClick={onNext} className="w-full">Continue <ArrowRight className="w-4 h-4" /></Btn>
           )}
-          <Btn variant="ghost" onClick={() => setShowLocalSetup(false)} className="w-full">
+          <Btn variant="ghost" onClick={() => { setShowAllLocal(false); setShowLocalSetup(false); }} className="w-full">
             <ChevronLeft className="w-3.5 h-3.5" /> Back to choices
           </Btn>
         </div>
@@ -725,6 +729,52 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
     );
   }
 
+  // Cloud branch — pick a provider and connect (or detect a local server).
+  if (showCloud) {
+    return (
+      <div className="flex flex-col gap-5">
+        <div className="flex items-center gap-3">
+          <StepIcon color="bg-accent/10 dark:bg-accent/20">
+            <Zap className="w-6 h-6 text-accent" />
+          </StepIcon>
+          <div>
+            <h2 className="text-xl font-black tracking-tight text-ink">Connect a cloud model</h2>
+            <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">Pick a provider and paste an API key — you can change it anytime in Settings.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-inset border border-edge">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-ink">Already running LM Studio or Ollama?</p>
+            <p className="text-tiny text-ink-3">Detect a model already loaded on this Mac.</p>
+          </div>
+          <button onClick={detectLocalModels} disabled={detecting} className="text-tiny font-bold text-primary hover:underline disabled:opacity-40 shrink-0">
+            {detecting ? 'Detecting…' : detected > 0 ? `${detected} found` : 'Detect'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {PROVIDERS.map(p => (
+            <button key={p.id} onClick={() => startConnect(p)} className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition-all duration-150 hover:opacity-90 ${p.color}`}>
+              <span className="text-xl">{p.emoji}</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="text-sm font-black text-ink leading-none">{p.name}</p>
+                  {p.free && <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-success-soft text-success">free</span>}
+                </div>
+                <p className="text-tiny text-ink-2 mt-0.5 leading-tight">{p.sub}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <Btn variant="ghost" onClick={() => setShowCloud(false)} className="w-full">
+          <ChevronLeft className="w-3.5 h-3.5" /> Back to choices
+        </Btn>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
@@ -732,8 +782,8 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           <Zap className="w-6 h-6 text-accent" />
         </StepIcon>
         <div>
-          <h2 className="text-xl font-black tracking-tight text-ink">AI model</h2>
-          <p className="text-xs text-ink-2 mt-0.5">The brain powering your agents.</p>
+          <h2 className="text-xl font-black tracking-tight text-ink">Set up Alexis, your assistant</h2>
+          <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">Your default assistant — here to help you get whatever you need done.</p>
         </div>
       </div>
 
@@ -760,8 +810,8 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         </div>
       )}
 
-      {/* THE recommendation — two clear choices, the privacy ↔ smarts trade-off made explicit.
-          We highlight the one that fits this Mac, but always show both. */}
+      {/* First decision: how should Alexis be powered? Just the local-vs-cloud choice —
+          the specific model is picked on the next screen, so this stays clean. */}
       {rec && (
         <div className="space-y-3">
           {hw?.chip && (
@@ -772,63 +822,36 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
               </span>
             </div>
           )}
-          <p className="text-sm text-ink leading-relaxed">
-            Two good ways to start — it's a trade-off between <strong>privacy</strong> and <strong>smarts</strong>:
-          </p>
-          {rec.kind === 'cloud' && rec.reason && (
-            <p className="text-xs text-ink-3 leading-relaxed -mt-1">{rec.reason}</p>
-          )}
+          <p className="text-sm text-ink leading-relaxed">First — how would you like Alexis powered?</p>
 
-          {(() => {
-            const localPick = rec.kind === 'local';
-            const Local = (
-              <div key="local" className={`rounded-2xl border-2 p-4 space-y-2 ${localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-lg">🖥️</span>
-                  <p className="text-sm font-black text-ink">Run on your Mac</p>
-                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-secondary/15 text-secondary shrink-0">Private</span>
-                  {localPick && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Best for your Mac</span>}
-                </div>
-                <p className="text-xs text-ink-2 leading-relaxed">
-                  Stays on your device, works offline, free — nothing leaves your computer. As smart as your {hw?.chip || 'Mac'} can run.
-                </p>
-                <p className="text-[10px] font-bold text-ink-3">📄 ~32K-token context (the on-device engine's limit)</p>
-                {localCapable ? (
-                  <Btn onClick={() => setShowLocalSetup(true)} className="w-full">
-                    Run on your Mac <ArrowRight className="w-4 h-4" />
-                  </Btn>
-                ) : (
-                  <p className="text-[11px] text-ink-3 leading-relaxed rounded-xl bg-inset border border-edge px-3 py-2">Needs an Apple Silicon Mac with 8GB+ of memory — Gemini's free tier is the better fit here.</p>
-                )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
+            {/* Local */}
+            <div className={`rounded-2xl border-2 p-4 space-y-2 flex flex-col ${localCapable && rec.kind === 'local' ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-lg">🖥️</span>
+                <p className="text-sm font-black text-ink">On your Mac</p>
+                <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-secondary/15 text-secondary shrink-0">Private</span>
+                {localCapable && rec.kind === 'local' && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>}
               </div>
-            );
-            const Cloud = (
-              <div key="cloud" className={`rounded-2xl border-2 p-4 space-y-2 ${!localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-lg">✨</span>
-                  <p className="text-sm font-black text-ink">Gemini 2.5 Flash</p>
-                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-inset text-ink-3 shrink-0">Cloud</span>
-                  <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-success-soft text-success shrink-0">Free tier</span>
-                  {!localPick && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Best for your Mac</span>}
-                </div>
-                <p className="text-xs text-ink-2 leading-relaxed">
-                  Smarter than local on most Macs, instant, no download. The trade-off: your messages go to Google.
-                </p>
-                <p className="text-[10px] font-bold text-ink-3">📄 1M-token context — whole codebases & long PDFs</p>
-                <button
-                  onClick={() => openUrl(GOOGLE_PRICING_URL)}
-                  className="inline-flex items-center gap-1 text-tiny font-bold text-primary hover:underline"
-                >
-                  See what's free <ExternalLink className="w-2.5 h-2.5" />
-                </button>
-                <Btn onClick={() => startConnect(gemini)} className="w-full">
-                  Use Gemini <ArrowRight className="w-4 h-4" />
-                </Btn>
+              <p className="text-xs text-ink-2 leading-relaxed flex-1">Private and free, works offline — nothing leaves your Mac. The best models need a powerful Mac.</p>
+              {localCapable ? (
+                <Btn onClick={() => setShowLocalSetup(true)} className="w-full">Choose <ArrowRight className="w-4 h-4" /></Btn>
+              ) : (
+                <p className="text-[11px] text-ink-3 leading-relaxed rounded-xl bg-inset border border-edge px-3 py-2">Needs an Apple Silicon Mac with 8GB+ of memory — the cloud is the better fit here.</p>
+              )}
+            </div>
+            {/* Cloud */}
+            <div className={`rounded-2xl border-2 p-4 space-y-2 flex flex-col ${!localCapable || rec.kind === 'cloud' ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-lg">✨</span>
+                <p className="text-sm font-black text-ink">In the cloud</p>
+                <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-inset text-ink-3 shrink-0">Cloud</span>
+                {(!localCapable || rec.kind === 'cloud') && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>}
               </div>
-            );
-            // Lead with whichever fits this Mac.
-            return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">{localPick ? [Local, Cloud] : [Cloud, Local]}</div>;
-          })()}
+              <p className="text-xs text-ink-2 leading-relaxed flex-1">The smartest models, instant, no download. The trade-off: messages go to the provider, and it costs per use (some have free tiers).</p>
+              <Btn onClick={() => setShowCloud(true)} className="w-full">Choose <ArrowRight className="w-4 h-4" /></Btn>
+            </div>
+          </div>
         </div>
       )}
 
