@@ -78,6 +78,10 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
   }, []);
 
   async function handleDownload(model: CatalogModel) {
+    // Don't start a second download for a model that's already downloading/installing
+    // (double-click, or a model already in flight). The backend also guards this.
+    const st = states[model.id]?.status;
+    if (st === 'downloading' || st === 'installing') return;
     setModelState(model.id, { status: 'downloading', pct: 0, downloadedMb: 0, totalMb: model.sizeMb / 1024 });
     try {
       const filePath = await invoke<string>('download_model', {

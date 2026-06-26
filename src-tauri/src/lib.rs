@@ -20,10 +20,26 @@ struct LlamaState {
 
 struct DownloadState {
     cancels: Mutex<std::collections::HashMap<String, bool>>,
+    active: Mutex<std::collections::HashSet<String>>,
 }
 impl Default for DownloadState {
     fn default() -> Self {
-        Self { cancels: Mutex::new(std::collections::HashMap::new()) }
+        Self {
+            cancels: Mutex::new(std::collections::HashMap::new()),
+            active: Mutex::new(std::collections::HashSet::new()),
+        }
+    }
+}
+
+// Removes a filename from DownloadState.active when a download_model call returns,
+// by any path (success, error, or cancel), so a slot can never get stuck "active".
+struct ActiveGuard<'a> {
+    set: &'a Mutex<std::collections::HashSet<String>>,
+    name: String,
+}
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.set.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.name);
     }
 }
 
@@ -2826,12 +2842,27 @@ async fn download_model(
         return Err("Invalid filename".to_string());
     }
 
-    // Clear any stale cancel flag
-    { dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename.clone(), false); }
-
     let dir = models_dir();
     let part_path = dir.join(format!("{}.part", filename));
     let final_path = dir.join(&filename);
+
+    // Already downloaded — hand back the existing file instead of fetching it again.
+    if final_path.exists() {
+        return final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string());
+    }
+
+    // Refuse to start a second concurrent download of the same file.
+    {
+        let mut active = dl_state.active.lock().unwrap_or_else(|e| e.into_inner());
+        if !active.insert(filename.clone()) {
+            return Err("A download for this model is already in progress".to_string());
+        }
+    }
+    // Frees the active slot on every return path below.
+    let _active_guard = ActiveGuard { set: &dl_state.active, name: filename.clone() };
+
+    // Clear any stale cancel flag
+    { dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename.clone(), false); }
 
     let client = reqwest::Client::builder()
         .user_agent("AgentForge")
