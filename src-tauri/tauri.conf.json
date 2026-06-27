@@ -40,10 +40,12 @@
       "bin/llama-server"
     ],
     "resources": [
-      "../scripts/forge-relay.mjs"
+      "../scripts/forge-relay.mjs",
+      "bin/llama-libs/*"
     ],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "entitlements.plist"
     }
   },
   "plugins": {

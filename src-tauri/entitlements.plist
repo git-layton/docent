@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- llama-server loads bundled third-party dylibs (libllama/libggml/libmtmd) whose
+       code signature differs from the app's. Hardened-runtime library validation would
+       reject them ("different Team IDs"); this entitlement permits loading them. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

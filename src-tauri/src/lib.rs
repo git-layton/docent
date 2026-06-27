@@ -2978,6 +2978,12 @@ async fn start_local_model(
     mmproj_path: Option<String>,
     llama_state: tauri::State<'_, LlamaState>,
 ) -> Result<String, String> {
+    // llama-server is a thin launcher that dlopens libllama / libggml / libmtmd. Those
+    // dylibs ship in the app Resources (bundle.resources → bin/llama-libs); the binary
+    // finds them via an added @loader_path/../Resources/bin/llama-libs rpath, and the
+    // app is signed with `disable-library-validation` so hardened runtime allows them.
+    // Without all three, llama-server dyld-crashes on EVERY model (which used to look
+    // like the misleading "model too large").
     // Kill any running server first (drop lock before await)
     let existing_pid = { *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) };
     if let Some(pid) = existing_pid {
