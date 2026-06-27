@@ -251,6 +251,66 @@ export type SetupRecommendation =
   | { kind: 'cloud'; reason: string }
   | { kind: 'local'; recommended: CatalogModel; tierLabel: string };
 
+// ─── Memory model ───────────────────────────────────────────────────────────────
+// Whether a quantized model actually RUNS on a Mac is a memory question, not a
+// file-size one. On Apple Silicon the GPU can only wire ~75% of unified RAM for
+// itself (the rest is the OS's), and weights + KV cache must fit inside that. The
+// KV cache grows with context length, so we also pick the largest context that
+// fits — and can halve it with 8-bit KV quantization. Conservative by design: it
+// leaves headroom so a recommended model never aborts mid-load.
+// Grounded in current llama.cpp / Apple-Silicon guidance (docs/onboarding-feedback.md).
+
+const WIRED_FRACTION = 0.75;   // share of unified RAM Metal can wire for the GPU
+const SAFETY = 0.9;            // leave ~10% of that budget free for OS/app spikes
+const COMPUTE_BUFFER_GB = 1.0; // llama.cpp compute/graph buffers
+const CONTEXT_LADDER = [32, 16, 8, 4]; // K tokens — try the largest first
+const MIN_RECOMMEND_CONTEXT_K = 16;    // a recommended model must run at ≥16K
+
+// KV cache is driven by layer count (the real factor). We estimate layers from
+// model size and assume a 1024-wide KV dim — conservative for the small models
+// that actually use fewer KV heads.
+function estLayers(sizeMb: number): number {
+  const gb = sizeMb / 1024;
+  if (gb < 6) return 32;   // ~7-8B
+  if (gb < 12) return 48;  // ~14B
+  if (gb < 28) return 64;  // ~32B
+  return 80;               // ~70B+
+}
+const KV_BYTES_PER_TOKEN_PER_LAYER = 1024 /*kv dim*/ * 2 /*K+V*/ * 2 /*f16 bytes*/;
+function kvCacheGb(sizeMb: number, contextK: number, kv8bit: boolean): number {
+  const tokens = contextK * 1024;
+  const f16 = estLayers(sizeMb) * KV_BYTES_PER_TOKEN_PER_LAYER * tokens;
+  return (kv8bit ? f16 / 2 : f16) / 1e9;
+}
+export function usableVramGb(ramGb: number): number {
+  return ramGb * WIRED_FRACTION * SAFETY;
+}
+
+export interface MacFit {
+  fits: boolean;
+  contextK: number; // largest context that fits (0 = doesn't fit at all)
+  kv8bit: boolean;  // whether 8-bit KV quantization is needed to fit
+  label: string;    // short human description for THIS Mac
+}
+
+// The largest context (and whether 8-bit KV is needed) at which `model` fits on a
+// Mac with `ramGb` of unified memory. Prefers full-precision KV at the longest
+// context, and only drops to 8-bit / shorter context to make a model fit at all.
+export function fitOnMac(model: { sizeMb: number }, ramGb: number): MacFit {
+  const budget = usableVramGb(ramGb);
+  const base = model.sizeMb / 1024 + COMPUTE_BUFFER_GB;
+  for (const contextK of CONTEXT_LADDER) {
+    for (const kv8bit of [false, true]) {
+      if (base + kvCacheGb(model.sizeMb, contextK, kv8bit) <= budget) {
+        const reduced = contextK < 32 ? ` (reduced)` : ``;
+        const cache = kv8bit ? `, 8-bit cache` : ``;
+        return { fits: true, contextK, kv8bit, label: `Runs at ${contextK}K context${reduced}${cache}` };
+      }
+    }
+  }
+  return { fits: false, contextK: 0, kv8bit: false, label: 'Too large for this Mac' };
+}
+
 export function recommendSetup(
   { totalMb, isAppleSilicon }: { totalMb: number; isAppleSilicon: boolean },
 ): SetupRecommendation {
@@ -269,20 +329,36 @@ export function recommendSetup(
     };
   }
 
-  // Highest compatible tier wins; each tier names exactly one `primary` get-started pick.
   const ramGb = Math.floor(gb);
-  const compatible = MODEL_CATALOG.filter(m => m.ramGb <= ramGb);
-  const maxTier = compatible.reduce((mx, m) => Math.max(mx, m.ramGb), 0);
-  const topTier = compatible.filter(m => m.ramGb === maxTier);
-  const recommended =
-    topTier.find(m => m.primary) ??
-    topTier.find(m => m.tag && m.role === 'General') ??
-    topTier.find(m => m.role === 'General') ??
-    topTier[0];
+  // Largest model that runs at the engine's full 32K context with full-precision KV
+  // (what the runtime does today) inside a conservative budget. Models that would
+  // need reduced context or 8-bit KV to fit are NOT auto-recommended — they show up
+  // in "see all" with an honest per-Mac label instead. (MIN_RECOMMEND_CONTEXT_K and
+  // the 8-bit path stay wired into fitOnMac for that labelling + a future opt-in.)
+  void MIN_RECOMMEND_CONTEXT_K;
+  const runnable = MODEL_CATALOG
+    .filter(m => !m.gated)
+    .map(m => ({ m, fit: fitOnMac(m, ramGb) }))
+    .filter(({ fit }) => fit.fits && fit.contextK >= 32 && !fit.kv8bit)
+    .sort((a, b) => b.m.sizeMb - a.m.sizeMb);
+
+  if (runnable.length === 0) {
+    return {
+      kind: 'cloud',
+      reason: `Your ${ramGb}GB Mac can't comfortably run a local model at a useful context — a cloud model is the better fit.`,
+    };
+  }
+
+  // Among the largest size class, prefer a General-purpose model deterministically.
+  const top = runnable[0];
+  const sameClass = runnable.filter(({ m }) => Math.abs(m.sizeMb - top.m.sizeMb) < 2000);
+  const chosen =
+    sameClass.find(({ m }) => m.role === 'General') ??
+    sameClass.sort((a, b) => a.m.id.localeCompare(b.m.id))[0];
 
   return {
     kind: 'local',
-    recommended,
-    tierLabel: `${maxTier}GB tier`,
+    recommended: chosen.m,
+    tierLabel: chosen.fit.label,
   };
 }

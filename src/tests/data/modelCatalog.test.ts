@@ -1,56 +1,84 @@
 import { describe, it, expect } from 'vitest'
-import { MODEL_CATALOG, recommendSetup, MIN_LOCAL_GB } from '../../data/modelCatalog'
+import { MODEL_CATALOG, recommendSetup, fitOnMac, MIN_LOCAL_GB } from '../../data/modelCatalog'
 
 // recommendSetup takes RAM in MB; tests express sizes in GB for readability.
 const mb = (gb: number) => gb * 1024
 const recLocal = (gb: number) => recommendSetup({ totalMb: mb(gb), isAppleSilicon: true })
 
 // ---------------------------------------------------------------------------
-// Per-tier `primary` picks — the single get-started recommendation per Mac.
+// Memory-computed picks. The engine recommends the largest model that runs at
+// a useful context (>=16K) inside a conservative GPU-memory budget — NOT the
+// biggest model whose file fits in RAM (which is what made a 64GB Mac pick a
+// 70B it couldn't load).
 // ---------------------------------------------------------------------------
 
-describe('recommendSetup — local picks by RAM tier (Apple Silicon)', () => {
-  it('8GB → Qwen 2.5 7B', () => {
+describe('recommendSetup — memory-computed local picks (Apple Silicon)', () => {
+  it('8GB → cloud (no model runs at full context in a conservative budget)', () => {
     const rec = recLocal(8)
-    expect(rec.kind).toBe('local')
-    if (rec.kind !== 'local') return
+    expect(rec.kind).toBe('cloud')
+  })
+
+  it('16GB → Qwen 2.5 7B', () => {
+    const rec = recLocal(16)
+    if (rec.kind !== 'local') throw new Error('expected local')
     expect(rec.recommended.id).toBe('qwen25-7b')
   })
 
-  it('16GB → Gemma 3 12B', () => {
-    const rec = recLocal(16)
-    if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('gemma3-12b')
-  })
-
-  it('32GB → Gemma 3 27B', () => {
+  it('32GB → a 14B-class model (Phi 4), not a 27B+ it cannot fit at 32K', () => {
     const rec = recLocal(32)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('gemma3-27b')
+    expect(rec.recommended.id).toBe('phi4')
   })
 
-  it('48GB → Llama 3.3 70B', () => {
+  it('48GB → Qwen 2.5 32B (NOT the 70B)', () => {
     const rec = recLocal(48)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('llama33-70b')
+    expect(rec.recommended.id).toBe('qwen25-32b')
   })
 
-  it('64GB stays on the 48GB tier → Llama 3.3 70B', () => {
+  it('64GB → Qwen 2.5 32B (the 70B does not fit at a usable context)', () => {
     const rec = recLocal(64)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('llama33-70b')
+    expect(rec.recommended.id).toBe('qwen25-32b')
   })
 
-  it('24GB rounds down to the 16GB tier → Gemma 3 12B', () => {
-    const rec = recLocal(24)
+  it('96GB → the 70B-class becomes recommendable', () => {
+    const rec = recLocal(96)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('gemma3-12b')
+    expect(rec.recommended.sizeMb).toBeGreaterThan(40000)
   })
 
-  it('every local pick carries a tierLabel', () => {
-    const rec = recLocal(32)
-    if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.tierLabel).toMatch(/GB tier/)
+  it('every local pick runs at full 32K and actually fits', () => {
+    for (const gb of [16, 24, 32, 48, 64]) {
+      const rec = recLocal(gb)
+      if (rec.kind !== 'local') throw new Error(`expected local at ${gb}GB`)
+      expect(rec.tierLabel).toMatch(/context/i)
+      const fit = fitOnMac(rec.recommended, gb)
+      expect(fit.fits).toBe(true)
+      expect(fit.contextK).toBe(32)
+      expect(fit.kv8bit).toBe(false)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The core regression: a too-large model must never be recommended for a Mac
+// that can't load it at a useful context.
+// ---------------------------------------------------------------------------
+
+describe('memory model — never recommends an unrunnable model', () => {
+  it('the 70B is not recommended below ~96GB', () => {
+    for (const gb of [8, 16, 32, 48, 64]) {
+      const rec = recLocal(gb)
+      if (rec.kind === 'local') expect(rec.recommended.id).not.toBe('llama33-70b')
+    }
+  })
+
+  it('fitOnMac flags the 70B as not comfortable on 64GB', () => {
+    const m70 = MODEL_CATALOG.find(m => m.id === 'llama33-70b')!
+    const fit = fitOnMac(m70, 64)
+    // It only squeezes in at a tiny context — not a usable recommendation.
+    expect(fit.contextK).toBeLessThan(16)
   })
 })
 
@@ -71,22 +99,5 @@ describe('recommendSetup — cloud fallbacks', () => {
     expect(rec.kind).toBe('cloud')
     if (rec.kind !== 'cloud') return
     expect(rec.reason).toMatch(/RAM/i)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Catalog invariant — exactly one `primary` pick per RAM tier.
-// Guards against a second tier-default sneaking in (which would make the
-// recommendation non-deterministic depending on catalog order).
-// ---------------------------------------------------------------------------
-
-describe('MODEL_CATALOG primary invariant', () => {
-  it('has exactly one primary model per RAM tier', () => {
-    const primaries = MODEL_CATALOG.filter(m => m.primary)
-    const tiers = primaries.map(m => m.ramGb)
-    // one per distinct tier → no duplicates
-    expect(new Set(tiers).size).toBe(primaries.length)
-    // the four tiers we ship
-    expect([...tiers].sort((a, b) => a - b)).toEqual([8, 16, 32, 48])
   })
 })

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search, FolderOpen } from 'lucide-react';
-import { MODEL_CATALOG, type CatalogModel } from '../data/modelCatalog';
+import { MODEL_CATALOG, recommendSetup, fitOnMac, type CatalogModel } from '../data/modelCatalog';
 import { supportsVision } from '../services/llm';
 
 type ModelStatus = 'idle' | 'downloaded' | 'downloading' | 'installing' | 'ready' | 'error';
@@ -232,18 +232,22 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     m.role.toLowerCase().includes(searchLower) ||
     m.bestFor.toLowerCase().includes(searchLower);
 
-  const compatible = MODEL_CATALOG.filter(m => m.ramGb <= ramGb);
-  const maxTier = compatible.reduce((mx, m) => Math.max(mx, m.ramGb), 0);
-
   // ── Recommended-only: the single best pick for this Mac, no list, no search ──
   if (mode === 'recommended') {
-    const topTier = compatible.filter(m => m.ramGb === maxTier);
-    const pick =
-      topTier.find(m => m.primary) ??
-      topTier.find(m => m.tag && m.role === 'General') ??
-      topTier.find(m => m.role === 'General') ??
-      topTier[0];
-    if (!pick) return null;
+    // Use the memory-computed recommendation (largest model that runs at full 32K
+    // within a conservative budget) — never a model this Mac can't actually load.
+    const rec = recommendSetup({ totalMb: ramMb, isAppleSilicon: isAppleSilicon ?? true });
+    const pick = rec.kind === 'local' ? rec.recommended : null;
+    if (!pick) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-ink-2 leading-relaxed rounded-xl bg-inset border border-edge px-3 py-2.5">
+            Your {ramGb}GB Mac is below what a capable local model comfortably needs — a cloud model is the better fit. You can still import one below.
+          </p>
+          {importRow}
+        </div>
+      );
+    }
     return (
       <>
         <ModelCard model={pick} state={states[pick.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />
@@ -252,18 +256,21 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     );
   }
 
-  const recommended = compatible
-    .filter(m => m.ramGb === maxTier && m.tag)
-    .filter(matchesSearch);
-
-  const others = compatible
-    .filter(m => m.ramGb < maxTier || (m.ramGb === maxTier && !m.tag))
-    .sort((a, b) => b.ramGb - a.ramGb)   // biggest/best first
-    .filter(matchesSearch);
-
-  const tooLarge = MODEL_CATALOG
-    .filter(m => m.ramGb > ramGb)
-    .filter(matchesSearch);
+  // Group by what each model actually does on THIS Mac (memory-computed), not by a
+  // hand-set RAM tier: comfortable (full 32K), runs-but-reduced, or too large.
+  const withFit = MODEL_CATALOG.map(m => ({ m, fit: fitOnMac(m, ramGb) })).filter(({ m }) => matchesSearch(m));
+  const recommended = withFit
+    .filter(({ fit }) => fit.fits && fit.contextK >= 32 && !fit.kv8bit)
+    .sort((a, b) => b.m.sizeMb - a.m.sizeMb)
+    .map(({ m }) => m);
+  const others = withFit
+    .filter(({ fit }) => fit.fits && !(fit.contextK >= 32 && !fit.kv8bit))
+    .sort((a, b) => b.m.sizeMb - a.m.sizeMb)
+    .map(({ m }) => m);
+  const tooLarge = withFit
+    .filter(({ fit }) => !fit.fits)
+    .sort((a, b) => b.m.sizeMb - a.m.sizeMb)
+    .map(({ m }) => m);
 
   const hasResults = recommended.length + others.length + tooLarge.length > 0;
 
@@ -296,7 +303,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       {others.length > 0 && (
         <div className="space-y-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-3">
-            Also available
+            Also runs — reduced context on your Mac
           </p>
           {others.map(m => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
         </div>
@@ -304,13 +311,13 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       {tooLarge.length > 0 && (
         <div className="space-y-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-3">
-            Needs more RAM
+            Too large for this Mac
           </p>
           {tooLarge.map(m => (
             <div key={m.id} className="border border-edge rounded-2xl p-4 opacity-50">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-bold text-ink-2">{m.name}</span>
-                <span className="text-[10px] text-ink-3">Needs {m.ramGb}GB</span>
+                <span className="text-[10px] text-ink-3">{Math.round(m.sizeMb / 1024)}GB · won't fit</span>
               </div>
             </div>
           ))}
