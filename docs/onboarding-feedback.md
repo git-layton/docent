@@ -47,6 +47,17 @@ to turn into issues/tasks later.
 8. **Wizard should use the Agent Forge icon.** The setup step leads with a generic
    icon; it should wear the Agent Forge mark/logo so first-run feels on-brand.
 
+## Model management (raised 2026-06-27)
+
+9. **Downloaded models must be deletable.** ✅ **DONE (v2.0.9).** `delete_model`
+   Rust command (removes the `.gguf` + any `.part` + the mmproj) + a trash
+   control with confirm in Settings → AI Models.
+
+10. **Model settings should manage *installed* models.** ✅ **DONE (v2.0.9).**
+    Settings → AI Models now has a "Downloaded models" section that lists local
+    models on disk with size, an active marker, a "Use" to switch the active
+    model, and delete.
+
 ## Future (nice-to-have, not now)
 
 - **Import an existing model from another folder.** Let the user point at a `.gguf`

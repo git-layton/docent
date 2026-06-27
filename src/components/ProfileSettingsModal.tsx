@@ -16,6 +16,7 @@ import { useMemoryStore } from '../store/useMemoryStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { listPlaybooks, reinforcePlaybook, type Playbook } from '../services/appliedMemory';
 import { invoke } from '@tauri-apps/api/core';
+import { MODEL_CATALOG } from '../data/modelCatalog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
 import { migrateLocalCalendarToEventkit, localCalendarMigrationCount, migrateLocalTasksToEventkit, localTasksMigrationCount } from '../services/connectors/migrate';
@@ -827,6 +828,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
               </div>
 
+              {/* Installed local models — see, switch, delete */}
+              <InstalledModels />
+
               {/* Image Generation Tooling - Engineered UX */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
                  <div>
@@ -1620,6 +1624,110 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
         <button onClick={onClose} className="w-full py-5 bg-accent text-on-accent font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl mt-6 shrink-0 active:scale-[0.98] transition-all">Done</button>
       </div>
       {showVoiceSetup && <VoiceSetupModal onClose={() => setShowVoiceSetup(false)} />}
+    </div>
+  );
+}
+
+// Manage the local model files on disk: see what's downloaded, switch which one
+// Alexis uses, and delete ones you don't need (to free the often many-GB files).
+function InstalledModels() {
+  const [installed, setInstalled] = useState<{ filename: string; size_mb: number }[]>([]);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const models = useSettingsStore(s => s.models);
+  const selectedModelId = useSettingsStore(s => s.selectedModelId);
+
+  const refresh = () => invoke<{ filename: string; size_mb: number }[]>('list_gguf_models').then(setInstalled).catch(() => {});
+  useEffect(() => { refresh(); }, []);
+
+  const catFor = (fn: string) => MODEL_CATALOG.find(m => m.ggufFilename === fn);
+  const idFor = (fn: string) => fn.replace(/\.gguf$/, '');
+  const connectedFor = (fn: string) => models.find((m: any) => m.isLocal && m.modelId === idFor(fn));
+
+  async function use(fn: string) {
+    setBusy(fn);
+    try {
+      const cat = catFor(fn);
+      const dir = await invoke<string>('get_models_dir');
+      const mmprojPath = cat?.mmprojFilename ? `${dir}/${cat.mmprojFilename}` : null;
+      const endpoint = await invoke<string>('start_local_model', { modelPath: `${dir}/${fn}`, port: 8080, mmprojPath });
+      const ss = useSettingsStore.getState();
+      const existing = connectedFor(fn);
+      if (existing) {
+        ss.setSelectedModelId(existing.id);
+      } else {
+        const id = `native-${Date.now().toString(36)}`;
+        ss.setModels((prev: any[]) => [...prev, {
+          id, name: cat?.name ?? idFor(fn), provider: 'native', modelId: idFor(fn),
+          endpoint, apiKey: '', contextLimit: 32768, canImage: !!cat?.vision, isLocal: true,
+          mmprojPath: mmprojPath ?? undefined,
+        }]);
+        ss.setSelectedModelId(id);
+      }
+      ss.persist();
+      useUIStore.getState().showToast(`Now using ${cat?.name ?? idFor(fn)}`);
+    } catch (e) {
+      useUIStore.getState().showToast(`Couldn't load: ${String(e)}`);
+    } finally { setBusy(null); }
+  }
+
+  async function del(fn: string) {
+    setBusy(fn);
+    try {
+      const cat = catFor(fn);
+      await invoke('delete_model', { filename: fn, mmproj: cat?.mmprojFilename ?? null });
+      const ss = useSettingsStore.getState();
+      ss.setModels((prev: any[]) => prev.filter((m: any) => !(m.isLocal && m.modelId === idFor(fn))));
+      ss.persist();
+      useUIStore.getState().showToast(`Deleted ${cat?.name ?? idFor(fn)}`);
+      setConfirm(null);
+      refresh();
+    } catch (e) {
+      useUIStore.getState().showToast(`Couldn't delete: ${String(e)}`);
+    } finally { setBusy(null); }
+  }
+
+  if (installed.length === 0) return null;
+  return (
+    <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm">
+      <p className="text-sm font-bold text-ink mb-1">Downloaded models</p>
+      <p className="text-xs text-ink-3 mb-4">Local models on this Mac — switch which one Alexis uses, or delete to free space.</p>
+      <div className="space-y-2">
+        {installed.map(f => {
+          const cat = catFor(f.filename);
+          const conn = connectedFor(f.filename);
+          const active = !!conn && conn.id === selectedModelId;
+          const gb = (f.size_mb / 1024).toFixed(1);
+          return (
+            <div key={f.filename} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-inset border border-edge">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-ink truncate">{cat?.name ?? idFor(f.filename)}</p>
+                <p className="text-tiny text-ink-3">{gb} GB{cat ? '' : ' · imported'}{active ? ' · active' : ''}</p>
+              </div>
+              {confirm === f.filename ? (
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-tiny text-ink-2">Delete?</span>
+                  <button onClick={() => del(f.filename)} disabled={busy === f.filename} className="text-tiny font-black text-danger hover:underline disabled:opacity-50">Yes</button>
+                  <button onClick={() => setConfirm(null)} className="text-tiny font-bold text-ink-3 hover:underline">No</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 shrink-0">
+                  {active ? (
+                    <CheckCircle2 className="w-4 h-4 text-success" />
+                  ) : (
+                    <button onClick={() => use(f.filename)} disabled={busy === f.filename} className="text-tiny font-black uppercase tracking-widest text-primary hover:underline disabled:opacity-50 px-2">
+                      {busy === f.filename ? '…' : 'Use'}
+                    </button>
+                  )}
+                  <button onClick={() => setConfirm(f.filename)} className="p-2 text-ink-3 hover:text-danger transition-colors" title="Delete">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

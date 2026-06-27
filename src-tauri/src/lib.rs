@@ -2827,6 +2827,24 @@ fn list_gguf_models() -> Vec<GgufModel> {
     result
 }
 
+/// Delete a downloaded model from disk: the .gguf, any leftover .part, and an
+/// optional vision projector (mmproj). Frees the (often many-GB) file.
+#[tauri::command]
+fn delete_model(filename: String, mmproj: Option<String>) -> Result<(), String> {
+    if !is_safe_gguf_name(&filename) {
+        return Err("Invalid filename".to_string());
+    }
+    let dir = models_dir();
+    std::fs::remove_file(dir.join(&filename)).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(dir.join(format!("{}.part", filename)));
+    if let Some(mm) = mmproj {
+        if is_safe_gguf_name(&mm) {
+            let _ = std::fs::remove_file(dir.join(&mm));
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn download_model(
     url: String,
@@ -3940,6 +3958,7 @@ pub fn run() {
             get_network_peers,
             get_models_dir,
             list_gguf_models,
+            delete_model,
             download_model,
             cancel_download,
             start_local_model,
