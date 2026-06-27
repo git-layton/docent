@@ -17,6 +17,7 @@ import { useAgentStore } from '../store/useAgentStore';
 import { listPlaybooks, reinforcePlaybook, type Playbook } from '../services/appliedMemory';
 import { invoke } from '@tauri-apps/api/core';
 import { MODEL_CATALOG } from '../data/modelCatalog';
+import { ModelStorePanel } from './ModelStorePanel';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
 import { migrateLocalCalendarToEventkit, localCalendarMigrationCount, migrateLocalTasksToEventkit, localTasksMigrationCount } from '../services/connectors/migrate';
@@ -830,6 +831,9 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 
               {/* Installed local models — see, switch, delete */}
               <InstalledModels />
+
+              {/* Full local model store — browse everything that runs on this Mac + recommendation */}
+              <LocalModelStore />
 
               {/* Image Generation Tooling - Engineered UX */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
@@ -1728,6 +1732,34 @@ function InstalledModels() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// The full local model store, inline in Settings: the recommended pick for this
+// Mac, every other model labelled by what it can do here, plus download + import.
+function LocalModelStore() {
+  const [hw, setHw] = useState<{ totalMb: number; isAppleSilicon: boolean } | null>(null);
+  useEffect(() => {
+    invoke<{ total_mb: number; is_apple_silicon: boolean }>('get_hardware_summary')
+      .then(r => setHw({ totalMb: r.total_mb, isAppleSilicon: r.is_apple_silicon }))
+      .catch(() => setHw({ totalMb: 0, isAppleSilicon: false }));
+  }, []);
+
+  const onReady = (m: any) => {
+    const ss = useSettingsStore.getState();
+    ss.setModels((prev: any[]) => (prev.some((x: any) => x.id === m.id) ? prev : [...prev, m]));
+    ss.setSelectedModelId(m.id);
+    ss.persist();
+    useUIStore.getState().showToast(`Now using ${m.name}`);
+  };
+
+  if (!hw) return null;
+  return (
+    <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm">
+      <p className="text-sm font-bold text-ink mb-1">Local model store</p>
+      <p className="text-xs text-ink-3 mb-4">Every model that runs on your Mac, with a pick recommended for your hardware — download or import right here.</p>
+      <ModelStorePanel ramMb={hw.totalMb} isAppleSilicon={hw.isAppleSilicon} mode="full" onModelReady={onReady} />
     </div>
   );
 }
