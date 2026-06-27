@@ -18,28 +18,28 @@ describe('recommendSetup — memory-computed local picks (Apple Silicon)', () =>
     expect(rec.kind).toBe('cloud')
   })
 
-  it('16GB → Qwen 2.5 7B', () => {
+  it('16GB → Qwen3 8B (current-gen)', () => {
     const rec = recLocal(16)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen25-7b')
+    expect(rec.recommended.id).toBe('qwen3-8b')
   })
 
-  it('32GB → a 14B-class model (Phi 4), not a 27B+ it cannot fit at 32K', () => {
+  it('32GB → Qwen3 14B, not a 27B+ it cannot fit at 32K', () => {
     const rec = recLocal(32)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('phi4')
+    expect(rec.recommended.id).toBe('qwen3-14b')
   })
 
-  it('48GB → Qwen 2.5 32B (NOT the 70B)', () => {
+  it('48GB → Qwen3 30B-A3B (fast MoE, the curated primary over the dense 32B)', () => {
     const rec = recLocal(48)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen25-32b')
+    expect(rec.recommended.id).toBe('qwen3-30b-a3b')
   })
 
-  it('64GB → Qwen 2.5 32B (the 70B does not fit at a usable context)', () => {
+  it('64GB → Qwen3 30B-A3B (current-gen; the 70B does not fit at a usable context)', () => {
     const rec = recLocal(64)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen25-32b')
+    expect(rec.recommended.id).toBe('qwen3-30b-a3b')
   })
 
   it('96GB → the 70B-class becomes recommendable', () => {

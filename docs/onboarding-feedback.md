@@ -44,6 +44,9 @@ to turn into issues/tasks later.
    `download_model` now short-circuits when the file exists and rejects a second
    concurrent fetch of the same file; the UI also guards re-entry.
 
+8. **Wizard should use the Agent Forge icon.** The setup step leads with a generic
+   icon; it should wear the Agent Forge mark/logo so first-run feels on-brand.
+
 ## Future (nice-to-have, not now)
 
 - **Import an existing model from another folder.** Let the user point at a `.gguf`
