@@ -64,7 +64,7 @@ import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { PlannerPanel } from './components/PlannerPanel';
 import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
-import { ActivityPanel } from './components/ActivityMonitor';
+import { ActivityPanel, ActivityMonitorBar } from './components/ActivityMonitor';
 import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
@@ -644,6 +644,8 @@ export default function App() {
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const activeMessages = useMemo(() => activeChatId ? (messages[activeChatId] ?? []) : [], [messages, activeChatId]);
+  // Compact live load + context bar shown at the top of the chat (toggleable).
+  const [activityBarOpen, setActivityBarOpen] = useState(true);
   const activeChat = useMemo(() => {
     if (!activeChatId) return null;
     const c = chats.find(c => c.id === activeChatId);
@@ -2833,12 +2835,32 @@ export default function App() {
     }
     if (!tab || tab.type === 'space-log') {
       return (
-        <ChatPanel
-          mode="inline"
-          spaceLogProps={spaceLogProps}
-          chatInputBarProps={chatInputBarProps}
-          onSendPrompt={handleSendPrompt}
-        />
+        <>
+          {activityBarOpen ? (
+            <ActivityMonitorBar
+              messages={activeMessages}
+              systemPromptLen={systemPromptLen}
+              limit={selectedModel?.contextLimit ?? 32000}
+              onHide={() => setActivityBarOpen(false)}
+            />
+          ) : (
+            <button
+              onClick={() => setActivityBarOpen(true)}
+              className="shrink-0 self-start mx-2 mt-1 px-2 py-1 text-[10px] font-bold text-ink-3 hover:text-ink-2 rounded-lg hover:bg-wash"
+              title="Show the live load + context bar"
+            >
+              Show activity
+            </button>
+          )}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <ChatPanel
+              mode="inline"
+              spaceLogProps={spaceLogProps}
+              chatInputBarProps={chatInputBarProps}
+              onSendPrompt={handleSendPrompt}
+            />
+          </div>
+        </>
       );
     }
     if (tab.type === 'web') {
