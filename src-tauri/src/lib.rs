@@ -301,14 +301,46 @@ fn kill_llama(pid: u32) {
 
 // ─── 1.1 RAM HUD ─────────────────────────────────────────────────────────────
 
+// sysinfo's used_memory() on macOS counts reclaimable cache/inactive memory as
+// "used" (and available_memory() returns 0), so `total - used` reports near-zero
+// free memory and the HUD shows red even on a near-idle Mac. Parse `vm_stat` for
+// the genuinely available pages instead — free + inactive + speculative + purgeable
+// — which matches what Activity Monitor considers available.
+fn real_available_mb(total_mb: u64) -> u64 {
+    let out = match std::process::Command::new("vm_stat").output() {
+        Ok(o) if o.status.success() => o,
+        _ => return total_mb / 2, // unknown → assume half-free rather than fake "maxed"
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut page_size: u64 = 16384;
+    let mut free = 0u64;
+    let mut inactive = 0u64;
+    let mut speculative = 0u64;
+    let mut purgeable = 0u64;
+    let pages = |line: &str| -> u64 {
+        line.rsplit(':').next().unwrap_or("").trim().trim_end_matches('.').replace(',', "").parse().unwrap_or(0)
+    };
+    for line in text.lines() {
+        if let Some(i) = line.find("page size of ") {
+            if let Some(tok) = line[i + 13..].split_whitespace().next() {
+                if let Ok(v) = tok.parse::<u64>() { page_size = v; }
+            }
+        } else if line.starts_with("Pages free:") { free = pages(line); }
+        else if line.starts_with("Pages inactive:") { inactive = pages(line); }
+        else if line.starts_with("Pages speculative:") { speculative = pages(line); }
+        else if line.starts_with("Pages purgeable:") { purgeable = pages(line); }
+    }
+    let avail = (free + inactive + speculative + purgeable).saturating_mul(page_size) / 1024 / 1024;
+    avail.min(total_mb)
+}
+
 #[tauri::command]
 fn get_ram_stats() -> serde_json::Value {
     let mut sys = System::new_all();
     sys.refresh_memory();
     let total_mb = sys.total_memory() / 1024 / 1024;
-    let used_mb = sys.used_memory() / 1024 / 1024;
-    // available_memory() returns 0 on macOS in sysinfo v0.30; derive it instead
-    let available_mb = total_mb.saturating_sub(used_mb);
+    let available_mb = real_available_mb(total_mb);
+    let used_mb = total_mb.saturating_sub(available_mb);
     serde_json::json!({
         "total_mb": total_mb,
         "used_mb": used_mb,
@@ -362,8 +394,8 @@ fn get_system_stats(state: tauri::State<SysState>) -> serde_json::Value {
 
     let cpu_usage = sys.global_cpu_info().cpu_usage();
     let total_mb = sys.total_memory() / 1024 / 1024;
-    let used_mb = sys.used_memory() / 1024 / 1024;
-    let available_mb = total_mb.saturating_sub(used_mb);
+    let available_mb = real_available_mb(total_mb);
+    let used_mb = total_mb.saturating_sub(available_mb);
 
     // Quick internet reachability: TCP connect to Cloudflare DNS with 800ms timeout
     let internet_ok = std::net::TcpStream::connect_timeout(
