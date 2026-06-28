@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Activity, ChevronDown, ChevronUp, Cpu, MemoryStick, Wifi, WifiOff, X, Trash2, Terminal, Gauge } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, Cpu, MemoryStick, Wifi, WifiOff, X, Trash2, Terminal, Gauge, AlertTriangle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useUIStore } from '../store/useUIStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -140,6 +140,14 @@ export function ActivityMonitorBar({
   const ramColor = pctColor(ramPct);
   const contextTitle = `Context: ${contextUsed.toLocaleString()} / ${limit.toLocaleString()} chars`;
 
+  // When load/context runs hot, tell the user what they can actually do about it.
+  const availMb = mergedStats?.available_mb ?? Infinity;
+  const tips: string[] = [];
+  if (availMb < 2048) tips.push('Memory is very low — close other apps (browser tabs, etc.), or switch to a smaller model in Settings → AI Models. A big model like a 70B can outgrow this Mac.');
+  else if (availMb < 4096) tips.push('Memory is getting tight — a smaller or faster model (like the 30B MoE) will run smoother here.');
+  if (contextPct > 90) tips.push('This chat is nearly full — older messages are starting to drop out of memory. Start a new chat to keep everything in context.');
+  else if (contextPct > 78) tips.push('Context is getting long, so replies will slow down. Starting a fresh chat keeps things fast.');
+
   return (
     <div className="shrink-0 border-b border-edge bg-panel-2/95 backdrop-blur-md">
       {/* Main bar */}
@@ -202,6 +210,18 @@ export function ActivityMonitorBar({
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Actionable tips when memory or context runs hot */}
+      {tips.length > 0 && (
+        <div className="px-3 lg:px-4 pb-2 space-y-1">
+          {tips.map((t, i) => (
+            <div key={i} className="flex items-start gap-1.5 text-[10px] leading-relaxed text-ink-2">
+              <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" style={{ color: '#D4AA7D' }} />
+              <span>{t}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Expanded context breakdown panel */}
       {isExpanded && showContext && (
