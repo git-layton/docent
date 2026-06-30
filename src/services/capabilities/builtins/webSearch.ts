@@ -2,6 +2,7 @@
 // former App.tsx tool if-chain (route 'web_search'); behavior-identical.
 import { fetchWithRetry } from '../../llm';
 import { useUIStore } from '../../../store/useUIStore';
+import { extractSearchQuery } from '../../research';
 import { browseCapability } from './browse';
 import type { Capability, CapabilityContext, CapabilityResult } from '../types';
 
@@ -19,7 +20,7 @@ export const webSearchCapability: Capability = {
     const searchProviders: string[] = [];
     let searchResultCount = 0;
     try {
-        const query = ctx.userMsg.content.replace(/search( for)?|who is|what is|find/gi, '').trim() || ctx.userMsg.content;
+        const query = extractSearchQuery(ctx.userMsg.content);
 
         // Tavily Fetch — via Tauri HTTP backend to bypass WebView CORS
         if (_integrations.tavily?.enabled) {

@@ -2424,7 +2424,21 @@ export default function App() {
   // Aborting the controller trips the run's AbortError path, which clears that chat's generating flag.
   const handleStop = (id?: string | null) => {
     const target = id ?? useChatStore.getState().activeChatId;
-    if (target) abortControllersRef.current.get(target)?.abort();
+    if (!target) return;
+    abortControllersRef.current.get(target)?.abort();
+    // Respond instantly instead of waiting for the AbortError to unwind the fetch/await chain (which is
+    // what made Stop feel laggy): drop the generating flag and finalize the in-flight bubble now. The
+    // run's own AbortError path is idempotent, so this just front-runs it.
+    setChatGenerating(target, false);
+    useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
+      const msgs = prev[target] ?? [];
+      let idx = -1;
+      for (let i = msgs.length - 1; i >= 0; i--) { if ((msgs[i] as any).isStreaming) { idx = i; break; } }
+      if (idx === -1) return prev;
+      const updated = [...msgs];
+      updated[idx] = { ...updated[idx], isStreaming: false };
+      return { ...prev, [target]: updated };
+    });
   };
 
   const handleCodeScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {

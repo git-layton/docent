@@ -22,6 +22,19 @@ function textToHtml(text: string): string {
   const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc.split('\n').map(l => `<div>${l || '<br>'}</div>`).join('');
 }
+// Notes render in a sandboxed iframe (bodies are arbitrary HTML). Wrap the body in a consistent light
+// "paper" document — the same surface the editor uses — so saving doesn't flash from the dark editor to
+// a bare white frame, and so note content (which assumes a light background) stays readable in dark mode.
+const NOTE_PAPER = '#fcfcfa';
+const NOTE_INK = '#1c1b17';
+function paperNoteDoc(html: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    html,body{margin:0;background:${NOTE_PAPER};color:${NOTE_INK};
+      font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      padding:20px 26px;-webkit-font-smoothing:antialiased;}
+    img{max-width:100%;height:auto;} a{color:#534ab7;} *{max-width:100%;}
+  </style></head><body>${html || '<p style="color:#9a988f">(empty note)</p>'}</body></html>`;
+}
 function relativeTime(ts: number): string {
   if (!ts) return '';
   const min = Math.floor((Date.now() - ts) / 60000);
@@ -223,10 +236,11 @@ export function NotesPanel() {
               value={draft}
               onChange={e => setDraft(e.target.value)}
               placeholder="Write your note…"
-              className="w-full h-full resize-none bg-transparent px-6 py-4 text-sm text-ink outline-none leading-relaxed font-sans"
+              style={{ background: NOTE_PAPER, color: NOTE_INK }}
+              className="w-full h-full resize-none px-6 py-5 text-[15px] outline-none leading-[1.65] font-sans"
             />
           ) : (
-            <iframe title="note" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={body || '<p style="color:#999">(empty note)</p>'} className="w-full h-full border-0 bg-white" />
+            <iframe title="note" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={paperNoteDoc(body)} className="w-full h-full border-0" style={{ background: NOTE_PAPER }} />
           )}
         </div>
 

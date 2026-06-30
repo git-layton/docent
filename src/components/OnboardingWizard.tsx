@@ -142,8 +142,8 @@ function OptionalBanner({ onSkip }: { onSkip: () => void }) {
 function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex flex-col items-center text-center gap-7">
-      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-accent to-accent-strong flex items-center justify-center shadow-xl shadow-accent/20">
-        <Zap className="w-9 h-9 text-on-accent" />
+      <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-xl shadow-accent/20 ring-1 ring-edge bg-panel-2 flex items-center justify-center">
+        <img src="/app-icon.png" alt="Agent Forge" className="w-full h-full object-cover" />
       </div>
       <div className="space-y-2">
         <h1 className="text-3xl font-black tracking-tight text-ink">
@@ -157,7 +157,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
         {[
           'Tell your agents about you',
           'Connect an AI model',
-          "Optional extras live in Settings",
+          'Connect Messages, Notes & more in Settings → Connect your apps',
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-3 text-sm text-ink-2">
             <div className="w-5 h-5 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">

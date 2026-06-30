@@ -31,6 +31,7 @@ allow = [
   "create_inbox_capture",
   "delete_graph_node",
   "delete_memory_file",
+  "delete_model",
   "download_model",
   "eventkit_authorization_status",
   "eventkit_delete_event",

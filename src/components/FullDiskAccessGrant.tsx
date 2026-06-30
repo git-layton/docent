@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { ShieldCheck, CheckCircle2, Loader2, ExternalLink, Check } from 'lucide-react';
+import { relaunch } from '@tauri-apps/plugin-process';
+import { ShieldCheck, CheckCircle2, Loader2, ExternalLink, Check, RotateCw } from 'lucide-react';
 
 type AccessState = { state: 'idle' | 'checking' | 'ok' | 'error'; count?: number; msg?: string };
 
@@ -55,19 +56,30 @@ export function FullDiskAccessGrant({
           {access.state === 'checking' && <span className="text-ink-2">Checking access…</span>}
           {access.state === 'ok' && <span className="font-bold text-success-light">Connected — {(access.count ?? 0).toLocaleString()} conversations found.</span>}
           {access.state === 'error' && (
-            <span className="text-ink-2">Not detected yet — switch on Agent Forge in Full Disk Access, then check again. <span className="text-ink-3">(A full quit &amp; relaunch may be needed after granting.)</span></span>
+            <span className="text-ink-2">Not detected yet — switch on Agent Forge in Full Disk Access, then restart. <span className="text-ink-3">(macOS only applies Full Disk Access after a restart.)</span></span>
           )}
         </div>
       </div>
 
       {access.state !== 'ok' && (
-        <button
-          onClick={check}
-          disabled={access.state === 'checking'}
-          className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-edge-2 text-ink-2 hover:bg-wash transition-all disabled:opacity-40"
-        >
-          {access.state === 'checking' ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking…</> : <><Check className="w-3.5 h-3.5" /> Check access</>}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={check}
+            disabled={access.state === 'checking'}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-edge-2 text-ink-2 hover:bg-wash transition-all disabled:opacity-40"
+          >
+            {access.state === 'checking' ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking…</> : <><Check className="w-3.5 h-3.5" /> Check access</>}
+          </button>
+          {access.state === 'error' && (
+            <button
+              onClick={() => { void relaunch(); }}
+              title="Restart Agent Forge so macOS applies the Full Disk Access you just granted"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-accent text-on-accent hover:bg-accent-strong transition-all shadow-sm"
+            >
+              <RotateCw className="w-3.5 h-3.5" /> Restart now
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

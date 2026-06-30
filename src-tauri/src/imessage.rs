@@ -298,6 +298,9 @@ pub struct ImessageChat {
     last_text: String,
     last_date: i64,
     last_from_me: bool,
+    /// Unread incoming messages in this chat (is_from_me=0 AND is_read=0) — mirrors Messages.app, so the
+    /// list can show the same read/unread state instead of treating every conversation as new.
+    unread: i64,
 }
 
 /// One message inside a thread.
@@ -371,7 +374,10 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
                         COALESCE(c.service_name, ''), COALESCE(m.text, ''), m.attributedBody, \
                         m.is_from_me, m.date, \
                         (SELECT GROUP_CONCAT(h.id, ', ') FROM chat_handle_join chj \
-                           JOIN handle h ON h.ROWID = chj.handle_id WHERE chj.chat_id = c.ROWID) \
+                           JOIN handle h ON h.ROWID = chj.handle_id WHERE chj.chat_id = c.ROWID), \
+                        (SELECT COUNT(*) FROM chat_message_join cmj3 \
+                           JOIN message m3 ON m3.ROWID = cmj3.message_id \
+                           WHERE cmj3.chat_id = c.ROWID AND m3.is_from_me = 0 AND m3.is_read = 0) \
                  FROM chat c \
                  JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID \
                  JOIN message m ON m.ROWID = cmj.message_id \
@@ -398,6 +404,7 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
                 let from_me: i64 = row.get(8)?;
                 let date: i64 = row.get(9)?;
                 let participants: Option<String> = row.get(10)?;
+                let unread: i64 = row.get(11)?;
 
                 let is_group = style == 43;
                 let name = if !display_name.trim().is_empty() {
@@ -421,6 +428,7 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
                     last_text: message_text(&text, body.as_ref()),
                     last_date: apple_date_to_unix_ms(date),
                     last_from_me: from_me != 0,
+                    unread,
                 })
             })
             .map_err(|e| format!("query failed: {e}"))?;

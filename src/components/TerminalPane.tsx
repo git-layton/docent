@@ -46,6 +46,27 @@ export function TerminalPane({ cwd }: { cwd: string }) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+
+    // Clipboard: Cmd/Ctrl+C copies the current selection (and only then — with nothing selected it still
+    // sends ^C / SIGINT to the shell, so interrupt isn't lost); Cmd/Ctrl+V pastes into stdin. xterm sends
+    // everything else straight to the PTY, so returning true keeps normal keystrokes flowing.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'c' && term.hasSelection()) {
+        const sel = term.getSelection();
+        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+        return false;
+      }
+      if (mod && e.key.toLowerCase() === 'v') {
+        navigator.clipboard.readText()
+          .then((text) => { if (text) void invoke('pty_write', { sessionId, data: text }).catch(() => {}); })
+          .catch(() => {});
+        return false;
+      }
+      return true;
+    });
+
     term.open(containerRef.current);
     try { fit.fit(); } catch { /* element may not be laid out yet */ }
 

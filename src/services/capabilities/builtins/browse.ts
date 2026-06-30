@@ -4,6 +4,7 @@
 import { runBrowserAgent, isBrowserPanelReady } from '../../browserAgent';
 import { useSpaceStore } from '../../../store/useSpaceStore';
 import { useUIStore } from '../../../store/useUIStore';
+import { extractSearchQuery } from '../../research';
 import type { Capability, CapabilityContext, CapabilityResult } from '../types';
 
 export const browseCapability: Capability = {
@@ -17,12 +18,18 @@ export const browseCapability: Capability = {
     const foundSources: any[] = [];
     let toolData = '';
     let browseSummary = '';
+    // Remember where the user was so we can hand focus back when browsing ends. The agentic loop needs
+    // the web tab VISIBLE to drive it (the webview unmounts when the tab is inactive — BrowserTabContent),
+    // so we can't browse in the background; instead we let the user watch, then return them to their chat.
+    const prevActiveTabId = useSpaceStore.getState().activeOmniTabId;
+    let weOpenedTheTab = false;
     try {
         // Start from an explicit URL in the message if present, otherwise a DuckDuckGo HTML
         // results page the agent can click through. (DDG's html endpoint renders plain
         // result links and doesn't gate the embedded webview the way Google sign-in does.)
         const urlMatch = ctx.userMsg.content.match(/https?:\/\/[^\s)]+/i);
-        const query = ctx.userMsg.content.replace(/^\s*(browse|open|go to|navigate to|visit|look on|check)\s+/i, '').trim() || ctx.userMsg.content;
+        // Search the SUBJECT, not the user's framing ("can you look up X" → "X").
+        const query = extractSearchQuery(ctx.userMsg.content);
         const startUrl = urlMatch ? urlMatch[0] : `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
 
         // If no browser is live in the current Space/DM, open a real, visible 'web' tab there
@@ -34,6 +41,7 @@ export const browseCapability: Capability = {
             // overflow menu and shown as "opened by <agent>" in ambient context — the user can see
             // exactly which page the agent went and looked at.
             useSpaceStore.getState().openTab({ type: 'web', label: 'Browsing…', url: startUrl, openedByAgentId: ctx.agentId ?? undefined });
+            weOpenedTheTab = true;
             for (let i = 0; i < 40 && !panelReady; i++) {
                 await new Promise(r => setTimeout(r, 150));
                 panelReady = await isBrowserPanelReady();
@@ -75,6 +83,12 @@ export const browseCapability: Capability = {
         useUIStore.getState().showToast('Browsing failed. Check console logs.');
         browseSummary = '🌐 Browse · error';
         toolData += `\n\n[SYSTEM NOTE: BROWSE FAILED]\nThe browse agent encountered an error: ${e?.message ?? e}\n[END BROWSE]`;
+    }
+    // Hand focus back to where the user was (their chat) now that browsing is done. They were free to
+    // watch the live tab while it ran; we just don't strand them on it after asking from chat.
+    if (weOpenedTheTab && prevActiveTabId && useSpaceStore.getState().activeOmniTabId !== prevActiveTabId) {
+        const stillExists = useSpaceStore.getState().omniTabs.some((t: any) => t.id === prevActiveTabId);
+        if (stillExists) useSpaceStore.getState().setActiveTab(prevActiveTabId);
     }
     return { toolData, sources: foundSources, status: { type: 'replace', content: browseSummary || '🌐 Browse' } };
   },

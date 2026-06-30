@@ -20,6 +20,7 @@ interface ImessageChat {
   lastText: string;
   lastDate: number; // unix ms
   lastFromMe: boolean;
+  unread: number; // unread incoming messages — mirrors Messages.app read state
 }
 interface ImessageMessage {
   id: number;
@@ -208,7 +209,9 @@ export function MessagesPanel() {
     try {
       const existing = normalizeVoiceProfile(useSettingsStore.getState().appSettings?.voiceProfile);
       if (!existing.card.trim()) {
-        useUIStore.getState().showToast('✍️ Learning your writing style…');
+        // First use kicks off a one-time analysis — be explicit about what it reads (sent texts/emails,
+        // not voicemails) so it doesn't feel like a mystery. Manageable later in Settings → Write Like Me.
+        useUIStore.getState().showToast('✍️ One-time setup: analyzing messages & emails you’ve sent to learn how you write…');
         const { card, sampleCounts } = await buildVoiceCard();
         useSettingsStore.getState().setAppSettings((prev: any) => ({
           ...prev,
@@ -453,8 +456,12 @@ export function MessagesPanel() {
             <button
               key={c.chatId}
               onClick={() => { setSelected(c); setMessages([]); setDraft(''); setSendError(null); }}
-              className="w-full flex items-start gap-3 px-4 py-3 border-b border-edge hover:bg-wash transition-colors text-left"
+              className="w-full flex items-start gap-2.5 px-4 py-3 border-b border-edge hover:bg-wash transition-colors text-left"
             >
+              {/* Reserved unread slot keeps avatars aligned whether or not the dot is shown. */}
+              <span className="w-2 shrink-0 self-center flex justify-center" title={c.unread > 0 ? `${c.unread} unread` : undefined}>
+                {c.unread > 0 && <span className="w-2 h-2 rounded-full bg-accent" />}
+              </span>
               <div className="relative shrink-0">
                 <div className="w-9 h-9 rounded-full bg-inset flex items-center justify-center text-xs font-semibold text-ink-2">
                   {c.isGroup ? <Users className="w-4 h-4" /> : initials(c.name)}
@@ -463,11 +470,11 @@ export function MessagesPanel() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-ink truncate">{c.name || c.identifier}</span>
+                  <span className={clsx('text-sm truncate', c.unread > 0 ? 'font-bold text-ink' : 'font-semibold text-ink')}>{c.name || c.identifier}</span>
                   <div className="flex-1" />
-                  <span className="text-xs text-ink-3 shrink-0">{formatListDate(c.lastDate)}</span>
+                  <span className={clsx('text-xs shrink-0', c.unread > 0 ? 'text-accent font-semibold' : 'text-ink-3')}>{formatListDate(c.lastDate)}</span>
                 </div>
-                <div className="text-sm text-ink-2 truncate">
+                <div className={clsx('text-sm truncate', c.unread > 0 ? 'text-ink font-medium' : 'text-ink-2')}>
                   {c.lastFromMe && <span className="text-ink-3">You: </span>}
                   {c.lastText || <span className="italic text-ink-3">Attachment</span>}
                 </div>

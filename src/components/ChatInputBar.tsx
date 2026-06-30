@@ -272,10 +272,12 @@ export function ChatInputBar({
                 if (e.key === 'Enter')     { e.preventDefault(); onSlashCommand(filtered[slashHighlight % filtered.length]); return; }
                 if (e.key === 'Escape')    { setInput(''); return; }
               }
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
+              // Enter sends only when idle. While a response streams the composer stays editable (so you
+              // can write the next message), but Enter is swallowed rather than starting/aborting a run.
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) onSend(); }
             }}
             placeholder={models.length === 0 ? 'Connect a model to start chatting →' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
-            className="w-full bg-transparent p-3 min-h-[52px] max-h-40 resize-none outline-none text-ink placeholder-ink-3 text-sm font-medium custom-scrollbar" rows={1} disabled={isGenerating || (llamaServerPid !== null && llamaPaused) || models.length === 0} />
+            className="w-full bg-transparent p-3 min-h-[52px] max-h-40 resize-none outline-none text-ink placeholder-ink-3 text-sm font-medium custom-scrollbar" rows={1} disabled={(llamaServerPid !== null && llamaPaused) || models.length === 0} />
         </div>
 
         {/* Mode bar + model selector + actions — single row */}
