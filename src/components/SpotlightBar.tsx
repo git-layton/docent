@@ -10,7 +10,6 @@ import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 import { speak, cancelSpeech, resolveVoicePrefs, loadVoices } from '../lib/voice';
 import { FormattedText } from './ui/FormattedText';
-import { AgentIcon } from './ui/AgentIcon';
 
 /** Renders assistant markdown: code fences get a styled block, everything else goes to FormattedText. */
 function SpotlightMd({ text }: { text: string }) {
@@ -625,6 +624,16 @@ export default function SpotlightBar() {
             )}
           </div>
 
+          {/* Live perception status — the HUD's "seeing" indicator (mock: eye + green dot) */}
+          {screenMode && (
+            <span className="flex items-center gap-1.5 text-[10px] text-ink-3 px-2 py-0.5 shrink-0 select-none">
+              <Monitor className="w-3 h-3" />
+              seeing
+              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+              <span className="text-ink-2 font-medium">your screen</span>
+            </span>
+          )}
+
           <div className="flex-1" data-tauri-drag-region />
 
           {/* New chat */}
@@ -797,8 +806,8 @@ export default function SpotlightBar() {
             <div key={msg.id} className={`group flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               {msg.role !== 'user' && (
                 <div className="flex items-center gap-1.5 px-0.5">
-                  <AgentIcon agent={selectedAgent} sizeClass="w-2.5 h-2.5" containerClass="p-1 rounded-md" />
-                  <span className="text-[10px] font-semibold text-ink-3">{selectedAgent?.name ?? 'Assistant'}</span>
+                  <Flame className="w-3.5 h-3.5 text-accent" />
+                  <span className="text-[10px] font-semibold text-ink-3">{selectedAgent?.name ?? 'Alexis'}</span>
                 </div>
               )}
               <div className={`max-w-[85%] text-sm leading-relaxed break-words select-text ${
@@ -862,7 +871,7 @@ export default function SpotlightBar() {
                       onClick={() => saveToMemory(msg)}
                       disabled={!!mem}
                       title="Save this to your Git-backed Knowledge Core"
-                      className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md border transition-all disabled:cursor-default ${mem === 'done' ? 'border-success/30 text-success bg-success-light/10' : 'border-edge text-ink-2 hover:bg-wash hover:text-ink'}`}
+                      className={`flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-full transition-all disabled:cursor-default ${mem === 'done' ? 'text-success bg-success-light/10' : 'bg-accent-soft/60 text-accent-soft-ink hover:bg-accent-soft'}`}
                     >
                       {mem === 'done' ? <Check className="w-3 h-3" /> : <Bookmark className="w-3 h-3" />}
                       {mem === 'done' ? 'Saved' : mem === 'busy' ? 'Saving…' : 'Save to memory'}
@@ -871,7 +880,7 @@ export default function SpotlightBar() {
                       onClick={() => saveToNotes(msg)}
                       disabled={!!note}
                       title="Create a real Apple Note (first use asks to control Notes)"
-                      className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md border transition-all disabled:cursor-default ${note === 'done' ? 'border-success/30 text-success bg-success-light/10' : 'border-edge text-ink-2 hover:bg-wash hover:text-ink'}`}
+                      className={`flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full transition-all disabled:cursor-default ${note === 'done' ? 'text-success' : 'text-ink-3 hover:text-ink-2'}`}
                     >
                       {note === 'done' ? <Check className="w-3 h-3" /> : <StickyNote className="w-3 h-3" />}
                       {note === 'done' ? 'Added to Notes' : note === 'busy' ? 'Adding…' : 'Save to Notes'}
@@ -917,13 +926,10 @@ export default function SpotlightBar() {
           ))}
         </div>
 
-        {/* ── Source pill ── */}
+        {/* ── Source pill — browser modes only (Screen mode's status lives in the header) ── */}
+        {!screenMode && (
         <div className="px-3 pb-1 shrink-0 flex items-center gap-1">
-          {screenMode ? (
-            <span className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg text-accent bg-accent-soft/40">
-              <Monitor className="w-3 h-3 shrink-0" /> Reading your screen
-            </span>
-          ) : tab ? (
+          {tab ? (
             <>
               <button onClick={() => setUseTab(v => !v)}
                 className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all ${useTab ? 'text-accent bg-accent-soft/40' : 'text-ink-3 hover:text-ink-2'}`}>
@@ -950,6 +956,7 @@ export default function SpotlightBar() {
             <RefreshCw className="w-3 h-3" />
           </button>
         </div>
+        )}
 
         {/* ── Screen access grant ── */}
         {screenAccessNeeded && (
@@ -1013,7 +1020,7 @@ export default function SpotlightBar() {
           />
           <button
             onClick={isStreaming ? stop : () => input.trim() && send(input.trim())}
-            className={`shrink-0 p-2 rounded-xl transition-all ${isStreaming ? 'bg-danger hover:opacity-90 text-danger-soft' : input.trim() ? 'bg-accent hover:bg-accent-strong text-on-accent' : 'bg-wash text-ink-3 cursor-default'}`}>
+            className={`shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all ${isStreaming ? 'bg-danger hover:opacity-90 text-danger-soft' : input.trim() ? 'bg-accent hover:bg-accent-strong text-on-accent' : 'bg-wash text-ink-3 cursor-default'}`}>
             {isStreaming ? <Square className="w-4 h-4 fill-current" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
