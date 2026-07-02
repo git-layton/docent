@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { writeMemory } from '../lib/ipc';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
-import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw } from 'lucide-react';
+import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
@@ -70,6 +70,7 @@ export default function SpotlightBar() {
   const [tab, setTab] = useState<{ title: string; url: string; browser?: string; hasText?: boolean } | null>(null);
   const [showPageReadingHelp, setShowPageReadingHelp] = useState(false);
   const [screenAccessNeeded, setScreenAccessNeeded] = useState(false);
+  const [noKeyModel, setNoKeyModel] = useState<string | null>(null);
   const [screenMode, setScreenMode] = useState(true);
   // Ref mirror so long-lived listeners (mount/focus effects) see the current mode without resubscribing.
   const screenModeRef = useRef(screenMode);
@@ -292,6 +293,15 @@ export default function SpotlightBar() {
   const stop = () => abortRef.current?.abort();
 
   const send = async (command: string) => {
+    // A cloud model with no key is a guaranteed failure — catch it BEFORE burning the turn (and
+    // the screen capture), and keep the user's text in the composer. This exact trap masked a
+    // fully-working screen-read behind "unregistered callers" errors for an hour of dogfooding.
+    const mc = selectedModel ?? models[0] ?? null;
+    if (mc && ['google', 'openai', 'anthropic'].includes(mc.provider) && !mc.apiKey) {
+      setNoKeyModel(mc.name || mc.modelId || mc.provider);
+      return;
+    }
+    setNoKeyModel(null);
     setInput('');
     // Create new chat if none active
     let chatId = activeChatId;
@@ -712,9 +722,16 @@ export default function SpotlightBar() {
         {/* ── Messages ── */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0 custom-scrollbar">
           {activeMessages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full gap-2 text-center pointer-events-none">
-              <p className="text-sm text-ink-3 font-medium">{selectedAgent?.name ?? 'Agent'}</p>
-              <p className="text-xs text-ink-3 max-w-xs">{selectedAgent?.description || 'Ask anything — tab context auto-attaches when available.'}</p>
+            <div className="flex flex-col items-center justify-center h-full gap-2.5 text-center pointer-events-none">
+              <div className="p-2.5 rounded-2xl bg-accent-soft/40">
+                <Flame className="w-6 h-6 text-accent" />
+              </div>
+              <p className="text-sm text-ink font-semibold">{selectedAgent?.name ?? 'Alexis'}</p>
+              <p className="text-xs text-ink-3 max-w-xs leading-relaxed">
+                {screenMode
+                  ? 'Ask about what you’re seeing — the screen is read on-device and never leaves your Mac.'
+                  : (selectedAgent?.description || 'Ask anything — tab context auto-attaches when available.')}
+              </p>
             </div>
           )}
           {activeMessages.map(msg => (
@@ -770,6 +787,7 @@ export default function SpotlightBar() {
                     <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{animationDelay:'0ms'}} />
                     <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{animationDelay:'150ms'}} />
                     <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{animationDelay:'300ms'}} />
+                    <span className="text-[10px] text-ink-3 ml-1">{screenMode ? 'reading your screen…' : 'thinking…'}</span>
                   </span>
                 ) : (
                   <SpotlightMd text={msg.content} />
@@ -873,6 +891,20 @@ export default function SpotlightBar() {
               <button onClick={() => setScreenAccessNeeded(false)}
                 className="text-[11px] text-ink-3 hover:text-ink-2 px-2 py-1 transition-colors">Dismiss</button>
             </div>
+          </div>
+        )}
+
+        {/* ── Missing API key guard ── */}
+        {noKeyModel && (
+          <div className="mx-3 mb-2 p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed">
+            <div className="flex items-center gap-2 mb-1 font-bold text-ink">
+              <KeyRound className="w-4 h-4 text-accent shrink-0" /> {noKeyModel} needs an API key
+            </div>
+            <p className="text-ink-2 mb-2">
+              Add one in the main window (<span className="font-semibold text-ink">Settings → Models → {noKeyModel}</span>), or pick a local model from the picker above — local models need no key.
+            </p>
+            <button onClick={() => setNoKeyModel(null)}
+              className="text-[11px] text-ink-3 hover:text-ink-2 px-2 py-1 transition-colors">Dismiss</button>
           </div>
         )}
 
