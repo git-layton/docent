@@ -1,7 +1,8 @@
 # Alexis Sidecar — Product Spec v1
 
-Status: **agreed with owner, ready to build** · Date: 2026-07-02
-Consolidates the July 1–2 design sessions. Mockups referenced by name live in the session transcript;
+Status: **v1.1 — post expert-review (UX / design / a11y / AI-systems)** · Date: 2026-07-02
+Consolidates the July 1–2 design sessions. §12 records the review board's findings and how v1.1
+resolves them; sections above are amended inline where a finding is P0/CRITICAL. Mockups referenced by name live in the session transcript;
 the four core ones: `alexis_sidecar_annotation_mockup`, `alexis_sidecar_full_composer_mockup`,
 `overlay_v2_perception_glow_preview`, `overlay_v2_unified_composer_mockup`.
 
@@ -117,3 +118,85 @@ your own hardware.**
 - Interactive click-through preview (hall of mirrors; the real screen is the canvas).
 - Clicking as backbone (physics: exclusivity, speed, compounding errors, viewport wall, forces cloud).
 - Screen-in-app mirroring, Steam-style (hall of mirrors on one machine).
+
+---
+
+## 12. Expert review board (July 2) — findings & resolutions
+
+Four specialists audited v1 against the code. Converged action list:
+
+### Security & correctness (CRITICAL — some affect SHIPPED v2.0.15)
+- **S1. Fence screen OCR as untrusted.** Shipped screen-read injects OCR unfenced with "use it to
+  answer"; the frontmost window can be a webpage/DM → prompt-injection→action chain (`forge:action`
+  auto-apply). Add `'screen'`→`untrusted-external` in `trust.ts`; fence like mail/web; strip
+  auto-apply from any turn containing untrusted context + annotate the chip "prompted by on-screen
+  content". Same for MCP tool results → route saves through the gatekeeper quarantine path. *(task #10)*
+- **S2. Annotation grounding.** OCR bboxes are valid only at capture time. Before drawing any
+  highlight: re-OCR the target crop + fuzzy-match the line; threshold on Vision per-observation
+  confidence and refuse (say so) below it; auto-expire ≤5s; kill on frontmost-app/window-move
+  (NSWorkspace notifications). Wrong deixis is worse than none. Also: Alexis can't see the strip
+  behind her own panel — she must say "I can't see the area behind me."
+
+### Local-model alignment (from AI-systems review)
+- **A1. Never let the local LLM route or parse slashes.** Slash verbs parse deterministically in
+  the composer before the LLM; gatekeeper regex does implicit routing; LLM only extracts args.
+- **A2. Constrained decoding.** Emit ALL actions via GBNF/json_schema through llama-server → ~100%
+  parse on 32B/70B. ~1 day, huge reliability win.
+- **A3. `/find` = zero-LLM.** Render grouped results as structured UI straight from the search
+  layer; LLM enters only on "Ask about this" (one pinned result). Faster, deterministic, better demo.
+- **A4. Token budget, not char budget.** Enforce §9 with real `/tokenize` counts + priority hard-drop
+  list + per-turn telemetry. Tool-RAG MCP tools (top-k per turn) from day one, not all servers at once.
+
+### UX (evidence-based)
+- **U1. Slash discoverability.** `/` opens inline autocomplete w/ descriptions; natural language
+  maps to the same verbs ("remind me…" → `/remind`, identical chip); rotating ghost-text hints.
+- **U2. Generation latency design.** Staged status (read → thinking → writing), stream from first
+  token, tok/s-based estimate, always-visible Stop, collapse-and-notify for long runs.
+- **U3. "Seeing ●" mis-signals surveillance.** Default "idle / eyes closed"; pulse only during
+  capture; chip label "Screen — reads when you send." (Also a designer + a11y concern.)
+- **U4. Receipt habituation + jargon.** Tiered salience (quiet for routine, emphasized for
+  first-time/new-scope); plain language; never the word "receipt" in UI. `/find` shows per-source
+  status incl. "not searched — grant access" (no silent dropout).
+- **U5. Just-in-time permissions**, one concept per session; "What can Alexis see?" page.
+
+### Design (push-forward)
+- **D1. Bet on pointing** — bind highlights to streaming token timing (<300ms), re-flash on hover
+  of the phrase in the panel, numbered 1-2-3 real-screen walkthroughs, one-key export of the
+  annotated frame (self-marketing).
+- **D2. Ship the Ledger** — persist every receipt into a browsable, `/find`-able, git-committed
+  audit log ("everything Alexis has seen and done, forever"). Doctrine → headline feature.
+- **D3. Glow on a budget** — full perimeter glow only first-run/new-app/sensitive; steady state =
+  header dot + whisper. **Reserved color: ember = eyes, purple = hands.** One ambient signal at a time.
+- **D4. Demote smug copy** — "notice I'm not in it" is first-run only; steady caption is terse
+  metadata. Ember mark stays static, with rare meaningful motion (travels panel→highlight to show
+  causality); never idles/emotes.
+
+### Accessibility (P0 = v1 blockers)
+- **X1. Text-mirror every annotation** into an `aria-live="polite"` region ("Pointing at: 'before
+  6pm' — Mail"). The OCR line you box IS the accessible text. *(1.1.1, 1.3.3)*
+- **X2. Status live region** (`role="status"`) for receipts/capture/save; emoji `aria-hidden` +
+  text alt. *(4.1.3)*
+- **X3. Focus contract vs VoiceOver.** Non-activating panel won't appear in Cmd-Tab/VO chooser →
+  hotkey summon IS the entry point (must focus composer), Esc returns focus to prior app, hotkey
+  remappable (⌘⇧F collides). Copy Spotlight.app. *(2.4.3, 3.2.1)*
+- **X4. Full keyboard operability** — hover-only action row needs `focus-within`; dropdowns need
+  roles + arrow-nav; slash menu = combobox; icon buttons need `aria-label`. *(2.1.1, 4.1.2)*
+- **X5. `prefers-reduced-motion`** (WKWebView honors macOS Reduce Motion in every window incl. the
+  glow) → static border, no breathing/bounce/pulse. Plus `prefers-reduced-transparency`/`-contrast`
+  → solid panel + high-contrast annotation variant. Target size ≥24px; type floor ≥11px; audit
+  `#8a8a92`-class contrast on non-base washes. *(2.3.3, 1.4.11, 2.5.8)*
+
+### Amendments to sections above
+- §3 header: replace persistent "seeing ●" with idle-default eye state (U3/X-trust).
+- §4: add slash autocomplete + NL-mapping + `+` menu parity (U1/A1/X4).
+- §6: add grounding verification + expiry + text-mirror + reduced-motion (S2/X1/X5); pointing
+  sharpened per D1.
+- §7: MCP results fenced untrusted (S1); receipts tiered + Ledger (U4/D2).
+- §8: `/find` zero-LLM structured render + per-source status (A3/U4).
+- §9: token-based enforcement + telemetry (A4).
+- §10 build order insert: **0.5 security fencing (S1) before any new screen work**; a11y baseline
+  (X1–X5) is acceptance criteria for each surface, not a later pass.
+
+### Confirmed sound (no change)
+- §11 rejections match research consensus (clicking-as-backbone, agent roster) — AI review concurs.
+- Local-first thesis, receipts-as-grammar, and Hands>Eyes>Fingers doctrine validated by all four.
