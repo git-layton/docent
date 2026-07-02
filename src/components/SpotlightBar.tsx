@@ -687,7 +687,7 @@ export default function SpotlightBar() {
           </div>
 
           {/* Source toggle — Chrome / Safari / Screen */}
-          <div className="flex shrink-0 rounded-lg overflow-hidden border border-edge-2">
+          <div className="flex shrink-0 rounded-full border border-edge-2 p-0.5 gap-0.5">
             {(['chrome', 'safari'] as const).map(b => (
               <button key={b} onClick={() => {
                 setScreenMode(false);
@@ -696,13 +696,13 @@ export default function SpotlightBar() {
                 db.set('spotlightSource', b);
                 fetchTab(b);
               }}
-                className={`text-[10px] font-bold px-2 py-0.5 capitalize transition-all ${
+                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full capitalize transition-all ${
                   !screenMode && preferredBrowser === b ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
                 }`}
               >{b}</button>
             ))}
             <button onClick={() => { setScreenMode(true); db.set('spotlightSource', 'screen'); }}
-              className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 transition-all ${
+              className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
                 screenMode ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
               }`}
             ><Monitor className="w-3 h-3" /> Screen</button>
@@ -779,7 +779,7 @@ export default function SpotlightBar() {
         )}
 
         {/* ── Messages ── */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0 custom-scrollbar">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 custom-scrollbar">
           {activeMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-2.5 text-center pointer-events-none">
               <div className="p-2.5 rounded-2xl bg-accent-soft/40">
@@ -803,8 +803,8 @@ export default function SpotlightBar() {
               )}
               <div className={`max-w-[85%] text-sm leading-relaxed break-words select-text ${
                 msg.role === 'user'
-                  ? 'rounded-2xl rounded-br-sm overflow-hidden bg-accent text-on-accent'
-                  : 'rounded-2xl rounded-bl-sm px-3.5 py-2.5 bg-panel-2 text-ink border border-edge'
+                  ? 'rounded-[20px] rounded-br-md overflow-hidden bg-accent text-on-accent shadow-sm'
+                  : 'rounded-[20px] rounded-bl-md px-4 py-3 bg-panel-2/60 text-ink'
               }`}>
                 {msg.role === 'user' && pageCards[msg.id] && (() => {
                   const card = pageCards[msg.id];
@@ -1004,7 +1004,7 @@ export default function SpotlightBar() {
             placeholder="Message..."
             rows={1}
             disabled={isStreaming}
-            className="flex-1 bg-inset border border-edge-2 rounded-xl px-3 py-2 text-sm text-ink placeholder:text-ink-3 outline-none resize-none focus:border-accent/50 transition-colors min-h-[36px] max-h-[120px] overflow-auto"
+            className="flex-1 bg-inset border border-edge-2 rounded-2xl px-3.5 py-2 text-sm text-ink placeholder:text-ink-3 outline-none resize-none focus:border-accent/50 transition-colors min-h-[38px] max-h-[120px] overflow-auto"
             onInput={e => {
               const t = e.target as HTMLTextAreaElement;
               t.style.height = 'auto';
