@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { writeMemory } from '../lib/ipc';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
-import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound } from 'lucide-react';
+import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound, Bookmark, StickyNote } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
@@ -65,6 +65,9 @@ export default function SpotlightBar() {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  // Confirmed-action results, keyed by `${msgId}:${action}` -> 'busy' | 'done'. On error the key is
+  // cleared so the button re-enables for a retry.
+  const [actionState, setActionState] = useState<Record<string, string>>({});
   const [input, setInput] = useState('');
   // Tab: keep last known value — cleared on focus, repopulated from Rust pre-fetch
   const [tab, setTab] = useState<{ title: string; url: string; browser?: string; hasText?: boolean } | null>(null);
@@ -490,6 +493,58 @@ export default function SpotlightBar() {
     }
   };
 
+  // ── Confirmed actions ───────────────────────────────────────────────────────────────────────
+  // The assistant never acts autonomously: these run ONLY on an explicit user tap, and only through
+  // reliable structured bridges (writeMemory / notes_create) — never synthetic clicking. Both are
+  // reversible (Git-backed note; a real Note you can delete).
+  const questionFor = (msgId: string): string => {
+    const list = activeChatId ? (messages[activeChatId] ?? []) : [];
+    const idx = list.findIndex(m => m.id === msgId);
+    for (let i = idx - 1; i >= 0; i--) if (list[i].role === 'user') return list[i].content;
+    return '';
+  };
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const saveToMemory = async (msg: Msg) => {
+    const key = `${msg.id}:mem`;
+    if (actionState[key]) return;
+    setActionState(s => ({ ...s, [key]: 'busy' }));
+    try {
+      const kc = await invoke<{ path: string }>('init_knowledge_core');
+      const q = questionFor(msg.id);
+      const title = (q || tab?.title || 'Saved from screen').slice(0, 80);
+      const now = new Date();
+      const filename = `${now.toISOString().slice(0, 10)}-${slugify(title)}-${now.getTime()}.md`;
+      const frontmatter = `---\ntitle: "${title.replace(/"/g, "'")}"\nsource: "spotlight-action"\nagent: "${selectedAgent?.name || 'Alexis'}"\ndate: "${now.toISOString()}"\ntags: [saved, spotlight]\n---\n\n`;
+      const body = `${q ? `**${q}**\n\n` : ''}${msg.content}`;
+      await writeMemory({ path: `${kc.path}/memory/saved/${filename}`, content: frontmatter + body, commitMessage: `save: ${title.slice(0, 60)}`, agentId: selectedAgentId || null });
+      setActionState(s => ({ ...s, [key]: 'done' }));
+    } catch (e) {
+      console.warn('[spotlight] save to memory failed:', e);
+      setActionState(s => { const n = { ...s }; delete n[key]; return n; });
+    }
+  };
+
+  const saveToNotes = async (msg: Msg) => {
+    const key = `${msg.id}:note`;
+    if (actionState[key]) return;
+    setActionState(s => ({ ...s, [key]: 'busy' }));
+    try {
+      const q = questionFor(msg.id);
+      const title = (q || 'From Agent Forge').slice(0, 80);
+      const bodyHtml =
+        `<div><b>${esc(title)}</b></div>` +
+        (q ? `<div>${esc(q)}</div>` : '') +
+        `<div><br></div>${esc(msg.content).replace(/\n/g, '<br>')}` +
+        `<div><br></div><div><i>Saved from Agent Forge</i></div>`;
+      await invoke('notes_create', { folder: 'Notes', title, body: bodyHtml });
+      setActionState(s => ({ ...s, [key]: 'done' }));
+    } catch (e) {
+      console.warn('[spotlight] save to notes failed:', e);
+      setActionState(s => { const n = { ...s }; delete n[key]; return n; });
+    }
+  };
+
   const sortedChats = [...chats].sort((a, b) => b.updatedAt - a.updatedAt);
   const visibleChats = showAll ? sortedChats : sortedChats.slice(0, RECENT_COUNT);
 
@@ -793,6 +848,33 @@ export default function SpotlightBar() {
                   <SpotlightMd text={msg.content} />
                 )}
               </div>
+              {/* Confirmed actions — assistant replies only; explicit tap, reliable bridges, reversible */}
+              {msg.role !== 'user' && msg.content && !isStreaming && (() => {
+                const memKey = `${msg.id}:mem`, noteKey = `${msg.id}:note`;
+                const mem = actionState[memKey], note = actionState[noteKey];
+                return (
+                  <div className="flex gap-1.5 mt-0.5">
+                    <button
+                      onClick={() => saveToMemory(msg)}
+                      disabled={!!mem}
+                      title="Save this to your Git-backed Knowledge Core"
+                      className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md border transition-all disabled:cursor-default ${mem === 'done' ? 'border-success/30 text-success bg-success-light/10' : 'border-edge text-ink-2 hover:bg-wash hover:text-ink'}`}
+                    >
+                      {mem === 'done' ? <Check className="w-3 h-3" /> : <Bookmark className="w-3 h-3" />}
+                      {mem === 'done' ? 'Saved' : mem === 'busy' ? 'Saving…' : 'Save to memory'}
+                    </button>
+                    <button
+                      onClick={() => saveToNotes(msg)}
+                      disabled={!!note}
+                      title="Create a real Apple Note (first use asks to control Notes)"
+                      className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md border transition-all disabled:cursor-default ${note === 'done' ? 'border-success/30 text-success bg-success-light/10' : 'border-edge text-ink-2 hover:bg-wash hover:text-ink'}`}
+                    >
+                      {note === 'done' ? <Check className="w-3 h-3" /> : <StickyNote className="w-3 h-3" />}
+                      {note === 'done' ? 'Added to Notes' : note === 'busy' ? 'Adding…' : 'Save to Notes'}
+                    </button>
+                  </div>
+                );
+              })()}
               {/* Action buttons — appear on hover, only when there's content */}
               {msg.content && (
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
