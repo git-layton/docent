@@ -10,6 +10,7 @@ import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
 import { speak, cancelSpeech, resolveVoicePrefs, loadVoices } from '../lib/voice';
 import { FormattedText } from './ui/FormattedText';
+import { AgentIcon } from './ui/AgentIcon';
 
 /** Renders assistant markdown: code fences get a styled block, everything else goes to FormattedText. */
 function SpotlightMd({ text }: { text: string }) {
@@ -60,7 +61,7 @@ export default function SpotlightBar() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showHotkeyOnboarding, setShowHotkeyOnboarding] = useState(false);
-  const [pageCards, setPageCards] = useState<Record<string, { title: string; url: string; text: string }>>({});
+  const [pageCards, setPageCards] = useState<Record<string, { title: string; url: string; text: string; kind?: 'screen' }>>({});
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
@@ -386,6 +387,12 @@ export default function SpotlightBar() {
                 seen.trim(),
                 `=== END SCREEN CONTEXT ===`,
               ].join('\n');
+              // Show WHAT was read as an expandable card on the message — same transparency the
+              // web-page path gets via tabForCard. Screen reads should never be invisible.
+              setPageCards(prev => ({
+                ...prev,
+                [userMsg.id]: { title: 'Read your screen', url: 'on-device OCR', text: seen.trim(), kind: 'screen' },
+              }));
             } else {
               // Empty/near-empty text almost always means Screen Recording isn't effective yet — not
               // granted for THIS build, or granted without a relaunch — so macOS hands back only the
@@ -712,6 +719,12 @@ export default function SpotlightBar() {
           )}
           {activeMessages.map(msg => (
             <div key={msg.id} className={`group flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+              {msg.role !== 'user' && (
+                <div className="flex items-center gap-1.5 px-0.5">
+                  <AgentIcon agent={selectedAgent} sizeClass="w-2.5 h-2.5" containerClass="p-1 rounded-md" />
+                  <span className="text-[10px] font-semibold text-ink-3">{selectedAgent?.name ?? 'Assistant'}</span>
+                </div>
+              )}
               <div className={`max-w-[85%] text-sm leading-relaxed break-words select-text ${
                 msg.role === 'user'
                   ? 'rounded-2xl rounded-br-sm overflow-hidden bg-accent text-on-accent'
@@ -729,9 +742,11 @@ export default function SpotlightBar() {
                           return next;
                         })}
                         className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-on-accent/10 transition-colors">
-                        <Globe className="w-3 h-3 text-on-accent/70 shrink-0" />
+                        {card.kind === 'screen'
+                          ? <Monitor className="w-3 h-3 text-on-accent/70 shrink-0" />
+                          : <Globe className="w-3 h-3 text-on-accent/70 shrink-0" />}
                         <span className="flex-1 truncate text-on-accent/80 font-medium">{card.title}</span>
-                        <span className="text-on-accent/60 shrink-0">{domainOf(card.url)}</span>
+                        <span className="text-on-accent/60 shrink-0">{card.kind === 'screen' ? 'private' : domainOf(card.url)}</span>
                         <ChevronDown className={`w-3 h-3 text-on-accent/60 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
                       </button>
                       {expanded && (
@@ -751,10 +766,10 @@ export default function SpotlightBar() {
                     <span className="whitespace-pre-wrap">{msg.content}</span>
                   </div>
                 ) : !msg.content ? (
-                  <span className="flex gap-1 items-center py-0.5">
-                    <span className="w-1.5 h-1.5 bg-ink-3 rounded-full animate-bounce" style={{animationDelay:'0ms'}} />
-                    <span className="w-1.5 h-1.5 bg-ink-3 rounded-full animate-bounce" style={{animationDelay:'150ms'}} />
-                    <span className="w-1.5 h-1.5 bg-ink-3 rounded-full animate-bounce" style={{animationDelay:'300ms'}} />
+                  <span className="flex gap-1.5 items-center py-0.5">
+                    <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{animationDelay:'0ms'}} />
+                    <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{animationDelay:'150ms'}} />
+                    <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{animationDelay:'300ms'}} />
                   </span>
                 ) : (
                   <SpotlightMd text={msg.content} />
