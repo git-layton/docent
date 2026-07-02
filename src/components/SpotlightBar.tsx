@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { writeMemory } from '../lib/ipc';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { emit } from '@tauri-apps/api/event';
-import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX } from 'lucide-react';
+import { emit, listen } from '@tauri-apps/api/event';
+import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw } from 'lucide-react';
+import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { db } from '../services/database';
@@ -67,6 +68,11 @@ export default function SpotlightBar() {
   // Tab: keep last known value — cleared on focus, repopulated from Rust pre-fetch
   const [tab, setTab] = useState<{ title: string; url: string; browser?: string; hasText?: boolean } | null>(null);
   const [showPageReadingHelp, setShowPageReadingHelp] = useState(false);
+  const [screenAccessNeeded, setScreenAccessNeeded] = useState(false);
+  const [screenMode, setScreenMode] = useState(true);
+  // Ref mirror so long-lived listeners (mount/focus effects) see the current mode without resubscribing.
+  const screenModeRef = useRef(screenMode);
+  useEffect(() => { screenModeRef.current = screenMode; }, [screenMode]);
   const showPageReadingHelpRef = useRef(false);
   const [helpBtnRect, setHelpBtnRect] = useState<DOMRect | null>(null);
   const pageReadingHelpRef = useRef<HTMLDivElement>(null);
@@ -108,6 +114,36 @@ export default function SpotlightBar() {
     }
   }, [preferredBrowser]);
 
+  // The Spotlight window lives for the whole app session, so anything loaded only at mount goes
+  // stale the moment the user edits it in the MAIN window (adds an API key, creates an agent,
+  // switches the default model). Re-pull the config slice every time the overlay is summoned.
+  // Chats/messages are deliberately NOT touched here — they stream live and merge via persistChats.
+  const refreshFromStore = useCallback(async () => {
+    try {
+      const [storedAgents, storedModels, storedSettings, spotAgentId, spotModelId] = await Promise.all([
+        db.get('assistants', []),
+        db.get('models', []),
+        db.get('settings', {}),
+        db.get('spotlightAgentId', ''),
+        db.get('spotlightModelId', ''),
+      ]);
+      if (storedAgents.length) {
+        setAgents(storedAgents);
+        setSelectedAgentId(prev => {
+          const valid = (id: string) => storedAgents.some((a: any) => a.id === id);
+          return valid(prev) ? prev : valid(spotAgentId) ? spotAgentId : storedAgents[0].id;
+        });
+      }
+      if (storedModels.length) {
+        setModels(storedModels);
+        setSelectedModelId(prev => {
+          const valid = (id: string) => storedModels.some((m: any) => m.id === id);
+          return valid(prev) ? prev : valid(spotModelId) ? spotModelId : (storedSettings.selectedModelId || storedModels[0]?.id || '');
+        });
+      }
+    } catch { /* keep the last known config */ }
+  }, []);
+
   const persistChats = useCallback(async (updatedChats: Chat[], updatedMessages: Record<string, Msg[]>) => {
     const [storedChats, storedMessages] = await Promise.all([
       db.get('chats', []),
@@ -125,7 +161,7 @@ export default function SpotlightBar() {
   useEffect(() => {
     (async () => {
       await db.init();
-      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings, storedAppSettings, onboarded, hotkeyOnboarded, storedBrowser] = await Promise.all([
+      const [storedChats, storedMessages, storedAgents, storedModels, storedSettings, storedAppSettings, onboarded, hotkeyOnboarded, storedBrowser, spotAgentId, spotModelId, spotSource] = await Promise.all([
         db.get('chats', []),
         db.get('messages', {}),
         db.get('assistants', []),
@@ -135,23 +171,37 @@ export default function SpotlightBar() {
         db.get('spotlightOnboarded', false),
         db.get('spotlightHotkeyOnboarded', false),
         db.get('preferredBrowser', 'chrome'),
+        // Spotlight's OWN last selections — the overlay must remember what the user picked here,
+        // independent of the main window's defaults (which used to clobber it on every launch).
+        db.get('spotlightAgentId', ''),
+        db.get('spotlightModelId', ''),
+        db.get('spotlightSource', 'screen'),
       ]);
       setVoiceDefaults({ voiceURI: storedAppSettings.ttsVoiceURI, rate: storedAppSettings.ttsRate, pitch: storedAppSettings.ttsPitch });
       void loadVoices();
       if (!onboarded) setShowOnboarding(true);
       if (!hotkeyOnboarded) setShowHotkeyOnboarding(true);
       if (storedBrowser === 'chrome' || storedBrowser === 'safari') setPreferredBrowser(storedBrowser);
-      if (storedAgents.length) { setAgents(storedAgents); setSelectedAgentId(storedAgents[0].id); }
+      if (spotSource === 'chrome' || spotSource === 'safari') { setScreenMode(false); setPreferredBrowser(spotSource); }
+      else setScreenMode(true);
+      if (storedAgents.length) {
+        setAgents(storedAgents);
+        setSelectedAgentId(storedAgents.some((a: any) => a.id === spotAgentId) ? spotAgentId : storedAgents[0].id);
+      }
       if (storedModels.length) {
         setModels(storedModels);
-        setSelectedModelId(storedSettings.selectedModelId || storedModels[0]?.id || '');
+        setSelectedModelId(
+          storedModels.some((m: any) => m.id === spotModelId) ? spotModelId : (storedSettings.selectedModelId || storedModels[0]?.id || '')
+        );
       }
       setChats(storedChats);
       setMessages(storedMessages);
       if (storedChats.length) setActiveChatId(storedChats[0].id); // most recent first
     })();
-    // Slight delay before first tab fetch — gives time for prev app state to settle
-    setTimeout(fetchTab, 200);
+    // Slight delay before first tab fetch — gives time for prev app state to settle.
+    // Skipped in Screen mode: no point firing AppleScript at Chrome for a path we're not using
+    // (it can even trigger an Automation permission prompt).
+    setTimeout(() => { if (!screenModeRef.current) void fetchTab(); }, 200);
   }, [fetchTab]);
 
   useEffect(() => {
@@ -164,13 +214,19 @@ export default function SpotlightBar() {
     const unsub = win.onFocusChanged(({ payload: focused }) => {
       if (focused) {
         inputRef.current?.focus();
-        // Clear stale tab first — then populate from Rust cache (pre-fetched before show)
-        setTab(null);
-        fetchTab();
+        // Pick up any config the user changed in the main window since the overlay last showed
+        // (API keys, agents, model selection) — see refreshFromStore.
+        void refreshFromStore();
+        // Clear stale tab first — then populate from Rust cache (pre-fetched before show).
+        // Skipped in Screen mode (also avoids churn when we re-show after a screen capture).
+        if (!screenModeRef.current) {
+          setTab(null);
+          fetchTab();
+        }
       }
     });
     return () => { unsub.then(f => f()); };
-  }, [fetchTab]);
+  }, [fetchTab, refreshFromStore]);
 
   useEffect(() => { showPageReadingHelpRef.current = showPageReadingHelp; }, [showPageReadingHelp]);
 
@@ -267,6 +323,7 @@ export default function SpotlightBar() {
       // Re-fetch tab with latest info
       let tabContext = '';
       let tabForCard: { title: string; url: string; text: string } | null = null;
+      if (!screenMode) {
       try {
         const tabResult = await invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: preferredBrowser });
         if (tabResult.url) {
@@ -286,13 +343,63 @@ export default function SpotlightBar() {
           tabContext = `The user was previously viewing: ${tab.title} (${tab.url}) — current page content unavailable.`;
         }
       } catch { if (useTab && tab) tabContext = `The user was previously viewing: ${tab.title} (${tab.url}) — current page content unavailable.`; }
+      }
 
       const modelConfig = selectedModel ?? models[0] ?? null;
       if (!modelConfig) throw new Error('No model configured — open Agent Forge settings first.');
 
+      // Screen eyes: read whatever app is in front (Slack, Messages, Mail, anything) with on-device
+      // OCR — no cloud, no API key, no vision model, works with any chat model incl. a local one.
+      let screenContext = '';
+      if (screenMode) {
+        try {
+          // Gate on the Screen Recording grant. If it's missing, surface the guided card (and fire
+          // the one-time system prompt) instead of silently reading a blank/desktop-only frame.
+          const authorized = await invoke<boolean>('screen_capture_authorized').catch(() => true);
+          if (!authorized) {
+            setScreenAccessNeeded(true);
+            invoke('request_screen_capture_access').catch(() => {});
+          } else {
+            setScreenAccessNeeded(false);
+            // Hide the overlay so the capture shows the app underneath — NOT our own chat (otherwise
+            // the model reads its own conversation as "screen context" and the target app is
+            // occluded). Rust emits `screen-ocr:captured` the moment the frame is grabbed, so we
+            // re-show immediately while the slower OCR pass continues.
+            const win = getCurrentWindow();
+            // show() WITHOUT setFocus(): focusing would activate the whole Agent Forge app and yank
+            // the user out of whatever they were reading. The overlay floats back in quietly; the
+            // hotkey re-focuses it if they want to type again.
+            const reappear = () => { void win.show(); };
+            const unlistenCaptured = await listen('screen-ocr:captured', reappear);
+            let seen = '';
+            try {
+              await win.hide();
+              seen = await invoke<string>('capture_screen_text');
+            } finally {
+              unlistenCaptured();
+              reappear(); // idempotent safety net — also covers the error path
+            }
+            if (seen && seen.trim().length > 20) {
+              screenContext = [
+                `=== SCREEN CONTEXT ===`,
+                `The user pressed the hotkey while looking at their screen. Below is the text currently on their screen (read on-device). Use it to answer, summarise, or draft what they ask — refer only to what's relevant.`,
+                seen.trim(),
+                `=== END SCREEN CONTEXT ===`,
+              ].join('\n');
+            } else {
+              // Empty/near-empty text almost always means Screen Recording isn't effective yet — not
+              // granted for THIS build, or granted without a relaunch — so macOS hands back only the
+              // desktop and there's nothing to read. Guide the user instead of failing silently.
+              setScreenAccessNeeded(true);
+            }
+          }
+        } catch (e) { console.warn('[spotlight] screen read failed:', e); setScreenAccessNeeded(true); }
+      }
+
       const basePrompt = selectedAgent?.prompt || 'You are a helpful AI assistant. Be concise and well-structured.';
-      const systemPrompt = tabContext
-        ? `${basePrompt}\n\n${tabContext}`
+      const extraContext = tabContext || screenContext;
+      const systemPrompt = extraContext
+        ? `${basePrompt}\n\n${extraContext}`
         : basePrompt;
 
       // Attach page context card to the user message so it's visible in the chat
@@ -470,7 +577,7 @@ export default function SpotlightBar() {
             {showAgentPicker && (
               <div className="absolute left-0 top-full mt-1 w-52 rounded-xl overflow-hidden z-50 shadow-2xl bg-panel-2 border border-edge-2">
                 {agents.map(agent => (
-                  <button key={agent.id} onClick={() => { setSelectedAgentId(agent.id); setShowAgentPicker(false); }}
+                  <button key={agent.id} onClick={() => { setSelectedAgentId(agent.id); db.set('spotlightAgentId', agent.id); setShowAgentPicker(false); }}
                     className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${agent.id === selectedAgentId ? 'text-accent bg-accent-soft/50' : 'text-ink-2 hover:bg-wash'}`}>
                     {agent.name}
                     {agent.description && <span className="block text-[10px] text-ink-3 truncate">{agent.description}</span>}
@@ -493,7 +600,7 @@ export default function SpotlightBar() {
             {showModelPicker && (
               <div className="absolute left-0 top-full mt-1 w-56 rounded-xl overflow-hidden z-50 shadow-2xl bg-panel-2 border border-edge-2">
                 {models.map(model => (
-                  <button key={model.id} onClick={() => { setSelectedModelId(model.id); setShowModelPicker(false); }}
+                  <button key={model.id} onClick={() => { setSelectedModelId(model.id); db.set('spotlightModelId', model.id); setShowModelPicker(false); }}
                     className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${model.id === selectedModelId ? 'text-accent bg-accent-soft/50' : 'text-ink-2 hover:bg-wash'}`}>
                     {model.name ?? model.id}
                     {model.provider && <span className="block text-[10px] text-ink-3">{model.provider}</span>}
@@ -503,19 +610,26 @@ export default function SpotlightBar() {
             )}
           </div>
 
-          {/* Browser toggle — persisted */}
+          {/* Source toggle — Chrome / Safari / Screen */}
           <div className="flex shrink-0 rounded-lg overflow-hidden border border-edge-2">
             {(['chrome', 'safari'] as const).map(b => (
               <button key={b} onClick={() => {
+                setScreenMode(false);
                 setPreferredBrowser(b);
                 db.set('preferredBrowser', b);
+                db.set('spotlightSource', b);
                 fetchTab(b);
               }}
                 className={`text-[10px] font-bold px-2 py-0.5 capitalize transition-all ${
-                  preferredBrowser === b ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+                  !screenMode && preferredBrowser === b ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
                 }`}
               >{b}</button>
             ))}
+            <button onClick={() => { setScreenMode(true); db.set('spotlightSource', 'screen'); }}
+              className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 transition-all ${
+                screenMode ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+              }`}
+            ><Monitor className="w-3 h-3" /> Screen</button>
           </div>
 
           {/* Page reading help */}
@@ -684,9 +798,13 @@ export default function SpotlightBar() {
           ))}
         </div>
 
-        {/* ── Tab pill ── */}
+        {/* ── Source pill ── */}
         <div className="px-3 pb-1 shrink-0 flex items-center gap-1">
-          {tab ? (
+          {screenMode ? (
+            <span className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg text-accent bg-accent-soft/40">
+              <Monitor className="w-3 h-3 shrink-0" /> Reading your screen
+            </span>
+          ) : tab ? (
             <>
               <button onClick={() => setUseTab(v => !v)}
                 className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all ${useTab ? 'text-accent bg-accent-soft/40' : 'text-ink-3 hover:text-ink-2'}`}>
@@ -713,6 +831,35 @@ export default function SpotlightBar() {
             <RefreshCw className="w-3 h-3" />
           </button>
         </div>
+
+        {/* ── Screen access grant ── */}
+        {screenAccessNeeded && (
+          <div className="mx-3 mb-2 p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed">
+            <div className="flex items-center gap-2 mb-1.5 font-bold text-ink">
+              <Monitor className="w-4 h-4 text-accent shrink-0" /> Let Agent Forge see your screen
+            </div>
+            <p className="text-ink-2 mb-2">
+              To read what's on screen (Slack, Mail, Messages), turn on <span className="font-semibold text-ink">Screen Recording</span> for Agent Forge, then relaunch.
+            </p>
+            <ol className="text-ink-2 mb-2.5 ml-4 list-decimal space-y-0.5">
+              <li>Click <span className="font-semibold text-ink">Open Screen Recording</span> below.</li>
+              <li>Flip the switch next to <span className="font-semibold text-ink">Agent Forge</span> on.</li>
+              <li>Click <span className="font-semibold text-ink">Relaunch</span>.</li>
+            </ol>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => invoke('open_screen_recording_settings').catch(() => {})}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-accent text-on-accent hover:bg-accent-strong transition-all">
+                <ExternalLink className="w-3 h-3" /> Open Screen Recording
+              </button>
+              <button onClick={() => { void relaunch(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-edge-2 text-ink-2 hover:bg-wash transition-all">
+                <RotateCw className="w-3 h-3" /> Relaunch
+              </button>
+              <button onClick={() => setScreenAccessNeeded(false)}
+                className="text-[11px] text-ink-3 hover:text-ink-2 px-2 py-1 transition-colors">Dismiss</button>
+            </div>
+          </div>
+        )}
 
         {/* ── Input ── */}
         <div className="flex items-end gap-2 px-3 pb-3 pt-1 shrink-0 border-t border-edge">

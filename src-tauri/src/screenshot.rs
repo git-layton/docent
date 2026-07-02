@@ -125,3 +125,230 @@ pub async fn webview_screenshot(
 ) -> Result<String, String> {
     Err("webview_screenshot is only available on macOS".into())
 }
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// The agent's SCREEN eyes — capture whatever app the user is looking at (Slack, Mail, Messages,
+// anything) so a vision model can read it. This is the "perception" leg of the screen-aware overlay.
+//
+// PROTOTYPE SCOPE: captures the full main display via the macOS `screencapture` CLI (no new native
+// deps; same shell-out pattern as notes.rs/imessage.rs). The FIRST call trips the system Screen
+// Recording permission prompt; until the user grants it (System Settings → Privacy & Security →
+// Screen Recording) and relaunches, the capture comes back as desktop-only/empty and the UI surfaces
+// a hint. Narrowing capture to JUST the frontmost window (CGWindowList) is the next step.
+//
+// SECURITY: like `webview_screenshot`, this is granted ONLY to local trusted windows via the
+// auto-generated `allow-app-local` ACL and is NEVER added to `allow-browser-remote` — a remote page
+// must never screenshot the user's desktop. The window-label guard below is defense-in-depth.
+
+/// Capture the current screen as a PNG, returned as a base64 `data:` URL ready for `describeImage`.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn capture_screen(window: tauri::WebviewWindow) -> Result<String, String> {
+    use base64::Engine;
+
+    // Defense-in-depth: the ACL already denies the remote browser-panel, but never let a misconfig
+    // expose a full-desktop capture to anything but the trusted local windows.
+    if !matches!(window.label(), "main" | "spotlight") {
+        return Err("screen capture not permitted from this window".into());
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("agentforge-capture-{stamp}.png"));
+
+    // Absolute path: a GUI-launched app may not have /usr/sbin on PATH. -x = no shutter sound.
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x")
+        .arg("-t")
+        .arg("png")
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("could not run screencapture: {e}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return Err("screencapture failed".into());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+    if bytes.is_empty() {
+        return Err(
+            "screen capture was empty — grant Screen Recording in System Settings, then relaunch".into(),
+        );
+    }
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn capture_screen(_window: tauri::WebviewWindow) -> Result<String, String> {
+    Err("capture_screen is only available on macOS".into())
+}
+
+// ─── On-device OCR (the fast, private "read the screen" path) ─────────────────────────────────────
+// Capture the screen and recognize its text entirely on-device via Apple's Vision framework — NO
+// cloud, NO API key, NO vision model. The text goes straight to any chat model (even a text-only
+// local one), so this is the primary "read what's on screen" path. The vision-model route
+// (`capture_screen` + `describeImage`) is reserved for genuinely visual content (charts, images).
+
+/// Capture the screen and return its recognized text (on-device OCR).
+///
+/// Protocol with the TS side: the caller HIDES the overlay window before invoking (so the capture
+/// shows the app underneath, not our own chat). We wait a beat for the hide animation to leave the
+/// screen, grab the frame, then emit `screen-ocr:captured` so the overlay can re-show itself
+/// immediately — the (slower) OCR pass runs after that, off the UI's critical path.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<String, String> {
+    if !matches!(window.label(), "main" | "spotlight") {
+        return Err("screen capture not permitted from this window".into());
+    }
+    // Let the just-hidden overlay actually leave the compositor before we grab the frame.
+    tokio::time::sleep(std::time::Duration::from_millis(160)).await;
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("agentforge-ocr-{stamp}.png"));
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x")
+        .arg("-t")
+        .arg("png")
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("could not run screencapture: {e}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return Err("screencapture failed".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+
+    // Frame is in hand — tell the overlay to come back while we OCR.
+    {
+        use tauri::Emitter;
+        let _ = window.emit("screen-ocr:captured", ());
+    }
+
+    if bytes.is_empty() {
+        return Err(
+            "screen capture was empty — grant Screen Recording in System Settings, then relaunch".into(),
+        );
+    }
+    // Vision is synchronous; run it off the async runtime. Cap like the tab path (12k chars) so a
+    // dense screen can't blow a small local model's context.
+    let text = tauri::async_runtime::spawn_blocking(move || ocr_png(&bytes))
+        .await
+        .map_err(|e| format!("ocr task failed: {e}"))??;
+    Ok(text.chars().take(12000).collect())
+}
+
+/// Run Apple's on-device text recognition over PNG bytes; returns the recognized lines joined.
+#[cfg(target_os = "macos")]
+fn ocr_png(bytes: &[u8]) -> Result<String, String> {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::AllocAnyThread;
+    use objc2_foundation::{NSArray, NSData, NSDictionary};
+    use objc2_vision::{
+        VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
+        VNRequestTextRecognitionLevel,
+    };
+
+    let data = NSData::with_bytes(bytes);
+    let options: Retained<NSDictionary<VNImageOption, AnyObject>> = NSDictionary::new();
+    let handler =
+        VNImageRequestHandler::initWithData_options(VNImageRequestHandler::alloc(), &data, &options);
+
+    let request = VNRecognizeTextRequest::new();
+    request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
+
+    let request_ref: &VNRequest = &request;
+    let requests = NSArray::from_slice(&[request_ref]);
+    handler
+        .performRequests_error(&requests)
+        .map_err(|e| e.localizedDescription().to_string())?;
+
+    let mut out = String::new();
+    if let Some(results) = request.results() {
+        for i in 0..results.count() {
+            let obs = results.objectAtIndex(i);
+            let candidates = obs.topCandidates(1);
+            if candidates.count() > 0 {
+                let top = candidates.objectAtIndex(0);
+                out.push_str(&top.string().to_string());
+                out.push('\n');
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn capture_screen_text(_window: tauri::WebviewWindow) -> Result<String, String> {
+    Err("capture_screen_text is only available on macOS".into())
+}
+
+// ─── Screen Recording permission flow ────────────────────────────────────────────────────────────
+// macOS gates screen capture behind the Screen Recording TCC permission. We can't grant it, but we
+// CAN: (a) check if it's already granted — CGPreflightScreenCaptureAccess, no prompt; (b) fire the
+// one-time system prompt — CGRequestScreenCaptureAccess; (c) deep-link to the exact System Settings
+// pane so the UI can walk the user through it instead of leaving them at a bare OS pop-up. This
+// mirrors the Full Disk Access flow already used for iMessage.
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+/// True if Agent Forge already holds Screen Recording permission. Does NOT prompt.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn screen_capture_authorized() -> bool {
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+/// Fire the one-time macOS Screen Recording prompt (the result often stays stale until relaunch).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn request_screen_capture_access() -> bool {
+    unsafe { CGRequestScreenCaptureAccess() }
+}
+
+/// Open System Settings → Privacy & Security → Screen Recording (same `open` + URL-scheme trick the
+/// FDA and Spoken Content panes use; the webview opener ignores the `x-apple.systempreferences:` scheme).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not open System Settings: {e}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn screen_capture_authorized() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn request_screen_capture_access() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    Err("screen recording settings are only available on macOS".into())
+}
