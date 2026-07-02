@@ -426,7 +426,11 @@ export default function SpotlightBar() {
       if (tabForCard) {
         setPageCards(prev => ({ ...prev, [userMsg.id]: tabForCard! }));
       }
-      const historyMsgs = (messages[chatId] ?? []).filter(m => m.content).map(m => ({ id: m.id, role: m.role, content: m.content }));
+      // Exclude prior error/stopped bubbles from the LLM history — otherwise the model reads its own
+      // "⚠️ API key" failures as conversation and parrots them forever (a real dogfood trap).
+      const historyMsgs = (messages[chatId] ?? [])
+        .filter(m => m.content && !m.content.startsWith('⚠️') && m.content !== '_(stopped)_')
+        .map(m => ({ id: m.id, role: m.role, content: m.content }));
       historyMsgs.push({ id: userMsg.id, role: 'user' as const, content: command });
 
       let accumulated = '';
