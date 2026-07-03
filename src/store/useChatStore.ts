@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { emit } from '@tauri-apps/api/event';
 import { db } from '../services/database';
 
 interface ChatStore {
@@ -86,8 +87,28 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   persist: async () => {
     const { chats, messages, activeChatId } = get();
-    await db.set('chats', chats);
-    await db.set('messages', messages);
+    // Merge with disk before writing so this window can't clobber chats/messages the OVERLAY
+    // persisted since we last hydrated (both windows share these keys). Union chats by id (newer
+    // updatedAt wins); per shared chat keep the longer message list — both surfaces only append.
+    const [diskChats, diskMessages] = await Promise.all([
+      db.get('chats', []) as Promise<any[]>,
+      db.get('messages', {}) as Promise<Record<string, any[]>>,
+    ]);
+    const byId = new Map<string, any>();
+    for (const c of diskChats) byId.set(c.id, c);
+    for (const c of chats) {
+      const prev = byId.get(c.id);
+      byId.set(c.id, !prev || (c.updatedAt ?? 0) >= (prev.updatedAt ?? 0) ? c : prev);
+    }
+    const mergedMessages: Record<string, any[]> = { ...diskMessages };
+    for (const [id, msgs] of Object.entries(messages)) {
+      const prev = mergedMessages[id];
+      mergedMessages[id] = !prev || (msgs?.length ?? 0) >= prev.length ? msgs : prev;
+    }
+    await db.set('chats', Array.from(byId.values()));
+    await db.set('messages', mergedMessages);
     await db.set('activeChatId', activeChatId);
+    // Let the overlay reload (mirror of the overlay's 'spotlight-chat-updated' → main hydrate).
+    emit('main-chat-updated', null).catch(() => {});
   },
 }));

@@ -27,7 +27,11 @@ export const trustOfTab = (t: OmniTab): TrustTier =>
 // (anyone can email/text you) and must be fenced as untrusted-external DATA, never instructions
 // (§3 rule 1). The user's own tools (notes, calendar, tasks) are trusted-local. An untagged snapshot
 // defaults to trusted-local — only the inbound surfaces opt into the untrusted fence.
-export type ToolContextSource = 'mail' | 'messages' | 'notes' | 'calendar' | 'tasks';
+// `screen` = on-device OCR of whatever app is frontmost. It can be a web page, someone else's
+// message, any app — wholly attacker-influençable — so it fences as untrusted-external, same as
+// inbound comms. (The overlay fences it inline today; this keeps the buildSystemPrompt path correct
+// when the sidecar routes screen context through toolContext.)
+export type ToolContextSource = 'mail' | 'messages' | 'notes' | 'calendar' | 'tasks' | 'screen';
 
 export const trustOfToolSource = (source?: ToolContextSource): TrustTier =>
-  source === 'mail' || source === 'messages' ? 'untrusted-external' : 'trusted-local';
+  source === 'mail' || source === 'messages' || source === 'screen' ? 'untrusted-external' : 'trusted-local';
