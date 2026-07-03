@@ -582,11 +582,11 @@ export default function SpotlightBar() {
 
   return (
     <div className="w-screen h-screen flex flex-col bg-transparent select-none overflow-hidden">
-      <div className="flex flex-col flex-1 rounded-2xl overflow-hidden min-h-0 bg-panel/95 backdrop-blur-[40px] border border-edge-2"
+      <div className="flex flex-col flex-1 rounded-l-2xl overflow-hidden min-h-0 bg-panel/95 backdrop-blur-[40px] border border-edge-2 border-r-0"
         style={{
           backdropFilter: 'blur(40px) saturate(200%)',
           WebkitBackdropFilter: 'blur(40px) saturate(200%)',
-          boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
+          boxShadow: '-10px 0 44px rgba(0,0,0,0.5)',
         }}
       >
         {/* ── Row 1: Title bar ── */}
