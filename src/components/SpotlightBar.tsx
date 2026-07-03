@@ -60,7 +60,7 @@ export default function SpotlightBar() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showHotkeyOnboarding, setShowHotkeyOnboarding] = useState(false);
-  const [pageCards, setPageCards] = useState<Record<string, { title: string; url: string; text: string; kind?: 'screen' }>>({});
+  const [pageCards, setPageCards] = useState<Record<string, { title: string; url: string; text: string; kind?: 'screen'; thumb?: string }>>({});
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
@@ -413,9 +413,12 @@ export default function SpotlightBar() {
             const reappear = () => { void win.show(); };
             const unlistenCaptured = await listen('screen-ocr:captured', reappear);
             let seen = '';
+            let thumb: string | undefined;
             try {
               await win.hide();
-              seen = await invoke<string>('capture_screen_text');
+              const res = await invoke<{ text: string; thumb?: string }>('capture_screen_text');
+              seen = res?.text ?? '';
+              thumb = res?.thumb;
             } finally {
               unlistenCaptured();
               reappear(); // idempotent safety net — also covers the error path
@@ -432,7 +435,7 @@ export default function SpotlightBar() {
               // web-page path gets via tabForCard. Screen reads should never be invisible.
               setPageCards(prev => ({
                 ...prev,
-                [userMsg.id]: { title: 'Read your screen', url: 'on-device OCR', text: seen.trim(), kind: 'screen' },
+                [userMsg.id]: { title: 'Read your screen', url: 'on-device OCR', text: seen.trim(), kind: 'screen', thumb },
               }));
             } else {
               // Empty/near-empty text almost always means Screen Recording isn't effective yet — not
@@ -865,9 +868,15 @@ export default function SpotlightBar() {
                       </button>
                       {expanded && (
                         <div className="px-3 pb-2 border-t border-on-accent/20">
-                          <p className="text-on-accent/60 mt-1.5 mb-1">{card.url}</p>
+                          {card.thumb && (
+                            <div className="mt-2">
+                              <img src={card.thumb} alt="The frame Alexis read" className="w-full rounded-lg border border-on-accent/25" />
+                              <p className="text-[9px] text-on-accent/50 mt-1 italic">the exact frame I read — notice I'm not in it · nothing left your Mac</p>
+                            </div>
+                          )}
+                          {card.kind !== 'screen' && <p className="text-on-accent/60 mt-1.5 mb-1">{card.url}</p>}
                           {card.text
-                            ? <p className="text-on-accent/70 line-clamp-6 whitespace-pre-wrap">{card.text.slice(0, 600)}{card.text.length > 600 ? '…' : ''}</p>
+                            ? <p className="text-on-accent/70 line-clamp-6 whitespace-pre-wrap mt-1.5">{card.text.slice(0, 600)}{card.text.length > 600 ? '…' : ''}</p>
                             : <p className="text-on-accent/50 italic">Page text not available</p>
                           }
                         </div>

@@ -203,7 +203,7 @@ pub async fn capture_screen(_window: tauri::WebviewWindow) -> Result<String, Str
 /// immediately — the (slower) OCR pass runs after that, off the UI's critical path.
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<String, String> {
+pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
     if !matches!(window.label(), "main" | "spotlight") {
         return Err("screen capture not permitted from this window".into());
     }
@@ -227,6 +227,9 @@ pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<String,
         return Err("screencapture failed".into());
     }
     let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
+    // Downscaled thumbnail — the "preview receipt" the overlay shows so the user sees exactly what
+    // was read (and that the overlay isn't in the frame). Built before we delete the full grab.
+    let thumb = make_thumb(&path);
     let _ = std::fs::remove_file(&path);
 
     // Frame is in hand — tell the overlay to come back while we OCR.
@@ -245,7 +248,40 @@ pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<String,
     let text = tauri::async_runtime::spawn_blocking(move || ocr_png(&bytes))
         .await
         .map_err(|e| format!("ocr task failed: {e}"))??;
-    Ok(text.chars().take(12000).collect())
+    let capped: String = text.chars().take(12000).collect();
+    Ok(serde_json::json!({ "text": capped, "thumb": thumb }))
+}
+
+/// Downscale a PNG (max 480px) via `sips` → base64 `data:` URL. None on any failure (non-fatal).
+#[cfg(target_os = "macos")]
+fn make_thumb(src: &std::path::Path) -> Option<String> {
+    use base64::Engine;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let out = std::env::temp_dir().join(format!("agentforge-thumb-{stamp}.png"));
+    let ok = std::process::Command::new("/usr/bin/sips")
+        .arg("-Z")
+        .arg("480")
+        .arg(src)
+        .arg("--out")
+        .arg(&out)
+        .status()
+        .ok()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        let _ = std::fs::remove_file(&out);
+        return None;
+    }
+    let bytes = std::fs::read(&out).ok();
+    let _ = std::fs::remove_file(&out);
+    let b = bytes?;
+    if b.is_empty() {
+        return None;
+    }
+    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(b)))
 }
 
 /// Run Apple's on-device text recognition over PNG bytes; returns the recognized lines joined.
@@ -291,7 +327,7 @@ fn ocr_png(bytes: &[u8]) -> Result<String, String> {
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-pub async fn capture_screen_text(_window: tauri::WebviewWindow) -> Result<String, String> {
+pub async fn capture_screen_text(_window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
     Err("capture_screen_text is only available on macOS".into())
 }
 

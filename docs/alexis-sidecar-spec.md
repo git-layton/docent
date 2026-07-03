@@ -37,8 +37,21 @@ your own hardware.**
 - **Docked right-edge overlay panel** (not a tiling panel — never resizes the user's windows),
   with a **collapse-to-rail** slim state. Replaces the centered Spotlight card.
 - Built by mounting `ChatPanel (mode="inline")` inside `DockedAgentRail`-style chrome in the
-  overlay window. Hard prerequisite: store hydration/sync across windows
-  (seed: existing `spotlight-chat-updated` event bus).
+  overlay window.
+- **ONE conversation, live-synced both ways** (owner requirement — the whole point of "one surface").
+  Current state: overlay (`SpotlightBar`) and main app (`useChatStore`) ALREADY persist to the same
+  db keys (`chats`/`messages`/`activeChatId`), but do NOT live-sync. Three concrete bugs to fix:
+  (a) **No live reload** — main window ignores the overlay's `spotlight-chat-updated`; neither emits
+  a reciprocal event. Fix: a single `chats-updated` broadcast both windows emit-on-write and
+  listen-to → reload from db (debounced). (b) **Clobbering** — `useChatStore.persist()` full-
+  overwrites from stale in-memory state, can wipe overlay-written messages. Fix: merge-on-persist
+  everywhere (the overlay's byId merge is the model), or route both through one owner. (c) **Drift/
+  new-chat-on-summon** — overlay jumps to most-recent (`storedChats[0]`) instead of the shared
+  `activeChatId`, and sends with no active chat spawn a fresh one. Fix: overlay honors shared
+  `activeChatId`; "New chat" is explicit-only. Net: chat in the popup, see it in the main window,
+  and back — same thread, no dupes.
+- Hard prerequisite for the shared `<ChatPanel>` mount, but the sync fix (above) is valuable and
+  shippable on its own, before the full component share.
 - **Capture crops out the panel strip** — kills the hide-during-capture blink permanently.
 - **Focus contract:** closing/collapsing returns focus to the PREVIOUS app — never raises the
   Agent Forge main window (current behavior is a bug).
