@@ -200,8 +200,9 @@ export function FileActionCard({ op, opKey, streaming, onToast, forcePreview }: 
         <span className={`text-xs font-black uppercase tracking-widest ${danger ? 'text-danger' : 'text-warning'}`}>
           Approve file access
         </span>
-        <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-ink-3 uppercase tracking-widest">
-          <AlertTriangle className="w-3 h-3" /> outside workspace
+        <span className="ml-auto flex items-center gap-2 text-[10px] font-bold tracking-widest">
+          {forcePreview && <span className="text-danger flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> Prompted by on-screen content</span>}
+          <span className="text-ink-3 flex items-center gap-1 uppercase"><AlertTriangle className="w-3 h-3" /> outside workspace</span>
         </span>
       </div>
       <div className="px-4 py-3 bg-panel-2">

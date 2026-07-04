@@ -14,11 +14,12 @@ interface Props {
   opKey: string;
   streaming: boolean;
   onToast: (msg: string) => void;
+  forcePreview?: boolean;
 }
 
 type Phase = 'idle' | 'gate' | 'preview' | 'running' | 'done' | 'denied' | 'error';
 
-export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
+export function CommandActionCard({ op, opKey, streaming, onToast, forcePreview }: Props) {
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
   const developerMode = useSettingsStore(s => s.appSettings.developerMode);
   const grants = useSettingsStore(s => s.appSettings.fileAccessGrants);
@@ -59,6 +60,7 @@ export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
   useEffect(() => {
     if (streaming || !command) return;
     if (!developerMode) { setPhase('gate'); return; }
+    if (forcePreview) { setPhase('preview'); return; }
     if (preapproved) {
       if (handled.has(opKey)) return;
       handled.add(opKey);
@@ -73,7 +75,7 @@ export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
     }
     setPhase('preview');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streaming, command, developerMode, preapproved, opKey]);
+  }, [streaming, command, developerMode, preapproved, opKey, forcePreview]);
 
   if (!command) {
     return (
@@ -140,7 +142,10 @@ export function CommandActionCard({ op, opKey, streaming, onToast }: Props) {
       <div className="px-4 py-3 flex items-center gap-2 bg-warning-soft/40">
         <ShieldAlert className="w-4 h-4 text-warning" />
         <span className="text-xs font-black uppercase tracking-widest text-warning">Approve command</span>
-        <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-ink-3"><FolderGit2 className="w-3 h-3" /> {cwd.split('/').slice(-2).join('/')}</span>
+        <span className="ml-auto flex items-center gap-2 text-[10px] font-bold tracking-widest">
+          {forcePreview && <span className="text-danger flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> Prompted by on-screen content</span>}
+          <span className="text-ink-3 flex items-center gap-1"><FolderGit2 className="w-3 h-3" /> {cwd.split('/').slice(-2).join('/')}</span>
+        </span>
       </div>
       <div className="px-4 py-3 bg-panel-2">
         {op.summary && <p className="text-xs text-ink-2 mb-2">{op.summary}</p>}

@@ -31,7 +31,7 @@ export const trustOfTab = (t: OmniTab): TrustTier =>
 // message, any app — wholly attacker-influençable — so it fences as untrusted-external, same as
 // inbound comms. (The overlay fences it inline today; this keeps the buildSystemPrompt path correct
 // when the sidecar routes screen context through toolContext.)
-export type ToolContextSource = 'mail' | 'messages' | 'notes' | 'calendar' | 'tasks' | 'screen';
+export type ToolContextSource = 'mail' | 'messages' | 'notes' | 'calendar' | 'tasks' | 'screen' | 'mcp';
 
 export const trustOfToolSource = (source?: ToolContextSource): TrustTier =>
-  source === 'mail' || source === 'messages' || source === 'screen' ? 'untrusted-external' : 'trusted-local';
+  source === 'mail' || source === 'messages' || source === 'screen' || source === 'mcp' ? 'untrusted-external' : 'trusted-local';

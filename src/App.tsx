@@ -2531,7 +2531,7 @@ export default function App() {
           const opKey = `${msg.id}:${match.index}`;
           elements.push(
             fop.action === 'command'
-              ? <CommandActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} />
+              ? <CommandActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} forcePreview={!!msg.untrustedTurn} />
               : <FileActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} forcePreview={!!msg.untrustedTurn} />
           );
         } catch {
