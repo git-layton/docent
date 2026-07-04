@@ -52,6 +52,17 @@
   --af-warning-soft: #332406;
 }
 
+/* ── Perception glow (GlowOverlay) ────────────────────────────────────────
+   Deliberately theme-INVARIANT — outside the accent ramps below on purpose.
+   The glow is the "your screen is being read" trust signal: it must look
+   identical in every theme/accent, like the OS's fixed-color recording
+   indicators. Signature ember-violet per the brand mark.                 */
+:root {
+  --af-glow-ring: rgba(165, 155, 255, 0.95);
+  --af-glow-bloom: rgba(122, 110, 230, 0.6);
+  --af-glow-ember: rgba(224, 120, 90, 0.18);
+}
+
 /* ── Accent ramps ─────────────────────────────────────────────────────────
    accent        interactive fill (buttons, active states)
    accent-strong hover / pressed / high-emphasis text on light surfaces

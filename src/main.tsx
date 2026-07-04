@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import SpotlightBar from "./components/SpotlightBar";
+import GlowOverlay from "./components/GlowOverlay";
 
 // ---------------------------------------------------------------------------
 // Root error boundary — turns white-screen crashes into readable diagnostics
@@ -63,6 +64,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <RootErrorBoundary>
       {windowParam === 'spotlight' ? <SpotlightBar /> :
+       windowParam === 'glow'      ? <GlowOverlay /> :
        windowParam === 'browser'   ? <BrowserWindowShim /> :
        <App />}
     </RootErrorBoundary>

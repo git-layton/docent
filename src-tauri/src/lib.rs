@@ -3896,6 +3896,12 @@ pub fn run() {
                 .resizable(true)
                 .build()?;
 
+            // The perception glow rides above everything but must never eat a click.
+            // (Not expressible in tauri.conf.json — cursor passthrough is runtime-only API.)
+            if let Some(glow) = app.get_webview_window("glow") {
+                let _ = glow.set_ignore_cursor_events(true);
+            }
+
             // ── Global shortcut: Cmd+Shift+F ──────────────────────────────────
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             let handle = app.handle().clone();

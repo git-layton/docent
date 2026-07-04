@@ -140,6 +140,42 @@ pub async fn webview_screenshot(
 // auto-generated `allow-app-local` ACL and is NEVER added to `allow-browser-remote` — a remote page
 // must never screenshot the user's desktop. The window-label guard below is defense-in-depth.
 
+// ─── The perception glow (shutter-flash receipt) ──────────────────────────────────────────────────
+// Every screen grab flashes an edge glow on the captured display — the user-visible "I just looked"
+// signal. It fires AFTER the frame is in hand, camera-shutter style, so the ring can never appear in
+// its own screenshot (the receipt thumbnail must show a clean frame). Living here, at the perception
+// layer, means no capture path can forget it — frontends don't orchestrate it at all.
+//
+// Lifecycle is owned HERE too: a generation-checked failsafe hides the window after the animation
+// (3.6s) plus margin, so a stalled/dead glow webview can never strand an always-on-top overlay on
+// screen. The webview side (GlowOverlay.tsx) only paints.
+
+#[cfg(target_os = "macos")]
+static GLOW_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_os = "macos")]
+fn pulse_glow(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use tauri::{Emitter, Manager};
+    let Some(w) = app.get_webview_window("glow") else { return };
+    // `screencapture` grabs the MAIN display, so the glow must ride that same monitor — the
+    // primary — not whichever screen the (never user-moved) glow window happens to sit on.
+    if let Ok(Some(monitor)) = w.primary_monitor() {
+        let _ = w.set_size(monitor.size().clone());
+        let _ = w.set_position(monitor.position().clone());
+    }
+    let _ = w.show();
+    let _ = app.emit("glow:pulse", ());
+    let generation = GLOW_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(4200)).await;
+        // A newer pulse re-armed the window; let ITS failsafe do the hiding.
+        if GLOW_GEN.load(Ordering::SeqCst) == generation {
+            let _ = w.hide();
+        }
+    });
+}
+
 /// Capture the current screen as a PNG, returned as a base64 `data:` URL ready for `describeImage`.
 #[cfg(target_os = "macos")]
 #[tauri::command]
@@ -173,6 +209,10 @@ pub async fn capture_screen(window: tauri::WebviewWindow) -> Result<String, Stri
 
     let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
     let _ = std::fs::remove_file(&path);
+    {
+        use tauri::Manager;
+        pulse_glow(window.app_handle());
+    }
     if bytes.is_empty() {
         return Err(
             "screen capture was empty — grant Screen Recording in System Settings, then relaunch".into(),
@@ -232,9 +272,11 @@ pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<serde_j
     let thumb = make_thumb(&path);
     let _ = std::fs::remove_file(&path);
 
-    // Frame is in hand — tell the overlay to come back while we OCR.
+    // Frame is in hand — flash the perception glow (it also reads as "reading…" feedback while the
+    // OCR pass runs) and tell the overlay to come back.
     {
-        use tauri::Emitter;
+        use tauri::{Emitter, Manager};
+        pulse_glow(window.app_handle());
         let _ = window.emit("screen-ocr:captured", ());
     }
 
