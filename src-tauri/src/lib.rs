@@ -2152,22 +2152,22 @@ fn get_active_tab(cache: tauri::State<TabCache>, preferred: Option<String>) -> s
     detect_active_tab_preferred(preferred.as_deref())
 }
 
-/// Dock the spotlight window to the right edge of the current monitor, full height (below the menu
-/// bar) — the "sidecar" panel layout. Called on every show so it re-docks to whichever display it's
-/// currently on and adapts to resolution changes.
+/// Dock the spotlight window to the right edge of the current monitor's WORK AREA — the "sidecar"
+/// panel layout. The work area is the OS-reported region minus the menu bar and the Dock (wherever
+/// it's pinned, whatever its size), so the panel's bottom — the input box — is never hidden behind
+/// the Dock. Called on every show so it re-docks to whichever display it's currently on and adapts
+/// to resolution/Dock changes.
 fn dock_spotlight_right(w: &tauri::WebviewWindow) {
     if let Ok(Some(m)) = w.current_monitor() {
         let scale = m.scale_factor();
-        let sz = m.size();
-        let pos = m.position();
-        let mon_w = sz.width as f64 / scale;
-        let mon_h = sz.height as f64 / scale;
-        let mon_x = pos.x as f64 / scale;
-        let mon_y = pos.y as f64 / scale;
+        let area = m.work_area();
+        let work_w = area.size.width as f64 / scale;
+        let work_h = area.size.height as f64 / scale;
+        let work_x = area.position.x as f64 / scale;
+        let work_y = area.position.y as f64 / scale;
         let panel_w = 400.0_f64;
-        let top_inset = 40.0_f64; // clear the menu bar
-        let _ = w.set_size(tauri::LogicalSize::new(panel_w, (mon_h - top_inset).max(320.0)));
-        let _ = w.set_position(tauri::LogicalPosition::new(mon_x + mon_w - panel_w, mon_y + top_inset));
+        let _ = w.set_size(tauri::LogicalSize::new(panel_w, work_h.max(320.0)));
+        let _ = w.set_position(tauri::LogicalPosition::new(work_x + work_w - panel_w, work_y));
     }
 }
 
