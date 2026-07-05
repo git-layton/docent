@@ -49,15 +49,17 @@ jobs:
           # the PRIVATE key + its password live only in repo secrets, never in git.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple Developer ID signing + notarization is intentionally OFF for now → ships an unsigned
-          # build (first launch needs right-click → Open, or `xattr -dr com.apple.quarantine`).
-          # IMPORTANT: these must be UNSET when you have no Apple account. Wiring them to missing
-          # secrets sets them to empty strings, and the bundler treats an empty APPLE_CERTIFICATE as
-          # "import this cert" then fails the keychain import. To enable a notarized build later: add
-          # the APPLE_* repo secrets AND uncomment the lines below, then re-tag.
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Code signing with a SELF-SIGNED identity ("Agent Forge Signing", generated locally,
+          # backed up in ~/.tauri/agentforge-codesign.*). NOT notarization — Gatekeeper still needs
+          # the one-time right-click → Open. The point is a STABLE code-signing identity: macOS TCC
+          # keys permission grants (Accessibility/Automation/Screen Recording/Full Disk Access) to
+          # the signing identity, and ad-hoc builds change identity every release, silently voiding
+          # every grant on every update. A constant identity makes grants survive updates.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Apple notarization stays OFF (needs a paid Apple Developer account). To enable later:
+          # add APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID secrets and uncomment:
           # APPLE_ID: ${{ secrets.APPLE_ID }}
           # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
