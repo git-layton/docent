@@ -1,6 +1,6 @@
 [package]
 name = "agent-forge"
-version = "2.0.22"
+version = "2.0.23"
 description = "A local-first personal AI command center for custom agents, browser context, and persistent memory."
 authors = ["git-layton"]
 edition = "2021"
