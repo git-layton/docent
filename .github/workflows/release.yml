@@ -46,7 +46,14 @@ jobs:
       # public cert lives in-repo (public material; the private key is only in the
       # APPLE_CERTIFICATE secret and ~/.tauri on the dev machine).
       - name: Trust the self-signed signing certificate
-        run: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain src-tauri/certs/agentforge-codesign.crt
+        run: |
+          # Modern macOS refuses non-interactive trust changes unless the trust-settings
+          # authorization right is opened first — without this, add-trusted-cert exits 0 but
+          # silently does nothing and codesign later fails with "failed to resolve signing identity".
+          sudo security authorizationdb write com.apple.trust-settings.admin allow
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain src-tauri/certs/agentforge-codesign.crt
+          # Fail HERE with a clear message (not deep inside the bundler) if trust didn't take.
+          security verify-cert -c src-tauri/certs/agentforge-codesign.crt -p codeSign
 
       - name: Build, sign & publish
         uses: tauri-apps/tauri-action@v0
