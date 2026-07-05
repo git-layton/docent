@@ -10,6 +10,7 @@ import { normalizeVoiceProfile } from '../services/voice';
 import { buildVoiceCard, buildRelationshipVoiceCard } from '../services/voiceRuntime';
 import { VoiceSetupModal } from './VoiceSetupModal';
 import { FullDiskAccessGrant } from './FullDiskAccessGrant';
+import { MacPermissionsCard } from './MacPermissionsCard';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -1066,6 +1067,10 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
             </div>
           ) : activeSection === 'connect' ? (
             <div className="space-y-6">
+
+              {/* Every macOS grant in one place, requestable up-front — the cards below handle
+                  per-app credentials/config; this one handles the OS-level permissions. */}
+              <MacPermissionsCard />
 
               {/* Brave Search Integration */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">

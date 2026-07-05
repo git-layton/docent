@@ -12,6 +12,7 @@ description = "Every registered app command; for local trusted windows only (aut
 allow = [
   "append_task",
   "archive_memory_file",
+  "automation_grant",
   "browser_agent_report",
   "browser_create",
   "browser_download_url",
@@ -106,6 +107,7 @@ allow = [
   "notes_list_folders",
   "notes_read",
   "notes_update",
+  "open_privacy_settings",
   "open_screen_recording_settings",
   "open_spoken_content_settings",
   "pty_kill",

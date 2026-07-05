@@ -9,6 +9,7 @@ mod mail;
 mod imessage;
 mod calendar;
 mod notes;
+mod permissions;
 mod pty;
 mod screenshot;
 
@@ -4009,6 +4010,8 @@ pub fn run() {
             screenshot::screen_capture_authorized,
             screenshot::request_screen_capture_access,
             screenshot::open_screen_recording_settings,
+            permissions::automation_grant,
+            permissions::open_privacy_settings,
             get_active_tab,
             show_spotlight,
             hide_spotlight,
