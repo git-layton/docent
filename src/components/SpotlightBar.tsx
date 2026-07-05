@@ -62,6 +62,9 @@ export default function SpotlightBar() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showHotkeyOnboarding, setShowHotkeyOnboarding] = useState(false);
   const [pageCards, setPageCards] = useState<Record<string, { title: string; url: string; text: string; kind?: 'screen'; thumb?: string }>>({});
+  // Memory transparency — which memories were retrieved and injected for each message, so context
+  // "swapping" on a topic change is visible instead of silent (mirrors the main window's sources).
+  const [memoryCards, setMemoryCards] = useState<Record<string, Array<{ title: string; snippet: string }>>>({});
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
@@ -497,6 +500,8 @@ export default function SpotlightBar() {
       }
       if (relevantMem.text) {
         memoryBlock += `[RELEVANT MEMORY FOR THIS MESSAGE]\nRetrieved from your knowledge base because it's relevant to what was just said — use it if helpful:\n${relevantMem.text.slice(0, 3000)}\n\n`;
+        // Show WHAT was recalled on the message itself — memory use should never be invisible.
+        setMemoryCards(prev => ({ ...prev, [userMsg.id]: relevantMem.hits.map(h => ({ title: h.title, snippet: h.snippet })) }));
       }
       const extraContext = tabContext || screenContext;
       const systemPrompt = [basePrompt, memoryBlock.trim(), extraContext].filter(Boolean).join('\n\n');
@@ -970,6 +975,38 @@ export default function SpotlightBar() {
                     </div>
                   );
                 })()}
+                {msg.role === 'user' && memoryCards[msg.id]?.length ? (() => {
+                  const mems = memoryCards[msg.id];
+                  const expanded = expandedCards.has(`mem-${msg.id}`);
+                  return (
+                    <div className="text-[10px] border-b border-on-accent/20">
+                      <button
+                        onClick={() => setExpandedCards(prev => {
+                          const next = new Set(prev);
+                          expanded ? next.delete(`mem-${msg.id}`) : next.add(`mem-${msg.id}`);
+                          return next;
+                        })}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-on-accent/10 transition-colors">
+                        <Brain className="w-3 h-3 text-on-accent/70 shrink-0" />
+                        <span className="flex-1 truncate text-on-accent/80 font-medium">
+                          remembered {mems.length === 1 ? `“${mems[0].title}”` : `${mems.length} memories`}
+                        </span>
+                        <ChevronDown className={`w-3 h-3 text-on-accent/60 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                      </button>
+                      {expanded && (
+                        <div className="px-3 pb-2 border-t border-on-accent/20">
+                          {mems.map((m, i) => (
+                            <div key={i} className="mt-1.5">
+                              <p className="text-on-accent/80 font-semibold">{m.title}</p>
+                              <p className="text-on-accent/60 line-clamp-3 whitespace-pre-wrap">{m.snippet}</p>
+                            </div>
+                          ))}
+                          <p className="text-[9px] text-on-accent/50 mt-1.5 italic">recalled from memory because it matched this message — retrieval re-runs on every message, so changing topic swaps what's recalled</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })() : null}
                 {msg.role === 'user' ? (
                   <div className="px-3.5 py-2.5">
                     <span className="whitespace-pre-wrap">{msg.content}</span>
