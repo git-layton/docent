@@ -19,6 +19,8 @@ pub async fn automation_grant(target: String) -> Result<String, String> {
     let app = match target.as_str() {
         "notes" => "Notes",
         "messages" => "Messages",
+        "chrome" => "Google Chrome",
+        "safari" => "Safari",
         other => return Err(format!("unknown automation target '{other}'")),
     };
     let script = format!("tell application \"{app}\" to get name");

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { relaunch } from '@tauri-apps/plugin-process';
 import {
   Monitor, CalendarDays, ListChecks, StickyNote, Send, MessageSquare,
-  CheckCircle2, Loader2, ExternalLink, ShieldCheck, RotateCw,
+  CheckCircle2, Loader2, ExternalLink, ShieldCheck, RotateCw, Globe, Compass,
 } from 'lucide-react';
 
 /**
@@ -39,7 +39,7 @@ interface RowDef {
 const AUTOMATION_LS_KEY = (id: string) => `af-perm-${id}`;
 
 // Automation rows: no silent probe exists, so persist the last probe result.
-const automationRow = (id: 'notes' | 'messages-send', target: string, label: string, desc: string, icon: typeof Monitor): RowDef => ({
+const automationRow = (id: string, target: string, label: string, desc: string, icon: typeof Monitor): RowDef => ({
   id, label, desc, icon,
   grant: async () => {
     const res = await invoke<string>('automation_grant', { target });
@@ -73,6 +73,10 @@ const ROWS: RowDef[] = [
   eventkitRow('reminders', 'reminder', 'reminders', 'Reminders', 'Read and create to-dos in Apple Reminders.', ListChecks),
   automationRow('notes', 'notes', 'Apple Notes', 'Read, create, and update notes. Granting opens Notes once.', StickyNote),
   automationRow('messages-send', 'messages', 'Messages — send', 'Send iMessages on your behalf. Granting opens Messages once.', Send),
+  // NOTE: this is the permission macOS's confusing "wants to control" dialog is about — it is
+  // Automation, NOT Accessibility; ticking the app in the Accessibility pane does nothing.
+  automationRow('chrome', 'chrome', 'Chrome — active tab', 'Read the current tab so answers can use the page. Full-page text also needs Chrome: View → Developer → Allow JavaScript from Apple Events.', Globe),
+  automationRow('safari', 'safari', 'Safari — active tab', 'Read the current tab. Full-page text also needs Safari: Develop menu → Allow JavaScript from Apple Events.', Compass),
   {
     id: 'messages-read', label: 'Messages — read', icon: MessageSquare,
     desc: 'Read conversations (Full Disk Access — macOS never prompts for this one; grant it in System Settings).',

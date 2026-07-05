@@ -3,10 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { writeMemory } from '../lib/ipc';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
-import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound, Bookmark, StickyNote } from 'lucide-react';
+import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound, Bookmark, StickyNote, Sparkles } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
+import { loadMemorySummary, retrieveRelevantMemory } from '../services/memoryContext';
 import { db } from '../services/database';
 import { speak, cancelSpeech, resolveVoicePrefs, loadVoices } from '../lib/voice';
 import { FormattedText } from './ui/FormattedText';
@@ -93,6 +94,13 @@ export default function SpotlightBar() {
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [models, setModels] = useState<any[]>([]);
   const [selectedModelId, setSelectedModelId] = useState('');
+  // The main window's default model — shown in the picker as the "follow main" option; the
+  // spotlight only diverges when the user explicitly pins a model here (db 'spotlightModelId').
+  const [mainModelId, setMainModelId] = useState('');
+  // Dream-cycle notices (reminders the Dreamer surfaced) — shown HERE too, not only in the main
+  // window's morning banner, since the sidecar is where the user actually lives.
+  const [dreamNotices, setDreamNotices] = useState<Array<{ notice_title?: string; notice_body?: string }>>([]);
+  const dreamLogRef = useRef<any>(null);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [isDeepThinking, setIsDeepThinking] = useState(false);
   const [useTab, setUseTab] = useState(true);
@@ -146,11 +154,26 @@ export default function SpotlightBar() {
       }
       if (storedModels.length) {
         setModels(storedModels);
+        setMainModelId(storedSettings.selectedModelId || '');
         setSelectedModelId(prev => {
           const valid = (id: string) => storedModels.some((m: any) => m.id === id);
-          return valid(prev) ? prev : valid(spotModelId) ? spotModelId : (storedSettings.selectedModelId || storedModels[0]?.id || '');
+          // Pinned here wins; otherwise FOLLOW the main window's default (so changing it there
+          // propagates), falling back to whatever was already selected.
+          if (valid(spotModelId)) return spotModelId;
+          if (valid(storedSettings.selectedModelId)) return storedSettings.selectedModelId;
+          return valid(prev) ? prev : (storedModels[0]?.id || '');
         });
       }
+      // Dream-cycle notices — re-check on every summon so reminders reach the sidecar promptly.
+      try {
+        const res = await invoke<{ exists: boolean; log?: any }>('read_dream_log');
+        if (res?.exists && res.log && !res.log.dismissed) {
+          dreamLogRef.current = res.log;
+          setDreamNotices((res.log.items ?? []).filter((i: any) => i.type === 'noticed'));
+        } else {
+          setDreamNotices([]);
+        }
+      } catch { /* no dream log yet */ }
       // Sync the conversation with the main window (shared chats/messages/activeChatId). Skipped
       // while this overlay is mid-stream so an in-flight reply isn't dropped.
       if (!isStreamingRef.current) {
@@ -211,6 +234,7 @@ export default function SpotlightBar() {
       }
       if (storedModels.length) {
         setModels(storedModels);
+        setMainModelId(storedSettings.selectedModelId || '');
         setSelectedModelId(
           storedModels.some((m: any) => m.id === spotModelId) ? spotModelId : (storedSettings.selectedModelId || storedModels[0]?.id || '')
         );
@@ -453,10 +477,21 @@ export default function SpotlightBar() {
       }
 
       const basePrompt = selectedAgent?.prompt || 'You are a helpful AI assistant. Be concise and well-structured.';
+      // Layered memory — the SAME two tiers the main window injects (see llm.ts buildSystemPrompt).
+      // Without these the sidecar was amnesiac: "Save to memory" wrote files nothing ever read back.
+      const [memorySummary, relevantMem] = await Promise.all([
+        loadMemorySummary(selectedAgent?.id),
+        retrieveRelevantMemory(command, selectedAgent?.id),
+      ]);
+      let memoryBlock = '';
+      if (memorySummary) {
+        memoryBlock += `[YOUR PERSISTENT MEMORY]\nWhat you've learned and consolidated about the user and your work together over time — carry it forward naturally:\n${memorySummary.slice(0, 2500)}\n\n`;
+      }
+      if (relevantMem.text) {
+        memoryBlock += `[RELEVANT MEMORY FOR THIS MESSAGE]\nRetrieved from your knowledge base because it's relevant to what was just said — use it if helpful:\n${relevantMem.text.slice(0, 3000)}\n\n`;
+      }
       const extraContext = tabContext || screenContext;
-      const systemPrompt = extraContext
-        ? `${basePrompt}\n\n${extraContext}`
-        : basePrompt;
+      const systemPrompt = [basePrompt, memoryBlock.trim(), extraContext].filter(Boolean).join('\n\n');
 
       // Attach page context card to the user message so it's visible in the chat
       if (tabForCard) {
@@ -721,6 +756,15 @@ export default function SpotlightBar() {
             </button>
             {showModelPicker && (
               <div className="absolute left-0 top-full mt-1 w-56 rounded-xl overflow-hidden z-50 shadow-2xl bg-panel-2 border border-edge-2">
+                {/* Clear the spotlight pin and follow the main window's default from now on. */}
+                {mainModelId && models.some(m => m.id === mainModelId) && (
+                  <button key="__follow-main__"
+                    onClick={() => { setSelectedModelId(mainModelId); db.set('spotlightModelId', ''); setShowModelPicker(false); }}
+                    className="w-full text-left px-3 py-2 text-xs font-medium transition-colors text-ink-2 hover:bg-wash border-b border-edge">
+                    Same as main window
+                    <span className="block text-[10px] text-ink-3">{models.find(m => m.id === mainModelId)?.name ?? mainModelId}</span>
+                  </button>
+                )}
                 {models.map(model => (
                   <button key={model.id} onClick={() => { setSelectedModelId(model.id); db.set('spotlightModelId', model.id); setShowModelPicker(false); }}
                     className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${model.id === selectedModelId ? 'text-accent bg-accent-soft/50' : 'text-ink-2 hover:bg-wash'}`}>
@@ -999,6 +1043,28 @@ export default function SpotlightBar() {
             <RefreshCw className="w-3 h-3" />
           </button>
         </div>
+        )}
+
+        {/* ── Dream-cycle notices — the Dreamer's reminders, surfaced where the user actually is ── */}
+        {dreamNotices.length > 0 && (
+          <div className="mx-3 mb-2 p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed">
+            <div className="flex items-center gap-2 mb-1.5 font-bold text-ink">
+              <Sparkles className="w-4 h-4 text-accent shrink-0" /> While you were away
+            </div>
+            {dreamNotices.map((n, i) => (
+              <div key={i} className="mb-1.5">
+                <span className="font-semibold text-ink">{n.notice_title}</span>
+                {n.notice_body && <p className="text-ink-2">{n.notice_body}</p>}
+              </div>
+            ))}
+            <button
+              onClick={() => {
+                const log = dreamLogRef.current;
+                if (log) void invoke('write_dream_log', { log: { ...log, dismissed: true } }).catch(() => {});
+                setDreamNotices([]);
+              }}
+              className="text-[11px] text-ink-3 hover:text-ink-2 px-0 py-1 transition-colors">Dismiss</button>
+          </div>
         )}
 
         {/* ── Screen access grant ── */}

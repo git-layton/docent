@@ -2129,12 +2129,12 @@ return src"#;
 fn detect_active_tab_preferred(preferred: Option<&str>) -> serde_json::Value {
     match preferred.unwrap_or("auto") {
         "chrome" => try_chrome()
-            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Chrome tab not found" })),
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Chrome tab not read — if Chrome is open with a tab, grant Automation for Chrome in Settings → Connect your apps → Mac permissions (it's Automation, not Accessibility)" })),
         "safari" => try_safari()
-            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Safari tab not found" })),
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "Safari tab not read — if Safari is open with a tab, grant Automation for Safari in Settings → Connect your apps → Mac permissions (it's Automation, not Accessibility)" })),
         _ => try_chrome()
             .or_else(try_safari)
-            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "no supported browser found" })),
+            .unwrap_or_else(|| serde_json::json!({ "title": "", "url": "", "text": "", "browser": "", "error": "no browser tab read — open Chrome or Safari, and grant Automation in Settings → Connect your apps → Mac permissions" })),
     }
 }
 
