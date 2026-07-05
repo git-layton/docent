@@ -8,6 +8,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { loadMemorySummary, retrieveRelevantMemory } from '../services/memoryContext';
+import { createTopicTracker } from '../services/topicShift';
 import { db } from '../services/database';
 import { speak, cancelSpeech, resolveVoicePrefs, loadVoices } from '../lib/voice';
 import { FormattedText } from './ui/FormattedText';
@@ -65,6 +66,11 @@ export default function SpotlightBar() {
   // Memory transparency — which memories were retrieved and injected for each message, so context
   // "swapping" on a topic change is visible instead of silent (mirrors the main window's sources).
   const [memoryCards, setMemoryCards] = useState<Record<string, Array<{ title: string; snippet: string }>>>({});
+  // Topic-shift watcher — one on-device embedding per message vs. a rolling per-chat centroid;
+  // when the subject jumps, a nudge offers a fresh thread (memory carries over, so it costs nothing).
+  const topicTracker = useRef(createTopicTracker()).current;
+  const [topicNudge, setTopicNudge] = useState<string | null>(null);
+  useEffect(() => { setTopicNudge(null); }, [activeChatId]);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
@@ -325,6 +331,7 @@ export default function SpotlightBar() {
     setShowHistory(false);
     setInput('');
     setTimeout(() => inputRef.current?.focus(), 50);
+    return chatId;
   }, [selectedAgentId, selectedAgent, messages, persistChats]);
 
   const switchChat = (id: string) => {
@@ -486,6 +493,9 @@ export default function SpotlightBar() {
           }
         } catch (e) { console.warn('[spotlight] screen read failed:', e); setScreenAccessNeeded(true); }
       }
+
+      // Topic-shift watch — fire-and-forget, off the send critical path; it only ever shows a nudge.
+      void topicTracker.observe(chatId!, command).then(shift => { if (shift) setTopicNudge(chatId); }).catch(() => {});
 
       const basePrompt = selectedAgent?.prompt || 'You are a helpful AI assistant. Be concise and well-structured.';
       // Layered memory — the SAME two tiers the main window injects (see llm.ts buildSystemPrompt).
@@ -1117,6 +1127,26 @@ export default function SpotlightBar() {
             <RefreshCw className="w-3 h-3" />
           </button>
         </div>
+        )}
+
+        {/* ── Topic-shift nudge — offered, never forced; declining folds the new subject in ── */}
+        {topicNudge && topicNudge === activeChatId && (
+          <div className="mx-3 mb-2 p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed">
+            <div className="flex items-center gap-2 mb-1 font-bold text-ink">
+              <Sparkles className="w-4 h-4 text-accent shrink-0" /> Sounds like a new topic
+            </div>
+            <p className="text-ink-2 mb-2">Fresh threads keep answers sharp — and memory carries over, so nothing is forgotten.</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { const id = startNewChat(); topicTracker.moveToChat(id); setTopicNudge(null); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-accent text-on-accent hover:bg-accent-strong transition-all">
+                <Plus className="w-3 h-3" /> New thread
+              </button>
+              <button
+                onClick={() => { topicTracker.commit(topicNudge); setTopicNudge(null); }}
+                className="text-[11px] text-ink-3 hover:text-ink-2 px-2 py-1 transition-colors">Keep here</button>
+            </div>
+          </div>
         )}
 
         {/* ── Screen-read transparency preview — LOCAL-ONLY thumbnail of what a read would capture.

@@ -36,6 +36,7 @@ allow = [
   "delete_memory_file",
   "delete_model",
   "download_model",
+  "embed_text",
   "eventkit_authorization_status",
   "eventkit_delete_event",
   "eventkit_delete_reminder",

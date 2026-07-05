@@ -1289,6 +1289,20 @@ fn get_index_status() -> serde_json::Value {
     })
 }
 
+/// Embed one short text on-device (same AllMiniLM-L6-v2 the knowledge index uses) — powers the
+/// frontend's topic-shift detection. Returns the raw vector; the rolling-centroid math lives in
+/// TS (services/topicShift.ts) where the per-chat state is.
+#[tauri::command]
+fn embed_text(text: String) -> Result<Vec<f32>, String> {
+    let embedder = get_or_init_embedder()?;
+    let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .embed(vec![text.as_str()], None)
+        .map_err(|e| format!("embed failed: {e}"))?
+        .pop()
+        .ok_or_else(|| "embed returned nothing".into())
+}
+
 #[tauri::command]
 fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
     let max_results = max_results.unwrap_or(5);
@@ -3976,6 +3990,7 @@ pub fn run() {
             sync_knowledge_core_index,
             get_index_status,
             search_knowledge_semantic,
+            embed_text,
             delete_memory_file,
             archive_memory_file,
             restore_archived_file,
