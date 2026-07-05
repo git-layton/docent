@@ -56,7 +56,7 @@
       "bin/llama-libs/*"
     ],
     "macOS": {
-      "signingIdentity": "-",
+      "signingIdentity": "Agent Forge Signing",
       "entitlements": "entitlements.plist"
     }
   },

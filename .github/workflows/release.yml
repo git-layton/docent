@@ -41,6 +41,13 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      # The signing identity is self-signed ("Agent Forge Signing"), so codesign refuses it with
+      # CSSMERR_TP_NOT_TRUSTED unless the runner explicitly trusts the certificate first. The
+      # public cert lives in-repo (public material; the private key is only in the
+      # APPLE_CERTIFICATE secret and ~/.tauri on the dev machine).
+      - name: Trust the self-signed signing certificate
+        run: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain src-tauri/certs/agentforge-codesign.crt
+
       - name: Build, sign & publish
         uses: tauri-apps/tauri-action@v0
         env:
