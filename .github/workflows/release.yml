@@ -41,20 +41,6 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
-      # The signing identity is self-signed ("Agent Forge Signing"), so codesign refuses it with
-      # CSSMERR_TP_NOT_TRUSTED unless the runner explicitly trusts the certificate first. The
-      # public cert lives in-repo (public material; the private key is only in the
-      # APPLE_CERTIFICATE secret and ~/.tauri on the dev machine).
-      - name: Trust the self-signed signing certificate
-        run: |
-          # Modern macOS refuses non-interactive trust changes unless the trust-settings
-          # authorization right is opened first — without this, add-trusted-cert exits 0 but
-          # silently does nothing and codesign later fails with "failed to resolve signing identity".
-          sudo security authorizationdb write com.apple.trust-settings.admin allow
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain src-tauri/certs/agentforge-codesign.crt
-          # Fail HERE with a clear message (not deep inside the bundler) if trust didn't take.
-          security verify-cert -c src-tauri/certs/agentforge-codesign.crt -p codeSign
-
       - name: Build, sign & publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -63,17 +49,17 @@ jobs:
           # the PRIVATE key + its password live only in repo secrets, never in git.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Code signing with a SELF-SIGNED identity ("Agent Forge Signing", generated locally,
-          # backed up in ~/.tauri/agentforge-codesign.*). NOT notarization — Gatekeeper still needs
-          # the one-time right-click → Open. The point is a STABLE code-signing identity: macOS TCC
-          # keys permission grants (Accessibility/Automation/Screen Recording/Full Disk Access) to
-          # the signing identity, and ad-hoc builds change identity every release, silently voiding
-          # every grant on every update. A constant identity makes grants survive updates.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # Apple notarization stays OFF (needs a paid Apple Developer account). To enable later:
-          # add APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID secrets and uncomment:
+          # Builds are AD-HOC signed until the Apple Developer ID lands. We tried a self-signed
+          # stable identity (to stop macOS TCC voiding permission grants on every update — TCC
+          # keys grants to the signing identity), but GitHub's hardened macOS runners deny the
+          # trust-settings change self-signed certs need (security authorizationdb → -60005), so
+          # codesign can never resolve the identity there. When the paid Apple Developer account
+          # is approved: create a "Developer ID Application" cert, replace the APPLE_CERTIFICATE /
+          # APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY secrets, set that identity in
+          # tauri.conf.json, uncomment the env lines below (incl. notarization), and re-tag.
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           # APPLE_ID: ${{ secrets.APPLE_ID }}
           # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
