@@ -4007,6 +4007,7 @@ pub fn run() {
             screenshot::webview_screenshot,
             screenshot::capture_screen,
             screenshot::capture_screen_text,
+            screenshot::preview_screen_thumb,
             screenshot::screen_capture_authorized,
             screenshot::request_screen_capture_access,
             screenshot::open_screen_recording_settings,

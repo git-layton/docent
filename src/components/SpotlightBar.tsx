@@ -75,6 +75,13 @@ export default function SpotlightBar() {
   const [screenAccessNeeded, setScreenAccessNeeded] = useState(false);
   const [noKeyModel, setNoKeyModel] = useState<string | null>(null);
   const [screenMode, setScreenMode] = useState(true);
+  // Chat-only: no screen capture, no tab reading — the easy "not sharing anything" switch.
+  const [chatOnly, setChatOnly] = useState(false);
+  const chatOnlyRef = useRef(chatOnly);
+  useEffect(() => { chatOnlyRef.current = chatOnly; }, [chatOnly]);
+  // Collapsible transparency preview: a LOCAL-ONLY thumbnail of what a screen read would capture.
+  const [showScreenPreview, setShowScreenPreview] = useState(false);
+  const [screenPreview, setScreenPreview] = useState<{ loading: boolean; thumb?: string }>({ loading: false });
   // Ref mirror so long-lived listeners (mount/focus effects) see the current mode without resubscribing.
   const screenModeRef = useRef(screenMode);
   useEffect(() => { screenModeRef.current = screenMode; }, [screenMode]);
@@ -227,6 +234,7 @@ export default function SpotlightBar() {
       if (!hotkeyOnboarded) setShowHotkeyOnboarding(true);
       if (storedBrowser === 'chrome' || storedBrowser === 'safari') setPreferredBrowser(storedBrowser);
       if (spotSource === 'chrome' || spotSource === 'safari') { setScreenMode(false); setPreferredBrowser(spotSource); }
+      else if (spotSource === 'none') { setScreenMode(false); setChatOnly(true); }
       else setScreenMode(true);
       if (storedAgents.length) {
         setAgents(storedAgents);
@@ -247,7 +255,7 @@ export default function SpotlightBar() {
     // Slight delay before first tab fetch — gives time for prev app state to settle.
     // Skipped in Screen mode: no point firing AppleScript at Chrome for a path we're not using
     // (it can even trigger an Automation permission prompt).
-    setTimeout(() => { if (!screenModeRef.current) void fetchTab(); }, 200);
+    setTimeout(() => { if (!screenModeRef.current && !chatOnlyRef.current) void fetchTab(); }, 200);
   }, [fetchTab]);
 
   useEffect(() => {
@@ -265,7 +273,7 @@ export default function SpotlightBar() {
         void refreshFromStore();
         // Clear stale tab first — then populate from Rust cache (pre-fetched before show).
         // Skipped in Screen mode (also avoids churn when we re-show after a screen capture).
-        if (!screenModeRef.current) {
+        if (!screenModeRef.current && !chatOnlyRef.current) {
           setTab(null);
           fetchTab();
         }
@@ -387,7 +395,7 @@ export default function SpotlightBar() {
       // Re-fetch tab with latest info
       let tabContext = '';
       let tabForCard: { title: string; url: string; text: string } | null = null;
-      if (!screenMode) {
+      if (!screenMode && !chatOnly) {
       try {
         const tabResult = await invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: preferredBrowser });
         if (tabResult.url) {
@@ -416,7 +424,7 @@ export default function SpotlightBar() {
       // Screen eyes: read whatever app is in front (Slack, Messages, Mail, anything) with on-device
       // OCR — no cloud, no API key, no vision model, works with any chat model incl. a local one.
       let screenContext = '';
-      if (screenMode) {
+      if (screenMode && !chatOnly) {
         try {
           // Gate on the Screen Recording grant. If it's missing, surface the guided card (and fire
           // the one-time system prompt) instead of silently reading a blank/desktop-only frame.
@@ -696,13 +704,35 @@ export default function SpotlightBar() {
             )}
           </div>
 
-          {/* Live perception status — the HUD's "seeing" indicator (mock: eye + green dot) */}
-          {screenMode && (
-            <span className="flex items-center gap-1.5 text-[10px] text-ink-3 px-2 py-0.5 shrink-0 select-none">
+          {/* Live perception status — the HUD's "seeing" indicator (mock: eye + green dot).
+              Clicking it opens the transparency preview: what a screen read would capture. */}
+          {screenMode && !chatOnly && (
+            <button
+              onClick={() => {
+                const next = !showScreenPreview;
+                setShowScreenPreview(next);
+                if (next) {
+                  setScreenPreview({ loading: true });
+                  invoke<string>('preview_screen_thumb')
+                    .then(thumb => setScreenPreview({ loading: false, thumb }))
+                    .catch(() => setScreenPreview({ loading: false }));
+                }
+              }}
+              title="Preview what Alexis will see when it reads your screen"
+              className="flex items-center gap-1.5 text-[10px] text-ink-3 px-2 py-0.5 shrink-0 select-none rounded-lg hover:bg-wash transition-all">
               <Monitor className="w-3 h-3" />
               seeing
               <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
               <span className="text-ink-2 font-medium">your screen</span>
+              <ChevronDown className={`w-3 h-3 opacity-50 transition-transform ${showScreenPreview ? 'rotate-180' : ''}`} />
+            </button>
+          )}
+          {chatOnly && (
+            <span className="flex items-center gap-1.5 text-[10px] text-ink-3 px-2 py-0.5 shrink-0 select-none">
+              <Monitor className="w-3 h-3 opacity-40" />
+              not looking
+              <span className="w-1.5 h-1.5 rounded-full bg-ink-3/40" />
+              <span className="text-ink-2 font-medium">chat only</span>
             </span>
           )}
 
@@ -776,26 +806,33 @@ export default function SpotlightBar() {
             )}
           </div>
 
-          {/* Source toggle — Chrome / Safari / Screen */}
+          {/* Source toggle — Chrome / Safari / Screen / Off. Off = chat only, nothing shared. */}
           <div className="flex shrink-0 rounded-full border border-edge-2 p-0.5 gap-0.5">
             {(['chrome', 'safari'] as const).map(b => (
               <button key={b} onClick={() => {
                 setScreenMode(false);
+                setChatOnly(false);
                 setPreferredBrowser(b);
                 db.set('preferredBrowser', b);
                 db.set('spotlightSource', b);
                 fetchTab(b);
               }}
                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full capitalize transition-all ${
-                  !screenMode && preferredBrowser === b ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+                  !screenMode && !chatOnly && preferredBrowser === b ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
                 }`}
               >{b}</button>
             ))}
-            <button onClick={() => { setScreenMode(true); db.set('spotlightSource', 'screen'); }}
+            <button onClick={() => { setScreenMode(true); setChatOnly(false); db.set('spotlightSource', 'screen'); }}
               className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
-                screenMode ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+                screenMode && !chatOnly ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
               }`}
             ><Monitor className="w-3 h-3" /> Screen</button>
+            <button onClick={() => { setScreenMode(false); setChatOnly(true); setShowScreenPreview(false); db.set('spotlightSource', 'none'); }}
+              title="Chat only — don't read the screen or any browser tab"
+              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
+                chatOnly ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+              }`}
+            >Off</button>
           </div>
 
           {/* Page reading help */}
@@ -1043,6 +1080,31 @@ export default function SpotlightBar() {
             <RefreshCw className="w-3 h-3" />
           </button>
         </div>
+        )}
+
+        {/* ── Screen-read transparency preview — LOCAL-ONLY thumbnail of what a read would capture.
+            Shown to the user, never sent to a model (so no glow pulse). ── */}
+        {showScreenPreview && screenMode && !chatOnly && (
+          <div className="mx-3 mb-2 p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="font-bold text-ink flex items-center gap-2"><Monitor className="w-4 h-4 text-accent shrink-0" /> What Alexis will see</span>
+              <button
+                onClick={() => {
+                  setScreenPreview({ loading: true });
+                  invoke<string>('preview_screen_thumb')
+                    .then(thumb => setScreenPreview({ loading: false, thumb }))
+                    .catch(() => setScreenPreview({ loading: false }));
+                }}
+                className={`p-1 rounded-lg text-ink-3 hover:text-ink-2 transition-all ${screenPreview.loading ? 'animate-spin' : ''}`}
+                title="Refresh preview"><RefreshCw className="w-3 h-3" /></button>
+            </div>
+            {screenPreview.thumb
+              ? <img src={screenPreview.thumb} alt="Preview of the display Alexis reads" className="w-full rounded-lg border border-edge-2" />
+              : <p className="text-ink-2 py-4 text-center">{screenPreview.loading ? 'Grabbing preview…' : 'Preview unavailable — is Screen Recording granted?'}</p>}
+            <p className="text-ink-3 mt-1.5 text-[10px]">
+              This preview stays on your Mac — nothing is sent anywhere. During a real read this panel hides itself first, so the model sees the app underneath, not this sidebar.
+            </p>
+          </div>
         )}
 
         {/* ── Dream-cycle notices — the Dreamer's reminders, surfaced where the user actually is ── */}

@@ -110,6 +110,7 @@ allow = [
   "open_privacy_settings",
   "open_screen_recording_settings",
   "open_spoken_content_settings",
+  "preview_screen_thumb",
   "pty_kill",
   "pty_resize",
   "pty_spawn",

@@ -235,6 +235,44 @@ pub async fn capture_screen(_window: tauri::WebviewWindow) -> Result<String, Str
 // local one), so this is the primary "read what's on screen" path. The vision-model route
 // (`capture_screen` + `describeImage`) is reserved for genuinely visual content (charts, images).
 
+/// LOCAL-ONLY transparency preview: a downscaled thumbnail of what a screen read would capture,
+/// shown in the spotlight's "seeing your screen" popover. The image is displayed to the user and
+/// never sent to a model, so it deliberately does NOT pulse the glow (that signal means "a read
+/// left for the model") and runs no OCR. Unlike a real read, the overlay stays visible — the
+/// user is looking at the preview, after all.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn preview_screen_thumb(window: tauri::WebviewWindow) -> Result<String, String> {
+    if !matches!(window.label(), "main" | "spotlight") {
+        return Err("screen preview not permitted from this window".into());
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("agentforge-preview-{stamp}.png"));
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x")
+        .arg("-t")
+        .arg("png")
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("could not run screencapture: {e}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return Err("screencapture failed".into());
+    }
+    let thumb = make_thumb(&path);
+    let _ = std::fs::remove_file(&path);
+    thumb.ok_or_else(|| "could not build preview — grant Screen Recording in System Settings, then relaunch".into())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn preview_screen_thumb(_window: tauri::WebviewWindow) -> Result<String, String> {
+    Err("preview_screen_thumb is only available on macOS".into())
+}
+
 /// Capture the screen and return its recognized text (on-device OCR).
 ///
 /// Protocol with the TS side: the caller HIDES the overlay window before invoking (so the capture
