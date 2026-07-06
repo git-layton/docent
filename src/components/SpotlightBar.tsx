@@ -8,6 +8,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { loadMemorySummary, retrieveRelevantMemory } from '../services/memoryContext';
+import { retrievePlaybooks, formatProceduresBlock } from '../services/appliedMemory';
 import { createTopicTracker } from '../services/topicShift';
 import { db } from '../services/database';
 import { speak, cancelSpeech, resolveVoicePrefs, loadVoices } from '../lib/voice';
@@ -500,9 +501,10 @@ export default function SpotlightBar() {
       const basePrompt = selectedAgent?.prompt || 'You are a helpful AI assistant. Be concise and well-structured.';
       // Layered memory — the SAME two tiers the main window injects (see llm.ts buildSystemPrompt).
       // Without these the sidecar was amnesiac: "Save to memory" wrote files nothing ever read back.
-      const [memorySummary, relevantMem] = await Promise.all([
+      const [memorySummary, relevantMem, playbooks] = await Promise.all([
         loadMemorySummary(selectedAgent?.id),
         retrieveRelevantMemory(command, selectedAgent?.id),
+        retrievePlaybooks(command, selectedAgent?.id).catch(() => []),
       ]);
       let memoryBlock = '';
       if (memorySummary) {
@@ -513,6 +515,10 @@ export default function SpotlightBar() {
         // Show WHAT was recalled on the message itself — memory use should never be invisible.
         setMemoryCards(prev => ({ ...prev, [userMsg.id]: relevantMem.hits.map(h => ({ title: h.title, snippet: h.snippet })) }));
       }
+      // Known procedures ("how you like this done") — same propose-don't-run block the main window
+      // injects; '' when no playbook matches this message. Capped like llm.ts (2000 chars).
+      const proceduresBlock = formatProceduresBlock(playbooks);
+      if (proceduresBlock) memoryBlock += `${proceduresBlock.slice(0, 2000)}\n\n`;
       const extraContext = tabContext || screenContext;
       const systemPrompt = [basePrompt, memoryBlock.trim(), extraContext].filter(Boolean).join('\n\n');
 
