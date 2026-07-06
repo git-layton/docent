@@ -92,6 +92,12 @@ export default function SpotlightBar() {
   // Collapsible transparency preview: a LOCAL-ONLY thumbnail of what a screen read would capture.
   const [showScreenPreview, setShowScreenPreview] = useState(false);
   const [screenPreview, setScreenPreview] = useState<{ loading: boolean; thumb?: string }>({ loading: false });
+  const fetchScreenPreview = useCallback(() => {
+    setScreenPreview({ loading: true });
+    invoke<string>('preview_screen_thumb')
+      .then(thumb => setScreenPreview({ loading: false, thumb }))
+      .catch(() => setScreenPreview({ loading: false }));
+  }, []);
   // Ref mirror so long-lived listeners (mount/focus effects) see the current mode without resubscribing.
   const screenModeRef = useRef(screenMode);
   useEffect(() => { screenModeRef.current = screenMode; }, [screenMode]);
@@ -266,6 +272,9 @@ export default function SpotlightBar() {
     // Skipped in Screen mode: no point firing AppleScript at Chrome for a path we're not using
     // (it can even trigger an Automation permission prompt).
     setTimeout(() => { if (!screenModeRef.current && !chatOnlyRef.current) void fetchTab(); }, 200);
+    // Warm the on-device embedder off the critical path — otherwise the FIRST message pays the
+    // multi-second fastembed model load inside topic detection.
+    setTimeout(() => { void invoke('embed_text', { text: 'warmup' }).catch(() => {}); }, 3000);
   }, [fetchTab]);
 
   useEffect(() => {
@@ -373,6 +382,8 @@ export default function SpotlightBar() {
       return;
     }
     setNoKeyModel(null);
+    // A lingering topic nudge the user typed past = declined; clear it rather than nag.
+    setTopicNudge(null);
     setInput('');
     // Create new chat if none active
     let chatId = activeChatId;
@@ -403,6 +414,14 @@ export default function SpotlightBar() {
     abortRef.current = new AbortController();
 
     try {
+      // Memory + playbook reads are pure disk/index work with no dependency on the capture below —
+      // kick them off FIRST so they overlap the screen grab instead of serializing after it.
+      const contextPromise = Promise.all([
+        loadMemorySummary(selectedAgent?.id),
+        retrieveRelevantMemory(command, selectedAgent?.id),
+        retrievePlaybooks(command, selectedAgent?.id).catch(() => []),
+      ] as const);
+
       // Re-fetch tab with latest info
       let tabContext = '';
       let tabForCard: { title: string; url: string; text: string } | null = null;
@@ -499,28 +518,17 @@ export default function SpotlightBar() {
       void topicTracker.observe(chatId!, command).then(shift => { if (shift) setTopicNudge(chatId); }).catch(() => {});
 
       const basePrompt = selectedAgent?.prompt || 'You are a helpful AI assistant. Be concise and well-structured.';
-      // Layered memory — the SAME two tiers the main window injects (see llm.ts buildSystemPrompt).
-      // Without these the sidecar was amnesiac: "Save to memory" wrote files nothing ever read back.
-      const [memorySummary, relevantMem, playbooks] = await Promise.all([
-        loadMemorySummary(selectedAgent?.id),
-        retrieveRelevantMemory(command, selectedAgent?.id),
-        retrievePlaybooks(command, selectedAgent?.id).catch(() => []),
-      ]);
-      let memoryBlock = '';
-      if (memorySummary) {
-        memoryBlock += `[YOUR PERSISTENT MEMORY]\nWhat you've learned and consolidated about the user and your work together over time — carry it forward naturally:\n${memorySummary.slice(0, 2500)}\n\n`;
-      }
+      // Layered memory + playbooks — the SAME tiers the main window injects. These flow to
+      // generateTextResponse as named params (below) so llm.ts buildSystemPrompt formats them in
+      // ONE place; only the spotlight-specific fenced screen/tab context rides in the base prompt.
+      const [memorySummary, relevantMem, playbooks] = await contextPromise;
       if (relevantMem.text) {
-        memoryBlock += `[RELEVANT MEMORY FOR THIS MESSAGE]\nRetrieved from your knowledge base because it's relevant to what was just said — use it if helpful:\n${relevantMem.text.slice(0, 3000)}\n\n`;
         // Show WHAT was recalled on the message itself — memory use should never be invisible.
         setMemoryCards(prev => ({ ...prev, [userMsg.id]: relevantMem.hits.map(h => ({ title: h.title, snippet: h.snippet })) }));
       }
-      // Known procedures ("how you like this done") — same propose-don't-run block the main window
-      // injects; '' when no playbook matches this message. Capped like llm.ts (2000 chars).
       const proceduresBlock = formatProceduresBlock(playbooks);
-      if (proceduresBlock) memoryBlock += `${proceduresBlock.slice(0, 2000)}\n\n`;
       const extraContext = tabContext || screenContext;
-      const systemPrompt = [basePrompt, memoryBlock.trim(), extraContext].filter(Boolean).join('\n\n');
+      const systemPrompt = extraContext ? `${basePrompt}\n\n${extraContext}` : basePrompt;
 
       // Attach page context card to the user message so it's visible in the chat
       if (tabForCard) {
@@ -540,6 +548,9 @@ export default function SpotlightBar() {
         profile: '',
         attachedDocs: [],
         agent: { prompt: systemPrompt, tools: {}, trainingDocs: [] },
+        memorySummary,
+        relevantMemory: relevantMem.text,
+        knownProcedures: proceduresBlock,
         tasks: [],
         mode: 'text' as Mode,
         canvasContent: null,
@@ -732,12 +743,7 @@ export default function SpotlightBar() {
               onClick={() => {
                 const next = !showScreenPreview;
                 setShowScreenPreview(next);
-                if (next) {
-                  setScreenPreview({ loading: true });
-                  invoke<string>('preview_screen_thumb')
-                    .then(thumb => setScreenPreview({ loading: false, thumb }))
-                    .catch(() => setScreenPreview({ loading: false }));
-                }
+                if (next) fetchScreenPreview();
               }}
               title="Preview what Alexis will see when it reads your screen"
               className="flex items-center gap-1.5 text-[10px] text-ink-3 px-2 py-0.5 shrink-0 select-none rounded-lg hover:bg-wash transition-all">
@@ -1162,12 +1168,7 @@ export default function SpotlightBar() {
             <div className="flex items-center justify-between gap-2 mb-2">
               <span className="font-bold text-ink flex items-center gap-2"><Monitor className="w-4 h-4 text-accent shrink-0" /> What Alexis will see</span>
               <button
-                onClick={() => {
-                  setScreenPreview({ loading: true });
-                  invoke<string>('preview_screen_thumb')
-                    .then(thumb => setScreenPreview({ loading: false, thumb }))
-                    .catch(() => setScreenPreview({ loading: false }));
-                }}
+                onClick={fetchScreenPreview}
                 className={`p-1 rounded-lg text-ink-3 hover:text-ink-2 transition-all ${screenPreview.loading ? 'animate-spin' : ''}`}
                 title="Refresh preview"><RefreshCw className="w-3 h-3" /></button>
             </div>

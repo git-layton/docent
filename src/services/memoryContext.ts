@@ -32,14 +32,20 @@ export async function loadMemorySummary(agentId: string | null | undefined): Pro
   try {
     const listed = await invoke<{ files: MemFile[] }>('list_agent_memory_files', { agentId });
     const files = listed?.files ?? [];
+    // The budget (2000 chars / 400 per file) means at most ~5 files contribute — read the first
+    // handful in PARALLEL (this runs on the send critical path on cache miss), assemble in order.
+    const candidates = files.slice(0, Math.ceil(TIER1_BUDGET / TIER1_PER_FILE) + 3);
+    const reads = await Promise.all(candidates.map(f =>
+      invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: f.path })
+        .catch(() => ({ ok: false, content: '' }))
+    ));
     let text = '';
-    for (const f of files) {
+    for (let i = 0; i < candidates.length; i++) {
       if (text.length >= TIER1_BUDGET) break;
-      const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: f.path })
-        .catch(() => ({ ok: false, content: '' }));
+      const read = reads[i];
       if (read?.ok && read.content) {
         const body = read.content.replace(/^---[\s\S]*?---\s*/, '').trim(); // strip frontmatter
-        text += `• ${f.name.replace(/\.md$/, '')}: ${body.slice(0, TIER1_PER_FILE)}\n`;
+        text += `• ${candidates[i].name.replace(/\.md$/, '')}: ${body.slice(0, TIER1_PER_FILE)}\n`;
       }
     }
     text = text.slice(0, TIER1_BUDGET).trim();

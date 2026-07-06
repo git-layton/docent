@@ -16,9 +16,11 @@ export interface TopicState {
 /** Messages shorter than this are skipped entirely — "ok", "yes", "lol" embed as noise. */
 export const MIN_MESSAGE_CHARS = 25;
 /** Don't suggest until the topic has this many substantive messages — a young chat has no topic yet. */
-export const MIN_MESSAGES_FOR_SHIFT = 3;
-/** Cosine vs. centroid below this = new topic. MiniLM same-topic pairs sit ~0.5-0.9; unrelated ~0-0.3. */
-export const SHIFT_THRESHOLD = 0.35;
+export const MIN_MESSAGES_FOR_SHIFT = 4;
+/** Cosine vs. centroid below this = new topic. MiniLM same-topic pairs sit ~0.5-0.9; unrelated ~0-0.3.
+    Tuned LOW on purpose: a missed nudge costs nothing (the user can start a thread themselves), a
+    false one is nagging — the failure mode this feature must never have. */
+export const SHIFT_THRESHOLD = 0.28;
 /** EMA weight of the newest message — recent turns dominate, so the topic can drift naturally. */
 export const CENTROID_ALPHA = 0.3;
 
@@ -50,6 +52,9 @@ export function isTopicShift(state: TopicState | null, v: number[]): boolean {
  */
 export function createTopicTracker() {
   const byChat = new Map<string, TopicState>();
+  // ONE nudge per chat, ever — a declined (or ignored) nudge must never come back. Nagging is the
+  // one failure mode this feature can't have; missing a shift is free, the user can split manually.
+  const nudged = new Set<string>();
   let pending: { chatId: string; v: number[] } | null = null;
 
   return {
@@ -61,7 +66,8 @@ export function createTopicTracker() {
         v = await invoke<number[]>('embed_text', { text: t.slice(0, 2000) });
       } catch { return false; } // embedder still warming up — never block or break the send path
       const state = byChat.get(chatId) ?? null;
-      if (isTopicShift(state, v)) {
+      if (!nudged.has(chatId) && isTopicShift(state, v)) {
+        nudged.add(chatId);
         pending = { chatId, v };
         return true;
       }
@@ -82,6 +88,6 @@ export function createTopicTracker() {
         pending = null;
       }
     },
-    reset(chatId: string) { byChat.delete(chatId); },
+    reset(chatId: string) { byChat.delete(chatId); nudged.delete(chatId); },
   };
 }

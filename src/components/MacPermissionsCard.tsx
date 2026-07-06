@@ -107,7 +107,10 @@ export function MacPermissionsCard() {
     setRow(row.id, 'checking');
     try {
       setRow(row.id, await row.grant());
-    } catch {
+    } catch (e) {
+      // Real transport/invoke failures land here too — log them so a broken bridge isn't
+      // silently misread as a permission denial.
+      console.warn(`[mac-permissions] grant failed for ${row.id}:`, e);
       setRow(row.id, row.restartToApply ? 'needsRestart' : 'denied');
     }
   };
