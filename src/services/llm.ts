@@ -183,6 +183,10 @@ export const trimHistoryChars = (msgs: any[], charLimit: number) => {
 export const fetchWithRetry = async (url: string, options: any, retries = 3, signal?: AbortSignal, returnRaw = false): Promise<any> => {
   let delay = 1000;
   let fetcher = window.fetch;
+  // Requests to the bundled local engine get one automatic revive if the server died under us
+  // (OOM, crash, external kill) — a dead engine is ours to restart, never the user's to diagnose.
+  const isLocalEngine = /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/i.test(url);
+  let revivedOnce = false;
 
   if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
     try {
@@ -211,7 +215,22 @@ export const fetchWithRetry = async (url: string, options: any, retries = 3, sig
       const msg: string = err?.message ?? (typeof err === 'string' ? err : JSON.stringify(err));
       if (err?.name === 'AbortError' || msg === 'CONTEXT_LIMIT_EXCEEDED') throw err;
       const isNetworkDown = /Failed to fetch|Load failed|Connection refused|ECONNREFUSED|error sending request|Network request failed|fetch failed/i.test(msg);
-      if (isNetworkDown) throw new Error(`Model server unreachable — is LM Studio (or your API provider) running? (${msg})`);
+      if (isNetworkDown) {
+        if (isLocalEngine && !revivedOnce && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
+          revivedOnce = true;
+          try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            // Health-checks and respawns the last-launched llama-server; blocks until it's
+            // serving again (big models take a while to map — that wait IS the fix working).
+            await invoke('revive_local_model');
+            attempt--; // the revive shouldn't consume a retry
+            continue;
+          } catch (reviveErr) {
+            throw new Error(`The local model engine stopped and couldn't restart itself (${String(reviveErr)}).`);
+          }
+        }
+        throw new Error(`Model server unreachable — is LM Studio (or your API provider) running? (${msg})`);
+      }
       if (attempt === retries) throw (err instanceof Error ? err : new Error(msg));
       await new Promise(r => setTimeout(r, delay));
       delay = Math.min(delay * 2, 8000);

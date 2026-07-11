@@ -474,6 +474,17 @@ export default function App() {
       // Start background file watcher for Knowledge Core indexing
       invoke('init_file_watcher').catch(() => {});
 
+      // Self-heal the bundled local engine: if the selected model is local and its llama-server
+      // died since last session (crash/OOM/external kill), respawn it now — BEFORE the first
+      // message hits a dead port. No-op when healthy or when the user is on a cloud model.
+      {
+        const s = useSettingsStore.getState();
+        const selected = s.models.find((m: any) => m.id === s.selectedModelId);
+        if (selected && (selected.isLocal || selected.provider === 'native')) {
+          invoke('revive_local_model').catch(e => console.warn('[AgentForge] engine revive skipped:', e));
+        }
+      }
+
       } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { useUIStore.getState().setIsDbLoaded(true); }
     };
     boot();

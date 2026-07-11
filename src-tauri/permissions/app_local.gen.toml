@@ -122,6 +122,7 @@ allow = [
   "request_screen_capture_access",
   "restore_archived_file",
   "revert_memory_commit",
+  "revive_local_model",
   "rollback_file",
   "run_command",
   "safe_write_file",

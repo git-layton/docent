@@ -145,8 +145,10 @@ export function ActivityMonitorBar({
   const tips: string[] = [];
   if (availMb < 2048) tips.push('Memory is very low — close other apps (browser tabs, etc.), or switch to a smaller model in Settings → AI Models. A big model like a 70B can outgrow this Mac.');
   else if (availMb < 4096) tips.push('Memory is getting tight — a smaller or faster model (like the 30B MoE) will run smoother here.');
-  if (contextPct > 90) tips.push('This chat is nearly full — older messages are starting to drop out of memory. Start a new chat to keep everything in context.');
-  else if (contextPct > 78) tips.push('Context is getting long, so replies will slow down. Starting a fresh chat keeps things fast.');
+  // Context fullness is HANDLED, not a crisis: the window self-trims oldest unpinned messages
+  // while pins + persistent memory keep what matters. Never tell the user to abandon their chat.
+  if (contextPct > 90) tips.push('Context is at capacity — optimizing automatically: the oldest unpinned messages rotate out of the live window while pins and memory keep the important parts. Pin anything you need kept verbatim; expand the breakdown (▾) to see what\'s using space.');
+  else if (contextPct > 78) tips.push('Context is filling — the window will self-optimize by rotating out the oldest unpinned messages. Nothing important is lost: memory persists across the whole conversation.');
 
   return (
     <div className="shrink-0 border-b border-edge bg-panel-2/95 backdrop-blur-md">
@@ -228,15 +230,24 @@ export function ActivityMonitorBar({
         <div className="px-3 lg:px-4 pb-3 mt-1">
           <div className="text-[9px] font-black uppercase tracking-widest text-ink-3 mb-2">Context Breakdown</div>
           <div className="space-y-1.5">
-            {[
-              { label: 'System', chars: breakdown.systemChars, color: 'bg-blue-400' },
-              { label: 'Pins', chars: breakdown.pinsChars, color: 'bg-amber-400' },
-              { label: 'Docs', chars: breakdown.docsChars, color: 'bg-emerald-400' },
-              ...(breakdown.browserChars > 0
-                ? [{ label: 'Browser', chars: breakdown.browserChars, color: 'bg-teal-500' }]
-                : []),
-            ].map(({ label, chars, color }) => {
-              const pct = breakdown.total > 0 ? Math.round((chars / breakdown.total) * 100) : 0;
+            {(() => {
+              // Include the conversation itself — the breakdown should account for the WHOLE
+              // window, not just the prompt scaffolding, so "what is my context made of?" has
+              // an honest answer.
+              const chatChars = Math.max(0, contextUsed - systemPromptLen);
+              const rows = [
+                { label: 'Chat', chars: chatChars, color: 'bg-violet-400' },
+                { label: 'System', chars: breakdown.systemChars, color: 'bg-blue-400' },
+                { label: 'Pins', chars: breakdown.pinsChars, color: 'bg-amber-400' },
+                { label: 'Docs', chars: breakdown.docsChars, color: 'bg-emerald-400' },
+                ...(breakdown.browserChars > 0
+                  ? [{ label: 'Browser', chars: breakdown.browserChars, color: 'bg-teal-500' }]
+                  : []),
+              ];
+              return rows;
+            })().map(({ label, chars, color }, _i, rows) => {
+              const totalAll = rows.reduce((n, r) => n + r.chars, 0);
+              const pct = totalAll > 0 ? Math.round((chars / totalAll) * 100) : 0;
               const kb = (chars / 1000).toFixed(1);
               return (
                 <div key={label} className="flex items-center gap-2">

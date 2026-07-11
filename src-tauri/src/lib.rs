@@ -3084,6 +3084,19 @@ async fn start_local_model(
             .join("llama-server")
     };
 
+    // Remember what we launched (on disk, so it survives app restarts): the engine can die
+    // underneath us — OOM, crash, external kill — and `revive_local_model` uses this record to
+    // bring it back without the user having to re-pick the model in the store.
+    let _ = std::fs::write(
+        llama_last_launch_path(),
+        serde_json::json!({
+            "modelPath": &model_path,
+            "port": port,
+            "mmprojPath": mmproj_path.clone().unwrap_or_default(),
+        })
+        .to_string(),
+    );
+
     let mut server_args: Vec<String> = vec![
         "-m".into(), model_path,
         "--port".into(), port.to_string(),
@@ -3127,6 +3140,46 @@ async fn start_local_model(
         }
     }
     Err("The model didn't finish loading in time. If it's a very large model, this Mac may not have enough memory — try a smaller one.".to_string())
+}
+
+/// Where the last local-engine launch is recorded (same dotfile convention as the relay env).
+fn llama_last_launch_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::PathBuf::from(home).join(".agent-forge-llama-last.json")
+}
+
+/// Self-heal for the bundled local engine: if the last-launched llama-server is healthy this is a
+/// no-op; if it died (OOM, crash, external kill) it respawns it with the recorded model/port and
+/// waits for health. Called by the frontend at startup and automatically when a local request
+/// hits a dead port — a dead engine is OURS to restart, never the user's problem to diagnose.
+#[tauri::command]
+async fn revive_local_model(llama_state: tauri::State<'_, LlamaState>) -> Result<String, String> {
+    let raw = std::fs::read_to_string(llama_last_launch_path())
+        .map_err(|_| "no local engine has been started on this Mac yet".to_string())?;
+    let v: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("bad engine record: {e}"))?;
+    let model_path = v["modelPath"].as_str().unwrap_or_default().to_string();
+    let port = v["port"].as_u64().unwrap_or(8080) as u16;
+    let mmproj = v["mmprojPath"].as_str().map(str::to_string).filter(|s| !s.is_empty());
+
+    // Already healthy → idempotent no-op (this is also the cheap "is it up?" probe).
+    let health_url = format!("http://127.0.0.1:{port}/health");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| e.to_string())?;
+    if let Ok(resp) = client.get(&health_url).send().await {
+        if resp.status().is_success() {
+            return Ok(format!("http://127.0.0.1:{port}/v1"));
+        }
+    }
+
+    if model_path.is_empty() || !std::path::Path::new(&model_path).exists() {
+        return Err(format!(
+            "the last local model file is missing ({model_path}) — re-load a model from the Model Store"
+        ));
+    }
+    start_local_model(model_path, port, mmproj, llama_state).await
 }
 
 // ─── Browser Co-pilot Commands ───────────────────────────────────────────────
@@ -4045,6 +4098,7 @@ pub fn run() {
             download_model,
             cancel_download,
             start_local_model,
+            revive_local_model,
             extract_page_text,
             check_page_is_private,
             mail::mail_test_connection,
