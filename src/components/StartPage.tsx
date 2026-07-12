@@ -25,6 +25,7 @@ import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { SetupNudgeBar } from './SetupNudgeBar';
 import { useAgentStore } from '../store/useAgentStore';
 import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
@@ -510,6 +511,8 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
         <Settings className="h-[18px] w-[18px]" />
       </button>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-8 py-10">
+        {/* One contextual, dismissible setup nudge — never nags (see services/setupNudge.ts). */}
+        <SetupNudgeBar />
         {/* ── Compact header + omni-bar ── */}
         <div className="flex flex-col">
           <div className="flex items-baseline justify-between gap-4 pr-12">

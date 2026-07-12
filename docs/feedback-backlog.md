@@ -30,8 +30,10 @@ Status legend: `todo` · `in-progress` · `done` · `deferred` · `needs-design`
 - [x] `done` Brand splash — real icon (`public/app-icon.png`) replaces `Zap` in `StepWelcome`.
 - [x] `done` Discoverability — welcome points to Settings → Connect your apps (the hub already exists in
   `ProfileSettingsModal` `connect` tab with status badges).
-- [ ] `needs-design` Proactive "you haven't set up X" nudge + don't-remind-on-reopen. Net-new; nothing
-  currently nags, so there's nothing to suppress yet. Build with the hub.
+- [x] `done` (v2.0.35) Proactive setup nudge — `services/setupNudge.ts` (pure picker, 7 tests) +
+  `SetupNudgeBar` on the home page. Shows the single highest-value unconfigured capability
+  (mail → screen), only post-onboarding, with "Not now" (session) and a permanent don't-remind
+  (persisted `setupNudgeDismissed`). Research-backed: one nudge, endowed-progress framing, autonomy.
 
 ## General Chat
 - [x] `done` Type while sending + arrow-key junk — `ChatInputBar.tsx` no longer disables the textarea
