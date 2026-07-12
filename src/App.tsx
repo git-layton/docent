@@ -53,6 +53,7 @@ import { MorningBriefingBanner } from './components/MorningBriefingBanner';
 import { DreamDigestModal } from './components/DreamDigestModal';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
 import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse } from './services/dreamer';
+import { isDue, runRoutine, type Routine } from './services/routines';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agentForgeUserDocs';
 import { AssistantSettingsModal } from './components/AssistantSettingsModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
@@ -296,6 +297,7 @@ export default function App() {
   const isDreamRunningRef = useRef(false);
   const evaluatedContextRef = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() });
   const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const routineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeAssistantRef = useRef<any>(null);
   const selectedModelRef = useRef<any>(null);
 
@@ -485,6 +487,33 @@ export default function App() {
         }
       }
 
+      // Routines scheduler — runs while the app is open; the first tick doubles as launch
+      // catch-up (isDue compares each routine's last due slot with lastRunAt). Read-only
+      // autonomy by design: see services/routines.ts.
+      {
+        const tickRoutines = async () => {
+          try {
+            const routines: Routine[] = await db.get('routines', []);
+            const due = routines.filter(r => isDue(r, Date.now()));
+            if (!due.length) return;
+            const s = useSettingsStore.getState();
+            const deps = {
+              mailAccounts: (s.integrations as any).mailAccounts ?? [],
+              modelConfig: s.models.find((m: any) => m.id === s.selectedModelId) ?? s.models[0],
+              instanceId: (s.appSettings as any)?.forgeInstanceId,
+            };
+            for (const r of due) {
+              r.lastRunAt = Date.now(); // mark BEFORE running so a failing routine can't hot-loop
+              await db.set('routines', routines);
+              try { await runRoutine(r, deps); } catch (e) { console.warn(`[routines] ${r.name} failed:`, e); }
+              await db.set('routines', routines); // persist seenUids bookkeeping
+            }
+          } catch (e) { console.warn('[routines] tick skipped:', e); }
+        };
+        void tickRoutines();
+        routineTimerRef.current = setInterval(tickRoutines, 60_000);
+      }
+
       } catch (err) { console.error('[AgentForge] Boot error:', err); } finally { useUIStore.getState().setIsDbLoaded(true); }
     };
     boot();
@@ -555,6 +584,7 @@ export default function App() {
       clearInterval(ramInterval);
       clearTimeout(warmupTimeout);
       if (dreamTimerRef.current) clearInterval(dreamTimerRef.current);
+      if (routineTimerRef.current) clearInterval(routineTimerRef.current);
     };
   }, []);
 

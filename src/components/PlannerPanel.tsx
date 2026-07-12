@@ -6,6 +6,7 @@ import {
   Cake, Plus
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
+import { RoutinesCard } from './RoutinesCard';
 import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import type { RecurringEvent } from '../store/useTaskStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -204,6 +205,9 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
 
   return (
     <div className="flex-1 overflow-y-auto p-4 lg:p-8 bg-panel no-scrollbar relative">
+
+      {/* Scheduled + watcher automations — executed by the App.tsx scheduler, results → Inbox */}
+      <RoutinesCard assistants={assistants} />
 
       {/* Task Discuss Bot Selector Modal */}
       {taskToDiscuss && (
