@@ -17,6 +17,9 @@ export interface CatalogModel {
   // is launched with its CLIP projector (--mmproj). Download mmprojFilename from mmprojUrl alongside
   // the model and pass the on-disk path to start_local_model.
   vision?: boolean;
+  // Native audio input: some multimodal models (Gemma 4) accept audio through the SAME mmproj
+  // projector as vision. When true, attaching an audio clip sends it straight to the model.
+  audio?: boolean;
   mmprojUrl?: string;
   mmprojFilename?: string;
 }
@@ -103,6 +106,7 @@ const TIER_16: CatalogModel[] = [
     notGreatFor: 'The heaviest reasoning and coding — the 30B-class models still win if you have 32GB',
     tag: 'Google · Vision · New',
     vision: true,
+    audio: true,
     // unsloth ships a generic 'mmproj-F16.gguf' name — we save it under a unique one so
     // projector files from different models can't collide in the models dir.
     mmprojUrl: 'https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/mmproj-F16.gguf',

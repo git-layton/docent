@@ -4,7 +4,7 @@ import {
   AlertTriangle, Loader2, Brain, ListTodo, ShieldCheck, Trash2, Plus, Mic,
   Telescope, Code2, ScrollText, Smile, Eye
 } from 'lucide-react';
-import { supportsVision, modelSupportsVision, hasVisionProvider } from '../services/llm';
+import { supportsVision, modelSupportsVision, modelSupportsAudio, hasVisionProvider } from '../services/llm';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
 import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
@@ -175,8 +175,12 @@ export function ChatInputBar({
   // composer gate never disagrees with the handler over a stale `selectedModel` prop.
   const liveSelectedModel = models.find(m => m.id === selectedModelId) ?? selectedModel ?? null;
   const modelSees = modelSupportsVision(liveSelectedModel);
+  const modelHears = modelSupportsAudio(liveSelectedModel);
   const canAttachImages = modelSees || hasVisionProvider(appSettings, integrations, models);
   const DOC_ACCEPT = 'text/*,application/pdf,.md,.markdown,.csv,.tsv,.json,.xml,.yml,.yaml,.log,.rtf';
+  // Accept filter widens with the model's senses: docs always, images when it sees, audio when it hears.
+  const attachAccept = [DOC_ACCEPT, canAttachImages ? 'image/*' : '', modelHears ? 'audio/*' : '']
+    .filter(Boolean).join(',');
 
   return (
     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-panel pt-6 pb-3 px-3 lg:px-4 z-10">
@@ -387,8 +391,8 @@ export function ChatInputBar({
             </div>
             <div className="w-px h-4 bg-edge mx-0.5" />
             {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-full transition-all ${isListening ? 'text-danger bg-danger-soft' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title={modelSees ? 'Attach document or image' : canAttachImages ? 'Attach document or image — images read by your Image Understanding model' : "Attach document — this model can't read images"}><Paperclip className="w-3.5 h-3.5" /></button>}
-            <input type="file" ref={fileInputRef} onChange={onChatFileUpload} accept={canAttachImages ? undefined : DOC_ACCEPT} className="hidden" />
+            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title={`Attach document${canAttachImages ? ' or image' : ''}${modelHears ? ' or audio' : ''}${!modelSees && canAttachImages ? ' — images read by your Image Understanding model' : ''}`}><Paperclip className="w-3.5 h-3.5" /></button>}
+            <input type="file" ref={fileInputRef} onChange={onChatFileUpload} accept={attachAccept} className="hidden" />
             {/* Emoji picker */}
             {models.length > 0 && (
               <div className="relative" ref={emojiPickerRef}>

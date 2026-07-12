@@ -20,7 +20,7 @@ import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 
-import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry, modelSupportsVision, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
+import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry, modelSupportsVision, modelSupportsAudio, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
@@ -1118,6 +1118,19 @@ export default function App() {
         return;
       }
       reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
+      reader.readAsDataURL(file);
+    } else if (file.type.startsWith('audio/')) {
+      // Native audio input — only usable by a model that hears (Gemma 4). No describe-fallback
+      // exists for audio, so gate hard rather than silently dropping it.
+      const ss = useSettingsStore.getState();
+      const sel = ss.models.find(m => m.id === ss.selectedModelId) ?? ss.models[0] ?? null;
+      if (!modelSupportsAudio(sel)) {
+        ui.setUploadError(`${sel?.name ?? 'This model'} can't hear audio. Pick a model that hears (Gemma 4) to attach a clip.`);
+        ui.showToast("This model can't hear audio.");
+        e.target.value = '';
+        return;
+      }
+      reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false, isAudio: true }]);
       reader.readAsDataURL(file);
     } else {
       reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);

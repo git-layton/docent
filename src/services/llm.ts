@@ -47,6 +47,12 @@ export const modelSupportsVision = (
 ) =>
   !!model && (supportsVision(model.modelId ?? '') || model.canImage === true || !!model.mmprojPath);
 
+// Native audio input (Gemma 4 et al). Unlike vision there's no "audio understanding" fallback
+// provider — the model either hears or it doesn't — so this is an explicit capability flag only.
+export const modelSupportsAudio = (
+  model: { canHear?: boolean } | null | undefined,
+) => !!model && model.canHear === true;
+
 // ─── Image Understanding ("describe-and-inject") ────────────────────────────────
 // When the active chat model can't see, a configured Vision Provider reads the image into text
 // that is then injected into ANY model's context. Mirrors the Image Engine (image generation):
@@ -550,11 +556,17 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
   const historyBudget = Math.max(1000, limit - contextUsed);
   const safeMessages = trimHistoryChars(messages, historyBudget);
 
-  // A text-only model must not receive raw image parts (it would error). When images were described
-  // into text above, strip them from the outgoing messages so only the description reaches the model.
-  const outMessages = nativeVision
+  // A model must not receive raw parts it can't decode (it would error). Images are stripped when
+  // the model can't see (and were described into text above); audio is stripped when it can't hear
+  // (no describe-fallback exists for audio, so it's simply dropped with the attachment still shown).
+  const nativeAudio = modelSupportsAudio(modelConfig);
+  const outMessages = (nativeVision && nativeAudio)
     ? safeMessages
-    : safeMessages.map((m: any) => ({ ...m, attachedFiles: (m.attachedFiles || []).filter((f: any) => !f.isImage) }));
+    : safeMessages.map((m: any) => ({
+        ...m,
+        attachedFiles: (m.attachedFiles || []).filter((f: any) =>
+          (nativeVision || !f.isImage) && (nativeAudio || !f.isAudio)),
+      }));
 
   const attachedContext = textDocs.length > 0 ? '\n\n' + textDocs.map((d: any) => `[ATTACHED DOC: ${d.name}]\n${d.content}`).join('\n\n') : '';
   const fullSystem = systemPrompt + attachedContext;
@@ -562,8 +574,13 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
   const formatMessage = (m: any, targetProvider: string) => {
     const textContent = String(m.content ?? '');
     const imageFiles = (m.attachedFiles || []).filter((f: any) => f.isImage);
+    // Audio only rides the OpenAI-compatible/local path (our llama-server with a Gemma-4 audio
+    // projector). Google/Anthropic image formats don't carry it here, so it's local-only for now.
+    const audioFiles = targetProvider === 'google' || targetProvider === 'anthropic'
+      ? []
+      : (m.attachedFiles || []).filter((f: any) => f.isAudio);
 
-    if (imageFiles.length === 0) {
+    if (imageFiles.length === 0 && audioFiles.length === 0) {
       if (targetProvider === 'google') return { role: m.role === 'bot' ? 'model' : 'user', parts: [{ text: textContent }] };
       return { role: m.role === 'bot' ? 'assistant' : 'user', content: textContent };
     }
@@ -582,9 +599,22 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
         ]
       };
     } else {
+      // OpenAI-compatible content parts. Audio uses `input_audio` with base64 data + format
+      // (wav/mp3/m4a → the token after '/'), the shape llama.cpp's server accepts for audio mmproj.
+      const audioParts = audioFiles.map((f: any) => ({
+        type: 'input_audio',
+        input_audio: {
+          data: String(f.content).split(',')[1] ?? f.content,
+          format: (f.type?.split('/')[1] || 'wav').replace('mpeg', 'mp3').replace('x-m4a', 'm4a'),
+        },
+      }));
       return {
         role: m.role === 'bot' ? 'assistant' : 'user',
-        content: [ { type: 'text', text: textContent }, ...imageFiles.map((f: any) => ({ type: 'image_url', image_url: { url: f.content } })) ]
+        content: [
+          { type: 'text', text: textContent },
+          ...imageFiles.map((f: any) => ({ type: 'image_url', image_url: { url: f.content } })),
+          ...audioParts,
+        ],
       };
     }
   };

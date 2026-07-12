@@ -24,6 +24,7 @@ export interface Model {
   apiKey: string;
   contextLimit: number;
   canImage: boolean;
+  canHear?: boolean;     // native audio input (Gemma 4); same mmproj projector as vision
   isLocal: boolean;
   mmprojPath?: string;   // local vision: path to the mmproj projector llama-server was launched with
 }

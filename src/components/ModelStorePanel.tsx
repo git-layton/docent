@@ -138,6 +138,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       apiKey: '',
       contextLimit: engineContextLimit(model.contextK),
       canImage: supportsVision(model.ggufFilename) || !!model.vision,
+      canHear: !!model.audio,
       isLocal: true,
       mmprojPath,
     };
