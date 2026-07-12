@@ -45,11 +45,29 @@ function relativeTime(ts: number): string {
   return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+// Module-scoped cache — survives the unmount/remount that a tab switch causes (App.tsx's
+// renderTabContent mounts a fresh panel each time). Notes was the worst offender: every reopen
+// re-ran AppleScript and flashed empty. Now the panel hydrates from here instantly and refreshes in
+// the background. Keyed by backend so switching local↔Apple Notes can't show stale cross-backend data.
+const notesCache: {
+  backend: string;
+  folders: string[];
+  byFolder: Record<string, NoteItem[]>;
+  bodies: Record<string, string>;
+} = { backend: '', folders: [], byFolder: {}, bodies: {} };
+
 export function NotesPanel() {
-  const [folders, setFolders] = useState<string[]>([]);
   const notesBackend: string = useSettingsStore(s => (s.integrations as any).notes?.backend ?? 'local');
+  // A backend change invalidates the cache before first paint.
+  if (notesCache.backend !== notesBackend) {
+    notesCache.backend = notesBackend;
+    notesCache.folders = [];
+    notesCache.byFolder = {};
+    notesCache.bodies = {};
+  }
+  const [folders, setFolders] = useState<string[]>(() => notesCache.folders);
   const [folder, setFolder] = useState<string>('Notes');
-  const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [notes, setNotes] = useState<NoteItem[]>(() => notesCache.byFolder['Notes'] ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +86,7 @@ export function NotesPanel() {
   const loadFolders = useCallback(async () => {
     try {
       const fs = await getNotes().listFolders();
+      notesCache.folders = fs;
       setFolders(fs);
       if (fs.length && !fs.includes(folder)) setFolder(fs[0]);
     } catch (e) {
@@ -77,21 +96,29 @@ export function NotesPanel() {
   }, []);
 
   const loadNotes = useCallback(async (f: string) => {
-    setLoading(true);
+    // Only show the spinner on a cold load — a cached folder refreshes silently in the background.
+    if (!notesCache.byFolder[f]) setLoading(true);
     setError(null);
     try {
       const list = await getNotes().listNotes(f);
-      setNotes(list.sort((a, b) => b.updatedAt - a.updatedAt));
+      const sorted = list.sort((a, b) => b.updatedAt - a.updatedAt);
+      notesCache.byFolder[f] = sorted;
+      setNotes(sorted);
     } catch (e) {
       setError(String(e));
-      setNotes([]);
+      if (!notesCache.byFolder[f]) setNotes([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { loadFolders(); }, [loadFolders]);
-  useEffect(() => { if (folder) loadNotes(folder); }, [folder, loadNotes]);
+  useEffect(() => {
+    if (!folder) return;
+    // Hydrate instantly from cache on a folder switch, then refresh in the background.
+    if (notesCache.byFolder[folder]) setNotes(notesCache.byFolder[folder]);
+    loadNotes(folder);
+  }, [folder, loadNotes]);
 
   // Publish the current notes view to the docked agent (open note's text, or the list of titles).
   useEffect(() => {
@@ -123,14 +150,17 @@ export function NotesPanel() {
 
   const openNote = async (n: NoteItem) => {
     setSelected(n);
-    setBody('');
     setEditing(false);
-    setBodyLoading(true);
+    // Show the cached body instantly (no flash), then refresh it in the background.
+    const cached = notesCache.bodies[n.id];
+    setBody(cached ?? '');
+    setBodyLoading(!cached);
     try {
       const full = await getNotes().readNote(n.id);
+      notesCache.bodies[n.id] = full.body;
       setBody(full.body);
     } catch (e) {
-      setError(String(e));
+      if (!cached) setError(String(e));
     } finally {
       setBodyLoading(false);
     }
@@ -144,6 +174,7 @@ export function NotesPanel() {
     try {
       const html = textToHtml(draft);
       await getNotes().updateNote(selected.id, html);
+      notesCache.bodies[selected.id] = html; // keep the cached body in step with the save
       setBody(html);
       setEditing(false);
       // Title may have changed (Notes derives it from the first line) — refresh the list.
