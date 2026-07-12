@@ -4081,6 +4081,7 @@ pub fn run() {
             screenshot::open_screen_recording_settings,
             permissions::automation_grant,
             permissions::open_privacy_settings,
+            permissions::notify_user,
             get_active_tab,
             show_spotlight,
             hide_spotlight,

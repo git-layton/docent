@@ -505,7 +505,14 @@ export default function App() {
             for (const r of due) {
               r.lastRunAt = Date.now(); // mark BEFORE running so a failing routine can't hot-loop
               await db.set('routines', routines);
-              try { await runRoutine(r, deps); } catch (e) { console.warn(`[routines] ${r.name} failed:`, e); }
+              try {
+                const res = await runRoutine(r, deps);
+                if (res.filedTitle) {
+                  // Slack-style signal: bubble on the Inbox tab + a native banner.
+                  useUIStore.getState().bumpInboxAlerts();
+                  invoke('notify_user', { title: 'Agent Forge', body: `${res.filedTitle} — waiting in your Inbox` }).catch(() => {});
+                }
+              } catch (e) { console.warn(`[routines] ${r.name} failed:`, e); }
               await db.set('routines', routines); // persist seenUids bookkeeping
             }
           } catch (e) { console.warn('[routines] tick skipped:', e); }

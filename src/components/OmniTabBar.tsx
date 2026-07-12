@@ -135,6 +135,10 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
   // Activity bubble: unread iMessage count on the Messages tab.
   const unread = useMessagesStore(s => s.unread);
   const showUnread = tab.type === 'tool' && tab.toolId === 'messages' && unread > 0;
+  // Activity bubble: new background-work results (routines) on the Inbox tab — same Slack-style
+  // signal as Messages, cleared when the Inbox is opened.
+  const inboxAlerts = useUIStore(s => s.inboxAlerts);
+  const showInboxAlerts = tab.type === 'tool' && tab.toolId === 'inbox' && inboxAlerts > 0;
 
   // Pointer-based reorder. WKWebView (Tauri's macOS webview) doesn't reliably fire HTML5
   // drag-and-drop events, so we drive reordering with pointer events instead: drag a tab over
@@ -196,6 +200,14 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
     >
       <TypeIcon tab={tab} />
       <span className="truncate flex-1 min-w-0">{tab.label}</span>
+      {showInboxAlerts && (
+        <span
+          className="shrink-0 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-on-accent text-[9px] font-bold flex items-center justify-center leading-none"
+          title={`${inboxAlerts} new item${inboxAlerts !== 1 ? 's' : ''} from your routines`}
+        >
+          {inboxAlerts > 99 ? '99+' : inboxAlerts}
+        </span>
+      )}
       {showUnread && (
         <span
           className="shrink-0 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-on-accent text-[9px] font-bold flex items-center justify-center leading-none"

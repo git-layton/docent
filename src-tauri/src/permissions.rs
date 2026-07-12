@@ -44,6 +44,27 @@ pub async fn automation_grant(target: String) -> Result<String, String> {
     }
 }
 
+/// Native macOS notification banner via osascript — the Slack-style "something happened" ping for
+/// background work (routines filing results, etc.). No plugin or extra permission needed; the
+/// banner is attributed to the app. Text is length-capped and quote-escaped before interpolation.
+#[tauri::command]
+pub fn notify_user(title: String, body: String) -> Result<(), String> {
+    let esc = |s: &str, cap: usize| -> String {
+        s.chars().take(cap).collect::<String>().replace('\\', "\\\\").replace('"', "\\\"")
+    };
+    let script = format!(
+        "display notification \"{}\" with title \"{}\"",
+        esc(&body, 180),
+        esc(&title, 80),
+    );
+    let status = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .status()
+        .map_err(|e| format!("could not run osascript: {e}"))?;
+    if status.success() { Ok(()) } else { Err("notification failed".into()) }
+}
+
 /// Open a specific Privacy & Security pane in System Settings — for the grants macOS refuses to
 /// re-prompt for (previously denied Automation, Full Disk Access, etc.).
 #[tauri::command]

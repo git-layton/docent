@@ -108,6 +108,7 @@ allow = [
   "notes_list_folders",
   "notes_read",
   "notes_update",
+  "notify_user",
   "open_privacy_settings",
   "open_screen_recording_settings",
   "open_spoken_content_settings",

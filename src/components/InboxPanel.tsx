@@ -14,6 +14,7 @@ import {
 import { useAgentStore } from '../store/useAgentStore';
 import { useChatStore } from '../store/useChatStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
 import {
   DEFAULT_INBOX_OWNERS,
   formatCaptureAge,
@@ -99,6 +100,9 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
   }
 
   useEffect(() => { loadCaptures(); }, [ownerFilter]);
+
+  // Opening the Inbox acknowledges the activity bubble on its tab (routines etc.).
+  useEffect(() => { useUIStore.getState().clearInboxAlerts(); }, []);
 
   async function createLocalCapture(payload: any) {
     const result = await invoke<{ ok: boolean; capture?: CaptureItem; error?: string }>('create_inbox_capture', { payload });

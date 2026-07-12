@@ -12,10 +12,14 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('Morning mail report');
-  const [action, setAction] = useState<'mailReport' | 'mailFlag'>('mailReport');
+  const [action, setAction] = useState<'mailReport' | 'mailFlag' | 'digest'>('mailReport');
   const [time, setTime] = useState('08:00');
   const [fromContains, setFromContains] = useState('');
   const [subjectContains, setSubjectContains] = useState('');
+  const [srcMail, setSrcMail] = useState(true);
+  const [srcCalendar, setSrcCalendar] = useState(true);
+  const [srcNotes, setSrcNotes] = useState(false);
+  const [instruction, setInstruction] = useState('');
 
   useEffect(() => { void db.get('routines', []).then(setRoutines); }, []);
 
@@ -28,10 +32,12 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
     const routine: Routine = {
       id: `routine-${Date.now()}`,
       name: name.trim(),
-      trigger: action === 'mailReport'
-        ? { kind: 'daily', hour: isNaN(h) ? 8 : h, minute: isNaN(m) ? 0 : m }
-        : { kind: 'mailWatch', everyMinutes: 5 },
+      trigger: action === 'mailFlag'
+        ? { kind: 'mailWatch', everyMinutes: 5 }
+        : { kind: 'daily', hour: isNaN(h) ? 8 : h, minute: isNaN(m) ? 0 : m },
       action,
+      sources: action === 'digest' ? { mail: srcMail, calendar: srcCalendar, notes: srcNotes } : undefined,
+      instruction: action === 'digest' ? (instruction.trim() || undefined) : undefined,
       fromContains: fromContains.trim() || undefined,
       subjectContains: subjectContains.trim() || undefined,
       ownerId: owner.id,
@@ -46,7 +52,11 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
 
   const describe = (r: Routine): string => {
     if (r.trigger.kind === 'daily') {
-      return `daily at ${String(r.trigger.hour).padStart(2, '0')}:${String(r.trigger.minute).padStart(2, '0')} → report to Inbox`;
+      const time = `${String(r.trigger.hour).padStart(2, '0')}:${String(r.trigger.minute).padStart(2, '0')}`;
+      const srcs = r.action === 'digest'
+        ? Object.entries(r.sources ?? {}).filter(([, on]) => on).map(([k]) => k).join(' + ') || 'mail'
+        : 'mail';
+      return `daily at ${time} · ${srcs} → briefing to Inbox`;
     }
     const filters = [r.fromContains && `from “${r.fromContains}”`, r.subjectContains && `subject “${r.subjectContains}”`]
       .filter(Boolean).join(', ');
@@ -100,12 +110,14 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${action === 'mailReport' ? 'bg-accent text-on-accent' : 'text-ink-3 hover:bg-wash'}`}>Daily mail report</button>
               <button onClick={() => { setAction('mailFlag'); setName('Watch my mail'); }}
                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${action === 'mailFlag' ? 'bg-accent text-on-accent' : 'text-ink-3 hover:bg-wash'}`}>Watch &amp; flag mail</button>
+              <button onClick={() => { setAction('digest'); setName('Daily briefing'); }}
+                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${action === 'digest' ? 'bg-accent text-on-accent' : 'text-ink-3 hover:bg-wash'}`}>Custom briefing</button>
             </div>
             <button onClick={() => setShowForm(false)} className="p-1 text-ink-3 hover:text-ink-2"><X className="w-3.5 h-3.5" /></button>
           </div>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Routine name"
             className="w-full bg-panel border border-edge-2 rounded-xl px-3 py-2 text-xs outline-none focus:border-secondary" />
-          {action === 'mailReport' ? (
+          {action !== 'mailFlag' ? (
             <label className="flex items-center gap-2 text-tiny text-ink-2">
               Every day at
               <input type="time" value={time} onChange={e => setTime(e.target.value)}
@@ -119,8 +131,24 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
                 className="flex-1 bg-panel border border-edge-2 rounded-xl px-3 py-2 text-xs outline-none focus:border-secondary" />
             </div>
           )}
+          {action === 'digest' && (
+            <>
+              <div className="flex items-center gap-3 text-tiny text-ink-2">
+                Sources:
+                {([['Mail', srcMail, setSrcMail], ['Calendar', srcCalendar, setSrcCalendar], ['Notes', srcNotes, setSrcNotes]] as const).map(([label, on, set]) => (
+                  <label key={label} className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={on} onChange={e => set(e.target.checked)} className="accent-current" />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <textarea value={instruction} onChange={e => setInstruction(e.target.value)} rows={2}
+                placeholder="What should the briefing focus on? (optional — e.g. 'Only things needing a reply today, then my schedule')"
+                className="w-full bg-panel border border-edge-2 rounded-xl px-3 py-2 text-xs outline-none focus:border-secondary resize-none" />
+            </>
+          )}
           <button onClick={() => void addRoutine()}
-            disabled={!name.trim() || (action === 'mailFlag' && !fromContains.trim() && !subjectContains.trim())}
+            disabled={!name.trim() || (action === 'mailFlag' && !fromContains.trim() && !subjectContains.trim()) || (action === 'digest' && !srcMail && !srcCalendar && !srcNotes)}
             className="px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all disabled:opacity-40">
             Create routine
           </button>

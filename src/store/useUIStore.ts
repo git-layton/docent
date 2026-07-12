@@ -105,6 +105,10 @@ interface UIStore {
   setSaveAppData: (v: { title: string }) => void;
   setRamStats: (v: { total_mb: number; used_mb: number; available_mb: number } | null) => void;
   setHwProfile: (v: any) => void;
+  /** Slack-style activity bubble on the Inbox tab — background work (routines) filed something new. */
+  inboxAlerts: number;
+  bumpInboxAlerts: () => void;
+  clearInboxAlerts: () => void;
   setIsDbLoaded: (v: boolean) => void;
   setCodePreviewUrl: (v: string | null) => void;
   setCodePreviewRect: (v: { x: number; y: number; width: number; height: number } | null) => void;
@@ -204,6 +208,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setSaveAppData: (v) => set({ saveAppData: v }),
   setRamStats: (v) => set({ ramStats: v }),
   setHwProfile: (v) => set({ hwProfile: v }),
+  inboxAlerts: 0,
+  bumpInboxAlerts: () => set(s => ({ inboxAlerts: s.inboxAlerts + 1 })),
+  clearInboxAlerts: () => set({ inboxAlerts: 0 }),
   setIsDbLoaded: (v) => set({ isDbLoaded: v }),
   setCodePreviewUrl: (v) => set({ codePreviewUrl: v }),
   setCodePreviewRect: (v) => set({ codePreviewRect: v }),
