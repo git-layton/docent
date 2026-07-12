@@ -4011,7 +4011,14 @@ pub fn run() {
         // Clean Exit hook: SIGCONT + SIGKILL the llama sidecar on window destroy, and reap every
         // live PTY session so no zombie shells / dev-servers outlive the app.
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
+            // Closing the MAIN window means "quit the app" — not the macOS default of lingering
+            // window-less in the Dock. Tear down the child processes we own (the local model
+            // engine + any PTY sessions) and exit for real, so the red X fully closes Agent Forge.
+            // Spotlight/glow are hidden (never destroyed), so this only fires for main.
+            let is_main = window.label() == "main";
+            let should_teardown = matches!(event, tauri::WindowEvent::Destroyed)
+                || matches!(event, tauri::WindowEvent::CloseRequested { .. });
+            if is_main && should_teardown {
                 let app = window.app_handle();
                 let state = app.state::<LlamaState>();
                 let pid = *state.pid.lock().unwrap_or_else(|e| e.into_inner());
@@ -4019,6 +4026,7 @@ pub fn run() {
                     kill_llama(pid);
                 }
                 pty::kill_all_sessions(app);
+                app.exit(0);
             }
         })
         .invoke_handler(tauri::generate_handler![

@@ -14,6 +14,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { generateTextResponse } from './llm';
+import { writeMemory } from '../lib/ipc';
 
 export type RoutineTrigger =
   | { kind: 'daily'; hour: number; minute: number }
@@ -29,6 +30,10 @@ export interface Routine {
   sources?: { mail?: boolean; calendar?: boolean; notes?: boolean };
   /** For digest: the user's own instruction for what to make of the gathered data. */
   instruction?: string;
+  /** For digest: also write the briefing to the agent's memory so Alexis can REFERENCE it later
+   *  (the file watcher indexes knowledge_root/memory into semantic search). Inbox is the delivery
+   *  surface; memory is the durable-knowledge surface — opt-in so we don't bloat memory by default. */
+  saveToMemory?: boolean;
   /** For mailFlag: substrings matched case-insensitively against sender and subject. */
   fromContains?: string;
   subjectContains?: string;
@@ -166,6 +171,19 @@ async function runDigest(r: Routine, deps: RoutineDeps): Promise<RoutineResult> 
   });
   const summary = accumulated || (typeof result === 'string' ? result : '') || sections.join('\n\n');
   await fileToInbox(r, deps, r.name, summary);
+
+  // Opt-in: persist as referenceable knowledge. A stable slug per routine means each run UPDATES
+  // the same memory file (today's briefing supersedes yesterday's) rather than piling up.
+  if (r.saveToMemory) {
+    const slug = r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'routine-briefing';
+    const frontmatter = `---\ntitle: "${r.name.replace(/"/g, "'")}"\nsource: "routine"\ndate: "${new Date().toISOString()}"\n---\n\n`;
+    await writeMemory({
+      path: `routines/${slug}.md`,
+      content: frontmatter + summary,
+      commitMessage: `routine: ${r.name}`,
+      agentId: r.ownerId,
+    }).catch(e => console.warn(`[routines] memory save failed for ${r.name}:`, e));
+  }
   return { filedTitle: r.name };
 }
 

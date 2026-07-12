@@ -20,6 +20,7 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
   const [srcCalendar, setSrcCalendar] = useState(true);
   const [srcNotes, setSrcNotes] = useState(false);
   const [instruction, setInstruction] = useState('');
+  const [saveToMemory, setSaveToMemory] = useState(false);
 
   useEffect(() => { void db.get('routines', []).then(setRoutines); }, []);
 
@@ -38,6 +39,7 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
       action,
       sources: action === 'digest' ? { mail: srcMail, calendar: srcCalendar, notes: srcNotes } : undefined,
       instruction: action === 'digest' ? (instruction.trim() || undefined) : undefined,
+      saveToMemory: action === 'digest' ? saveToMemory : undefined,
       fromContains: fromContains.trim() || undefined,
       subjectContains: subjectContains.trim() || undefined,
       ownerId: owner.id,
@@ -145,6 +147,10 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
               <textarea value={instruction} onChange={e => setInstruction(e.target.value)} rows={2}
                 placeholder="What should the briefing focus on? (optional — e.g. 'Only things needing a reply today, then my schedule')"
                 className="w-full bg-panel border border-edge-2 rounded-xl px-3 py-2 text-xs outline-none focus:border-secondary resize-none" />
+              <label className="flex items-center gap-2 text-tiny text-ink-2 cursor-pointer">
+                <input type="checkbox" checked={saveToMemory} onChange={e => setSaveToMemory(e.target.checked)} className="accent-current" />
+                Also save to memory so Alexis can reference this briefing later
+              </label>
             </>
           )}
           <button onClick={() => void addRoutine()}
