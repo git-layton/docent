@@ -29,6 +29,8 @@ interface UIStore {
   pinnedTools: string[];
   isDragging: boolean;
   uploadError: string;
+  /** A routine Alexis detected in a chat message, awaiting the user's confirm (see routines.ts). */
+  proposedRoutine: import('../services/routines').ProposedRoutine | null;
   slashHighlight: number;
 
   // Canvas & archive
@@ -94,6 +96,7 @@ interface UIStore {
   setPinnedTools: (v: string[] | ((prev: string[]) => string[])) => void;
   setIsDragging: (v: boolean) => void;
   setUploadError: (v: string) => void;
+  setProposedRoutine: (v: import('../services/routines').ProposedRoutine | null) => void;
   setSlashHighlight: (v: number | ((prev: number) => number)) => void;
   setCanvasContent: (v: any | ((prev: any) => any)) => void;
   setCanvasTab: (v: string) => void;
@@ -142,6 +145,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   pinnedTools: ['web_search', 'local_workspace'],
   isDragging: false,
   uploadError: '',
+  proposedRoutine: null,
   slashHighlight: 0,
   canvasContent: null,
   canvasTab: 'preview',
@@ -194,6 +198,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set(s => ({ pinnedTools: typeof v === 'function' ? v(s.pinnedTools) : v })),
   setIsDragging: (v) => set({ isDragging: v }),
   setUploadError: (v) => set({ uploadError: v }),
+  setProposedRoutine: (v) => set({ proposedRoutine: v }),
   setSlashHighlight: (v) =>
     set(s => ({ slashHighlight: typeof v === 'function' ? v(s.slashHighlight) : v })),
   setCanvasContent: (v) =>

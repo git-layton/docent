@@ -53,7 +53,7 @@ import { MorningBriefingBanner } from './components/MorningBriefingBanner';
 import { DreamDigestModal } from './components/DreamDigestModal';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
 import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse } from './services/dreamer';
-import { isDue, runRoutine, type Routine } from './services/routines';
+import { isDue, runRoutine, detectRoutineIntent, type Routine } from './services/routines';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agentForgeUserDocs';
 import { AssistantSettingsModal } from './components/AssistantSettingsModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
@@ -2396,6 +2396,9 @@ export default function App() {
       }
     }
     const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
+    // "Ask Alexis to set up a routine" — if the message reads as a recurring/watch request, surface
+    // a proposal card above the composer. Pure detection, no LLM call; the user confirms before it saves.
+    useUIStore.getState().setProposedRoutine(detectRoutineIntent(_input));
     // Auto-save any attached images to the Image Library (de-duped, described in the background).
     for (const f of _attachedDocs) {
       if (f?.isImage && typeof f.content === 'string') saveImageToLibrary(f.content, { source: 'attached', name: f.name, mimeType: f.type });

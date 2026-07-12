@@ -13,6 +13,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { AVAILABLE_TOOLS } from './ui/AgentIcon';
+import { RoutineProposalBar } from './RoutineProposalBar';
 
 // Tool capability ids (web_search/local_workspace) → the canonical forcedTool route
 // value the router + gatekeeper understand ('search'/'workspace'). Without this map a
@@ -192,6 +193,9 @@ export function ChatInputBar({
                 <AlertTriangle size={14} /> {uploadError}
             </div>
         )}
+
+        {/* Routine proposal — Alexis noticed a recurring/watch request in the last message. */}
+        <RoutineProposalBar />
 
         {attachedDocs.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2 px-2">

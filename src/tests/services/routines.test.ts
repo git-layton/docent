@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isDue, matchesWatch, rememberUids, type Routine } from '../../services/routines';
+import { isDue, matchesWatch, rememberUids, detectRoutineIntent, type Routine } from '../../services/routines';
 
 const base = (over: Partial<Routine>): Routine => ({
   id: 'r1', name: 'test', trigger: { kind: 'daily', hour: 8, minute: 0 },
@@ -59,5 +59,32 @@ describe('rememberUids', () => {
     expect(uids.length).toBe(500);
     expect(uids[uids.length - 1]).toBe(999);
     expect(uids[0]).toBe(0);
+  });
+});
+
+describe('detectRoutineIntent', () => {
+  it('proposes a daily digest for a recurring mail+calendar request', () => {
+    const p = detectRoutineIntent('every morning at 8am give me a summary of my email and calendar');
+    expect(p?.action).toBe('digest');
+    expect(p?.sources).toEqual({ mail: true, calendar: true, notes: false });
+    expect(p?.trigger).toEqual({ kind: 'daily', hour: 8, minute: 0 });
+  });
+  it('parses pm times', () => {
+    const p = detectRoutineIntent('each day at 6:30pm summarize my notes');
+    expect(p?.trigger).toEqual({ kind: 'daily', hour: 18, minute: 30 });
+  });
+  it('proposes a mail watcher with a sender target', () => {
+    const p = detectRoutineIntent('watch my email from stripe and flag it');
+    expect(p?.action).toBe('mailFlag');
+    expect(p?.fromContains?.toLowerCase()).toContain('stripe');
+  });
+  it('returns null for a one-off request (no recurrence or watch cue)', () => {
+    expect(detectRoutineIntent('summarize this email for me')).toBeNull();
+  });
+  it('returns null when no mail/calendar/notes subject is present', () => {
+    expect(detectRoutineIntent('every morning remind me to stretch')).toBeNull();
+  });
+  it('returns null for a watcher with no target to match on', () => {
+    expect(detectRoutineIntent('watch my email')).toBeNull();
   });
 });

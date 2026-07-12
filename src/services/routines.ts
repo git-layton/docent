@@ -49,6 +49,88 @@ export interface Routine {
 /** What a run produced — the caller uses this to notify (banner + inbox bubble). */
 export interface RoutineResult { filedTitle: string | null }
 
+/** A routine pre-filled from a chat message — the user confirms before it's saved. */
+export interface ProposedRoutine {
+  name: string;
+  action: 'digest' | 'mailFlag';
+  sources?: { mail?: boolean; calendar?: boolean; notes?: boolean };
+  fromContains?: string;
+  subjectContains?: string;
+  trigger: RoutineTrigger;
+  summary: string; // human-readable "what this will do", shown on the proposal card
+}
+
+// Recurrence cues — only propose when the user clearly wants something RECURRING, so a one-off
+// "summarize this email" never triggers a routine card (miss rather than nag, like the topic nudge).
+const RECURRENCE = /\b(every ?day|everyday|each (morning|day|evening)|daily|each week|weekly|every (morning|evening|week|hour)|from now on|whenever)\b/i;
+const WATCH = /\b(watch|flag|alert me|let me know|notify me|keep an eye)\b/i;
+
+/** Parse a clock time like "8am", "8:30", "at 7" → {hour, minute}, defaulting to 08:00. */
+function parseTime(text: string): { hour: number; minute: number } {
+  const m = text.match(/\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+  if (!m) return { hour: 8, minute: 0 };
+  let h = parseInt(m[1], 10);
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  const ap = m[3]?.toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  if (h > 23 || min > 59) return { hour: 8, minute: 0 };
+  return { hour: h, minute: min };
+}
+
+/** Pull a `from "X"` / `about "X"` / `for X` filter target out of a watch phrase. */
+function parseWatchTarget(text: string): { fromContains?: string; subjectContains?: string } {
+  const from = text.match(/\bfrom\s+([A-Za-z0-9@._-]+(?:\s+[A-Za-z0-9@._-]+)?)/i);
+  const about = text.match(/\b(?:about|regarding|subject|containing|mentioning|for)\s+"?([A-Za-z0-9 ._-]{2,40}?)"?(?:$|[.,])/i);
+  return { fromContains: from?.[1]?.trim(), subjectContains: about?.[1]?.trim() };
+}
+
+/**
+ * PURE — detect a routine the user is asking for in plain chat. Returns a proposal to confirm, or
+ * null. Conservative on purpose: requires a mail/calendar/notes subject AND either a recurrence cue
+ * (→ digest) or a watch cue (→ mailFlag). "Summarize this email" (one-off) returns null.
+ */
+export function detectRoutineIntent(text: string): ProposedRoutine | null {
+  const t = (text || '').trim();
+  if (t.length < 8) return null;
+  const mentionsMail = /\b(mail|email|inbox|messages?)\b/i.test(t);
+  const mentionsCal = /\b(calendar|schedule|events?|meetings?|agenda)\b/i.test(t);
+  const mentionsNotes = /\bnotes?\b/i.test(t);
+  if (!mentionsMail && !mentionsCal && !mentionsNotes) return null;
+
+  // Watch/flag — only makes sense for mail, and only with a target to match on.
+  if (WATCH.test(t) && mentionsMail) {
+    const target = parseWatchTarget(t);
+    if (target.fromContains || target.subjectContains) {
+      const label = target.fromContains ? `from “${target.fromContains}”` : `about “${target.subjectContains}”`;
+      return {
+        name: `Watch mail ${label}`,
+        action: 'mailFlag',
+        fromContains: target.fromContains,
+        subjectContains: target.subjectContains,
+        trigger: { kind: 'mailWatch', everyMinutes: 5 },
+        summary: `Check your mail every 5 min and flag anything ${label} — a note lands in your Inbox.`,
+      };
+    }
+  }
+
+  // Digest — a recurring briefing over whichever sources were named.
+  if (RECURRENCE.test(t)) {
+    const sources = { mail: mentionsMail, calendar: mentionsCal, notes: mentionsNotes };
+    const { hour, minute } = parseTime(t);
+    const srcList = Object.entries(sources).filter(([, on]) => on).map(([k]) => k).join(' + ');
+    const hh = String(hour).padStart(2, '0'), mm = String(minute).padStart(2, '0');
+    return {
+      name: `Daily ${srcList} briefing`,
+      action: 'digest',
+      sources,
+      trigger: { kind: 'daily', hour, minute },
+      summary: `Every day at ${hh}:${mm}, gather your ${srcList} and file a briefing in your Inbox.`,
+    };
+  }
+  return null;
+}
+
 export interface MailAccount { provider: string; email: string }
 interface MailHeader { uid: number; fromName: string; fromEmail: string; subject: string; date: string; seen: boolean; flagged: boolean }
 
