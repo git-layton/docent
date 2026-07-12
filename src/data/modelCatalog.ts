@@ -85,23 +85,29 @@ const TIER_16: CatalogModel[] = [
     bestFor: 'Noticeably sharper reasoning and writing than the 8B — a great everyday model with current-gen quality',
     notGreatFor: 'Slower on lighter Macs; the 30B MoE is smarter still if you have the memory',
     tag: 'Current-gen',
-    primary: true,
   },
   {
-    id: 'gemma3-12b',
-    name: 'Gemma 3 12B',
-    ggufFilename: 'google_gemma-3-12b-it-Q4_K_M.gguf',
-    downloadUrl: 'https://huggingface.co/bartowski/google_gemma-3-12b-it-GGUF/resolve/main/google_gemma-3-12b-it-Q4_K_M.gguf',
-    sizeMb: 7301,
+    // The 16GB-tier headline pick: Gemma 4 12B is the first mid-size model with NATIVE vision
+    // (+ audio, once we grow audio-attachment plumbing) that fits a 16GB Mac with room to spare —
+    // and this app's whole identity is multimodal perception. Requires the bundled llama.cpp
+    // ≥ Gemma-4 support (ours: b9821, 2026-07). Supersedes the old Gemma 3 12B entry.
+    id: 'gemma4-12b',
+    name: 'Gemma 4 12B',
+    ggufFilename: 'gemma-4-12b-it-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/gemma-4-12b-it-Q4_K_M.gguf',
+    sizeMb: 7122,
     ramGb: 16,
     contextK: 128,
     role: 'General',
-    bestFor: 'Fluent writing, long context, and reads images — a strong vision-capable all-rounder',
-    notGreatFor: 'Complex code generation',
-    tag: 'Google · Vision',
+    bestFor: 'The best all-rounder on a 16GB Mac — current-gen chat and writing, and it natively SEES images (screenshots, charts, photos)',
+    notGreatFor: 'The heaviest reasoning and coding — the 30B-class models still win if you have 32GB',
+    tag: 'Google · Vision · New',
     vision: true,
-    mmprojUrl: 'https://huggingface.co/bartowski/google_gemma-3-12b-it-GGUF/resolve/main/mmproj-google_gemma-3-12b-it-f16.gguf',
-    mmprojFilename: 'mmproj-google_gemma-3-12b-it-f16.gguf',
+    // unsloth ships a generic 'mmproj-F16.gguf' name — we save it under a unique one so
+    // projector files from different models can't collide in the models dir.
+    mmprojUrl: 'https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/mmproj-F16.gguf',
+    mmprojFilename: 'mmproj-gemma-4-12b-it-F16.gguf',
+    primary: true,
   },
 ];
 
