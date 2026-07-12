@@ -38,9 +38,10 @@ Status legend: `todo` · `in-progress` · `done` · `deferred` · `needs-design`
   while generating; Enter only sends when idle.
 - [x] `done` Stop responsiveness — `App.tsx` `handleStop` clears the flag + finalizes the bubble
   immediately.
-- [ ] `todo` Tabs slow, Notes worst — `renderTabContent` unmounts inactive tabs (`App.tsx:2832`), so
-  Notes remounts + re-runs AppleScript. Fix: cache notes/folders in a store (or keep recent panels
-  mounted) + background refresh.
+- [x] `done` (v2.0.32) Tabs slow, Notes worst — `NotesPanel.tsx` now has a module-scoped cache
+  (folders/notes/bodies, keyed by backend) that survives the remount, hydrates instantly, and
+  refreshes in the background. Other panels still remount but Notes was the AppleScript-bound worst
+  case; revisit only if another panel proves slow.
 
 ## Notes
 - [x] `done` White-flash on save — `NotesPanel.tsx` renders a consistent light "paper" surface for both
@@ -73,7 +74,9 @@ Status legend: `todo` · `in-progress` · `done` · `deferred` · `needs-design`
 
 ## Code
 - [x] `done` Terminal copy/paste — `TerminalPane` `attachCustomKeyEventHandler`.
-- [ ] `todo` Add-image in Code composer — confirm attach plumbing in `AgentForgeCodePanel.tsx`.
+- [x] `done` Add-image in Code composer — plumbing confirmed present: `handleCodeyFileUpload`
+  (`AgentForgeCodePanel.tsx`) mirrors the main handler with image support (readAsDataURL + isImage,
+  gated on a vision-capable model / Image Understanding).
 
 ## Canvas
 - [ ] `deferred` Broken + redundant. Root cause confirmed (orphaned `w-1/2` split + global singleton
