@@ -5,7 +5,7 @@ import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, A
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
-import { startRelayBridge } from './services/relayBridge';
+
 import { extractTextFromPDF } from './services/pdfParser';
 import { useChatStore } from './store/useChatStore';
 import { useAgentStore, DEFAULT_ASSISTANT, resolveCodeyId } from './store/useAgentStore';
@@ -392,7 +392,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
         // Mobile companion: main window connects to the local relay and serves
         // paired phones (the overlay must not — the relay allows one app socket).
-        if (!isSpotlight) startRelayBridge();
 
 
       // Init Knowledge Core (creates ~/AgentForge/ on first run)
