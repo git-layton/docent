@@ -56,7 +56,7 @@
       "bin/llama-libs/*"
     ],
     "macOS": {
-      "signingIdentity": "-",
+      "signingIdentity": null,
       "entitlements": "entitlements.plist"
     }
   },
