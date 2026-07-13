@@ -33,6 +33,7 @@ import { capabilityForRoute, type CapabilityContext } from './services/capabilit
 import { evaluateDroppedMessages } from './services/contextEvaluator';
 import { computePinProfile } from './services/pinPersonalization';
 import { invoke } from '@tauri-apps/api/core';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { writeMemory, restoreArchivedFile } from './lib/ipc';
 import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -70,6 +71,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { DockedAgentRail } from './components/DockedAgentRail';
 import { BrowserTabContent } from './components/BrowserTabContent';
 import { MailInboxPanel } from './components/MailInboxPanel';
+import { DesktopViewerPanel } from './components/DesktopViewerPanel';
 import { MessagesPanel } from './components/MessagesPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { CalendarPanel } from './components/CalendarPanel';
@@ -2375,6 +2377,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     }
   }, [isSpotlight]);
 
+  // Spotlight window listens to sync events
   useEffect(() => {
     if (isSpotlight) {
       const unlisten = listen('sync-spotlight', (e: any) => {
@@ -2382,7 +2385,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
          setGeneratingChats(new Set(e.payload.generatingChatsList));
       });
       return () => { unlisten.then(f => f()); };
-    } else {
+    }
+  }, [isSpotlight]);
+
+  // Main window emits sync events
+  useEffect(() => {
+    if (!isSpotlight) {
       const syncNow = () => emit('sync-spotlight', { messages: useChatStore.getState().messages, activeChatId: useChatStore.getState().activeChatId, generatingChatsList: Array.from(generatingChats) }).catch(() => {});
       
       const unsub = useChatStore.subscribe((state, prevState) => {
@@ -3078,6 +3086,9 @@ const handleSendMessage = async () => {
     if (tab.type === 'tool' && tab.toolId === 'inbox') {
       return <MailInboxPanel />;
     }
+    if (tab.type === 'tool' && tab.toolId === 'desktop') {
+      return <DesktopViewerPanel />;
+    }
     if (tab.type === 'tool' && tab.toolId === 'messages') {
       return <MessagesPanel />;
     }
@@ -3203,7 +3214,15 @@ if (isSpotlight) {
                        }`}
                      >{b}</button>
                    ))}
-                   <button onClick={() => { setSpotlightSource('screen'); db.set('spotlightSource', 'screen'); }}
+                   <button onClick={async () => {
+                     const auth = await invoke<boolean>('screen_capture_authorized').catch(() => true);
+                     if (!auth) {
+                       alert("Screen Recording permission is required. Please grant it in macOS System Settings > Privacy & Security > Screen Recording, then restart Agent Forge.");
+                       openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture').catch(() => {});
+                     }
+                     setSpotlightSource('screen'); 
+                     db.set('spotlightSource', 'screen'); 
+                 }}
                      className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
                        spotlightSource === 'screen' ? 'bg-accent text-on-accent shadow-sm' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
                      }`}

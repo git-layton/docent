@@ -20,6 +20,7 @@ import {
   Settings,
   StickyNote,
   FolderGit2,
+  Monitor,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -114,6 +115,14 @@ const APPS: AppEntry[] = [
     icon: MessageCircle,
     tint: 'bg-green-500/12 text-green-700 dark:bg-green-400/15 dark:text-green-300',
     open: (tabId) => launch(tabId, { type: 'tool', toolId: 'messages' as ToolTabId, label: 'Messages' }),
+  },
+  {
+    id: 'desktop',
+    label: 'Desktop',
+    sub: 'Mission Control',
+    icon: Monitor,
+    tint: 'bg-blue-500/12 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'desktop' as ToolTabId, label: 'Desktop' }),
   },
   {
     id: 'notes',
