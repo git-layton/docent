@@ -3178,7 +3178,12 @@ if (isSpotlight) {
           <div data-tauri-drag-region className="flex items-center justify-between px-3 py-2 cursor-grab active:cursor-grabbing shrink-0 border-b border-edge">
              <div data-tauri-drag-region className="flex-1 flex items-center gap-2">
                  <Bot className="w-4 h-4 text-accent" />
-                 <span className="text-xs font-bold text-ink-2 uppercase tracking-widest pointer-events-none">Spotlight Sync</span>
+                 <span className="text-xs font-bold text-ink-2 uppercase tracking-widest pointer-events-none">
+                   {spotlightSource === 'screen' ? 'Viewing Screen' :
+                    spotlightSource === 'chrome' ? 'Viewing Chrome' :
+                    spotlightSource === 'safari' ? 'Viewing Safari' :
+                    'Spotlight Chat'}
+                 </span>
              </div>
              
              {/* Source toggle — Chrome / Safari / Screen / Off */}
