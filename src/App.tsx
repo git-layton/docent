@@ -1,13 +1,7 @@
 import './index.css';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import {
-  X, Bot, Code,
-  FileText,
-  Clock, ListTodo,
-  AlignLeft, MapPin, Workflow,
-  AlertTriangle, Loader2, Activity, UserPlus, Bookmark,
-  MessageSquare, Mail, Layers, Send, CheckCircle2,
-} from 'lucide-react';
+import { relaunch } from "@tauri-apps/plugin-process";
+import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw } from 'lucide-react';
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
