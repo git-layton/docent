@@ -533,6 +533,43 @@ pub async fn imessage_send(chat_guid: String, text: String) -> Result<(), String
     .map_err(|e| format!("imessage task failed: {e}"))?
 }
 
+/// Send a message to a raw handle (phone number or email) by creating a new conversation.
+#[tauri::command]
+pub async fn imessage_send_new(handle: String, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        if text.trim().is_empty() {
+            return Err("Can't send an empty message.".to_string());
+        }
+        if handle.trim().is_empty() {
+            return Err("Missing handle to send to.".to_string());
+        }
+        let script = "on run {msg, targetHandle}\n\
+                      \ttell application \"Messages\"\n\
+                      \t\tset targetService to 1st service whose service type = iMessage\n\
+                      \t\tset targetBuddy to buddy targetHandle of targetService\n\
+                      \t\tsend msg to targetBuddy\n\
+                      \tend tell\n\
+                      end run";
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .arg(&text)
+            .arg(&handle)
+            .output()
+            .map_err(|e| format!("could not run osascript: {e}"))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(format!(
+                "Messages refused to send: {err}. If this is the first time, allow Agent Forge to \
+                 control Messages in System Settings → Privacy & Security → Automation."
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("imessage task failed: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

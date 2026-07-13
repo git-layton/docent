@@ -163,6 +163,104 @@ pub async fn mail_fetch_recent(
     .map_err(|e| format!("mail task failed: {e}"))?
 }
 
+/// Search INBOX for `query` and fetch the most recent `limit` headers of the matches.
+#[tauri::command]
+pub async fn mail_search(
+    provider: String,
+    email: String,
+    query: String,
+    limit: u32,
+) -> Result<Vec<MailHeader>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<MailHeader>, String> {
+        let password = mail_password(&email)?;
+        let (host, port) = imap_endpoint(&provider)?;
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls)
+            .map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client
+            .login(&email, &password)
+            .map_err(|(e, _client)| format!("login rejected: {e}"))?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("could not open INBOX: {e}"))?;
+
+        // IMAP SEARCH requires safe strings; we'll format a basic TEXT search.
+        // We sanitize quotes out of the query to prevent injection.
+        let safe_query = query.replace('"', "");
+        let search_str = format!("TEXT \"{}\"", safe_query);
+        let mut matching_seqs: Vec<u32> = session
+            .search(search_str)
+            .map_err(|e| format!("search failed: {e}"))?
+            .into_iter()
+            .collect();
+
+        if matching_seqs.is_empty() {
+            let _ = session.logout();
+            return Ok(Vec::new());
+        }
+
+        matching_seqs.sort_unstable(); // oldest first
+        // Take the latest `limit`
+        let want = limit.max(1) as usize;
+        let start_idx = matching_seqs.len().saturating_sub(want);
+        let recent_seqs = &matching_seqs[start_idx..];
+
+        // Format for fetch: "seq1,seq2,seq3"
+        let seq_str = recent_seqs
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let fetches = session
+            .fetch(seq_str, "(UID ENVELOPE FLAGS)")
+            .map_err(|e| format!("fetch failed: {e}"))?;
+
+        let mut out: Vec<MailHeader> = Vec::with_capacity(fetches.len());
+        for msg in fetches.iter() {
+            let seen = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Seen));
+            let flagged = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Flagged));
+            let env = msg.envelope();
+            let subject = env
+                .and_then(|e| e.subject)
+                .map(|b| String::from_utf8_lossy(b).trim().to_string())
+                .unwrap_or_default();
+            let date = env
+                .and_then(|e| e.date)
+                .map(|b| String::from_utf8_lossy(b).to_string())
+                .unwrap_or_default();
+            let (from_name, from_email) = env
+                .and_then(|e| e.from.as_ref())
+                .and_then(|v| v.first())
+                .map(|a| {
+                    let name = a.name.map(|b| String::from_utf8_lossy(b).trim().to_string()).unwrap_or_default();
+                    let mbox = a.mailbox.map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+                    let h = a.host.map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+                    let em = if mbox.is_empty() || h.is_empty() { String::new() } else { format!("{mbox}@{h}") };
+                    (name, em)
+                })
+                .unwrap_or_default();
+            out.push(MailHeader {
+                uid: msg.uid.unwrap_or(0),
+                from_name,
+                from_email,
+                subject,
+                date,
+                seen,
+                flagged,
+            });
+        }
+        let _ = session.logout();
+        out.sort_by_key(|m| std::cmp::Reverse(m.uid)); // newest first
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("mail task failed: {e}"))?
+}
+
+
 /// Parsed body + the header fields a reply needs.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
