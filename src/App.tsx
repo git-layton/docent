@@ -5,6 +5,7 @@ import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, A
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
+import { startRelayBridge } from './services/relayBridge';
 import { extractTextFromPDF } from './services/pdfParser';
 import { useChatStore } from './store/useChatStore';
 import { useAgentStore, DEFAULT_ASSISTANT, resolveCodeyId } from './store/useAgentStore';
@@ -197,7 +198,11 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   
   // ── Spotlight Source State ──
   const [spotlightSource, setSpotlightSource] = useState<'screen' | 'chrome' | 'safari' | 'none'>('chrome');
+
   const [showScreenPreview, setShowScreenPreview] = useState(false);
+  const [showSpotlightAgentPicker, setShowSpotlightAgentPicker] = useState(false);
+  const [showSpotlightModelPicker, setShowSpotlightModelPicker] = useState(false);
+
   const [screenPreview, setScreenPreview] = useState<{ loading: boolean; thumb?: string }>({ loading: false });
   const [screenAccessNeeded, setScreenAccessNeeded] = useState(false);
   
@@ -384,6 +389,10 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         if (isSpotlight) {
           db.get('spotlightSource', 'chrome').then(src => setSpotlightSource(src as any));
         }
+
+        // Mobile companion: main window connects to the local relay and serves
+        // paired phones (the overlay must not — the relay allows one app socket).
+        if (!isSpotlight) startRelayBridge();
 
 
       // Init Knowledge Core (creates ~/AgentForge/ on first run)
@@ -2375,12 +2384,15 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       });
       return () => { unlisten.then(f => f()); };
     } else {
+      const syncNow = () => emit('sync-spotlight', { messages: useChatStore.getState().messages, activeChatId: useChatStore.getState().activeChatId, generatingChatsList: Array.from(generatingChats) }).catch(() => {});
+      
       const unsub = useChatStore.subscribe((state, prevState) => {
         if (state.messages !== prevState.messages || state.activeChatId !== prevState.activeChatId) {
-          emit('sync-spotlight', { messages: state.messages, activeChatId: state.activeChatId, generatingChatsList: Array.from(generatingChats) }).catch(() => {});
+          syncNow();
         }
       });
-      emit('sync-spotlight', { messages: useChatStore.getState().messages, activeChatId: useChatStore.getState().activeChatId, generatingChatsList: Array.from(generatingChats) }).catch(() => {});
+      
+      syncNow();
       return unsub;
     }
   }, [isSpotlight, generatingChats]);
@@ -3169,46 +3181,100 @@ if (isSpotlight) {
             boxShadow: '-10px 0 44px rgba(0,0,0,0.5)',
           }}
         >
-          <div data-tauri-drag-region className="flex items-center justify-between px-3 py-2 cursor-grab active:cursor-grabbing shrink-0 border-b border-edge">
-             <div data-tauri-drag-region className="flex-1 flex items-center gap-2">
-                 <Bot className="w-4 h-4 text-accent" />
-                 <span className="text-xs font-bold text-ink-2 uppercase tracking-widest pointer-events-none">
-                   {spotlightSource === 'screen' ? 'Viewing Screen' :
-                    spotlightSource === 'chrome' ? 'Viewing Chrome' :
-                    spotlightSource === 'safari' ? 'Viewing Safari' :
-                    'Spotlight Chat'}
-                 </span>
-             </div>
-             
-             {/* Source toggle — Chrome / Safari / Screen / Off */}
-             <div className="flex shrink-0 rounded-full border border-edge-2 p-0.5 gap-0.5 mr-2 bg-panel shadow-sm">
-               {(['chrome', 'safari'] as const).map(b => (
-                 <button key={b} onClick={() => {
-                   setSpotlightSource(b);
-                   setShowScreenPreview(false);
-                   db.set('spotlightSource', b);
-                 }}
-                   className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full capitalize transition-all ${
-                     spotlightSource === b ? 'bg-accent text-on-accent shadow-sm' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
-                   }`}
-                 >{b}</button>
-               ))}
-               <button onClick={() => { setSpotlightSource('screen'); db.set('spotlightSource', 'screen'); }}
-                 className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
-                   spotlightSource === 'screen' ? 'bg-accent text-on-accent shadow-sm' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
-                 }`}
-               ><Monitor className="w-3 h-3" /> Screen</button>
-               <button onClick={() => { setSpotlightSource('none'); setShowScreenPreview(false); db.set('spotlightSource', 'none'); }}
-                 title="Chat only — don't read the screen or any browser tab"
-                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
-                   spotlightSource === 'none' ? 'bg-accent text-on-accent shadow-sm' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
-                 }`}
-               >Off</button>
+          <div data-tauri-drag-region className="flex flex-col shrink-0 border-b border-edge">
+             <div data-tauri-drag-region className="flex items-center justify-between px-3 py-2 cursor-grab active:cursor-grabbing">
+               <div className="flex-1 flex items-center gap-2">
+                   <Bot className="w-4 h-4 text-accent" />
+                   <span className="text-xs font-bold text-ink-2 uppercase tracking-widest pointer-events-none">
+                     Screen Viewer
+                   </span>
+               </div>
+               
+               <div className="flex items-center gap-2">
+                 {/* Source toggle — Chrome / Safari / Screen / Off */}
+                 <div className="flex shrink-0 rounded-full border border-edge-2 p-0.5 gap-0.5 bg-panel shadow-sm">
+                   {(['chrome', 'safari'] as const).map(b => (
+                     <button key={b} onClick={() => {
+                       setSpotlightSource(b);
+                       setShowScreenPreview(false);
+                       db.set('spotlightSource', b);
+                     }}
+                       className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full capitalize transition-all ${
+                         spotlightSource === b ? 'bg-accent text-on-accent shadow-sm' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+                       }`}
+                     >{b}</button>
+                   ))}
+                   <button onClick={() => { setSpotlightSource('screen'); db.set('spotlightSource', 'screen'); }}
+                     className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
+                       spotlightSource === 'screen' ? 'bg-accent text-on-accent shadow-sm' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+                     }`}
+                   ><Monitor className="w-3 h-3" /> Screen</button>
+                   <button onClick={() => { setSpotlightSource('none'); setShowScreenPreview(false); db.set('spotlightSource', 'none'); }}
+                     title="Chat only — don't read the screen or any browser tab"
+                     className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition-all ${
+                       spotlightSource === 'none' ? 'bg-accent text-on-accent shadow-sm' : 'text-ink-3 hover:text-ink-2 hover:bg-wash'
+                     }`}
+                   >Off</button>
+                 </div>
+
+                 <button onClick={() => getCurrentWindow().hide()} className="p-1 ml-1 text-ink-3 hover:text-danger rounded-lg transition-colors">
+                     <X className="w-4 h-4" />
+                 </button>
+               </div>
              </div>
 
-             <button onClick={() => getCurrentWindow().hide()} className="p-1 text-ink-3 hover:text-danger rounded-lg transition-colors">
-                 <X className="w-4 h-4" />
-             </button>
+             {/* Secondary Header Row: Agent, Model, TTS */}
+             <div className="flex items-center gap-2 px-3 pb-2">
+                {/* Agent Picker */}
+                <div className="relative">
+                  <button onClick={() => { setShowSpotlightAgentPicker(!showSpotlightAgentPicker); setShowSpotlightModelPicker(false); }}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-wash hover:bg-edge rounded-lg text-xs font-bold text-ink transition-colors">
+                    <Bot className="w-3 h-3 text-accent" />
+                    {useAgentStore.getState().assistants.find((a: any) => a.id === useAgentStore.getState().activeFolderId)?.name ?? 'Agent'}
+                    <ChevronDown className="w-3 h-3 text-ink-3" />
+                  </button>
+                  {showSpotlightAgentPicker && (
+                    <div className="absolute top-full left-0 mt-1 w-48 bg-panel-2 border border-edge rounded-xl shadow-xl z-50 py-1 max-h-64 overflow-y-auto">
+                      {useAgentStore.getState().assistants.map((a: any) => (
+                        <button key={a.id} onClick={() => {
+                          useAgentStore.getState().setActiveFolderId(a.id);
+                          useChatStore.getState().setActiveChatId(null);
+                          setShowSpotlightAgentPicker(false);
+                        }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-ink hover:bg-wash">
+                          <Bot className="w-3 h-3 text-accent" /> {a.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Model Picker */}
+                <div className="relative">
+                  <button onClick={() => { setShowSpotlightModelPicker(!showSpotlightModelPicker); setShowSpotlightAgentPicker(false); }}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-wash hover:bg-edge rounded-lg text-xs font-bold text-ink transition-colors max-w-[140px]">
+                    <Layers className="w-3 h-3 text-ink-3" />
+                    <span className="truncate">{useSettingsStore.getState().models.find((m: any) => m.id === useSettingsStore.getState().selectedModelId)?.name ?? 'Model'}</span>
+                    <ChevronDown className="w-3 h-3 text-ink-3 shrink-0" />
+                  </button>
+                  {showSpotlightModelPicker && (
+                    <div className="absolute top-full left-0 mt-1 w-56 bg-panel-2 border border-edge rounded-xl shadow-xl z-50 py-1 max-h-64 overflow-y-auto">
+                      {useSettingsStore.getState().models.map((m: any) => (
+                        <button key={m.id} onClick={() => {
+                          useSettingsStore.getState().setSelectedModelId(m.id);
+                          setShowSpotlightModelPicker(false);
+                        }} className="w-full flex flex-col px-3 py-1.5 text-left hover:bg-wash">
+                          <span className="text-xs font-bold text-ink truncate">{m.name}</span>
+                          <span className="text-[10px] text-ink-3 truncate">{m.id}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1" />
+
+                
+             </div>
           </div>
           
           <div className="flex-1 min-h-0 relative flex flex-col">
