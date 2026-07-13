@@ -232,7 +232,13 @@ export const fetchWithRetry = async (url: string, options: any, retries = 3, sig
             attempt--; // the revive shouldn't consume a retry
             continue;
           } catch (reviveErr) {
-            throw new Error(`The local model engine stopped and couldn't restart itself (${String(reviveErr)}).`);
+            const errStr = String(reviveErr);
+            if (errStr.includes('no local engine has been started')) {
+               // This implies the user is using an external provider like LM Studio or Ollama on localhost.
+               // We shouldn't crash with a confusing error; we should fall back to the standard network error below.
+               throw new Error(`Model server unreachable — is LM Studio (or your API provider) running? (${msg})`);
+            }
+            throw new Error(`The local model engine stopped and couldn't restart itself (${errStr}).`);
           }
         }
         throw new Error(`Model server unreachable — is LM Studio (or your API provider) running? (${msg})`);

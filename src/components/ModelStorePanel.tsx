@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search, FolderOpen } from 'lucide-react';
+import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search, FolderOpen, Eye, Mic, ShieldAlert } from 'lucide-react';
 import { MODEL_CATALOG, recommendSetup, fitOnMac, type CatalogModel } from '../data/modelCatalog';
 import { supportsVision } from '../services/llm';
 
@@ -352,7 +352,7 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
       )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-black">{model.name}</span>
             <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
               model.role === 'Coder'
@@ -361,6 +361,21 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
                   ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                   : 'bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
             }`}>{model.role}</span>
+            {model.vision && (
+              <span className="flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400" title="Supports Vision (Image Understanding)">
+                <Eye className="w-3 h-3" /> Vision
+              </span>
+            )}
+            {model.audio && (
+              <span className="flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" title="Supports Native Audio Input">
+                <Mic className="w-3 h-3" /> Audio
+              </span>
+            )}
+            {model.censorScore && (
+              <span className="flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-surface text-ink-2 border border-edge" title={`Filtering Profile: ${model.censorScore}`}>
+                <ShieldAlert className="w-3 h-3 text-ink-3" /> {model.censorScore}
+              </span>
+            )}
           </div>
           <div className="mt-1.5 space-y-0.5">
             <p className="text-[11px] text-ink-2">

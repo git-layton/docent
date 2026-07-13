@@ -22,6 +22,7 @@ export interface CatalogModel {
   audio?: boolean;
   mmprojUrl?: string;
   mmprojFilename?: string;
+  censorScore?: string;
 }
 
 // ─── 8 GB tier ────────────────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ const TIER_8: CatalogModel[] = [
     notGreatFor: 'Deep multi-file coding or the hardest reasoning',
     tag: 'Current-gen',
     primary: true,
+    censorScore: 'Moderately Censored',
   },
   {
     id: 'qwen3-4b',
@@ -173,6 +175,7 @@ const TIER_32: CatalogModel[] = [
     bestFor: 'Big-model quality at a smaller, faster footprint — well-rounded and quick to respond',
     notGreatFor: 'The absolute deepest reasoning of the 30B+ models',
     tag: 'Mistral',
+    censorScore: 'Lightly Filtered',
   },
   {
     id: 'devstral-small',
@@ -186,6 +189,7 @@ const TIER_32: CatalogModel[] = [
     bestFor: 'The best small agentic coder — multi-file edits, debugging, and tool use',
     notGreatFor: 'Open-ended creative writing or casual chat',
     tag: 'Coder',
+    censorScore: 'Lightly Filtered',
   },
 ];
 
@@ -205,6 +209,7 @@ const TIER_48: CatalogModel[] = [
     notGreatFor: 'Macs under ~96GB, where it only fits at a reduced context',
     tag: 'Max quality',
     primary: true,
+    censorScore: 'Highly Censored',
   },
 ];
 
