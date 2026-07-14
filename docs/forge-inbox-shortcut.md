@@ -3,8 +3,10 @@
 Forge Inbox capture is generic. A Shortcut belongs to a **capture owner** and a **share route**, not to a hardcoded person. Use owner IDs like `personal`, `team`, `work`, or `field-notes`.
 
 > The relay also powers the mobile companion app (WebSocket chat, QR pairing,
-> device tokens) — see `docs/mobile-companion-architecture.md`. This document
-> covers only the Shortcut capture route.
+> device tokens) — see `docs/mobile-companion-architecture.md`. **If you've
+> paired a phone, its device token works for the capture API too** — you can
+> build a Shortcut with that token and skip the owner-token setup below, which
+> remains for multi-person/team share routes.
 
 ## 1. Install the Mac Relay
 

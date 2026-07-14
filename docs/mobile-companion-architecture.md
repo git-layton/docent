@@ -51,11 +51,21 @@ not Rust and not anything the relay can invoke. So "route mobile messages
 into the app" means the app connects *out* to the relay as a privileged
 client (`role=app`) and serves requests. The relay stays a dumb router.
 
-**Offline story: reuse the capture inbox.** If the desktop app is closed, a
-mobile `chat.send` is written as an inbox capture (`source: mobile_chat`,
-`targetKind: agent`) and acknowledged with `chat.queued`. It is processed the
-next time the app opens, like any other capture. Reads (`history.*`,
-`agents.list`) fail fast with `app_offline`.
+**Offline story: two tiers, both queue.**
+*Tier 1 — Mac awake, desktop app closed:* a mobile `chat.send` is written as
+an inbox capture (`source: mobile_chat`, `targetKind: agent`) and acknowledged
+with `chat.queued`; it is processed the next time the app opens. Reads
+(`history.*`, `agents.list`) fail fast with `app_offline`.
+*Tier 2 — Mac asleep/unreachable:* nothing on the Mac can hear the phone, so
+the client holds `chat.send` frames in an in-memory outbox (`onWaiting` fires,
+UI shows "Mac unreachable"), and flushes them in order the moment the
+connection comes back. Intentional close or revocation drops the outbox.
+
+**One token per phone, for everything.** Paired device tokens also
+authenticate the capture API (`POST /v1/captures`, routed to the device's
+`ownerId` with `shareId: mobile`), so a paired phone needs no separate
+share-token setup — the owner-token routes in the launchd env remain only for
+multi-person/team shares and legacy Shortcuts.
 
 **Wake-on-LAN: deferred.** A sleeping Mac drops off Tailscale too. The v1
 answer is an energy-settings nudge (prevent sleep while plugged in). The
