@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   ExternalLink,
   Loader2,
-  Server,
   User,
   X,
   Zap,
@@ -503,12 +502,13 @@ function ModelConnectForm({
 }
 
 function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  const [hw, setHw] = useState<{ totalMb: number; chip: string; isAppleSilicon: boolean } | null>(null);
+  const [hw, setHw] = useState<{ totalMb: number; isAppleSilicon: boolean; chip: string } | null>(null);
+  const [showAllLocal, setShowAllLocal] = useState(false);
+  const [downloadStarted, setDownloadStarted] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<typeof PROVIDERS[0] | null>(null);
   const [connectingModelId, setConnectingModelId] = useState<string | undefined>(undefined);
   const [showLocalSetup, setShowLocalSetup] = useState(false);
   const [showCloud, setShowCloud] = useState(false);
-  const [showAllLocal, setShowAllLocal] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [detected, setDetected] = useState(0);
@@ -588,69 +588,47 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
     store.persist();
   }
 
+  // A local model started downloading — wire it in so they can proceed.
+  function handleLocalDownloadStart() {
+    setDownloadStarted(true);
+  }
+
   // Guided LOCAL setup — wraps ModelStorePanel with reassurance + what-happens-next framing.
   if (showLocalSetup) {
+    const canContinue = downloadStarted || currentModels.length > 0;
     return (
-      <div className="flex flex-col gap-5">
-        <div className="flex items-center gap-3">
-          <StepIcon color="bg-blue-50 dark:bg-blue-900/30">
-            <Server className="w-6 h-6 text-blue-500" />
-          </StepIcon>
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-ink">Run AI privately on your Mac</h2>
-            <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">This takes a few minutes to download, then runs 100% private on your Mac — nothing ever leaves your computer.</p>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-1.5 items-center text-center">
+          <div className="w-12 h-12 bg-panel-2/50 backdrop-blur-xl border border-edge rounded-full flex items-center justify-center mb-1">
+            <Zap className="w-5 h-5 text-ink" />
           </div>
-        </div>
-
-        {/* What to expect */}
-        <div className="space-y-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
-          <span className="inline-flex items-center text-micro font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-secondary/15 text-secondary">Private · Free · Offline</span>
-          <div className="space-y-2">
-            {[
-              { icon: '🔒', text: 'Your conversations never leave this Mac — no account, no cloud, no API costs ever.' },
-              { icon: '⏬', text: "It's a one-time download of a few gigabytes. After that it loads instantly." },
-              { icon: '⚡', text: `It runs on your ${hw?.chip || 'Mac'}${hw?.isAppleSilicon ? ' using Apple Silicon' : ''} — about as smart as your Mac can handle.` },
-            ].map((item, i) => (
-              <div key={i} className="flex items-start gap-2.5 text-xs text-blue-800 dark:text-blue-300">
-                <span className="shrink-0 w-5 text-center">{item.icon}</span>
-                <span className="leading-relaxed">{item.text}</span>
-              </div>
-            ))}
-          </div>
-          <p className="text-mini text-blue-600 dark:text-blue-400 leading-relaxed border-t border-blue-200 dark:border-blue-700 pt-3">
-            Cloud models like Gemini are smarter on most Macs, but local keeps everything 100% private. You can switch anytime in Settings.
+          <h2 className="text-2xl font-black tracking-tight text-ink">Choose your local brain</h2>
+          <p className="text-[13px] text-ink-3 max-w-sm leading-relaxed">
+            Your conversations never leave this Mac. Download a model now, and you can finish the rest of the setup while it installs in the background.
           </p>
         </div>
 
-        {/* What happens next */}
-        <div className="space-y-2">
-          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Setup — about 5 minutes, mostly waiting on the download</p>
-          {[
-            'Tap Download on the model below — it\'s our pick for this Mac.',
-            'We\'ll set it up and start it automatically — you\'ll see a progress bar, then "Ready".',
-            'That\'s it — it becomes your assistant\'s model automatically. Tap Continue and you\'re done.',
-          ].map((s, i) => (
-            <div key={i} className="flex items-start gap-2.5 text-xs text-ink-2">
-              <span className="shrink-0 w-4 h-4 rounded-full bg-primary/10 dark:bg-primary/20 text-primary flex items-center justify-center font-black text-micro mt-0.5">{i + 1}</span>
-              <span className="leading-relaxed">{s}</span>
-            </div>
-          ))}
-        </div>
-
-        <ModelStorePanel ramMb={hw?.totalMb ?? 0} isAppleSilicon={hw?.isAppleSilicon} mode={showAllLocal ? 'full' : 'recommended'} onModelReady={handleLocalReady} />
-        <button onClick={() => setShowAllLocal(v => !v)} className="text-mini font-black text-primary hover:underline text-center w-full">
-          {showAllLocal ? 'Show just the recommended model' : 'See all models'}
+        <ModelStorePanel 
+          ramMb={hw?.totalMb ?? 0} 
+          isAppleSilicon={hw?.isAppleSilicon} 
+          mode={showAllLocal ? 'full' : 'recommended'} 
+          onModelReady={handleLocalReady}
+          onDownloadStart={handleLocalDownloadStart} 
+        />
+        <button onClick={() => setShowAllLocal(v => !v)} className="text-xs font-black text-ink-3 hover:text-ink transition-colors text-center w-full">
+          {showAllLocal ? 'Show just the recommended model' : 'Browse all models'}
         </button>
 
-        <div className="flex flex-col gap-2">
-          {currentModels.length > 0 && (
-            <Btn onClick={onNext} className="w-full">Continue <ArrowRight className="w-4 h-4" /></Btn>
+        <div className="flex flex-col gap-2 mt-2">
+          {canContinue && (
+            <Btn onClick={onNext} className="w-full shadow-lg">
+              Continue <ArrowRight className="w-4 h-4" />
+            </Btn>
           )}
           <Btn variant="ghost" onClick={() => { setShowAllLocal(false); setShowLocalSetup(false); }} className="w-full">
             <ChevronLeft className="w-3.5 h-3.5" /> Back to choices
           </Btn>
         </div>
-        <p className="text-mini text-ink-3 text-center leading-relaxed">Changed your mind? You can add a cloud model anytime in Settings.</p>
       </div>
     );
   }
@@ -992,8 +970,8 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
 
           {/* Essentials */}
           {step === 1 && <StepWelcome onNext={next} />}
-          {step === 2 && <StepProfile onNext={next} />}
-          {step === 3 && <StepModel onNext={next} onSkip={next} />}
+          {step === 2 && <StepModel onNext={next} onSkip={next} />}
+          {step === 3 && <StepProfile onNext={next} />}
           {step === STEP_DONE && (
             <StepDone onFinish={finish} />
           )}
