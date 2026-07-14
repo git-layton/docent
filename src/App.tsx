@@ -2487,7 +2487,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
 const handleSendMessage = async () => {
     if (isSpotlight) {
-      let extraDocs: any[] = [];
+      const extraDocs: any[] = [];
       
       if (spotlightSource === 'screen') {
         try {
