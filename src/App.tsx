@@ -2436,13 +2436,24 @@ const handleSendMessage = async () => {
             }
           } else {
             setScreenAccessNeeded(true);
+            return;
           }
-        } catch (e) { console.warn('Spotlight screen read failed:', e); }
+        } catch (e) { 
+          console.warn('Spotlight screen read failed:', e);
+          setScreenAccessNeeded(true);
+          return;
+        }
       }
 
       if (spotlightSource === 'chrome' || spotlightSource === 'safari') {
         try {
-          const tabResult = await invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: spotlightSource }).catch(() => null);
+          const tabResult = await Promise.race([
+            invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: spotlightSource }),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+          ]).catch((e) => {
+            if (e instanceof Error && e.message === 'timeout') throw e;
+            return null;
+          });
           if (tabResult && tabResult.url) {
             extraDocs.push({
               title: tabResult.title,
@@ -2459,7 +2470,13 @@ const handleSendMessage = async () => {
               kind: 'web',
             });
           }
-        } catch (e) { console.warn('Spotlight tab read failed:', e); }
+        } catch (e: any) {
+          if (e?.message === 'timeout') {
+            alert(`macOS is asking for permission to automate ${spotlightSource === 'safari' ? 'Safari' : 'Chrome'}. Please click "Allow" on the prompt, then try again.`);
+            return;
+          }
+          console.warn('Spotlight tab read failed:', e);
+        }
       }
 
       const combinedDocs = [...useUIStore.getState().attachedDocs, ...extraDocs];

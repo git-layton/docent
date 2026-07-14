@@ -427,7 +427,13 @@ export default function SpotlightBar() {
       let tabForCard: { title: string; url: string; text: string } | null = null;
       if (!screenMode && !chatOnly) {
       try {
-        const tabResult = await invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: preferredBrowser });
+        const tabResult = await Promise.race([
+          invoke<{ title: string; url: string; text: string; browser?: string; error?: string }>('get_active_tab', { preferred: preferredBrowser }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+        ]).catch((e) => {
+          if (e instanceof Error && e.message === 'timeout') throw e;
+          return null;
+        });
         if (tabResult.url) {
           setTab({ title: tabResult.title, url: tabResult.url, hasText: !!tabResult.text && tabResult.text.length > 0 });
           if (useTab) {
@@ -445,7 +451,16 @@ export default function SpotlightBar() {
         } else if (useTab && tab) {
           tabContext = `The user was previously viewing: ${tab.title} (${tab.url}) — current page content unavailable.`;
         }
-      } catch { if (useTab && tab) tabContext = `The user was previously viewing: ${tab.title} (${tab.url}) — current page content unavailable.`; }
+      } catch (e: any) { 
+        if (e?.message === 'timeout') {
+          alert(`macOS is asking for permission to automate ${preferredBrowser === 'safari' ? 'Safari' : 'Chrome'}. Please click "Allow" on the system prompt, then try again.`);
+          setMessages(messages);
+          setChats(currentChats);
+          setIsStreaming(false);
+          return;
+        }
+        if (useTab && tab) tabContext = `The user was previously viewing: ${tab.title} (${tab.url}) — current page content unavailable.`; 
+      }
       }
 
       const modelConfig = selectedModel ?? models[0] ?? null;
@@ -462,6 +477,10 @@ export default function SpotlightBar() {
           if (!authorized) {
             setScreenAccessNeeded(true);
             invoke('request_screen_capture_access').catch(() => {});
+            setMessages(messages);
+            setChats(currentChats);
+            setIsStreaming(false);
+            return;
           } else {
             setScreenAccessNeeded(false);
             // Hide the overlay so the capture shows the app underneath — NOT our own chat (otherwise
@@ -510,9 +529,20 @@ export default function SpotlightBar() {
               // granted for THIS build, or granted without a relaunch — so macOS hands back only the
               // desktop and there's nothing to read. Guide the user instead of failing silently.
               setScreenAccessNeeded(true);
+              setMessages(messages);
+              setChats(currentChats);
+              setIsStreaming(false);
+              return;
             }
           }
-        } catch (e) { console.warn('[spotlight] screen read failed:', e); setScreenAccessNeeded(true); }
+        } catch (e) { 
+          console.warn('[spotlight] screen read failed:', e); 
+          setScreenAccessNeeded(true); 
+          setMessages(messages);
+          setChats(currentChats);
+          setIsStreaming(false);
+          return;
+        }
       }
 
       // Topic-shift watch — fire-and-forget, off the send critical path; it only ever shows a nudge.
