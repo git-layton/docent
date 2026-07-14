@@ -1,7 +1,7 @@
 {
   "name": "agent-forge",
   "private": true,
-  "version": "2.0.43",
+  "version": "2.0.44",
   "description": "A local-first personal AI command center for custom agents, browser context, and persistent memory.",
   "author": "git-layton",
   "type": "module",
@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
+    "relay:test": "node scripts/test-forge-relay.mjs && node scripts/test-forge-relay-ws.mjs",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
