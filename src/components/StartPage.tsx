@@ -520,7 +520,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
         <Settings className="h-[18px] w-[18px]" />
       </button>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-8 py-10">
-        <IntegrationsDashboard />
+        {!searchActive && <IntegrationsDashboard />}
         {/* ── Compact header + omni-bar ── */}
         <div className="flex flex-col">
           <div className="flex items-baseline justify-between gap-4 pr-12">

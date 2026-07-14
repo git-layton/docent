@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
   MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
-  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User
+  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User, AlertCircle
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
@@ -385,6 +385,24 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     : appSettings.imageProvider === 'google'
     ? (integrations.google?.apiKey || models.find((m: any) => m.provider === 'google' && m.apiKey)?.apiKey)
     : integrations.customImage?.apiKey || '';
+
+  // Image & Vision both draw their key from the shared API Keys vault (integrations.<provider>.apiKey).
+  // Only claim "Using your <X> key" when a key is actually set — otherwise point the user at the vault
+  // instead of a false reassurance with no inline field to fix it. Shared by both provider cards.
+  const renderProviderKeyNote = (provider: 'google' | 'openai' | 'anthropic', label: string) => {
+    const hasKey = !!(integrations as any)[provider]?.apiKey;
+    return hasKey ? (
+      <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
+        <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your {label} key</div>
+        <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
+      </div>
+    ) : (
+      <div className="flex items-center justify-between gap-3 text-xs font-bold text-warning bg-warning/10 p-4 rounded-xl border border-warning/20">
+        <div className="flex items-center gap-3"><AlertCircle className="w-5 h-5 shrink-0" /> No {label} key set</div>
+        <span className="text-tiny font-medium text-ink-3">Add one in API Keys above</span>
+      </div>
+    );
+  };
 
   // Whether the current Image Understanding setting resolves to a usable backend (for Test/status).
   const visionRouteReady = !!resolveVisionRoute(appSettings, integrations, models);
@@ -887,18 +905,10 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {appSettings.imageProvider !== 'none' && (
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
-                       {/* Key Handling — inherit status is shown as a note; the key field stays editable so you can override. */}
-                       {appSettings.imageProvider === 'google' ? (
-                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
-                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your Google key</div>
-                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
-                          </div>
-                       ) : appSettings.imageProvider === 'openai' ? (
-                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
-                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your OpenAI key</div>
-                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
-                          </div>
-                       ) : null}
+                       {/* Key Handling — the key lives in the API Keys vault; show its real status here. */}
+                       {appSettings.imageProvider === 'google' ? renderProviderKeyNote('google', 'Google')
+                        : appSettings.imageProvider === 'openai' ? renderProviderKeyNote('openai', 'OpenAI')
+                        : null}
                        {appSettings.imageProvider === 'custom' && (
                           <div className="flex flex-col gap-2">
                              <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
