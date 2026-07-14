@@ -380,9 +380,6 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
     }
   };
 
-  const hasImplicitGoogleKey = models.some((m: any) => m.provider === 'google' && m.apiKey);
-  const hasImplicitOpenAIKey = models.some((m: any) => m.provider === 'openai' && m.apiKey);
-  const hasImplicitAnthropicKey = models.some((m: any) => m.provider === 'anthropic' && m.apiKey);
   const activeImageKey = appSettings.imageProvider === 'openai'
     ? (integrations.openai?.apiKey || models.find((m: any) => m.provider === 'openai' && m.apiKey)?.apiKey)
     : appSettings.imageProvider === 'google'
@@ -837,6 +834,38 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               {/* Full local model store — browse everything that runs on this Mac + recommendation */}
               <LocalModelStore />
 
+              {/* API Keys Vault */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
+                <div>
+                  <h4 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 mb-1"><ShieldCheck className="w-4 h-4 text-accent" /> API Keys</h4>
+                  <p className="text-xs text-ink-3 font-medium">Manage the API keys used by your cloud models. These are stored locally on your device.</p>
+                </div>
+                <div className="flex flex-col gap-4">
+                  {[
+                    { id: 'google', label: 'Google (Gemini)', placeholder: 'AIzaSy...' },
+                    { id: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
+                    { id: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...' }
+                  ].map(provider => (
+                    <div key={provider.id} className="flex flex-col gap-2">
+                      <label className="text-tiny font-black uppercase tracking-widest text-ink-3">{provider.label}</label>
+                      <input
+                        type="password"
+                        value={(integrations as any)[provider.id]?.apiKey || ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setIntegrations((prev: any) => ({
+                            ...prev,
+                            [provider.id]: { ...prev[provider.id], apiKey: val }
+                          }));
+                        }}
+                        placeholder={provider.placeholder}
+                        className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Image Generation Tooling - Engineered UX */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-6">
                  <div>
@@ -859,34 +888,29 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
                        {/* Key Handling — inherit status is shown as a note; the key field stays editable so you can override. */}
-                       {appSettings.imageProvider === 'google' && hasImplicitGoogleKey ? (
-                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
-                             <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.
+                       {appSettings.imageProvider === 'google' ? (
+                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
+                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your Google key</div>
+                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
                           </div>
-                       ) : appSettings.imageProvider === 'openai' && hasImplicitOpenAIKey ? (
-                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
-                             <ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.
+                       ) : appSettings.imageProvider === 'openai' ? (
+                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
+                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your OpenAI key</div>
+                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
                           </div>
                        ) : null}
-                       <div className="flex flex-col gap-2">
-                          <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
-                          <input
-                             type="password"
-                             value={
-                                appSettings.imageProvider === 'google' ? integrations.google?.apiKey || '' :
-                                appSettings.imageProvider === 'openai' ? integrations.openai?.apiKey || '' :
-                                integrations.customImage?.apiKey || ''
-                             }
-                             onChange={e => {
-                                const val = e.target.value;
-                                if (appSettings.imageProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } }));
-                                else if (appSettings.imageProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } }));
-                                else setIntegrations((prev: any) => ({ ...prev, customImage: { ...prev.customImage, apiKey: val } }));
-                             }}
-                             placeholder={appSettings.imageProvider === 'google' ? "AIzaSy..." : "sk-..."}
-                             className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
-                          />
-                       </div>
+                       {appSettings.imageProvider === 'custom' && (
+                          <div className="flex flex-col gap-2">
+                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
+                             <input
+                                type="password"
+                                value={integrations.customImage?.apiKey || ''}
+                                onChange={e => setIntegrations((prev: any) => ({ ...prev, customImage: { ...prev.customImage, apiKey: e.target.value } }))}
+                                placeholder="sk-..."
+                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
+                             />
+                          </div>
+                       )}
 
                        {/* Custom Endpoint Field */}
                        {appSettings.imageProvider === 'custom' && (
@@ -997,23 +1021,20 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
                        {/* Inherit status is shown as a note; the key field stays editable so you can override. */}
-                       {appSettings.visionProvider === 'google' && hasImplicitGoogleKey ? (
-                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Google API Key from Chat Models.</div>
-                       ) : appSettings.visionProvider === 'openai' && hasImplicitOpenAIKey ? (
-                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting OpenAI API Key from Chat Models.</div>
-                       ) : appSettings.visionProvider === 'anthropic' && hasImplicitAnthropicKey ? (
-                          <div className="flex items-center gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20"><ShieldCheck className="w-5 h-5 shrink-0" /> Active: Inheriting Anthropic API Key from Chat Models.</div>
-                       ) : null}
-                       {appSettings.visionProvider !== 'custom' ? (
-                          <div className="flex flex-col gap-2">
-                             <label className="text-tiny font-black uppercase tracking-widest text-ink-3">API Key</label>
-                             <input
-                                type="password"
-                                value={appSettings.visionProvider === 'google' ? integrations.google?.apiKey || '' : appSettings.visionProvider === 'openai' ? integrations.openai?.apiKey || '' : integrations.anthropic?.apiKey || ''}
-                                onChange={e => { const val = e.target.value; if (appSettings.visionProvider === 'google') setIntegrations((prev: any) => ({ ...prev, google: { ...prev.google, apiKey: val } })); else if (appSettings.visionProvider === 'openai') setIntegrations((prev: any) => ({ ...prev, openai: { ...prev.openai, apiKey: val } })); else setIntegrations((prev: any) => ({ ...prev, anthropic: { ...prev.anthropic, apiKey: val } })); }}
-                                placeholder={appSettings.visionProvider === 'google' ? 'AIzaSy...' : appSettings.visionProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
-                                className="w-full bg-panel border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary font-mono transition-all"
-                             />
+                       {appSettings.visionProvider === 'google' ? (
+                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
+                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your Google key</div>
+                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
+                          </div>
+                       ) : appSettings.visionProvider === 'openai' ? (
+                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
+                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your OpenAI key</div>
+                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
+                          </div>
+                       ) : appSettings.visionProvider === 'anthropic' ? (
+                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
+                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your Anthropic key</div>
+                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
                           </div>
                        ) : null}
 
@@ -1160,7 +1181,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 )}
               </div>
 
-              {/* Mail accounts (IMAP) — multi-account, app-password, no web login.
+              {/* Email accounts — multi-account, app-password, no web login.
                   Replaces the old Google Workspace OAuth card. */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
                 <div className="flex items-center justify-between gap-3">
@@ -1169,7 +1190,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                       <Mail className="w-5 h-5 text-secondary" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest block">Mail accounts</span>
+                      <span className="text-sm font-black uppercase tracking-widest block">Email</span>
                       <span className="text-xs text-ink-3 font-medium mt-0.5">Gmail &amp; iCloud — a one-time app password, no web login. Add as many as you like.</span>
                     </div>
                   </div>
@@ -1301,9 +1322,11 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                 </div>
 
                 <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
-                  <span className="text-tiny font-black uppercase tracking-widest text-ink-3">One-time setup</span>
-                  <ol className="text-xs text-ink-3 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
-                    <li>Open <span className="font-bold">Full Disk Access</span> and switch on <span className="font-bold">Agent Forge</span> (so it can read your message history).</li>
+                  <h5 className="text-xs font-bold text-ink">macOS Privacy Settings</h5>
+                  <p className="text-tiny text-ink-3">Agent Forge reads your local message database to reply to texts. <span className="text-success-light font-bold">Nothing is uploaded or sent to the cloud.</span></p>
+                  <ol className="list-decimal pl-4 text-xs text-ink-3 space-y-2 marker:font-bold marker:text-ink-3">
+                    <li>Click the button below to open macOS System Settings.</li>
+                    <li>Open <span className="font-bold">Full Disk Access</span> and switch on <span className="font-bold">Agent Forge</span>.</li>
                     <li>Click <span className="font-bold">Check access</span> below to verify.</li>
                     <li>The first time you send, macOS asks to let Agent Forge control Messages — click <span className="font-bold">OK</span>.</li>
                   </ol>

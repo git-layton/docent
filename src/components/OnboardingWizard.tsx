@@ -7,14 +7,10 @@ import {
   Check,
   CheckCircle2,
   ChevronLeft,
-  Copy,
   ExternalLink,
   Loader2,
-  Radio,
   Server,
-  Smartphone,
   User,
-  Wifi,
   X,
   Zap,
 } from 'lucide-react';
@@ -30,28 +26,11 @@ interface Props {
   initialStep?: number;
 }
 
-interface RelaySetupResult {
-  ok: boolean;
-  error?: string;
-  instanceId?: string;
-  personalToken?: string;
-  owners?: Array<{ id: string; label: string; token: string; shareId: string }>;
-}
-
-interface RelayStatus {
-  installed: boolean;
-  running: boolean;
-  instanceId: string;
-  owners: Array<{ id: string; label: string; token: string; instanceId: string; shareId: string }>;
-  tailscaleHostname: string | null;
-}
 
 // First-run is essentials-only: Welcome → Profile → Model → Done.
 const ESSENTIAL_STEPS = 4;
 // The opt-in iPhone-capture branch reuses the original Relay → Tailscale → Shortcut steps.
-const CAPTURE_RELAY = 5;
-const CAPTURE_TAILSCALE = 6;
-const CAPTURE_SHORTCUT = 7;
+
 const STEP_DONE = ESSENTIAL_STEPS; // 4
 const genId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -94,24 +73,6 @@ function Btn({
   );
 }
 
-function CopyChip({ text, label }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
-  function copy() {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-  return (
-    <button
-      onClick={copy}
-      title="Click to copy"
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-inset border border-edge text-mini font-mono text-ink-2 hover:bg-wash transition-colors max-w-full"
-    >
-      {copied ? <Check className="w-3 h-3 text-success shrink-0" /> : <Copy className="w-3 h-3 shrink-0 opacity-50" />}
-      <span className="truncate">{label ?? text}</span>
-    </button>
-  );
-}
 
 function StepIcon({ children, color }: { children: React.ReactNode; color: string }) {
   return (
@@ -121,21 +82,6 @@ function StepIcon({ children, color }: { children: React.ReactNode; color: strin
   );
 }
 
-// Makes the developer-grade capture steps unmistakably optional — most people can skip them.
-function OptionalBanner({ onSkip }: { onSkip: () => void }) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-inset border border-edge">
-      <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-wash text-ink-3 shrink-0">Optional</span>
-      <p className="text-mini text-ink-2 flex-1 leading-relaxed">You can set this up later in Settings. Most people can skip this.</p>
-      <button
-        onClick={onSkip}
-        className="text-mini font-black uppercase tracking-widest text-ink-3 hover:text-ink-2 transition-colors shrink-0"
-      >
-        Skip for now
-      </button>
-    </div>
-  );
-}
 
 // ─── Step 1: Welcome ──────────────────────────────────────────────────────────
 
@@ -924,442 +870,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
 
 // ─── Optional capture branch · Relay ──────────────────────────────────────────
 // Web search used to live here as a forced step; it now lives in Settings
-// (keyless browser search already works by default), so first-run stays essentials-only.
-
-function StepRelay({
-  onNext,
-  onSkip,
-  onResult,
-}: {
-  onNext: () => void;
-  onSkip: () => void;
-  onResult: (r: RelaySetupResult) => void;
-}) {
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [error, setError] = useState('');
-  const [result, setResult] = useState<RelaySetupResult | null>(null);
-
-  async function install() {
-    setStatus('loading');
-    setError('');
-    try {
-      const r = await invoke<RelaySetupResult>('setup_relay');
-      if (r.ok) {
-        setResult(r);
-        onResult(r);
-        useSettingsStore.getState().setAppSettings((prev: any) => ({
-          ...prev,
-          forgeInstanceId: r.instanceId,
-          inboxOwners: (r.owners ?? []).map((o: any) => ({ id: o.id, label: o.label })),
-        }));
-        await useSettingsStore.getState().persist();
-        setStatus('success');
-      } else {
-        setError(r.error ?? 'Unknown error');
-        setStatus('error');
-      }
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
-      setStatus('error');
-    }
-  }
-
-  // Auto-install when step mounts
-  useEffect(() => { install(); }, []);
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
-        <StepIcon color="bg-blue-50 dark:bg-blue-900/30">
-          <Server className="w-6 h-6 text-blue-500" />
-        </StepIcon>
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-ink">Capture relay</h2>
-          <p className="text-xs text-ink-2 mt-0.5">Your personal inbox server.</p>
-        </div>
-      </div>
-
-      <OptionalBanner onSkip={onSkip} />
-
-      {/* How capture works — full system diagram */}
-      <div className="p-4 rounded-2xl bg-inset border border-edge">
-        <p className="text-tiny font-black uppercase tracking-widest text-ink-3 mb-3">How capture works</p>
-        <div className="flex items-center gap-1 flex-wrap">
-          {[
-            { label: 'Any iOS app', sub: 'Safari, Photos, Notes…', color: 'bg-error/20 dark:bg-error/20 text-error dark:text-error' },
-            null,
-            { label: 'Tap Share', sub: '"Send to Forge" shortcut', color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300' },
-            null,
-            { label: 'Tailscale tunnel', sub: 'anywhere, not just home Wi-Fi', color: 'bg-secondary/10 dark:bg-secondary/20 text-secondary dark:text-secondary-light' },
-            null,
-            { label: 'Relay on Mac', sub: 'this step sets this up', color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' },
-            null,
-            { label: 'Inbox', sub: 'ready to process', color: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' },
-          ].map((node, i) =>
-            node === null ? (
-              <span key={i} className="text-ink-3 font-bold text-lg">→</span>
-            ) : (
-              <div key={i} className={`px-2.5 py-1.5 rounded-xl text-center ${node.color}`}>
-                <p className="text-tiny font-black leading-tight">{node.label}</p>
-                <p className="text-micro opacity-70 leading-tight mt-0.5">{node.sub}</p>
-              </div>
-            )
-          )}
-        </div>
-        <p className="text-tiny text-ink-3 mt-3 leading-relaxed">The next few steps set up each piece. You can skip Tailscale if you only capture on home Wi-Fi.</p>
-      </div>
-
-      {/* Plain-language explainer */}
-      <div className="space-y-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
-        <p className="text-tiny font-black uppercase tracking-widest text-blue-500 dark:text-blue-400">What is this?</p>
-        <p className="text-sm text-blue-900 dark:text-blue-200 leading-relaxed font-medium">
-          A tiny web server that runs quietly on this Mac and wakes up whenever your iPhone sends something.
-        </p>
-        <div className="space-y-2">
-          {[
-            { icon: '📱', text: 'You share a link, photo, or note from your iPhone' },
-            { icon: '→', text: 'It travels over your network to this Mac' },
-            { icon: '📥', text: 'It lands in your Agent Forge inbox, ready to process' },
-          ].map((item, i) => (
-            <div key={i} className="flex items-start gap-2.5 text-xs text-blue-800 dark:text-blue-300">
-              <span className="shrink-0 w-5 text-center">{item.icon}</span>
-              <span className="leading-relaxed">{item.text}</span>
-            </div>
-          ))}
-        </div>
-        <p className="text-mini text-blue-600 dark:text-blue-400 leading-relaxed border-t border-blue-200 dark:border-blue-700 pt-3">
-          It starts automatically every time you log in and uses no CPU when idle. Captures only come from devices you've authorized — nothing from the internet.
-        </p>
-      </div>
-
-      <div className={`flex items-center gap-3 p-4 rounded-2xl border transition-all duration-500 ${
-        status === 'loading' ? 'bg-inset border-edge' :
-        status === 'success' ? 'bg-success-soft border-success/30' :
-        'bg-danger-soft border-danger/30'
-      }`}>
-        {status === 'loading' && <Loader2 className="w-5 h-5 animate-spin text-ink-3 shrink-0" />}
-        {status === 'success' && <CheckCircle2 className="w-5 h-5 text-success shrink-0" />}
-        {status === 'error' && <X className="w-5 h-5 text-danger shrink-0" />}
-        <div>
-          <p className={`text-sm font-bold ${
-            status === 'loading' ? 'text-ink-2' :
-            status === 'success' ? 'text-success' :
-            'text-danger'
-          }`}>
-            {status === 'loading' ? 'Installing your relay…' :
-             status === 'success' ? 'Relay is running' :
-             'Setup failed'}
-          </p>
-          {result?.instanceId && (
-            <p className="text-mini text-success mt-0.5">ID: {result.instanceId}</p>
-          )}
-          {status === 'success' && (
-            <p className="text-mini text-success mt-0.5">Running on port 8765 · starts on login · captures appear in Inbox</p>
-          )}
-          {error && <p className="text-mini text-danger mt-1 font-mono leading-relaxed">{error}</p>}
-        </div>
-      </div>
-
-      {status === 'error' && (
-        <div className="flex flex-col gap-2">
-          <Btn variant="secondary" onClick={install} className="w-full">Try again</Btn>
-          <Btn variant="ghost" onClick={onSkip} className="w-full">Skip relay setup</Btn>
-        </div>
-      )}
-
-      {status === 'success' && (
-        <Btn onClick={onNext} className="w-full">
-          Continue <ArrowRight className="w-4 h-4" />
-        </Btn>
-      )}
-    </div>
-  );
-}
-
-// ─── Optional capture branch · Tailscale ──────────────────────────────────────
-
-function StepTailscale({
-  onNext,
-  onSkip,
-}: {
-  onNext: (hostname: string | null) => void;
-  onSkip: () => void;
-}) {
-  const [macDone, setMacDone] = useState(false);
-  const [phoneDone, setPhoneDone] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [hostname, setHostname] = useState<string | null>(null);
-  const [checked, setChecked] = useState(false);
-
-  async function checkConnection() {
-    setChecking(true);
-    try {
-      const s = await invoke<RelayStatus>('get_relay_status');
-      setHostname(s.tailscaleHostname ?? null);
-    } finally {
-      setChecking(false);
-      setChecked(true);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
-        <StepIcon color="bg-secondary/10 dark:bg-secondary/20">
-          <Wifi className="w-6 h-6 text-secondary" />
-        </StepIcon>
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-ink">Capture from anywhere</h2>
-          <p className="text-xs text-ink-2 mt-0.5">Works on your home Wi-Fi now. Tailscale makes it work everywhere.</p>
-        </div>
-      </div>
-
-      <OptionalBanner onSkip={onSkip} />
-
-      {/* Plain-language explainer */}
-      <div className="space-y-3 p-4 rounded-2xl bg-secondary/5 dark:bg-secondary/10 border border-secondary/20 dark:border-secondary/30">
-        <p className="text-tiny font-black uppercase tracking-widest text-secondary dark:text-secondary-light">What is Tailscale?</p>
-        <p className="text-sm text-ink leading-relaxed font-medium">
-          A free app that creates a private network between your devices — like a VPN, but only between your own stuff.
-        </p>
-        <div className="space-y-1.5 text-xs text-secondary-muted dark:text-secondary-light">
-          <div className="flex items-start gap-2">
-            <span className="shrink-0">Without it:</span>
-            <span className="leading-relaxed opacity-70">iPhone can only reach this Mac when you're on the same Wi-Fi network</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="shrink-0">With it:</span>
-            <span className="leading-relaxed font-bold">iPhone can reach this Mac from anywhere — coffee shop, work, traveling</span>
-          </div>
-        </div>
-        <p className="text-mini text-secondary dark:text-secondary-muted leading-relaxed border-t border-secondary/20 dark:border-secondary/30 pt-3">
-          It's free for personal use. Your captures never go through Tailscale's servers — it just helps your devices find each other.
-        </p>
-      </div>
-
-      {/* Steps */}
-      <div className="space-y-2">
-        <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Setup — takes about 3 minutes</p>
-        {[
-          {
-            done: macDone,
-            set: setMacDone,
-            step: '1',
-            label: 'Install Tailscale on this Mac',
-            detail: 'Download, open it, sign in with Google or GitHub. You\'ll see it in your menu bar.',
-            url: 'https://tailscale.com/download/mac',
-            urlLabel: 'tailscale.com/download',
-          },
-          {
-            done: phoneDone,
-            set: setPhoneDone,
-            step: '2',
-            label: 'Install Tailscale on your iPhone',
-            detail: 'Same app, same account. Once signed in on both, they\'re on the same private network.',
-            url: 'https://apps.apple.com/app/tailscale/id1470499037',
-            urlLabel: 'App Store → Tailscale',
-          },
-        ].map((item, i) => (
-          <div
-            key={i}
-            className={`w-full flex items-start gap-3 p-3.5 rounded-2xl border-2 text-left transition-all duration-150 cursor-pointer select-none ${item.done ? 'border-success/40 bg-success-soft' : 'border-edge hover:border-edge-2'}`}
-            onClick={() => item.set((v: boolean) => !v)}
-          >
-            <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center border-2 shrink-0 transition-all ${item.done ? 'bg-success border-success text-success-soft' : 'border-edge-2'}`}>
-              {item.done ? <Check className="w-3 h-3" /> : <span className="text-micro font-black text-ink-3">{item.step}</span>}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-ink">{item.label}</p>
-              <p className="text-mini text-ink-2 mt-0.5 leading-relaxed">{item.detail}</p>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={e => { e.stopPropagation(); openUrl(item.url); }}
-                onKeyDown={e => e.key === 'Enter' && openUrl(item.url)}
-                className="mt-1 inline-flex items-center gap-1 text-mini text-primary hover:underline cursor-pointer"
-              >
-                {item.urlLabel} <ExternalLink className="w-2.5 h-2.5" />
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <Btn variant="secondary" onClick={checkConnection} disabled={checking} className="w-full">
-        {checking ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Detecting…</> : <><Radio className="w-3.5 h-3.5" /> Detect my Tailscale hostname</>}
-      </Btn>
-
-      {checked && (
-        hostname ? (
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-success-soft border border-success/30">
-            <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-xs font-bold text-success shrink-0">Connected:</span>
-              <CopyChip text={hostname} />
-            </div>
-          </div>
-        ) : (
-          <div className="p-3 rounded-xl bg-accent/5 dark:bg-accent/10 border border-accent/30 dark:border-accent/40">
-            <p className="text-xs text-accent leading-relaxed font-medium">Tailscale not detected yet.</p>
-            <p className="text-mini text-accent/80 mt-1 leading-relaxed">
-              Make sure Tailscale is running on this Mac (check the menu bar) and you're signed in. You can also skip this and do it later — the Shortcut will still work on home Wi-Fi.
-            </p>
-          </div>
-        )
-      )}
-
-      <div className="flex flex-col gap-2">
-        <Btn onClick={() => onNext(hostname)} className="w-full">
-          Continue <ArrowRight className="w-4 h-4" />
-        </Btn>
-        <Btn variant="ghost" onClick={onSkip} className="w-full">
-          Skip — set this up later
-        </Btn>
-      </div>
-    </div>
-  );
-}
-
-// ─── Optional capture branch · iOS Shortcut ───────────────────────────────────
-
-function StepShortcut({
-  relayResult,
-  tailscaleHostname,
-  onNext,
-  onSkip,
-}: {
-  relayResult: RelaySetupResult | null;
-  tailscaleHostname: string | null;
-  onNext: () => void;
-  onSkip: () => void;
-}) {
-  const [customHost, setCustomHost] = useState(tailscaleHostname ?? '');
-  const token = relayResult?.owners?.[0]?.token ?? relayResult?.personalToken ?? '';
-  const instanceId = relayResult?.instanceId ?? '';
-  const shareId = relayResult?.owners?.[0]?.shareId ?? 'personal-shortcut';
-  const host = customHost.trim() || tailscaleHostname || 'YOUR-MAC-HOSTNAME';
-  const relayUrl = `http://${host}:8765/v1/captures`;
-
-  const [copiedJson, setCopiedJson] = useState(false);
-
-  const bodyJson = JSON.stringify({
-    source: 'ios_shortcut',
-    kind: 'text',
-    title: 'Shared from iPhone',
-    bodyText: '(Shortcut Input)',
-    note: '(Note)',
-    instanceId,
-    shareId,
-    deviceName: 'iPhone',
-  }, null, 2);
-
-  function copyJson() {
-    navigator.clipboard.writeText(bodyJson);
-    setCopiedJson(true);
-    setTimeout(() => setCopiedJson(false), 2000);
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
-        <StepIcon color="bg-error/10 dark:bg-error/20">
-          <Smartphone className="w-6 h-6 text-error" />
-        </StepIcon>
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-ink">iPhone Shortcut</h2>
-          <p className="text-xs text-ink-2 mt-0.5">Share anything to Agent Forge in two taps.</p>
-        </div>
-      </div>
-
-      <OptionalBanner onSkip={onSkip} />
-
-      {/* What is a Shortcut? */}
-      <div className="p-4 rounded-2xl bg-error/5 dark:bg-error/10 border border-error/20 dark:border-error/30">
-        <p className="text-tiny font-black uppercase tracking-widest text-error mb-2">What is a Shortcut?</p>
-        <p className="text-sm text-ink leading-relaxed font-medium">
-          A Shortcut is an iOS automation you build once in the <strong>Shortcuts</strong> app. Once created, <strong>"Send to Agent Forge"</strong> appears in the Share Sheet of every app on your iPhone — Safari, Photos, Notes, anywhere.
-        </p>
-        <p className="text-mini text-error/80 mt-2 leading-relaxed">
-          The Share Sheet is what appears when you tap the box-with-arrow icon in any app. Your Shortcut becomes one of the options there.
-        </p>
-      </div>
-
-      {/* Relay URL + token */}
-      <div className="space-y-2.5 p-4 rounded-2xl bg-inset border border-edge">
-        <div className="space-y-1">
-          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Relay URL</p>
-          <CopyChip text={relayUrl} label={relayUrl} />
-          {!tailscaleHostname && (
-            <input
-              value={customHost}
-              onChange={e => setCustomHost(e.target.value)}
-              placeholder="Enter your Mac's Tailscale hostname or IP…"
-              className="w-full mt-1.5 bg-panel border border-edge rounded-xl px-3 py-2 text-xs font-mono outline-none focus:border-primary transition-colors"
-            />
-          )}
-        </div>
-        {token && (
-          <div className="space-y-1">
-            <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Bearer Token</p>
-            <CopyChip text={token} label={token.slice(0, 16) + '…'} />
-          </div>
-        )}
-      </div>
-
-      {/* Request body */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Request Body (paste into Shortcut)</p>
-          <button
-            onClick={copyJson}
-            className="flex items-center gap-1 text-tiny font-bold text-primary hover:text-primary-hover transition-colors"
-          >
-            {copiedJson ? <><Check className="w-3 h-3" /> Copied!</> : <><Copy className="w-3 h-3" /> Copy</>}
-          </button>
-        </div>
-        <pre className="text-tiny leading-relaxed bg-inset border border-edge rounded-xl p-3 overflow-x-auto font-mono text-ink-2">
-          {bodyJson}
-        </pre>
-      </div>
-
-      {/* Steps */}
-      <div className="space-y-2">
-        <p className="text-mini font-black uppercase tracking-widest text-ink-3">Build it on your iPhone</p>
-        {[
-          'Open the Shortcuts app → tap + → name it "Send to Agent Forge"',
-          'Tap the ⚙️ settings icon at the top of the editor → enable "Add to Share Sheet" — this is what makes your Shortcut appear when you tap Share in any app',
-          'Add: Receive Any input from Share Sheet',
-          'Add: Ask for Input → name it "Note" → make it optional',
-          'Add: Text → paste the request body above (replace the placeholder values with actual Shortcut variables)',
-          'Add: Get Contents of URL → URL from above → POST → add Authorization and Content-Type headers → set body to the Text block',
-          'Add: If → Contents of URL contains "ok" → Show Notification "Saved to Forge"',
-        ].map((step, i) => (
-          <div key={i} className="flex items-start gap-2.5 text-xs text-ink-2">
-            <span className="shrink-0 w-4 h-4 rounded-full bg-primary/10 dark:bg-primary/20 text-primary flex items-center justify-center font-black text-micro mt-0.5">{i + 1}</span>
-            <span className="leading-relaxed">{step}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Btn onClick={onNext} className="w-full">
-          Done — it's set up <ArrowRight className="w-4 h-4" />
-        </Btn>
-        <Btn variant="ghost" onClick={onSkip} className="w-full">
-          I'll do this later
-        </Btn>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step 4: Done ─────────────────────────────────────────────────────────────
-
-function StepDone({
-  relayOk, tailscaleOk, shortcutDone, onStartCapture, onFinish,
-}: {
-  relayOk: boolean; tailscaleOk: boolean; shortcutDone: boolean; onStartCapture: () => void; onFinish: () => void;
-}) {
+function StepDone({ onFinish }: { onFinish: () => void }) {
   const models = useSettingsStore(s => s.models);
   const userProfile = useSettingsStore(s => s.userProfile);
 
@@ -1368,8 +879,6 @@ function StepDone({
     { label: 'Personal profile', done: !!userProfile },
     { label: 'AI model connected', done: models.length > 0 },
   ];
-  // Did the user already set up iPhone capture in the optional branch?
-  const captureDone = relayOk || tailscaleOk || shortcutDone;
 
   function openAlexis() {
     useAgentStore.getState().setActiveFolderId('alexis');
@@ -1402,35 +911,6 @@ function StepDone({
         ))}
       </div>
 
-      {/* Optional: iPhone capture — a power-user extra, offered but never forced. */}
-      <div className="w-full max-w-xs rounded-2xl border border-edge bg-inset p-4 text-left space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-            <Smartphone className="w-5 h-5 text-blue-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="text-sm font-black text-ink">iPhone capture</p>
-              <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-wash text-ink-3 shrink-0">Optional</span>
-            </div>
-            <p className="text-tiny text-ink-2 mt-0.5 leading-relaxed">
-              {captureDone ? 'Set up — share links, photos and notes from your iPhone.' : 'Share links, photos and notes to Agent Forge in two taps.'}
-            </p>
-          </div>
-        </div>
-        {captureDone ? (
-          <div className="flex items-center gap-1.5 text-tiny font-black uppercase tracking-widest text-success">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Set up
-          </div>
-        ) : (
-          <button
-            onClick={onStartCapture}
-            className="text-tiny font-black uppercase tracking-widest text-primary hover:underline"
-          >
-            Set up now →
-          </button>
-        )}
-      </div>
 
       {/* Alexis intro */}
       <div className="w-full max-w-xs rounded-2xl border-2 border-error/30 bg-error/5 dark:bg-error/10 p-4 text-left space-y-2">
@@ -1465,11 +945,6 @@ function StepDone({
 
 export function OnboardingWizard({ onClose, initialStep }: Props) {
   const [step, setStep] = useState(initialStep ?? 1);
-  const [relayResult, setRelayResult] = useState<RelaySetupResult | null>(null);
-  const [tailscaleHostname, setTailscaleHostname] = useState<string | null>(null);
-  const [relayOk, setRelayOk] = useState(false);
-  const [tailscaleOk, setTailscaleOk] = useState(false);
-  const [shortcutDone, setShortcutDone] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1480,11 +955,7 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
   const next = () => setStep(s => Math.min(s + 1, STEP_DONE));
   const back = () => setStep(s => Math.max(s - 1, 1));
 
-  // The optional iPhone-capture branch. Entered from the Done screen (or deep-linked
-  // from Settings via initialStep=CAPTURE_RELAY); always returns to Done when finished.
-  const startCapture = () => setStep(CAPTURE_RELAY);
-  const finishCapture = () => setStep(STEP_DONE);
-  const inCapture = step >= CAPTURE_RELAY;
+
 
   async function finish() {
     useSettingsStore.getState().setOnboardingComplete(true);
@@ -1517,45 +988,16 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
 
         {/* Scrollable body */}
         <div ref={scrollRef} className="overflow-y-auto flex-1 px-8 pb-8 pt-4 custom-scrollbar">
-          {/* Hide the essentials progress bar inside the optional capture branch. */}
-          {!inCapture && <ProgressBar step={step} />}
+          <ProgressBar step={step} />
 
           {/* Essentials */}
           {step === 1 && <StepWelcome onNext={next} />}
           {step === 2 && <StepProfile onNext={next} />}
           {step === 3 && <StepModel onNext={next} onSkip={next} />}
           {step === STEP_DONE && (
-            <StepDone
-              relayOk={relayOk}
-              tailscaleOk={tailscaleOk}
-              shortcutDone={shortcutDone}
-              onStartCapture={startCapture}
-              onFinish={finish}
-            />
+            <StepDone onFinish={finish} />
           )}
 
-          {/* Optional iPhone-capture branch — reuses the original Relay/Tailscale/Shortcut steps */}
-          {step === CAPTURE_RELAY && (
-            <StepRelay
-              onNext={() => setStep(CAPTURE_TAILSCALE)}
-              onSkip={finishCapture}
-              onResult={r => { setRelayResult(r); setRelayOk(true); }}
-            />
-          )}
-          {step === CAPTURE_TAILSCALE && (
-            <StepTailscale
-              onNext={h => { setTailscaleHostname(h); setTailscaleOk(!!h); setStep(CAPTURE_SHORTCUT); }}
-              onSkip={() => setStep(CAPTURE_SHORTCUT)}
-            />
-          )}
-          {step === CAPTURE_SHORTCUT && (
-            <StepShortcut
-              relayResult={relayResult}
-              tailscaleHostname={tailscaleHostname}
-              onNext={() => { setShortcutDone(true); finishCapture(); }}
-              onSkip={finishCapture}
-            />
-          )}
         </div>
       </div>
     </div>
