@@ -141,7 +141,7 @@ connected phone (e.g. `chats.updated`).
 
 | Frame | App reply (routed back by reqId) |
 | --- | --- |
-| `{type:'agents.list', reqId}` | `{type:'agents.list.result', reqId, agents:[{id,name,description,role}]}` |
+| `{type:'agents.list', reqId}` | `{type:'agents.list.result', reqId, agents:[{id,name,description,role}]}` — Alexis + user-created agents only; desktop-utility built-ins (Codey, Forge Guide, hidden default) are filtered out, and `history.list` hides their chats too (`src/services/mobileAgentFilter.ts`) |
 | `{type:'history.list', reqId}` | `{type:'history.list.result', reqId, chats:[{id,name,agentId,updatedAt,messageCount,lastMessage}]}` |
 | `{type:'history.get', reqId, chatId}` | `{type:'history.get.result', reqId, chatId, messages:[{id,role,content,agentId,timestamp}]}` (last 200; roles normalized `bot`→`assistant`) |
 | `{type:'chat.send', reqId, text, agentId?, chatId?}` | `chat.accepted` → `chat.token`* → `chat.done` (below) |

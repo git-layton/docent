@@ -12,6 +12,7 @@ import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
+import { filterMobileAgents } from './mobileAgentFilter';
 
 const RELAY_WS_URL = 'ws://127.0.0.1:8765/v1/ws';
 const STATUS_RETRY_MS = 30_000;
@@ -66,6 +67,10 @@ function reply(deviceId: string, frame: Record<string, any>) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ...frame, deviceId }));
 }
 
+function mobileVisibleAgents(): any[] {
+  return filterMobileAgents(useAgentStore.getState().assistants);
+}
+
 async function handleFrame(frame: any) {
   const { type, deviceId, reqId } = frame ?? {};
   switch (type) {
@@ -81,7 +86,7 @@ async function handleFrame(frame: any) {
       return reply(deviceId, {
         type: 'agents.list.result',
         reqId,
-        agents: useAgentStore.getState().assistants.map((a: any) => ({
+        agents: mobileVisibleAgents().map((a: any) => ({
           id: a.id,
           name: a.name,
           description: a.description ?? '',
@@ -90,7 +95,9 @@ async function handleFrame(frame: any) {
       });
     case 'history.list': {
       const { chats, messages } = useChatStore.getState();
+      const visibleIds = new Set(mobileVisibleAgents().map((a: any) => a.id));
       const summaries = [...chats]
+        .filter((chat: any) => visibleIds.has(chat.primaryAgentId ?? chat.folderId))
         .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
         .map((chat: any) => {
           const msgs = messages[chat.id] ?? [];
@@ -137,7 +144,7 @@ async function handleChatSend(frame: any) {
   if (!text) return reply(deviceId, { type: 'error', reqId, error: 'empty_message' });
 
   const chatStore = useChatStore.getState();
-  const assistants = useAgentStore.getState().assistants;
+  const assistants = mobileVisibleAgents();
   const { models, selectedModelId, appSettings, integrations, userProfile, userName } = useSettingsStore.getState();
 
   const modelConfig = models.find((m: any) => m.id === selectedModelId) ?? models[0] ?? null;
