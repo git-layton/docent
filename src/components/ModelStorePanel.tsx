@@ -169,16 +169,10 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, onDownloa
   }
 
   async function handleDelete(model: CatalogModel) {
-    await openDialog({
-      title: 'Delete Model',
-      message: 'Delete this model from your Mac? This cannot be undone.',
-      type: 'warning',
-    });
-    // dialog returns null if canceled (depending on API), or false.
-    // Unfortunately openDialog doesn't support generic confirm easily in all versions, 
-    // Wait, Tauri window.confirm is better for synchronous.
+    // openDialog (plugin-dialog `open`) is the FILE PICKER — not a confirm. Use the webview's
+    // native confirm for the "are you sure?" gate.
     if (!window.confirm('Delete this model from your Mac? This frees up space.')) return;
-    
+
     try {
       await invoke('delete_model', { filename: model.ggufFilename, mmproj: model.mmprojFilename });
       setModelState(model.id, { status: 'idle', endpoint: undefined });

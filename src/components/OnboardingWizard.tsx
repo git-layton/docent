@@ -623,7 +623,11 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         <div className="flex flex-col gap-2 mt-2">
           {canContinue && (
             <Btn onClick={onNext} className="w-full shadow-lg">
-              Continue <ArrowRight className="w-4 h-4" />
+              {/* Be honest: once a download starts the user may proceed, but the model isn't
+                  ready until it finishes installing in the background — say so. */}
+              {currentModels.length > 0
+                ? <>Continue <ArrowRight className="w-4 h-4" /></>
+                : <>Continue while it installs <ArrowRight className="w-4 h-4" /></>}
             </Btn>
           )}
           <Btn variant="ghost" onClick={() => { setShowAllLocal(false); setShowLocalSetup(false); }} className="w-full">

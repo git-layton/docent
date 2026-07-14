@@ -1030,23 +1030,11 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                  {(appSettings.visionProvider === 'google' || appSettings.visionProvider === 'openai' || appSettings.visionProvider === 'anthropic' || appSettings.visionProvider === 'custom') && (
                     <div className="animate-in slide-in-from-top-2 fade-in duration-300 bg-inset p-4 rounded-2xl border border-edge flex flex-col gap-4">
 
-                       {/* Inherit status is shown as a note; the key field stays editable so you can override. */}
-                       {appSettings.visionProvider === 'google' ? (
-                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
-                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your Google key</div>
-                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
-                          </div>
-                       ) : appSettings.visionProvider === 'openai' ? (
-                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
-                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your OpenAI key</div>
-                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
-                          </div>
-                       ) : appSettings.visionProvider === 'anthropic' ? (
-                          <div className="flex items-center justify-between gap-3 text-xs font-bold text-success-light bg-success-light/10 p-4 rounded-xl border border-success-light/20">
-                             <div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 shrink-0" /> Using your Anthropic key</div>
-                             <span className="text-tiny font-medium text-ink-3">Manage in API Keys</span>
-                          </div>
-                       ) : null}
+                       {/* The key lives in the API Keys vault; show its real status here. */}
+                       {appSettings.visionProvider === 'google' ? renderProviderKeyNote('google', 'Google')
+                        : appSettings.visionProvider === 'openai' ? renderProviderKeyNote('openai', 'OpenAI')
+                        : appSettings.visionProvider === 'anthropic' ? renderProviderKeyNote('anthropic', 'Anthropic')
+                        : null}
 
                        {appSettings.visionProvider === 'custom' && (
                           <div className="flex flex-col gap-2">
