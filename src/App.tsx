@@ -2663,6 +2663,18 @@ const handleSendMessage = async () => {
     queueMicrotask(() => { void handleSendMessage(); });
   };
 
+  // Same as handleSendPrompt, but first surfaces the conversation. A full-screen tool tab (the
+  // Knowledge Graph) covers the chat, so a bare send would fire into a chat the user can't see;
+  // activate this space's Chat (space-log) tab so the reply is actually visible.
+  const handleSendPromptFromTool = (text: string) => {
+    if (!text.trim()) return;
+    const { omniTabs, activeSpaceId, setActiveTab } = useSpaceStore.getState();
+    const chatTab = omniTabs.find(t => t.spaceId === activeSpaceId && t.type === 'space-log')
+      ?? omniTabs.find(t => t.type === 'space-log');
+    if (chatTab) setActiveTab(chatTab.id);
+    handleSendPrompt(text);
+  };
+
   // ── Code-canvas center send (Codey) — a SECOND, concurrent conversation ─────────────────────────
   // Sends the canvas center composer's text straight to a SPECIFIC chatId (CODEY_CHAT_ID) via
   // processChatRequest, which routes it to Codey (his standalone chat). NEVER touches the global
@@ -3176,7 +3188,7 @@ const handleSendMessage = async () => {
       return <BrowserTabContent tabId={tab.id} initialUrl={tab.url} />;
     }
     if (tab.type === 'tool' && tab.toolId === 'knowledge-graph') {
-      return <KnowledgeGraphPanel onSendPrompt={handleSendPrompt} />;
+      return <KnowledgeGraphPanel onSendPrompt={handleSendPromptFromTool} />;
     }
     if (tab.type === 'tool' && tab.toolId === 'planner') {
       return <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />;

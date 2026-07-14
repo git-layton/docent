@@ -182,7 +182,7 @@ export async function extractAndWriteGraph(opts: {
   // should at least show what was ingested. It must also exist before any appears_in edge (FK); the
   // batch below inserts nodes before edges, so ordering holds inside the transaction.
   if (text.trim().length < MIN_EXTRACTION_CHARS) {
-    await upsertGraphNode({ ...sourceNode, nodeType: sourceNode.nodeType });
+    await upsertGraphNode(sourceNode);
     return { nodes: [], edges: [] };
   }
 
@@ -227,21 +227,21 @@ export async function extractAndWriteGraph(opts: {
   const edges: ExtractedGraph['edges'] = [];
   const writtenIds = new Set<string>();
 
+  // Source node leads the batch so the appears_in edges resolve against it inside the transaction.
+  const batchNodes: BatchNode[] = [sourceNode];
+  const batchEdges: BatchEdge[] = [];
+
   for (const entity of entities) {
     const id = sanitizeEntityId(entity.id);
     const label = String(entity.label ?? '').trim();
-    if (!id || !label) continue;
+    if (!id || !label || writtenIds.has(id)) continue;
     const type = sanitizeEntityId(entity.type) || 'entity';
 
-    const ok = await upsertGraphNode({ id, nodeType: type, label, sourceUrl, sourcePath });
-    if (!ok) continue;
     writtenIds.add(id);
     nodes.push({ id, type, label });
-
-    if (sourceOk) {
-      edges.push({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
-      await upsertGraphEdge({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
-    }
+    batchNodes.push({ id, nodeType: type, label, sourceUrl, sourcePath });
+    edges.push({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
+    batchEdges.push({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
   }
 
   for (const rel of relations) {
@@ -253,8 +253,10 @@ export async function extractAndWriteGraph(opts: {
     if (!writtenIds.has(source) || !writtenIds.has(target)) continue;
 
     edges.push({ sourceId: source, targetId: target, relation });
-    await upsertGraphEdge({ sourceId: source, targetId: target, relation });
+    batchEdges.push({ sourceId: source, targetId: target, relation });
   }
+
+  await upsertGraphBatch(batchNodes, batchEdges);
 
   return { nodes, edges };
 }
