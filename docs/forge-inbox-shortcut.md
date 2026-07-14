@@ -2,6 +2,10 @@
 
 Forge Inbox capture is generic. A Shortcut belongs to a **capture owner** and a **share route**, not to a hardcoded person. Use owner IDs like `personal`, `team`, `work`, or `field-notes`.
 
+> The relay also powers the mobile companion app (WebSocket chat, QR pairing,
+> device tokens) — see `docs/mobile-companion-architecture.md`. This document
+> covers only the Shortcut capture route.
+
 ## 1. Install the Mac Relay
 
 Install Tailscale on the Mac and phones, then run:
@@ -46,7 +50,7 @@ Run the local smoke test from the repo:
 npm run relay:test
 ```
 
-That test checks unauthorized rejection, token routing, attachment persistence, duplicate capture detection, listing, patching, and invalid base64 handling.
+That runs both relay smoke tests: the capture API (unauthorized rejection, token routing, attachment persistence, duplicate capture detection, listing, patching, invalid base64 handling) and the mobile companion layer (pairing, WebSocket auth, frame routing, streaming, offline queue, device revocation).
 
 ## 3. Build the iOS Shortcut
 

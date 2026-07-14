@@ -2470,11 +2470,13 @@ fn get_relay_status() -> serde_json::Value {
     let env_path = relay_env_path();
     let installed = env_path.exists();
     let mut instance_id = String::new();
+    let mut admin_token = String::new();
     let mut owners: Vec<serde_json::Value> = vec![];
 
     if installed {
         if let Ok(content) = std::fs::read_to_string(&env_path) {
             instance_id = parse_env_value(&content, "FORGE_RELAY_INSTANCE_ID").unwrap_or("").to_string();
+            admin_token = parse_env_value(&content, "FORGE_RELAY_ADMIN_TOKEN").unwrap_or("").to_string();
             for (oid, olabel, token, iid, sid) in parse_relay_tokens(&content) {
                 owners.push(serde_json::json!({ "id": oid, "label": olabel, "token": token, "instanceId": iid, "shareId": sid }));
             }
@@ -2488,12 +2490,22 @@ fn get_relay_status() -> serde_json::Value {
     // Detect Tailscale hostname
     let tailscale_hostname = get_tailscale_hostname();
 
+    // mDNS name (<LocalHostName>.local) — resolvable by iPhones on the same Wi-Fi.
+    let local_hostname = std::process::Command::new("scutil")
+        .args(["--get", "LocalHostName"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| format!("{}.local", String::from_utf8_lossy(&o.stdout).trim()));
+
     serde_json::json!({
         "installed": installed,
         "running": running,
         "instanceId": instance_id,
         "owners": owners,
+        "adminToken": admin_token,
         "tailscaleHostname": tailscale_hostname,
+        "localHostname": local_hostname,
         "error": null
     })
 }

@@ -11,6 +11,7 @@ import { buildVoiceCard, buildRelationshipVoiceCard } from '../services/voiceRun
 import { VoiceSetupModal } from './VoiceSetupModal';
 import { FullDiskAccessGrant } from './FullDiskAccessGrant';
 import { MacPermissionsCard } from './MacPermissionsCard';
+import { MobileCompanionCard } from './MobileCompanionCard';
 import { getLoadedVoices, suggestDefaultVoiceURI } from '../lib/voice';
 import { ACCENT_OPTIONS } from '../lib/theme';
 import { useMemoryStore } from '../store/useMemoryStore';
@@ -1071,6 +1072,15 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               {/* Every macOS grant in one place, requestable up-front — the cards below handle
                   per-app credentials/config; this one handles the OS-level permissions. */}
               <MacPermissionsCard />
+
+              {/* Mobile companion — pair a phone with the local relay */}
+              <MobileCompanionCard onOpenRelaySetup={async () => {
+                const { useSettingsStore: ss } = await import('../store/useSettingsStore');
+                // Step 5 = the relay step of the onboarding wizard.
+                ss.getState().setOnboardingInitialStep(5);
+                ss.getState().setShowOnboarding(true);
+                onClose();
+              }} />
 
               {/* Brave Search Integration */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
