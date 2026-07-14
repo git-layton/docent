@@ -30,16 +30,16 @@ describe('recommendSetup — memory-computed local picks (Apple Silicon)', () =>
     expect(rec.recommended.id).toBe('qwen3-14b')
   })
 
-  it('48GB → Qwen3 30B-A3B (fast MoE, the curated primary over the dense 32B)', () => {
+  it('48GB → Qwen3 Coder 30B-A3B (fast MoE, the curated primary over the dense 32B)', () => {
     const rec = recLocal(48)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen3-30b-a3b')
+    expect(rec.recommended.id).toBe('qwen3-coder-30b-a3b')
   })
 
-  it('64GB → Qwen3 30B-A3B (current-gen; the 70B does not fit at a usable context)', () => {
+  it('64GB → Qwen3 Coder 30B-A3B (current-gen; the 70B does not fit at a usable context)', () => {
     const rec = recLocal(64)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen3-30b-a3b')
+    expect(rec.recommended.id).toBe('qwen3-coder-30b-a3b')
   })
 
   it('96GB → the 70B-class becomes recommendable', () => {
