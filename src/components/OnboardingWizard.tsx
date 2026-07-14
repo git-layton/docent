@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAgentStore } from '../store/useAgentStore';
+import { useChatStore } from '../store/useChatStore';
 import { db } from '../services/database';
 import { ModelStorePanel } from './ModelStorePanel';
 import { recommendSetup } from '../data/modelCatalog';
@@ -936,6 +937,41 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
 
 
   async function finish() {
+    const cs = useChatStore.getState();
+    const targetChatId = cs.activeChatId || crypto.randomUUID();
+    
+    if (!cs.activeChatId) {
+      cs.setChats((prev: any[]) => [{
+        id: targetChatId,
+        folderId: 'alexis',
+        primaryAgentId: 'alexis',
+        participantAgentIds: ['alexis'],
+        kind: 'dm',
+        name: 'New Session',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }, ...prev]);
+      cs.setActiveChatId(targetChatId);
+    }
+    
+    const existingMsgs = cs.messages[targetChatId] || [];
+    if (existingMsgs.length === 0) {
+      const welcomeMsg = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: "Welcome, I'm Alexis. I'm here to get you started whether you want to connect your applications, start working on something, or start browsing the web. Take me with you via this hotkey (Cmd+Shift+F) or if you just want to chat we can talk. I learn about you as we go and can do quite a bit but let's discover that together.",
+        agentId: 'alexis',
+        agentName: 'Alexis',
+        timestamp: Date.now(),
+        attachments: [],
+        thoughtLog: []
+      };
+      cs.setMessages((prev: Record<string, any[]>) => ({
+        ...prev,
+        [targetChatId]: [welcomeMsg]
+      }));
+    }
+
     useSettingsStore.getState().setOnboardingComplete(true);
     await db.set('onboardingComplete', true);
     onClose();
