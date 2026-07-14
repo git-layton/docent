@@ -102,7 +102,14 @@ function authOwner(req) {
   if (!token) return null;
   if (ADMIN_TOKEN && safeEqual(token, ADMIN_TOKEN)) return { ownerId: 'all', admin: true };
   const route = OWNER_TOKENS.get(token);
-  return route ? { ...route, admin: false } : null;
+  if (route) return { ...route, admin: false };
+  // Paired device tokens work for the capture API too — a phone that can chat
+  // can also capture, with no separate share-token setup.
+  const device = devicesByToken.get(token);
+  if (device) {
+    return { ownerId: device.ownerId, ownerLabel: device.name, instanceId: INSTANCE_ID, shareId: 'mobile', admin: false };
+  }
+  return null;
 }
 
 async function readJsonBody(req) {
