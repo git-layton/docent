@@ -27,11 +27,11 @@ interface ModelStorePanelProps {
 }
 
 const DEFAULT_PORT = 8080;
-// The bundled llama-server launches with `-c 32768` (see start_local_model in lib.rs),
-// so cap the stored context to what the engine actually serves — otherwise long-context
-// models like Llama 70B / Gemma (advertised 128K) would silently overflow.
+// The bundled llama-server serves at most 32K context (see start_local_model in lib.rs).
+// We launch each model at the largest context fitOnMac says THIS Mac can hold — possibly
+// less than 32K — and the stored contextLimit must match what was actually launched,
+// otherwise the app would silently overflow the server's window.
 const ENGINE_CONTEXT = 32768;
-const engineContextLimit = (contextK: number) => Math.min(contextK * 1024, ENGINE_CONTEXT);
 
 function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -122,11 +122,24 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     }
   }
 
+  // The context this model is launched at on THIS Mac: the largest rung fitOnMac says
+  // fits the memory budget, capped by both the model's own limit and the engine's 32K.
+  // A model fitOnMac rejects outright shouldn't be launchable, but if one slips through
+  // (e.g. downloaded on a bigger Mac), try the smallest rung and let the engine's
+  // friendly OOM error handle it.
+  function launchCtxTokens(model: CatalogModel): number {
+    const fit = fitOnMac(model, ramGb);
+    const fitTokens = (fit.fits ? fit.contextK : 4) * 1024;
+    return Math.min(fitTokens, model.contextK * 1024, ENGINE_CONTEXT);
+  }
+
   async function launchModel(model: CatalogModel, filePath: string, mmprojPath?: string) {
+    const ctxTokens = launchCtxTokens(model);
     const endpoint = await invoke<string>('start_local_model', {
       modelPath: filePath,
       port: DEFAULT_PORT,
       mmprojPath: mmprojPath ?? null,
+      ctxTokens,
     });
     setModelState(model.id, { status: 'ready', endpoint });
     const newModel = {
@@ -136,7 +149,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       modelId: model.ggufFilename.replace('.gguf', ''),
       endpoint,
       apiKey: '',
-      contextLimit: engineContextLimit(model.contextK),
+      contextLimit: ctxTokens,
       canImage: supportsVision(model.ggufFilename) || !!model.vision,
       canHear: !!model.audio,
       isLocal: true,
@@ -163,8 +176,9 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
         modelId: model.ggufFilename.replace('.gguf', ''),
         endpoint: state.endpoint,
         apiKey: '',
-        contextLimit: engineContextLimit(model.contextK),
+        contextLimit: launchCtxTokens(model),
         canImage: supportsVision(model.ggufFilename) || !!model.vision,
+        canHear: !!model.audio,
         isLocal: true,
         mmprojPath,
       };
@@ -183,6 +197,8 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       setImporting(true);
       const fname = selected.split('/').pop() || 'model.gguf';
       const name = fname.replace(/\.gguf$/i, '');
+      // No catalog entry → size unknown here, so no fit-derived context; the engine
+      // launches at its 32K default and its OOM error covers an oversized import.
       const endpoint = await invoke<string>('start_local_model', { modelPath: selected, port: DEFAULT_PORT, mmprojPath: null });
       onModelReady({
         id: genId('native'), name, provider: 'native', modelId: name,
@@ -238,8 +254,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     // Use the memory-computed recommendation (largest model that runs at full 32K
     // within a conservative budget) — never a model this Mac can't actually load.
     const rec = recommendSetup({ totalMb: ramMb, isAppleSilicon: isAppleSilicon ?? true });
-    const pick = rec.kind === 'local' ? rec.recommended : null;
-    if (!pick) {
+    if (rec.kind !== 'local') {
       return (
         <div className="space-y-2">
           <p className="text-xs text-ink-2 leading-relaxed rounded-xl bg-inset border border-edge px-3 py-2.5">
@@ -249,11 +264,16 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
         </div>
       );
     }
+    const pick = rec.recommended;
     return (
-      <>
+      <div className="space-y-2">
+        {/* Say WHY this is the pick — matched to this Mac, at a context the engine will really serve. */}
+        <p className="text-[10px] font-black uppercase tracking-widest text-ink-3">
+          Our pick for your {ramGb}GB Mac · {rec.tierLabel.toLowerCase()}
+        </p>
         <ModelCard model={pick} state={states[pick.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />
         {importRow}
-      </>
+      </div>
     );
   }
 
@@ -262,12 +282,10 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
   const withFit = MODEL_CATALOG.map(m => ({ m, fit: fitOnMac(m, ramGb) })).filter(({ m }) => matchesSearch(m));
   const recommended = withFit
     .filter(({ fit }) => fit.fits && fit.contextK >= 32 && !fit.kv8bit)
-    .sort((a, b) => b.m.sizeMb - a.m.sizeMb)
-    .map(({ m }) => m);
+    .sort((a, b) => b.m.sizeMb - a.m.sizeMb);
   const others = withFit
     .filter(({ fit }) => fit.fits && !(fit.contextK >= 32 && !fit.kv8bit))
-    .sort((a, b) => b.m.sizeMb - a.m.sizeMb)
-    .map(({ m }) => m);
+    .sort((a, b) => b.m.sizeMb - a.m.sizeMb);
   const tooLarge = withFit
     .filter(({ fit }) => !fit.fits)
     .sort((a, b) => b.m.sizeMb - a.m.sizeMb)
@@ -298,7 +316,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
           <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-1">
             Recommended for your {ramGb}GB Mac
           </p>
-          {recommended.map(m => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
+          {recommended.map(({ m }) => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
         </div>
       )}
       {others.length > 0 && (
@@ -306,7 +324,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
           <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-3">
             Also runs — reduced context on your Mac
           </p>
-          {others.map(m => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
+          {others.map(({ m, fit }) => <ModelCard key={m.id} model={m} state={states[m.id]} fitLabel={fit.label} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
         </div>
       )}
       {tooLarge.length > 0 && (
@@ -332,13 +350,16 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
 interface ModelCardProps {
   model: CatalogModel;
   state?: ModelState;
+  // Per-THIS-Mac fit line (e.g. "Runs at 8K context (reduced)") — shown so a reduced-
+  // context model is never a surprise after a multi-GB download.
+  fitLabel?: string;
   onDownload: (m: CatalogModel) => void;
   onLoad: (m: CatalogModel) => void;
   onCancel: (m: CatalogModel) => void;
   onUse: (m: CatalogModel) => void;
 }
 
-function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelCardProps) {
+function ModelCard({ model, state, fitLabel, onDownload, onLoad, onCancel, onUse }: ModelCardProps) {
   const status = state?.status ?? 'idle';
 
   return (
@@ -384,6 +405,11 @@ function ModelCard({ model, state, onDownload, onLoad, onCancel, onUse }: ModelC
             <p className="text-[11px] text-ink-3">
               <span className="font-bold">–</span> {model.notGreatFor}
             </p>
+            {fitLabel && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
+                On this Mac: {fitLabel}
+              </p>
+            )}
           </div>
         </div>
         <div className="text-[10px] text-ink-3 shrink-0 text-right">

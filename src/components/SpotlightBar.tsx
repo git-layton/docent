@@ -434,7 +434,7 @@ export default function SpotlightBar() {
           if (e instanceof Error && e.message === 'timeout') throw e;
           return null;
         });
-        if (tabResult.url) {
+        if (tabResult && tabResult.url) {
           setTab({ title: tabResult.title, url: tabResult.url, hasText: !!tabResult.text && tabResult.text.length > 0 });
           if (useTab) {
             tabForCard = { title: tabResult.title, url: tabResult.url, text: tabResult.text || '' };

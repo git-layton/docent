@@ -15,7 +15,8 @@ import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 
-import { getContextLimit, validateModel, buildSystemPrompt, generateTextResponse, fetchWithRetry, modelSupportsVision, modelSupportsAudio, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
+import { getContextLimit, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, modelSupportsVision, modelSupportsAudio, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
+import { assessContextHealth } from './services/contextHealth';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
@@ -96,7 +97,7 @@ const MEMORY_DEDUP_MIN_SCORE = 0.88;
 
 // ─── UI Sub-components moved to src/components/ui/ ────────────────────────────
 // AgentIcon, BOT_COLORS, TypingIndicator, ThoughtProcess, FormattedText,
-// INLINE_FORMAT_REGEX, WysiwygEditor, ContextMeter are imported above.
+// INLINE_FORMAT_REGEX, WysiwygEditor are imported above.
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
@@ -188,6 +189,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   // Persist the co-pilot's open/closed state so "dismiss" sticks across reloads (a real mute).
   useEffect(() => { db.get('copilotOpen', true).then((v: any) => setCopilotOpen(v !== false)).catch(() => {}); }, []);
   const toggleCopilot = (v: boolean) => { setCopilotOpen(v); void db.set('copilotOpen', v); };
+  // Sidebar agent clicks open the rail from outside this component (rail-first prototype).
+  useEffect(() => {
+    const openRail = () => { setCopilotOpen(true); void db.set('copilotOpen', true); };
+    window.addEventListener('forge:open-copilot', openRail);
+    return () => window.removeEventListener('forge:open-copilot', openRail);
+  }, []);
   // Per-chat generation. Which chatIds are mid-stream lives in a Set (not a single global bool) so
   // independent conversations run AT THE SAME TIME — e.g. Codey's center chat and the Team side rail
   // generate concurrently, and stopping one never touches the other. A tab switch unmounts only the
@@ -304,6 +311,9 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     return c;
   }, []);
   const anyGenerating = generatingChats.size > 0;
+  useEffect(() => {
+    (window as any).__isGenerating = anyGenerating;
+  }, [anyGenerating]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const avatarUploadRef = useRef<HTMLInputElement>(null);
@@ -815,6 +825,42 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     return activeMessages.findIndex((m: any) => m.id === firstKeptId);
   }, [activeMessages, systemPromptLen, selectedModel]);
 
+  // Context health — status ("healthy" / "optimized" / "needs tuning") instead of
+  // a fullness alarm. A full, rotating window with the memory pipeline running is
+  // the normal steady state of a never-ending conversation.
+  const contextHealth = useMemo(() => {
+    const pins = globalPins.filter((p: any) => p.agentId === activeAssistant?.id);
+    const breakdown = getSystemPromptBreakdown({ agent: activeAssistant, profile: userProfile, pinnedMessages: pins, trainingDocs: activeAssistant?.trainingDocs ?? [], tasks });
+    const usedChars = activeMessages.reduce((n: number, m: any) => n + String(m.content ?? '').length, 0) + systemPromptLen;
+    const lastDreamAt = dreamLog?.timestamp ? Date.parse(dreamLog.timestamp) || null : null;
+    return assessContextHealth({
+      usedChars,
+      limitChars: selectedModel?.contextLimit ?? 32000,
+      systemChars: breakdown.systemChars,
+      pinsChars: breakdown.pinsChars,
+      docsChars: breakdown.docsChars,
+      browserChars: breakdown.browserChars,
+      rotating: forgettingIndex > 0,
+      memoryPipelineActive: !!selectedModel && !!agentForgePath,
+      lastDreamAt,
+    });
+  }, [activeMessages, systemPromptLen, selectedModel, forgettingIndex, globalPins, activeAssistant, userProfile, tasks, dreamLog, agentForgePath]);
+
+  // An unhealthy context can trigger a consolidation dream on its own — but only
+  // when the user has opted into auto-dreams, and at most once per 6h so a failed
+  // run can't loop. Manual users get the one-click "Run now" chip instead.
+  const lastAutoDreamAttemptRef = useRef(0);
+  useEffect(() => {
+    if (contextHealth.status !== 'attention') return;
+    if (!contextHealth.recommendations.some(r => r.id === 'dream')) return;
+    if (useSettingsStore.getState().appSettings?.dreamAutoEnabled !== true) return;
+    const now = Date.now();
+    if (now - lastAutoDreamAttemptRef.current < 6 * 60 * 60 * 1000) return;
+    lastAutoDreamAttemptRef.current = now;
+    runDreamCycle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextHealth]);
+
   // Reset evaluated IDs when switching chats
   useEffect(() => {
     evaluatedContextRef.current = { chatId: activeChatId ?? '', ids: new Set() };
@@ -874,6 +920,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       if (e.metaKey && e.shiftKey && e.key === 'K') {
         e.preventDefault();
         useUIStore.getState().setForcedTool('workspace');
+        return;
+      }
+      // Cmd+, — Settings, the macOS-standard shortcut, so settings open from any surface
+      if (e.metaKey && e.key === ',') {
+        e.preventDefault();
+        useSettingsStore.getState().setShowProfileSettings(true);
         return;
       }
       if (e.key === 'Escape') {
@@ -3067,6 +3119,8 @@ const handleSendMessage = async () => {
               messages={activeMessages}
               systemPromptLen={systemPromptLen}
               limit={selectedModel?.contextLimit ?? 32000}
+              health={contextHealth}
+              onRunDreamCycle={runDreamCycle}
               onHide={() => setActivityBarOpen(false)}
             />
           ) : (
@@ -3135,6 +3189,8 @@ const handleSendMessage = async () => {
             messages={activeMessages}
             systemPromptLen={systemPromptLen}
             limit={selectedModel?.contextLimit ?? 32000}
+            health={contextHealth}
+            onRunDreamCycle={runDreamCycle}
           />
         </div>
       );
@@ -3563,10 +3619,12 @@ if (isSpotlight) {
             </>
           )}
 
-          {/* ── Co-pilot rail: the active space's group chat, docked beside a tool/web/canvas tab (shared
-              chrome). Shows for the code canvas too — that's the space's group chat sitting beside Codey,
+          {/* ── Co-pilot rail: the active conversation, docked beside EVERY center surface except a
+              space-log tab (where the center IS the conversation — a rail would double it). Home
+              included: right-side consolidation prototype — chat is a companion, not a destination.
+              Shows for the code canvas too — that's the space's group chat sitting beside Codey,
               uniform with every other space (Codey's own chat is the canvas center, a separate thread). */}
-          {activeOmniTab && ['tool', 'web', 'code-canvas', 'doc'].includes(activeOmniTab.type) && (
+          {activeOmniTab && activeOmniTab.type !== 'space-log' && (
             <DockedAgentRail
               open={copilotOpen}
               onToggle={toggleCopilot}

@@ -3073,8 +3073,14 @@ async fn start_local_model(
     model_path: String,
     port: u16,
     mmproj_path: Option<String>,
+    ctx_tokens: Option<u32>,
     llama_state: tauri::State<'_, LlamaState>,
 ) -> Result<String, String> {
+    // The frontend computes the largest context that fits this Mac's memory budget
+    // (fitOnMac in modelCatalog.ts) and passes it here, so a model that only fits at a
+    // reduced context is launched at that context instead of OOM-ing at the old
+    // hardcoded 32768. Callers that don't know the model size omit it.
+    let ctx_tokens = ctx_tokens.unwrap_or(32768).clamp(4096, 32768);
     // llama-server is a thin launcher that dlopens libllama / libggml / libmtmd. Those
     // dylibs ship in the app Resources (bundle.resources → bin/llama-libs); the binary
     // finds them via an added @loader_path/../Resources/bin/llama-libs rpath, and the
@@ -3105,6 +3111,7 @@ async fn start_local_model(
             "modelPath": &model_path,
             "port": port,
             "mmprojPath": mmproj_path.clone().unwrap_or_default(),
+            "ctxTokens": ctx_tokens,
         })
         .to_string(),
     );
@@ -3112,7 +3119,7 @@ async fn start_local_model(
     let mut server_args: Vec<String> = vec![
         "-m".into(), model_path,
         "--port".into(), port.to_string(),
-        "-c".into(), "32768".into(),
+        "-c".into(), ctx_tokens.to_string(),
         "--threads".into(), "4".into(),
         "--host".into(), "127.0.0.1".into(),
     ];
@@ -3173,6 +3180,9 @@ async fn revive_local_model(llama_state: tauri::State<'_, LlamaState>) -> Result
     let model_path = v["modelPath"].as_str().unwrap_or_default().to_string();
     let port = v["port"].as_u64().unwrap_or(8080) as u16;
     let mmproj = v["mmprojPath"].as_str().map(str::to_string).filter(|s| !s.is_empty());
+    // Records from before ctxTokens existed launched at 32768 — reviving at the same
+    // value keeps behavior identical for them.
+    let ctx_tokens = v["ctxTokens"].as_u64().map(|c| c as u32);
 
     // Already healthy → idempotent no-op (this is also the cheap "is it up?" probe).
     let health_url = format!("http://127.0.0.1:{port}/health");
@@ -3191,7 +3201,7 @@ async fn revive_local_model(llama_state: tauri::State<'_, LlamaState>) -> Result
             "the last local model file is missing ({model_path}) — re-load a model from the Model Store"
         ));
     }
-    start_local_model(model_path, port, mmproj, llama_state).await
+    start_local_model(model_path, port, mmproj, ctx_tokens, llama_state).await
 }
 
 // ─── Browser Co-pilot Commands ───────────────────────────────────────────────

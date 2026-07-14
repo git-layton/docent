@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Activity, ChevronDown, ChevronUp, Cpu, MemoryStick, Wifi, WifiOff, X, Trash2, Terminal, Gauge, AlertTriangle } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, Cpu, MemoryStick, Wifi, WifiOff, X, Trash2, Terminal, Gauge, AlertTriangle, Moon, Loader2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useUIStore } from '../store/useUIStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -7,6 +7,7 @@ import { useMemoryStore } from '../store/useMemoryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { getSystemPromptBreakdown } from '../services/llm';
+import type { ContextHealth, ContextHealthRecommendation } from '../services/contextHealth';
 
 interface SystemStats {
   cpu_pct: number;
@@ -25,14 +26,56 @@ interface ActivityMonitorBarProps {
   messages: any[];
   systemPromptLen: number;
   limit: number;
+  health: ContextHealth;
   showContext?: boolean;
   onHide: () => void;
+  onRunDreamCycle?: () => void;
 }
 
 function pctColor(pct: number) {
   if (pct > 90) return '#C98A8A';
   if (pct > 75) return '#D4AA7D';
   return '#9FBBAF';
+}
+
+// Context is shown by HEALTH, not fullness — a full window that's self-managing
+// is the normal steady state of a never-ending conversation, never a red alert.
+const HEALTH_COLORS: Record<ContextHealth['status'], string> = {
+  healthy: '#9FBBAF',
+  optimized: '#A79FC9',
+  attention: '#D4AA7D',
+};
+
+function HealthRecommendations({
+  recommendations,
+  onRunDreamCycle,
+}: {
+  recommendations: ContextHealthRecommendation[];
+  onRunDreamCycle?: () => void;
+}) {
+  const isDreamRunning = useMemoryStore(s => s.isDreamRunning);
+  if (recommendations.length === 0) return null;
+  return (
+    <>
+      {recommendations.map(rec => (
+        <div key={rec.id} className="flex items-start gap-1.5 text-[10px] leading-relaxed text-ink-2">
+          {rec.id === 'dream'
+            ? <Moon className="w-3 h-3 mt-0.5 shrink-0" style={{ color: HEALTH_COLORS.optimized }} />
+            : <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" style={{ color: HEALTH_COLORS.attention }} />}
+          <span>{rec.text}</span>
+          {rec.id === 'dream' && onRunDreamCycle && (
+            <button
+              onClick={onRunDreamCycle}
+              disabled={isDreamRunning}
+              className="shrink-0 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-accent hover:bg-accent-soft transition-colors disabled:opacity-50"
+            >
+              {isDreamRunning ? <><Loader2 className="w-2.5 h-2.5 animate-spin" /> Dreaming</> : 'Run now'}
+            </button>
+          )}
+        </div>
+      ))}
+    </>
+  );
 }
 
 
@@ -82,8 +125,10 @@ export function ActivityMonitorBar({
   messages,
   systemPromptLen,
   limit,
+  health,
   showContext = true,
   onHide,
+  onRunDreamCycle,
 }: ActivityMonitorBarProps) {
   const ramStats = useUIStore(s => s.ramStats);
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -134,21 +179,18 @@ export function ActivityMonitorBar({
     () => messages.reduce((n: number, m: any) => n + String(m.content ?? '').length, 0) + systemPromptLen,
     [messages, systemPromptLen],
   );
-  const contextPct = limit > 0 ? Math.min((contextUsed / limit) * 100, 100) : 0;
-  const contextColor = pctColor(contextPct);
+  const contextPct = health.fillPct;
+  const contextColor = HEALTH_COLORS[health.status];
   const cpuColor = pctColor(cpuPct);
   const ramColor = pctColor(ramPct);
-  const contextTitle = `Context: ${contextUsed.toLocaleString()} / ${limit.toLocaleString()} chars`;
+  const contextTitle = `${health.headline} — ${health.detail} (${contextUsed.toLocaleString()} / ${limit.toLocaleString()} chars)`;
 
-  // When load/context runs hot, tell the user what they can actually do about it.
+  // When system load runs hot, tell the user what they can actually do about it.
+  // Context health has its own recommendation pipeline (services/contextHealth).
   const availMb = mergedStats?.available_mb ?? Infinity;
   const tips: string[] = [];
   if (availMb < 2048) tips.push('Memory is very low — close other apps (browser tabs, etc.), or switch to a smaller model in Settings → AI Models. A big model like a 70B can outgrow this Mac.');
   else if (availMb < 4096) tips.push('Memory is getting tight — a smaller or faster model (like the 30B MoE) will run smoother here.');
-  // Context fullness is HANDLED, not a crisis: the window self-trims oldest unpinned messages
-  // while pins + persistent memory keep what matters. Never tell the user to abandon their chat.
-  if (contextPct > 90) tips.push('Context is at capacity — optimizing automatically: the oldest unpinned messages rotate out of the live window while pins and memory keep the important parts. Pin anything you need kept verbatim; expand the breakdown (▾) to see what\'s using space.');
-  else if (contextPct > 78) tips.push('Context is filling — the window will self-optimize by rotating out the oldest unpinned messages. Nothing important is lost: memory persists across the whole conversation.');
 
   return (
     <div className="shrink-0 border-b border-edge bg-panel-2/95 backdrop-blur-md">
@@ -183,7 +225,8 @@ export function ActivityMonitorBar({
         {showContext && (
           <div title={contextTitle} className="ml-auto flex min-w-[9rem] max-w-[44rem] flex-1 items-center gap-2">
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[10px] font-medium tabular-nums text-ink-3">{contextPct.toFixed(0)}%</span>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: contextColor, boxShadow: `0 0 5px ${contextColor}88` }} />
+              <span className="text-[10px] font-medium text-ink-3">{health.headline}</span>
             </div>
             <div className="h-1.5 flex-1 rounded-full bg-inset overflow-hidden">
               <div
@@ -213,8 +256,8 @@ export function ActivityMonitorBar({
         </button>
       </div>
 
-      {/* Actionable tips when memory or context runs hot */}
-      {tips.length > 0 && (
+      {/* Actionable tips: system pressure + context health recommendations */}
+      {(tips.length > 0 || health.recommendations.length > 0) && (
         <div className="px-3 lg:px-4 pb-2 space-y-1">
           {tips.map((t, i) => (
             <div key={i} className="flex items-start gap-1.5 text-[10px] leading-relaxed text-ink-2">
@@ -222,6 +265,7 @@ export function ActivityMonitorBar({
               <span>{t}</span>
             </div>
           ))}
+          <HealthRecommendations recommendations={health.recommendations} onRunDreamCycle={onRunDreamCycle} />
         </div>
       )}
 
@@ -311,9 +355,11 @@ interface ActivityPanelProps {
   messages: any[];
   systemPromptLen: number;
   limit: number;
+  health: ContextHealth;
+  onRunDreamCycle?: () => void;
 }
 
-export function ActivityPanel({ messages, systemPromptLen, limit }: ActivityPanelProps) {
+export function ActivityPanel({ messages, systemPromptLen, limit, health, onRunDreamCycle }: ActivityPanelProps) {
   const ramStats = useUIStore(s => s.ramStats);
   const logs = useUIStore(s => s.logs);
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -361,7 +407,8 @@ export function ActivityPanel({ messages, systemPromptLen, limit }: ActivityPane
     () => messages.reduce((n: number, m: any) => n + String(m.content ?? '').length, 0) + systemPromptLen,
     [messages, systemPromptLen],
   );
-  const contextPct = limit > 0 ? Math.min((contextUsed / limit) * 100, 100) : 0;
+  const contextPct = health.fillPct;
+  const healthColor = HEALTH_COLORS[health.status];
 
   const errorCount = useMemo(() => logs.filter((l: any) => l.level === 'error').length, [logs]);
 
@@ -407,21 +454,32 @@ export function ActivityPanel({ messages, systemPromptLen, limit }: ActivityPane
           </div>
         </div>
 
-        {/* Context window */}
+        {/* Context health — status first, fullness second: a full window that's
+            self-managing is steady state for a never-ending conversation. */}
         <div className="shrink-0 space-y-3">
           <div className="flex items-center justify-between px-1">
-            <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink-3">Context Window</h2>
+            <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink-3">Context Health</h2>
             <span className="text-[11px] tabular-nums text-ink-3">
               {contextUsed.toLocaleString()} / {limit.toLocaleString()} chars · {contextPct.toFixed(0)}%
             </span>
           </div>
           <div className="rounded-2xl border border-edge bg-panel p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <span
+                className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold"
+                style={{ background: `${healthColor}26`, color: healthColor }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: healthColor }} />
+                {health.headline}
+              </span>
+              <span className="text-[11px] text-ink-3">{health.detail}</span>
+            </div>
             <div className="mb-3 flex items-center gap-2 text-ink-3">
-              <Gauge className="h-4 w-4" style={{ color: pctColor(contextPct) }} />
+              <Gauge className="h-4 w-4" style={{ color: healthColor }} />
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-inset">
                 <div
                   className="h-full rounded-full transition-[width] duration-500"
-                  style={{ width: `${contextPct}%`, background: pctColor(contextPct), boxShadow: `0 0 6px ${pctColor(contextPct)}66` }}
+                  style={{ width: `${contextPct}%`, background: healthColor, boxShadow: `0 0 6px ${healthColor}66` }}
                 />
               </div>
             </div>
@@ -447,6 +505,11 @@ export function ActivityPanel({ messages, systemPromptLen, limit }: ActivityPane
                 );
               })}
             </div>
+            {health.recommendations.length > 0 && (
+              <div className="mt-3 space-y-1 border-t border-edge pt-3">
+                <HealthRecommendations recommendations={health.recommendations} onRunDreamCycle={onRunDreamCycle} />
+              </div>
+            )}
           </div>
         </div>
 

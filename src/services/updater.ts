@@ -6,12 +6,11 @@
 // releases must be public for this to work.
 //
 // Behavior:
-//  - Startup / background: silently download + install the moment a newer release is reachable
-//    (on launch, every few hours while running, and the instant the machine reconnects). The new
-//    version becomes active on next launch — we never force a relaunch out from under the user,
-//    just offer one via a toast.
+//  - Startup / background: Check for updates (on launch, every few hours, and when online).
+//    If a newer release is reachable, it waits until no LLM generation is active, logs the status,
+//    and then prompts the user with a native dialog to install and restart.
 //  - Manual ("Check for updates" button): `checkForUpdates({ silent: false })` prompts with a
-//    native dialog and gives the user explicit control + feedback.
+//    native dialog immediately and gives the user explicit control + feedback.
 
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -25,9 +24,8 @@ let inFlight = false; // guard against overlapping downloads (startup + interval
 let installedVersion: string | null = null; // staged-and-waiting-for-relaunch; don't re-install it
 
 /**
- * Silently bring the app up to date in the background: if a newer release is reachable, download +
- * install it and surface a non-blocking toast with an optional "Relaunch now". No dialog, no forced
- * restart. No-op when offline, already current, already staged, or running an unsigned dev build.
+ * Check for updates in the background. If one is found, wait until there are no active LLM streams,
+ * then prompt the user with a native dialog to install and restart. Logs states clearly.
  */
 async function applyUpdatesInBackground(): Promise<void> {
   if (inFlight) return;
@@ -37,18 +35,42 @@ async function applyUpdatesInBackground(): Promise<void> {
     if (!update) return;
     if (installedVersion === update.version) return; // already downloaded; just awaiting relaunch
 
+    console.info(`[updater] Update found: v${update.version}. Waiting for LLM idle state...`);
+    
+    // Wait until there are no active LLM response sessions
+    while ((window as any).__isGenerating) {
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    
+    console.info(`[updater] LLM is idle. Prompting user for update...`);
+
+    const notes = update.body?.trim() ? `\n\n${update.body.trim()}` : '';
+    const accepted = await ask(
+      `Agent Forge ${update.version} is available — you have ${update.currentVersion}.${notes}\n\n` +
+        'Install now? The app will restart when it finishes.',
+      {
+        title: 'Update available',
+        kind: 'info',
+        okLabel: 'Install & restart',
+        cancelLabel: 'Later',
+      },
+    );
+
+    if (!accepted) {
+      console.info(`[updater] User deferred update v${update.version}.`);
+      return;
+    }
+
+    console.info(`[updater] Downloading update v${update.version}...`);
+    useUIStore.getState().showToast(`⬇️ Downloading Agent Forge ${update.version}…`);
     await update.downloadAndInstall();
     installedVersion = update.version;
-
-    useUIStore.getState().showToast(`✅ Updated to Agent Forge ${update.version} — relaunch to finish`, {
-      label: 'Relaunch now',
-      onClick: () => {
-        void relaunch();
-      },
-    });
+    
+    console.info(`[updater] Update downloaded. Relaunching app...`);
+    await relaunch();
   } catch (err) {
     // Offline, no release yet, or an unsigned local dev build → try again on the next trigger.
-    console.debug('[updater] background update skipped:', err);
+    console.warn('[updater] background update check failed:', err);
   } finally {
     inFlight = false;
   }

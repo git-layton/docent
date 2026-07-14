@@ -245,6 +245,11 @@ const SAFETY = 0.9;            // leave ~10% of that budget free for OS/app spik
 const COMPUTE_BUFFER_GB = 1.0; // llama.cpp compute/graph buffers
 const CONTEXT_LADDER = [32, 16, 8, 4]; // K tokens — try the largest first
 const MIN_RECOMMEND_CONTEXT_K = 16;    // a recommended model must run at ≥16K
+// The 8-bit KV-cache launch path (-ctk/-ctv q8_0) is staged but UNVERIFIED on the
+// bundled llama-server. Until it's tested end-to-end, the fit ladder only considers
+// full-precision KV — so every "runs at NK context" label is one the engine can
+// actually honor. Flip this on (and pass the flags in start_local_model) once verified.
+const KV8BIT_RUNTIME_READY = false;
 
 // KV cache is driven by layer count (the real factor). We estimate layers from
 // model size and assume a 1024-wide KV dim — conservative for the small models
@@ -280,7 +285,7 @@ export function fitOnMac(model: { sizeMb: number }, ramGb: number): MacFit {
   const budget = usableVramGb(ramGb);
   const base = model.sizeMb / 1024 + COMPUTE_BUFFER_GB;
   for (const contextK of CONTEXT_LADDER) {
-    for (const kv8bit of [false, true]) {
+    for (const kv8bit of KV8BIT_RUNTIME_READY ? [false, true] : [false]) {
       if (base + kvCacheGb(model.sizeMb, contextK, kv8bit) <= budget) {
         const reduced = contextK < 32 ? ` (reduced)` : ``;
         const cache = kv8bit ? `, 8-bit cache` : ``;

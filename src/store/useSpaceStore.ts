@@ -91,7 +91,10 @@ interface SpaceStore {
   updateTabLabel(id: string, url: string, title: string): void;
   toggleFavorite(id: string): void;
   createSpace(name: string, agentIds?: string[], kind?: SpaceKind): Space;
-  openAgentDm(agent: { id: string; name?: string }): string;
+  /** Open (or create) the agent's DM container. `keepTab: true` activates the DM's thread + agent
+   *  WITHOUT swapping the center viewport to its Chat tab — used when the chat rides in the
+   *  right-hand rail beside whatever the user is already looking at. */
+  openAgentDm(agent: { id: string; name?: string }, opts?: { keepTab?: boolean }): string;
   /** Open the code canvas (Codey's coding surface) in the CURRENT space — ensures the built-in Codey
    *  + his standalone conversation exist, then opens/focuses the agentforge-code tool tab in the active
    *  space. Code is a canvas, not a space; the space's own group chat stays the rail beside it.
@@ -251,7 +254,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     return space;
   },
 
-  openAgentDm: (agent) => {
+  openAgentDm: (agent, opts) => {
     const containerId = `dm-${agent.id}`;
     const existing = get().spaces.find(s => s.id === containerId);
     if (!existing) {
@@ -284,7 +287,20 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       };
       set(s => ({ spaces: [...s.spaces, dm], omniTabs: [...s.omniTabs, chatTab] }));
     }
-    get().setActiveSpaceId(containerId);
+    if (opts?.keepTab) {
+      // Rail mode: drive the global conversation + active agent to the DM's thread WITHOUT
+      // entering its container — the tab strip and center viewport stay on the space the user
+      // is looking at, and the DM rides in the right-hand rail. (Entering the container would
+      // also swap the tab strip, since it's scoped to activeSpaceId.)
+      const dm = get().spaces.find(s => s.id === containerId);
+      if (dm) {
+        useChatStore.getState().setActiveChatId(dm.chatId);
+        useAgentStore.getState().setActiveFolderId(agent.id);
+      }
+      get().persist();
+    } else {
+      get().setActiveSpaceId(containerId);
+    }
     return containerId;
   },
 

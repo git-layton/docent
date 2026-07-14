@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, Activity, StickyNote, Images, Monitor } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, Activity, StickyNote, Images, Monitor, Settings } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
@@ -385,6 +385,15 @@ export function OmniTabBar(): React.JSX.Element {
           <TabOverflowMenu tabs={overflowTabs} />
         </div>
       )}
+      {/* Settings gear — pinned here (not the Start page or the collapsible sidebar) so
+          settings stay one click away from EVERY surface. ⌘, opens the same modal. */}
+      <button
+        onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
+        className="shrink-0 self-center p-1.5 mr-2 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
+        title="Settings (⌘,)"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
     </div>
   );
 }

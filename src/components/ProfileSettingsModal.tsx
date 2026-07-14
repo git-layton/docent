@@ -18,7 +18,7 @@ import { useMemoryStore } from '../store/useMemoryStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { listPlaybooks, reinforcePlaybook, type Playbook } from '../services/appliedMemory';
 import { invoke } from '@tauri-apps/api/core';
-import { MODEL_CATALOG } from '../data/modelCatalog';
+import { MODEL_CATALOG, fitOnMac } from '../data/modelCatalog';
 import { ModelStorePanel } from './ModelStorePanel';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
@@ -1653,11 +1653,15 @@ function InstalledModels() {
   const [installed, setInstalled] = useState<{ filename: string; size_mb: number }[]>([]);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [ramMb, setRamMb] = useState(0);
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
 
   const refresh = () => invoke<{ filename: string; size_mb: number }[]>('list_gguf_models').then(setInstalled).catch(() => {});
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+    invoke<{ total_mb: number }>('get_hardware_summary').then(r => setRamMb(r.total_mb)).catch(() => {});
+  }, []);
 
   const catFor = (fn: string) => MODEL_CATALOG.find(m => m.ggufFilename === fn);
   const idFor = (fn: string) => fn.replace(/\.gguf$/, '');
@@ -1669,16 +1673,30 @@ function InstalledModels() {
       const cat = catFor(fn);
       const dir = await invoke<string>('get_models_dir');
       const mmprojPath = cat?.mmprojFilename ? `${dir}/${cat.mmprojFilename}` : null;
-      const endpoint = await invoke<string>('start_local_model', { modelPath: `${dir}/${fn}`, port: 8080, mmprojPath });
+      // Launch at the largest context this Mac's memory actually holds (from the on-disk
+      // file size — works for catalog and imported models alike). A model that no longer
+      // fits (e.g. files migrated from a bigger Mac) tries the smallest rung and gets the
+      // engine's friendly OOM message. If RAM is unknown, the engine's 32K default applies.
+      const sizeMb = installed.find(i => i.filename === fn)?.size_mb;
+      const fit = ramMb > 0 && sizeMb ? fitOnMac({ sizeMb }, Math.floor(ramMb / 1024)) : null;
+      const ctxTokens = fit
+        ? Math.min((fit.fits ? fit.contextK : 4) * 1024, (cat?.contextK ?? 32) * 1024, 32768)
+        : undefined;
+      const endpoint = await invoke<string>('start_local_model', { modelPath: `${dir}/${fn}`, port: 8080, mmprojPath, ctxTokens: ctxTokens ?? null });
       const ss = useSettingsStore.getState();
       const existing = connectedFor(fn);
       if (existing) {
+        // Keep the stored entry in sync with what was just launched.
+        if (ctxTokens) {
+          ss.setModels((prev: any[]) => prev.map((m: any) =>
+            m.id === existing.id ? { ...m, endpoint, contextLimit: ctxTokens } : m));
+        }
         ss.setSelectedModelId(existing.id);
       } else {
         const id = `native-${Date.now().toString(36)}`;
         ss.setModels((prev: any[]) => [...prev, {
           id, name: cat?.name ?? idFor(fn), provider: 'native', modelId: idFor(fn),
-          endpoint, apiKey: '', contextLimit: 32768, canImage: !!cat?.vision, isLocal: true,
+          endpoint, apiKey: '', contextLimit: ctxTokens ?? 32768, canImage: !!cat?.vision, isLocal: true,
           mmprojPath: mmprojPath ?? undefined,
         }]);
         ss.setSelectedModelId(id);

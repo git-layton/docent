@@ -620,10 +620,14 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
   const currentModels = useSettingsStore(s => s.models);
   const gb = hw ? hw.totalMb / 1024 : 0;
   const rec = hw ? recommendSetup({ totalMb: hw.totalMb, isAppleSilicon: hw.isAppleSilicon }) : null;
-  // Local models genuinely need Apple Silicon + >=8GB; below that ModelStorePanel refuses. Don't let
-  // the user walk into the guided local screen on an unsupported Mac — its "runs privately on your
-  // Mac" copy would contradict the panel's refusal. Gate the card and nudge Gemini instead.
-  const localCapable = !!hw && hw.isAppleSilicon && hw.totalMb >= 8192;
+  // The local card is choosable ONLY when the memory math produced an actual pick.
+  // A hardware-only gate (Apple Silicon + 8GB) let base-Air users into the guided local
+  // screen where recommendSetup then had nothing to offer — a dead end that contradicted
+  // the card. When the rec is cloud, the card shows the math's own reason instead.
+  const localPick = rec?.kind === 'local';
+  // Tinkerers can still browse the full store (honest per-Mac labels, fit-derived launch)
+  // under Advanced whenever the panel itself wouldn't refuse the hardware outright.
+  const storeBrowsable = !!hw && hw.isAppleSilicon && hw.totalMb >= 6144;
 
   function startConnect(provider: typeof PROVIDERS[0], modelId?: string) {
     setConnectingProvider(provider);
@@ -676,9 +680,9 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         <div className="space-y-2">
           <p className="text-tiny font-black uppercase tracking-widest text-ink-3">Setup — about 5 minutes, mostly waiting on the download</p>
           {[
-            'Pick the recommended model below and tap Download.',
+            'Tap Download on the model below — it\'s our pick for this Mac.',
             'We\'ll set it up and start it automatically — you\'ll see a progress bar, then "Ready".',
-            'Tap "Use this model" and you\'re done — your agents now run entirely on your Mac.',
+            'That\'s it — it becomes your assistant\'s model automatically. Tap Continue and you\'re done.',
           ].map((s, i) => (
             <div key={i} className="flex items-start gap-2.5 text-xs text-ink-2">
               <span className="shrink-0 w-4 h-4 rounded-full bg-primary/10 dark:bg-primary/20 text-primary flex items-center justify-center font-black text-micro mt-0.5">{i + 1}</span>
@@ -826,27 +830,27 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
             {/* Local */}
-            <div className={`rounded-2xl border-2 p-4 space-y-2 flex flex-col ${localCapable && rec.kind === 'local' ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+            <div className={`rounded-2xl border-2 p-4 space-y-2 flex flex-col ${localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-lg">🖥️</span>
                 <p className="text-sm font-black text-ink">On your Mac</p>
                 <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-secondary/15 text-secondary shrink-0">Private</span>
-                {localCapable && rec.kind === 'local' && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>}
+                {localPick && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>}
               </div>
               <p className="text-xs text-ink-2 leading-relaxed flex-1">Private and free, works offline — nothing leaves your Mac. The best models need a powerful Mac.</p>
-              {localCapable ? (
+              {localPick ? (
                 <Btn onClick={() => setShowLocalSetup(true)} className="w-full">Choose <ArrowRight className="w-4 h-4" /></Btn>
               ) : (
-                <p className="text-[11px] text-ink-3 leading-relaxed rounded-xl bg-inset border border-edge px-3 py-2">Needs an Apple Silicon Mac with 8GB+ of memory — the cloud is the better fit here.</p>
+                <p className="text-[11px] text-ink-3 leading-relaxed rounded-xl bg-inset border border-edge px-3 py-2">{rec.kind === 'cloud' ? rec.reason : 'The cloud is the better fit here.'}</p>
               )}
             </div>
             {/* Cloud */}
-            <div className={`rounded-2xl border-2 p-4 space-y-2 flex flex-col ${!localCapable || rec.kind === 'cloud' ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
+            <div className={`rounded-2xl border-2 p-4 space-y-2 flex flex-col ${!localPick ? 'border-accent bg-accent-soft/30' : 'border-edge'}`}>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-lg">✨</span>
                 <p className="text-sm font-black text-ink">In the cloud</p>
                 <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-inset text-ink-3 shrink-0">Cloud</span>
-                {(!localCapable || rec.kind === 'cloud') && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>}
+                {!localPick && <span className="text-micro font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-accent text-on-accent shrink-0">Recommended</span>}
               </div>
               <p className="text-xs text-ink-2 leading-relaxed flex-1">The smartest models, instant, no download. The trade-off: messages go to the provider, and it costs per use (some have free tiers).</p>
               <Btn onClick={() => setShowCloud(true)} className="w-full">Choose <ArrowRight className="w-4 h-4" /></Btn>
@@ -897,8 +901,9 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
             ))}
           </div>
 
-          {/* All local models for this Mac */}
-          {rec && rec.kind === 'local' && (
+          {/* All local models for this Mac — browsable even when the headline rec is cloud
+              (e.g. an 8GB Air can still run a small model at reduced context, honestly labeled). */}
+          {storeBrowsable && (
             <div className="space-y-2">
               <p className="text-tiny font-black uppercase tracking-widest text-ink-3">All local models</p>
               <ModelStorePanel ramMb={hw!.totalMb} isAppleSilicon mode="full" onModelReady={handleLocalReady} />

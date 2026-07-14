@@ -526,6 +526,20 @@ describe('container model — per-container threads', () => {
     expect(dms).toHaveLength(1)
   })
 
+  it('openAgentDm with keepTab points the conversation at the DM WITHOUT entering its container', () => {
+    // Rail mode: the DM thread + agent go live, but the center tab strip (activeSpaceId /
+    // activeOmniTabId) stays wherever the user was — the chat rides in the right-hand rail.
+    const space = useSpaceStore.getState().createSpace('Work')
+    useSpaceStore.getState().setActiveSpaceId(space.id)
+    const tabBefore = useSpaceStore.getState().activeOmniTabId
+    useSpaceStore.getState().openAgentDm({ id: 'lexi', name: 'Lexi' }, { keepTab: true })
+    const dm = useSpaceStore.getState().spaces.find(s => s.id === 'dm-lexi')!
+    expect(useChatStore.getState().activeChatId).toBe(dm.chatId)
+    expect(useAgentStore.getState().activeFolderId).toBe('lexi')
+    expect(useSpaceStore.getState().activeSpaceId).toBe(space.id)
+    expect(useSpaceStore.getState().activeOmniTabId).toBe(tabBefore)
+  })
+
   it('selecting a container drives activeChatId to ITS thread (no bleed)', () => {
     const space = useSpaceStore.getState().createSpace('Work')
     useSpaceStore.getState().openAgentDm({ id: 'dev', name: 'Dev' })

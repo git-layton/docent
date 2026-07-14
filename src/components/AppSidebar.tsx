@@ -67,10 +67,18 @@ export function AppSidebar(_: AppSidebarProps) {
   }, [networkActive]);
 
   const openDirect = (agent: any) => {
-    // A DM is a container scoped to one agent — open (or create) it; the store
-    // wires the active container, its tab, its own thread, and the active agent.
-    useSpaceStore.getState().openAgentDm({ id: agent.id, name: agent.name });
+    // Rail-first (right-side consolidation prototype): clicking an agent points the
+    // right-hand rail at their DM and leaves the center viewport alone. Only when the
+    // center is ALREADY a conversation view do we swap it to the DM wholesale.
+    const { omniTabs, activeOmniTabId } = useSpaceStore.getState();
+    const activeTab = omniTabs.find(t => t.id === activeOmniTabId);
+    const keepTab = !!activeTab && activeTab.type !== 'space-log';
+    useSpaceStore.getState().openAgentDm({ id: agent.id, name: agent.name }, { keepTab });
     if (agent.defaultModelId) useSettingsStore.getState().setSelectedModelId(agent.defaultModelId);
+    if (keepTab) {
+      window.dispatchEvent(new CustomEvent('forge:open-copilot'));
+      return;
+    }
     useTaskStore.getState().setShowPlanner(false);
     useUIStore.getState().setCanvasContent(null);
     useUIStore.getState().setViewMode('chat');
