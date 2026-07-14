@@ -3074,6 +3074,7 @@ async fn start_local_model(
     port: u16,
     mmproj_path: Option<String>,
     ctx_tokens: Option<u32>,
+    kv8bit: Option<bool>,
     llama_state: tauri::State<'_, LlamaState>,
 ) -> Result<String, String> {
     // The frontend computes the largest context that fits this Mac's memory budget
@@ -3112,6 +3113,7 @@ async fn start_local_model(
             "port": port,
             "mmprojPath": mmproj_path.clone().unwrap_or_default(),
             "ctxTokens": ctx_tokens,
+            "kv8bit": kv8bit.unwrap_or(false),
         })
         .to_string(),
     );
@@ -3123,6 +3125,12 @@ async fn start_local_model(
         "--threads".into(), "4".into(),
         "--host".into(), "127.0.0.1".into(),
     ];
+    if kv8bit.unwrap_or(false) {
+        server_args.push("-ctk".into());
+        server_args.push("q8_0".into());
+        server_args.push("-ctv".into());
+        server_args.push("q8_0".into());
+    }
     // Multimodal: load the CLIP projector so the model can see images (llama.cpp libmtmd / MTMD).
     // Only passed when present, so text-only models are unaffected.
     if let Some(mmproj) = mmproj_path.filter(|p| !p.is_empty()) {
@@ -3183,6 +3191,7 @@ async fn revive_local_model(llama_state: tauri::State<'_, LlamaState>) -> Result
     // Records from before ctxTokens existed launched at 32768 — reviving at the same
     // value keeps behavior identical for them.
     let ctx_tokens = v["ctxTokens"].as_u64().map(|c| c as u32);
+    let kv8bit = v["kv8bit"].as_bool();
 
     // Already healthy → idempotent no-op (this is also the cheap "is it up?" probe).
     let health_url = format!("http://127.0.0.1:{port}/health");
@@ -3201,7 +3210,7 @@ async fn revive_local_model(llama_state: tauri::State<'_, LlamaState>) -> Result
             "the last local model file is missing ({model_path}) — re-load a model from the Model Store"
         ));
     }
-    start_local_model(model_path, port, mmproj, ctx_tokens, llama_state).await
+    start_local_model(model_path, port, mmproj, ctx_tokens, kv8bit, llama_state).await
 }
 
 // ─── Browser Co-pilot Commands ───────────────────────────────────────────────

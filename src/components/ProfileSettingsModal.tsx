@@ -1682,7 +1682,7 @@ function InstalledModels() {
       const ctxTokens = fit
         ? Math.min((fit.fits ? fit.contextK : 4) * 1024, (cat?.contextK ?? 32) * 1024, 32768)
         : undefined;
-      const endpoint = await invoke<string>('start_local_model', { modelPath: `${dir}/${fn}`, port: 8080, mmprojPath, ctxTokens: ctxTokens ?? null });
+      const endpoint = await invoke<string>('start_local_model', { modelPath: `${dir}/${fn}`, port: 8080, mmprojPath, ctxTokens: ctxTokens ?? null, kv8bit: fit?.kv8bit ?? false });
       const ss = useSettingsStore.getState();
       const existing = connectedFor(fn);
       if (existing) {

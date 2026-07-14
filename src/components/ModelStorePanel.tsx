@@ -40,6 +40,7 @@ function genId(prefix: string) {
 export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'full' }: ModelStorePanelProps) {
   const [states, setStates] = useState<Record<string, ModelState>>({});
   const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'All' | 'General' | 'Coder' | 'Reasoning'>('All');
   const [importing, setImporting] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
   const ramGb = Math.floor(ramMb / 1024);
@@ -134,12 +135,14 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
   }
 
   async function launchModel(model: CatalogModel, filePath: string, mmprojPath?: string) {
+    const fit = fitOnMac(model, ramGb);
     const ctxTokens = launchCtxTokens(model);
     const endpoint = await invoke<string>('start_local_model', {
       modelPath: filePath,
       port: DEFAULT_PORT,
       mmprojPath: mmprojPath ?? null,
       ctxTokens,
+      kv8bit: fit.kv8bit,
     });
     setModelState(model.id, { status: 'ready', endpoint });
     const newModel = {
@@ -244,10 +247,11 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
   // ── Tier logic: only show top-tier models as "Recommended" ──────────────────
   const searchLower = search.toLowerCase();
   const matchesSearch = (m: CatalogModel) =>
-    !search ||
+    (!search ||
     m.name.toLowerCase().includes(searchLower) ||
     m.role.toLowerCase().includes(searchLower) ||
-    m.bestFor.toLowerCase().includes(searchLower);
+    m.bestFor.toLowerCase().includes(searchLower)) &&
+    (roleFilter === 'All' || m.role === roleFilter);
 
   // ── Recommended-only: the single best pick for this Mac, no list, no search ──
   if (mode === 'recommended') {
@@ -295,16 +299,33 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
 
   return (
     <div className="space-y-2">
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3 pointer-events-none" />
-        <input
-          type="text"
-          placeholder="Search models by name, role…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full pl-8 pr-3 py-2 text-xs bg-inset border border-edge rounded-xl outline-none focus:border-accent transition-colors"
-        />
+      {/* Search and Filters */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search models by name, role…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-8 pr-3 py-2 text-xs bg-inset border border-edge rounded-xl outline-none focus:border-accent transition-colors"
+          />
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+          {(['All', 'General', 'Coder', 'Reasoning'] as const).map(role => (
+            <button
+              key={role}
+              onClick={() => setRoleFilter(role)}
+              className={`shrink-0 px-3 py-1 text-[10px] font-black uppercase rounded-full border transition-colors ${
+                roleFilter === role
+                  ? 'bg-accent text-on-accent border-accent'
+                  : 'bg-surface text-ink-2 border-edge hover:border-edge-strong'
+              }`}
+            >
+              {role}
+            </button>
+          ))}
+        </div>
       </div>
 
       {!hasResults && (

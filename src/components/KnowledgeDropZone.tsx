@@ -121,7 +121,7 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
               sourceNodeId: generateNodeId('file', path),
               sourceNodeType: 'file',
               sourcePath: path,
-              modelConfig: modelConfig as Record<string, unknown>,
+              modelConfig: modelConfig as unknown as Record<string, unknown>,
             })
           : upsertGraphNode({
               id: generateNodeId('file', path),

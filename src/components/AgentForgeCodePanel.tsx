@@ -22,6 +22,7 @@ import { makeGrant } from '../services/fileAccess/consent';
 import { resolveCodeyId } from '../store/useAgentStore';
 import { extractTextFromPDF } from '../services/pdfParser';
 import { modelSupportsVision, hasVisionProvider } from '../services/llm';
+import { recommendSetup, MODEL_CATALOG } from '../data/modelCatalog';
 import type { Provenance } from '../services/fileAccess/provenance';
 import type { FileActivityEntry, GrantScope } from '../services/fileAccess/types';
 
@@ -99,6 +100,24 @@ export function AgentForgeCodePanel({
   // ── Side panels (toggled open; default = just the conversation) ──
   const [sidePanel, setSidePanel] = useState<SidePanel | null>(null);
   const [showGear, setShowGear] = useState(false);
+
+  // ── Codey Nudge Card (Phase 3) ──
+  const [ramMb, setRamMb] = useState(0);
+  const [dismissedNudge, setDismissedNudge] = useState(false);
+  useEffect(() => {
+    invoke<{ total_mb: number }>('get_hardware_summary').then(r => setRamMb(r.total_mb)).catch(() => {});
+  }, []);
+  
+  const recommendedCoder = useMemo(() => {
+    if (ramMb === 0) return null;
+    const rec = recommendSetup({ totalMb: ramMb, isAppleSilicon: true, role: 'Coder' });
+    return rec.kind === 'local' ? rec.recommended : null;
+  }, [ramMb]);
+
+  const activeModel = models.find((m: any) => m.id === useSettingsStore.getState().selectedModelId);
+  const activeCatalogModel = activeModel ? MODEL_CATALOG.find(c => c.ggufFilename.replace('.gguf', '') === activeModel.modelId) : null;
+  const hasCoderModel = activeCatalogModel?.role === 'Coder';
+  const showNudge = isFirstRun && recommendedCoder && !hasCoderModel && !dismissedNudge;
 
   // ── Center composer buffer (Codey) ──────────────────────────────────────────────────────────────
   // The canvas center talks to Codey via its OWN input buffer (codeyInput/codeyDocs) — NOT the global
@@ -472,6 +491,32 @@ export function AgentForgeCodePanel({
               composer; pointer-events pass through except on its own controls so the input stays usable. */}
           {isFirstRun && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-8 pb-28 pointer-events-none">
+              
+              {showNudge && recommendedCoder && (
+                <div className="pointer-events-auto mb-8 bg-surface border border-accent/20 rounded-2xl p-4 max-w-md shadow-sm relative flex items-start gap-4 text-left">
+                  <button onClick={() => setDismissedNudge(true)} className="absolute top-2 right-2 p-1 text-ink-3 hover:text-ink rounded-lg hover:bg-wash"><X className="w-4 h-4" /></button>
+                  <div className="w-10 h-10 shrink-0 rounded-xl bg-accent-soft flex items-center justify-center">
+                    <Monitor className="w-5 h-5 text-accent" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-ink">You don't have a Coder model running</h3>
+                    <p className="text-xs text-ink-2 mt-1 leading-relaxed">
+                      For coding tasks, <span className="font-semibold text-ink">{recommendedCoder.name}</span> is the best fit for your Mac. 
+                      You can download it from the Model Store.
+                    </p>
+                    <button 
+                      onClick={() => {
+                        useSettingsStore.getState().setProfileSettingsTab('models');
+                        useSettingsStore.getState().setShowProfileSettings(true);
+                      }}
+                      className="mt-3 px-4 py-1.5 rounded-lg text-xs font-bold bg-accent text-on-accent hover:bg-accent-strong"
+                    >
+                      Open Model Store
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="pointer-events-auto flex flex-col items-center gap-4 max-w-md">
                 <div className="w-14 h-14 rounded-2xl bg-accent-soft flex items-center justify-center">
                   <FolderGit2 className="w-7 h-7 text-accent" />

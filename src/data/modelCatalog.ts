@@ -23,6 +23,8 @@ export interface CatalogModel {
   mmprojUrl?: string;
   mmprojFilename?: string;
   censorScore?: string;
+  layers?: number;
+  kvDim?: number;
 }
 
 // ─── 8 GB tier ────────────────────────────────────────────────────────────────
@@ -113,7 +115,19 @@ const TIER_16: CatalogModel[] = [
     // projector files from different models can't collide in the models dir.
     mmprojUrl: 'https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/mmproj-F16.gguf',
     mmprojFilename: 'mmproj-gemma-4-12b-it-F16.gguf',
-    primary: true,
+  },
+  {
+    id: 'qwen25-coder-14b',
+    name: 'Qwen 2.5 Coder 14B',
+    ggufFilename: 'qwen2.5-coder-14b-instruct-q4_k_m.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf',
+    sizeMb: 9216,
+    ramGb: 16,
+    contextK: 32,
+    role: 'Coder',
+    bestFor: 'Excellent mid-sized coding model for Mac developers',
+    notGreatFor: 'General storytelling or non-programming tasks',
+    tag: 'Coder',
   },
 ];
 
@@ -121,18 +135,19 @@ const TIER_16: CatalogModel[] = [
 
 const TIER_32: CatalogModel[] = [
   {
-    id: 'qwen3-30b-a3b',
-    name: 'Qwen3 30B-A3B',
-    ggufFilename: 'Qwen_Qwen3-30B-A3B-Q4_K_M.gguf',
-    downloadUrl: 'https://huggingface.co/bartowski/Qwen_Qwen3-30B-A3B-GGUF/resolve/main/Qwen_Qwen3-30B-A3B-Q4_K_M.gguf',
+    id: 'qwen3-coder-30b-a3b',
+    name: 'Qwen3 Coder 30B-A3B',
+    ggufFilename: 'Qwen_Qwen3-Coder-30B-A3B-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/Qwen_Qwen3-Coder-30B-A3B-GGUF/resolve/main/Qwen_Qwen3-Coder-30B-A3B-Q4_K_M.gguf',
     sizeMb: 19046,
     ramGb: 32,
     contextK: 32,
-    role: 'General',
-    bestFor: 'The best everyday local assistant — near-32B smarts but far faster (mixture-of-experts: only ~3B active per token)',
+    role: 'Coder',
+    bestFor: 'The best everyday local coding assistant — near-32B smarts but far faster (mixture-of-experts: only ~3B active per token)',
     notGreatFor: 'The very deepest reasoning, where the dense 32B edges ahead',
-    tag: 'Fast · Smart',
+    tag: 'Fast · Smart · Coder',
     primary: true,
+    layers: 24, // Reduces KV estimation for MoE models
   },
   {
     id: 'qwen3-32b',
@@ -197,6 +212,20 @@ const TIER_32: CatalogModel[] = [
 
 const TIER_48: CatalogModel[] = [
   {
+    id: 'qwen3-coder-next-80b-a3b',
+    name: 'Qwen3 Coder-Next 80B-A3B',
+    ggufFilename: 'Qwen_Qwen3-Coder-Next-80B-A3B-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/Qwen_Qwen3-Coder-Next-80B-A3B-GGUF/resolve/main/Qwen_Qwen3-Coder-Next-80B-A3B-Q4_K_M.gguf',
+    sizeMb: 43008,
+    ramGb: 96,
+    contextK: 32,
+    role: 'Coder',
+    bestFor: 'State-of-the-art coding capabilities for 96GB Macs',
+    notGreatFor: 'Anything smaller than 96GB memory',
+    tag: 'Top Coder',
+    layers: 32,
+  },
+  {
     id: 'llama33-70b',
     name: 'Llama 3.3 70B',
     ggufFilename: 'Llama-3.3-70B-Instruct-Q4_K_M.gguf',
@@ -249,22 +278,24 @@ const MIN_RECOMMEND_CONTEXT_K = 16;    // a recommended model must run at ≥16K
 // bundled llama-server. Until it's tested end-to-end, the fit ladder only considers
 // full-precision KV — so every "runs at NK context" label is one the engine can
 // actually honor. Flip this on (and pass the flags in start_local_model) once verified.
-const KV8BIT_RUNTIME_READY = false;
+const KV8BIT_RUNTIME_READY = true;
 
 // KV cache is driven by layer count (the real factor). We estimate layers from
 // model size and assume a 1024-wide KV dim — conservative for the small models
 // that actually use fewer KV heads.
-function estLayers(sizeMb: number): number {
+function estLayers(sizeMb: number, model?: CatalogModel): number {
+  if (model?.layers) return model.layers;
   const gb = sizeMb / 1024;
   if (gb < 6) return 32;   // ~7-8B
   if (gb < 12) return 48;  // ~14B
   if (gb < 28) return 64;  // ~32B
   return 80;               // ~70B+
 }
-const KV_BYTES_PER_TOKEN_PER_LAYER = 1024 /*kv dim*/ * 2 /*K+V*/ * 2 /*f16 bytes*/;
-function kvCacheGb(sizeMb: number, contextK: number, kv8bit: boolean): number {
+const KV_BYTES_PER_TOKEN_PER_LAYER = 2 /*K+V*/ * 2 /*f16 bytes*/;
+function kvCacheGb(sizeMb: number, contextK: number, kv8bit: boolean, model?: CatalogModel): number {
   const tokens = contextK * 1024;
-  const f16 = estLayers(sizeMb) * KV_BYTES_PER_TOKEN_PER_LAYER * tokens;
+  const kvDim = model?.kvDim ?? 1024;
+  const f16 = estLayers(sizeMb, model) * kvDim * KV_BYTES_PER_TOKEN_PER_LAYER * tokens;
   return (kv8bit ? f16 / 2 : f16) / 1e9;
 }
 export function usableVramGb(ramGb: number): number {
@@ -281,12 +312,13 @@ export interface MacFit {
 // The largest context (and whether 8-bit KV is needed) at which `model` fits on a
 // Mac with `ramGb` of unified memory. Prefers full-precision KV at the longest
 // context, and only drops to 8-bit / shorter context to make a model fit at all.
-export function fitOnMac(model: { sizeMb: number }, ramGb: number): MacFit {
+export function fitOnMac(model: CatalogModel | { sizeMb: number }, ramGb: number): MacFit {
   const budget = usableVramGb(ramGb);
   const base = model.sizeMb / 1024 + COMPUTE_BUFFER_GB;
+  const catalogModel = 'id' in model ? model as CatalogModel : undefined;
   for (const contextK of CONTEXT_LADDER) {
     for (const kv8bit of KV8BIT_RUNTIME_READY ? [false, true] : [false]) {
-      if (base + kvCacheGb(model.sizeMb, contextK, kv8bit) <= budget) {
+      if (base + kvCacheGb(model.sizeMb, contextK, kv8bit, catalogModel) <= budget) {
         const reduced = contextK < 32 ? ` (reduced)` : ``;
         const cache = kv8bit ? `, 8-bit cache` : ``;
         return { fits: true, contextK, kv8bit, label: `Runs at ${contextK}K context${reduced}${cache}` };
@@ -297,7 +329,7 @@ export function fitOnMac(model: { sizeMb: number }, ramGb: number): MacFit {
 }
 
 export function recommendSetup(
-  { totalMb, isAppleSilicon }: { totalMb: number; isAppleSilicon: boolean },
+  { totalMb, isAppleSilicon, role }: { totalMb: number; isAppleSilicon: boolean; role?: string },
 ): SetupRecommendation {
   const gb = totalMb / 1024;
 
@@ -322,7 +354,7 @@ export function recommendSetup(
   // the 8-bit path stay wired into fitOnMac for that labelling + a future opt-in.)
   void MIN_RECOMMEND_CONTEXT_K;
   const runnable = MODEL_CATALOG
-    .filter(m => !m.gated)
+    .filter(m => !m.gated && (!role || m.role === role))
     .map(m => ({ m, fit: fitOnMac(m, ramGb) }))
     .filter(({ fit }) => fit.fits && fit.contextK >= 32 && !fit.kv8bit)
     .sort((a, b) => b.m.sizeMb - a.m.sizeMb);
