@@ -2,6 +2,7 @@ import { writeMemory } from '../lib/ipc';
 import { generateTextResponse } from './llm';
 import { buildGroundingFrontmatter, buildBrowserChunkContext } from './grounding';
 import { slugify } from './research';
+import { extractAndWriteGraph, generatePageNodeId } from './graphEntityExtractor';
 
 export interface PageDigestInput {
   url: string;
@@ -104,6 +105,18 @@ ${summary}
     content: fileContent,
     commitMessage: `web-capture: ${input.title.slice(0, 60)}`,
   });
+
+  // Feed the knowledge graph in the background. Saving a digest is the deliberate "keep this"
+  // moment, so it's the right (and only) time to spend an extraction call on a page. Fire and
+  // forget: the digest result must not wait on — or ever fail because of — graph writes.
+  void extractAndWriteGraph({
+    text: input.cleanText,
+    sourceTitle: input.title,
+    sourceNodeId: generatePageNodeId(input.url),
+    sourceNodeType: 'page',
+    sourceUrl: input.url,
+    modelConfig: (modelConfig ?? {}) as Record<string, unknown>,
+  }).catch(err => console.warn('[pageDigest] graph extraction failed:', err));
 
   return { summary, filename, skipped: false };
 }

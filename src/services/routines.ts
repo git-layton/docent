@@ -98,6 +98,10 @@ export function detectRoutineIntent(text: string): ProposedRoutine | null {
   const mentionsNotes = /\bnotes?\b/i.test(t);
   if (!mentionsMail && !mentionsCal && !mentionsNotes) return null;
 
+  // Reject explicit requests to create/add items so they don't get misclassified as a digest routine.
+  const isCreateIntent = /\b(add|create|new|book|schedule)\b.*?\b(event|meeting|reminder|task)\b/i.test(t);
+  if (isCreateIntent) return null;
+
   // Watch/flag — only makes sense for mail, and only with a target to match on.
   if (WATCH.test(t) && mentionsMail) {
     const target = parseWatchTarget(t);

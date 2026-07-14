@@ -15,19 +15,82 @@ export interface ExtractedGraph {
   }>;
 }
 
-export function generatePageNodeId(url: string): string {
-  const slug = url
+// Skip extraction on fragments too short to contain real entities, and cap what a runaway model
+// can write in one pass (each entity/relation is its own IPC upsert).
+const MIN_EXTRACTION_CHARS = 200;
+const MAX_ENTITIES = 40;
+const MAX_RELATIONS = 60;
+
+export function generateNodeId(prefix: string, key: string): string {
+  const slug = key
     .replace(/^https?:\/\//, '')
     .replace(/[^a-z0-9]+/gi, '-')
     .replace(/^-+|-+$/g, '')
     .toLowerCase()
     .slice(0, 80);
   let hash = 0;
-  for (let i = 0; i < url.length; i++) {
-    hash = ((hash << 5) - hash + url.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) - hash + key.charCodeAt(i)) >>> 0;
   }
-  return `page-${slug}-${hash.toString(16)}`;
+  return `${prefix}-${slug}-${hash.toString(16)}`;
 }
+
+export function generatePageNodeId(url: string): string {
+  return generateNodeId('page', url);
+}
+
+// ── Direct upserts (no LLM) ─────────────────────────────────────────────────
+// The backend requires metadataJson and enforces edge FKs (source/target nodes must exist first).
+// Both helpers swallow errors: the graph is a best-effort mirror, never a failure path for the
+// ingestion that triggered it.
+
+export async function upsertGraphNode(node: {
+  id: string;
+  nodeType: string;
+  label: string;
+  sourceUrl?: string;
+  sourcePath?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<boolean> {
+  try {
+    await invoke('upsert_graph_node', {
+      id: node.id,
+      nodeType: node.nodeType,
+      label: node.label,
+      sourceUrl: node.sourceUrl ?? null,
+      sourcePath: node.sourcePath ?? null,
+      metadataJson: JSON.stringify(node.metadata ?? {}),
+    });
+    return true;
+  } catch (err) {
+    console.warn(`[graph] upsert_graph_node failed for "${node.id}":`, err);
+    return false;
+  }
+}
+
+export async function upsertGraphEdge(edge: {
+  sourceId: string;
+  targetId: string;
+  relation: string;
+  weight?: number;
+}): Promise<boolean> {
+  try {
+    await invoke('upsert_graph_edge', {
+      id: `${edge.sourceId}-${edge.relation}-${edge.targetId}`,
+      sourceId: edge.sourceId,
+      targetId: edge.targetId,
+      relation: edge.relation,
+      weight: edge.weight ?? 1.0,
+      metadataJson: '{}',
+    });
+    return true;
+  } catch (err) {
+    console.warn(`[graph] upsert_graph_edge failed for "${edge.sourceId}->${edge.targetId}":`, err);
+    return false;
+  }
+}
+
+// ── LLM extraction pipeline ─────────────────────────────────────────────────
 
 interface RawExtraction {
   entities?: Array<{ id: string; type: string; label: string }>;
@@ -42,27 +105,45 @@ function parseExtraction(raw: string): RawExtraction {
   return JSON.parse(stripped.slice(start, end + 1));
 }
 
+function sanitizeEntityId(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
 export async function extractAndWriteGraph(opts: {
   text: string;
-  sourceUrl: string;
   sourceTitle: string;
-  pageNodeId: string;
-  modelId: string;
-  modelConfig?: Record<string, unknown>;
-  agentForgePath: string;
+  sourceNodeId: string;
+  /** 'page' | 'file' | 'note' — what kind of thing the entities were extracted from. */
+  sourceNodeType?: string;
+  sourceUrl?: string;
+  sourcePath?: string;
+  modelConfig: Record<string, unknown>;
 }): Promise<ExtractedGraph> {
-  const { text, sourceUrl, sourceTitle, pageNodeId, modelId, modelConfig } = opts;
+  const { text, sourceTitle, sourceNodeId, sourceNodeType = 'page', sourceUrl, sourcePath, modelConfig } = opts;
 
-  const trimmedText = text.slice(0, 4000);
-  const prompt = buildEntityExtractionPrompt(trimmedText, sourceTitle, sourceUrl);
+  // Always record the source node itself, even when extraction is skipped or fails — the graph
+  // should at least show what was ingested. It must also exist before any appears_in edge (FK).
+  const sourceOk = await upsertGraphNode({
+    id: sourceNodeId,
+    nodeType: sourceNodeType,
+    label: sourceTitle || sourceUrl || sourcePath || sourceNodeId,
+    sourceUrl,
+    sourcePath,
+  });
 
-  const resolvedConfig = modelConfig ?? { modelId, provider: 'openai', contextLimit: 32000 };
+  if (text.trim().length < MIN_EXTRACTION_CHARS) return { nodes: [], edges: [] };
+
+  const prompt = buildEntityExtractionPrompt(text.slice(0, 4000), sourceTitle, sourceUrl ?? sourcePath ?? '');
 
   let raw = '';
   try {
     raw = await generateTextResponse({
       messages: [{ id: `graph-extract-${Date.now()}`, role: 'user', content: prompt }],
-      modelConfig: resolvedConfig,
+      modelConfig,
       agent: { prompt: 'You are a knowledge graph extraction assistant. Return only valid JSON.', tools: {}, trainingDocs: [] },
       profile: '',
       tasks: [],
@@ -78,7 +159,7 @@ export async function extractAndWriteGraph(opts: {
       models: [],
     });
   } catch (err) {
-    console.error('[graphEntityExtractor] AI call failed:', err);
+    console.warn('[graphEntityExtractor] AI call failed:', err);
     return { nodes: [], edges: [] };
   }
 
@@ -86,66 +167,44 @@ export async function extractAndWriteGraph(opts: {
   try {
     extraction = parseExtraction(raw);
   } catch (err) {
-    console.error('[graphEntityExtractor] JSON parse failed:', err, '\nRaw:', raw.slice(0, 200));
+    console.warn('[graphEntityExtractor] JSON parse failed:', err, '\nRaw:', raw.slice(0, 200));
     return { nodes: [], edges: [] };
   }
 
-  const entities = Array.isArray(extraction.entities) ? extraction.entities : [];
-  const relations = Array.isArray(extraction.relations) ? extraction.relations : [];
-
-  const entityIds = new Set(entities.map(e => e.id));
+  const entities = (Array.isArray(extraction.entities) ? extraction.entities : []).slice(0, MAX_ENTITIES);
+  const relations = (Array.isArray(extraction.relations) ? extraction.relations : []).slice(0, MAX_RELATIONS);
 
   const nodes: ExtractedGraph['nodes'] = [];
   const edges: ExtractedGraph['edges'] = [];
+  const writtenIds = new Set<string>();
 
   for (const entity of entities) {
-    if (!entity.id || !entity.type || !entity.label) continue;
-    nodes.push({ id: entity.id, type: entity.type, label: entity.label });
+    const id = sanitizeEntityId(entity.id);
+    const label = String(entity.label ?? '').trim();
+    if (!id || !label) continue;
+    const type = sanitizeEntityId(entity.type) || 'entity';
 
-    try {
-      // TODO: requires Unit 7 graph backend
-      await invoke('upsert_graph_node', {
-        id: entity.id,
-        nodeType: entity.type,
-        label: entity.label,
-        sourceUrl,
-      });
-    } catch (err) {
-      console.error(`[graphEntityExtractor] upsert_graph_node failed for "${entity.id}":`, err);
-    }
+    const ok = await upsertGraphNode({ id, nodeType: type, label, sourceUrl, sourcePath });
+    if (!ok) continue;
+    writtenIds.add(id);
+    nodes.push({ id, type, label });
 
-    edges.push({ sourceId: entity.id, targetId: pageNodeId, relation: 'appears_in' });
-    try {
-      // TODO: requires Unit 7 graph backend
-      await invoke('upsert_graph_edge', {
-        id: `${entity.id}-appears_in-${pageNodeId}`,
-        sourceId: entity.id,
-        targetId: pageNodeId,
-        relation: 'appears_in',
-        weight: 1.0,
-      });
-    } catch (err) {
-      console.error(`[graphEntityExtractor] upsert_graph_edge (appears_in) failed for "${entity.id}":`, err);
+    if (sourceOk) {
+      edges.push({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
+      await upsertGraphEdge({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
     }
   }
 
   for (const rel of relations) {
-    if (!rel.source || !rel.target || !rel.relation) continue;
-    if (!entityIds.has(rel.source) || !entityIds.has(rel.target)) continue;
+    const source = sanitizeEntityId(rel.source);
+    const target = sanitizeEntityId(rel.target);
+    const relation = String(rel.relation ?? '').trim();
+    if (!source || !target || !relation) continue;
+    // Both endpoints must have been written this pass — the FK would reject dangling edges anyway.
+    if (!writtenIds.has(source) || !writtenIds.has(target)) continue;
 
-    edges.push({ sourceId: rel.source, targetId: rel.target, relation: rel.relation });
-    try {
-      // TODO: requires Unit 7 graph backend
-      await invoke('upsert_graph_edge', {
-        id: `${rel.source}-${rel.relation}-${rel.target}`,
-        sourceId: rel.source,
-        targetId: rel.target,
-        relation: rel.relation,
-        weight: 1.0,
-      });
-    } catch (err) {
-      console.error(`[graphEntityExtractor] upsert_graph_edge failed for "${rel.source}->${rel.target}":`, err);
-    }
+    edges.push({ sourceId: source, targetId: target, relation });
+    await upsertGraphEdge({ sourceId: source, targetId: target, relation });
   }
 
   return { nodes, edges };

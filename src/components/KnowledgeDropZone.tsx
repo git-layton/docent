@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
 import { Upload, Loader2, FileText } from 'lucide-react';
 import { extractTextFromPDF } from '../services/pdfParser';
+import { extractAndWriteGraph, generateNodeId, upsertGraphNode } from '../services/graphEntityExtractor';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -106,6 +108,29 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
         onError('Nuke Shield blocked this write.');
       } else {
         onFileIngested(baseName);
+        // Mirror the ingested file into the knowledge graph. With a configured model this also
+        // extracts entities (which upserts the file node itself); without one, just record the
+        // file node so the graph still shows what was ingested. Fire and forget — graph failures
+        // never surface as ingest errors.
+        const { models, selectedModelId } = useSettingsStore.getState();
+        const modelConfig = models.find((m: any) => m.id === selectedModelId) ?? models[0];
+        const graphWrite = modelConfig
+          ? extractAndWriteGraph({
+              text,
+              sourceTitle: file.name,
+              sourceNodeId: generateNodeId('file', path),
+              sourceNodeType: 'file',
+              sourcePath: path,
+              modelConfig: modelConfig as Record<string, unknown>,
+            })
+          : upsertGraphNode({
+              id: generateNodeId('file', path),
+              nodeType: 'file',
+              label: file.name,
+              sourcePath: path,
+            });
+        void Promise.resolve(graphWrite).catch(err =>
+          console.warn('[KnowledgeDropZone] graph write failed:', err));
       }
     } catch (e: any) {
       onError(e?.message ?? String(e));

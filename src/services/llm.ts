@@ -388,12 +388,12 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     `- {"tool":"note","op":"create","title":"…","body":"…"}\n` +
     `- {"tool":"task","op":"create","title":"…","dueDate":"YYYY-MM-DD"?}\n` +
     `- {"tool":"task","op":"complete","id":"…"}\n` +
-    `- {"tool":"calendar","op":"create","title":"…","start":"YYYY-MM-DD or ISO","end":"…"?,"allDay":true?}\n` +
     `- {"tool":"message","op":"send","to":"conversation or contact name","text":"…"}\n` +
     `- {"tool":"mail","op":"send","to":["addr"],"subject":"…","body":"…"}\n` +
     `- {"tool":"memory","op":"save","title":"…","content":"a durable fact, preference, or decision worth remembering across future conversations"}\n` +
     `- {"tool":"playbook","op":"capture","title":"…","intent":"the kind of task this is for","steps":[{"intent":"step 1","toolHint":"optional tool"},{"intent":"step 2"}]}  // when the user asks to save a repeatable, multi-step procedure (≥2 steps)\n` +
-    `- {"tool":"note|task|calendar","op":"delete","id":"…"}\n` +
+    `- {"tool":"note","op":"delete","id":"…"}\n` +
+    `- {"tool":"task","op":"delete","id":"…"}\n` +
     `Creating a note/to-do/event applies automatically. Sending a message/email or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Use memory.save when YOU notice something durable worth carrying forward (it's written to your own private memory, not shown as a message, and you'll see it again automatically) — restating the same thing just updates it, so don't worry about duplicates. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
 
   // Tier 2 — relevant memory retrieved for THIS message (semantic, gated by relevance). Placed near

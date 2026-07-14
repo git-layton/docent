@@ -36,7 +36,7 @@ class GraphErrorBoundary extends Component<{ children: ReactNode }, { error: Err
     return this.props.children;
   }
 }
-import { X, Search } from 'lucide-react';
+import { X, Search, RefreshCw, Trash2, Telescope } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 type NodeType = 'page' | 'file' | 'note' | 'entity' | 'person' | 'concept' | 'technology' | string;
@@ -66,6 +66,9 @@ const NODE_COLORS: Record<string, string> = {
   note: '#34d399',
   entity: '#f97316',
   person: '#f97316',
+  org: '#fb923c',
+  place: '#f472b6',
+  product: '#fbbf24',
   concept: '#facc15',
   technology: '#facc15',
 };
@@ -76,7 +79,20 @@ function nodeColor(type: string): string {
 
 const NODE_TYPES = ['All', 'Page', 'File', 'Note', 'Entity', 'Concept'] as const;
 
-function KnowledgeGraphPanelInner() {
+// The extractor emits person/org/place/product/concept/technology — group them under the two
+// abstract filter chips so "Entity" and "Concept" match what actually lands in the DB.
+const ENTITY_GROUP = new Set(['entity', 'person', 'org', 'place', 'product']);
+const CONCEPT_GROUP = new Set(['concept', 'technology']);
+
+function matchesTypeFilter(nodeType: string, filter: string): boolean {
+  if (filter === 'All') return true;
+  const t = nodeType.toLowerCase();
+  if (filter === 'Entity') return ENTITY_GROUP.has(t);
+  if (filter === 'Concept') return CONCEPT_GROUP.has(t);
+  return t === filter.toLowerCase();
+}
+
+function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
@@ -87,11 +103,12 @@ function KnowledgeGraphPanelInner() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  useEffect(() => {
-    // Pull the REAL knowledge graph (all nodes + edges). The backend serializes edge endpoints as
-    // source_id/target_id, but the renderer + filters expect source/target — so map them here.
-    // Never fall back to fake data: an empty or unreachable graph just shows the empty state.
+  // Pull the REAL knowledge graph (all nodes + edges). The backend serializes edge endpoints as
+  // source_id/target_id, but the renderer + filters expect source/target — so map them here.
+  // Never fall back to fake data: an empty or unreachable graph just shows the empty state.
+  const loadGraph = useCallback(async () => {
     const asGraph = (g: any): GraphData | null => {
       if (!Array.isArray(g?.nodes) || !Array.isArray(g?.edges)) return null;
       const edges: GraphEdge[] = g.edges.map((e: any) => ({
@@ -101,16 +118,16 @@ function KnowledgeGraphPanelInner() {
       }));
       return { nodes: g.nodes as GraphNode[], edges };
     };
-    const load = async () => {
-      try {
-        const full = asGraph(await invoke('get_graph_full').catch(() => null));
-        setGraphData(full ?? { nodes: [], edges: [] });
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    setLoading(true);
+    try {
+      const full = asGraph(await invoke('get_graph_full').catch(() => null));
+      setGraphData(full ?? { nodes: [], edges: [] });
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { loadGraph(); }, [loadGraph]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -130,8 +147,7 @@ function KnowledgeGraphPanelInner() {
   const filteredNodes = useMemo(() =>
     (graphData.nodes ?? []).filter(n => {
       const matchesSearch = !search || n.label.toLowerCase().includes(search.toLowerCase());
-      const matchesType = typeFilter === 'All' || n.node_type.toLowerCase() === typeFilter.toLowerCase();
-      return matchesSearch && matchesType;
+      return matchesSearch && matchesTypeFilter(n.node_type, typeFilter);
     }),
     [graphData.nodes, search, typeFilter]
   );
@@ -158,6 +174,7 @@ function KnowledgeGraphPanelInner() {
     const gn = node as NodeObject<GraphNode> & GraphNode;
     setSelectedNode(gn);
     setSidebarOpen(true);
+    setConfirmingDelete(false);
 
     const neighborIds = new Set<string>([String(gn.id)]);
     filteredEdges.forEach(e => {
@@ -183,7 +200,47 @@ function KnowledgeGraphPanelInner() {
   const handleBackgroundClick = useCallback(() => {
     setSelectedNode(null);
     setHighlightIds(new Set());
+    setConfirmingDelete(false);
   }, []);
+
+  // Two-click delete: first click arms the button, second click removes the node. The backend
+  // cascades edge deletes (FK); mirror that locally instead of refetching the whole graph.
+  const handleDeleteNode = useCallback(async () => {
+    if (!selectedNode) return;
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    const id = selectedNode.id;
+    try {
+      await invoke('delete_graph_node', { id });
+      setGraphData(prev => ({
+        nodes: prev.nodes.filter(n => n.id !== id),
+        edges: prev.edges.filter(e => {
+          const src = String((e as any).source?.id ?? e.source);
+          const tgt = String((e as any).target?.id ?? e.target);
+          return src !== id && tgt !== id;
+        }),
+      }));
+      setSelectedNode(null);
+      setSidebarOpen(false);
+      setHighlightIds(new Set());
+    } catch (err) {
+      console.warn('[KnowledgeGraph] delete node failed:', err);
+    } finally {
+      setConfirmingDelete(false);
+    }
+  }, [selectedNode, confirmingDelete]);
+
+  const handleResearchNode = useCallback(() => {
+    if (!selectedNode || !onSendPrompt) return;
+    const origin = selectedNode.source_url
+      ? ` I first saw it at ${selectedNode.source_url}.`
+      : '';
+    onSendPrompt(
+      `Research "${selectedNode.label}" for me.${origin} Dig deeper, then relate what you find to what's already in my knowledge base.`
+    );
+  }, [selectedNode, onSendPrompt]);
 
   const selectedNodeEdges = selectedNode
     ? graphData.edges.filter(e => {
@@ -262,6 +319,15 @@ function KnowledgeGraphPanelInner() {
         <span className="ml-auto shrink-0 text-[9px] font-black uppercase tracking-widest text-ink-3 bg-inset px-2 py-1 rounded-lg">
           {filteredNodes.length} nodes · {filteredEdges.length} edges
         </span>
+
+        <button
+          onClick={() => loadGraph()}
+          disabled={loading}
+          title="Refresh graph"
+          className="shrink-0 p-1.5 rounded-lg text-ink-3 hover:text-ink-2 hover:bg-inset transition-colors disabled:opacity-40"
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
       {/* Graph + Sidebar */}
@@ -312,7 +378,7 @@ function KnowledgeGraphPanelInner() {
             <div className="px-4 py-3 border-b border-edge flex items-center justify-between shrink-0">
               <span className="text-[10px] font-black uppercase tracking-widest text-ink-3">Node Detail</span>
               <button
-                onClick={() => { setSidebarOpen(false); setSelectedNode(null); setHighlightIds(new Set()); }}
+                onClick={() => { setSidebarOpen(false); setSelectedNode(null); setHighlightIds(new Set()); setConfirmingDelete(false); }}
                 className="p-1 rounded-lg text-ink-3 hover:text-ink-2 hover:bg-wash transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
@@ -380,6 +446,30 @@ function KnowledgeGraphPanelInner() {
                 </div>
               )}
             </div>
+
+            {/* Actions */}
+            <div className="shrink-0 border-t border-edge px-4 py-3 space-y-2">
+              {onSendPrompt && (
+                <button
+                  onClick={handleResearchNode}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-accent text-on-accent text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-opacity"
+                >
+                  <Telescope className="w-3.5 h-3.5" />
+                  Research this
+                </button>
+              )}
+              <button
+                onClick={handleDeleteNode}
+                className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${
+                  confirmingDelete
+                    ? 'bg-red-500/90 text-white'
+                    : 'bg-inset text-ink-3 hover:text-red-400'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {confirmingDelete ? 'Click again to remove' : 'Remove from graph'}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -387,12 +477,17 @@ function KnowledgeGraphPanelInner() {
   );
 }
 
-export function KnowledgeGraphPanel() {
+interface KnowledgeGraphPanelProps {
+  /** Wired from App's handleSendPrompt — powers the "Research this" node action. */
+  onSendPrompt?: (text: string) => void;
+}
+
+export function KnowledgeGraphPanel({ onSendPrompt }: KnowledgeGraphPanelProps) {
   // Outer boundary so ANY throw in the panel (bad data shape, hooks, render) shows the fallback
   // card instead of crashing the whole app — the inner boundary only covered the graph canvas.
   return (
     <GraphErrorBoundary>
-      <KnowledgeGraphPanelInner />
+      <KnowledgeGraphPanelInner onSendPrompt={onSendPrompt} />
     </GraphErrorBoundary>
   );
 }

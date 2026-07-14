@@ -26,6 +26,7 @@ import { searchWebHistory, renderWebRecall } from './services/webHistory';
 import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds, mentionedAgentsInOrder } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
+import { generateNodeId, upsertGraphNode } from './services/graphEntityExtractor';
 import { assessConversationMemory } from './services/memoryPolicy';
 import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, reinforcePlaybook, formatProceduresBlock } from './services/appliedMemory';
 import { buildVoiceCard } from './services/voiceRuntime';
@@ -1497,6 +1498,17 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       });
       if (!ok) return;
       if (updated) invalidateMemorySummary();
+      // Mirror fresh memories into the knowledge graph as concept nodes — the graph is the agent's
+      // mental map, and explicit memories are its most deliberate beliefs. A deduped merge folded
+      // into an existing memory file, so there's no new fact to add a node for.
+      if (!updated) {
+        void upsertGraphNode({
+          id: generateNodeId('memory', write.path),
+          nodeType: 'concept',
+          label: write.title,
+          sourcePath: write.path,
+        });
+      }
       showToast(decision.destination === 'library' ? 'Saved to Library.' : updated ? 'Updated what I knew.' : 'Saved to agent memory.');
     } catch (e) {
       console.warn('[MemoryGatekeeper] Could not persist memory:', e);
@@ -1571,6 +1583,16 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       });
       if (!ok) return;
       invalidateMemorySummary();
+      // Same mental-map mirror as the explicit gatekeeper path: fresh auto-captured memories
+      // become concept nodes; deduped merges already have one.
+      if (!updated) {
+        void upsertGraphNode({
+          id: generateNodeId('memory', write.path),
+          nodeType: 'concept',
+          label: write.title,
+          sourcePath: write.path,
+        });
+      }
       showToast(updated ? '🧠 Updated what I knew.' : '🧠 Remembered this.');
     } catch (e) {
       console.warn('[ConversationMemory] Could not persist memory:', e);
@@ -1598,6 +1620,13 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
           agentId: activeAssistant?.id ?? null,
           contextTokens: null,
           ramState: null,
+        });
+        // Bookmarked messages are deliberate saves — mirror them as note nodes in the graph.
+        void upsertGraphNode({
+          id: generateNodeId('note', slug),
+          nodeType: 'note',
+          label: firstLine,
+          sourcePath: `${_afp}/library/${slug}.md`,
         });
       } catch (e) {
         console.warn('[Bookmark] Could not write library file:', e);
@@ -3147,7 +3176,7 @@ const handleSendMessage = async () => {
       return <BrowserTabContent tabId={tab.id} initialUrl={tab.url} />;
     }
     if (tab.type === 'tool' && tab.toolId === 'knowledge-graph') {
-      return <KnowledgeGraphPanel />;
+      return <KnowledgeGraphPanel onSendPrompt={handleSendPrompt} />;
     }
     if (tab.type === 'tool' && tab.toolId === 'planner') {
       return <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />;
