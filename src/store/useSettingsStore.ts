@@ -69,6 +69,8 @@ interface SettingsStore {
     // "Write like me" — the user's distilled writing voice + per-surface toggles. Learned from
     // their own sent comms; injected so agents compose on the user's behalf in their voice.
     voiceProfile?: VoiceProfile;
+    newShellEnabled?: boolean;
+    glassEnabled?: boolean;
   };
 
   // Profile settings modal
@@ -186,6 +188,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     fileAccessGrants: {},
     fileActivity: [],
     voiceProfile: DEFAULT_VOICE_PROFILE,
+    newShellEnabled: false,
+    glassEnabled: false,
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,
@@ -303,6 +307,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       visionProvider: 'auto',
       visionModelId: '',
       visionEndpoint: '',
+      newShellEnabled: false,
+      glassEnabled: false,
     });
     // Migrate legacy single googleWorkspace → googleWorkspaces array
     if (savedIntegrations.googleWorkspace && !savedIntegrations.googleWorkspaces) {
