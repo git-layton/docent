@@ -139,10 +139,10 @@ export function NewSpaceModal() {
             />
           </div>
 
-          {/* Invite agents */}
+          {/* Add workers */}
           <div>
             <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-3 mb-2">
-              <Bot className="h-3 w-3" /> Invite agents
+              <Bot className="h-3 w-3" /> Add workers
               {agentIds.length > 0 && (
                 <span className="rounded-full bg-accent-soft px-1.5 py-0.5 text-[9px] font-bold text-accent-soft-ink">
                   {agentIds.length}

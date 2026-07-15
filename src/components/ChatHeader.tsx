@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Menu, Settings,
   BookOpen, Search,
-  Hash, Users, FileText, Zap, Bookmark, Info
+  Hash, FileText, Zap, Bookmark, Info
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { useChatStore } from '../store/useChatStore';
@@ -153,10 +153,16 @@ export function ChatHeader({
               {isChannel && !showPlanner && (
                 <button
                   onClick={e => { e.stopPropagation(); editSpace(); }}
-                  className="flex items-center gap-1 text-[9px] font-medium bg-accent-soft text-accent-soft-ink hover:bg-accent-soft/80 px-2 py-0.5 rounded-full transition-colors"
-                  title="Edit space — goal & members"
+                  className="flex items-center gap-1 bg-accent-soft text-accent-soft-ink hover:bg-accent-soft/80 pl-1 pr-2 py-0.5 rounded-full transition-colors"
+                  title="Edit space — goal & workers"
                 >
-                  <Users className="w-3 h-3" />{participantCount}
+                  <div className="flex -space-x-1.5">
+                    {normalizedChat?.participantAgentIds?.slice(0, 3).map((id) => {
+                      const a = assistants.find(x => x.id === id);
+                      return a ? <AgentIcon key={id} agent={a} sizeClass="w-3 h-3" containerClass="p-0.5 rounded-full shadow-sm ring-1 ring-panel" /> : null;
+                    })}
+                  </div>
+                  <span className="text-[9px] font-medium ml-0.5">{participantCount}</span>
                 </button>
               )}
               {!showPlanner && !isChannel && <Info className="w-3 h-3 text-ink-3" />}

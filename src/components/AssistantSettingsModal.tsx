@@ -110,7 +110,7 @@ export function AssistantSettingsModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
       <div className="bg-panel-2 w-full max-w-3xl rounded-[2rem] p-8 shadow-2xl border border-edge max-h-[90vh] overflow-y-auto custom-scrollbar text-ink flex flex-col">
         <div className="flex justify-between items-center mb-6 shrink-0">
-          <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><UserCog className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Agent Settings</h3></div>
+          <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><UserCog className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Skills & Settings</h3></div>
           <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
         </div>
 
