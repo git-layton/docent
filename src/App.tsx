@@ -313,6 +313,9 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   }, []);
   const anyGenerating = generatingChats.size > 0;
   const anyGeneratingRef = useRef(false);
+  // Overlay wrote the shared conversation while we were mid-stream → reload deferred to stream end.
+  const pendingOverlayHydrateRef = useRef(false);
+  const overlayHydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     (window as any).__isGenerating = anyGenerating;
     anyGeneratingRef.current = anyGenerating;
@@ -357,7 +360,14 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       useUIStore.getState().addLog(payload.level, payload.msg);
     }).then(u => unlistens.push(u));
     listen<void>('spotlight-chat-updated', () => {
-      useChatStore.getState().hydrate();
+      // Hydrate replaces in-memory chats wholesale — doing that mid-stream wipes the in-flight
+      // reply (spec §3a), so defer to stream end; otherwise debounce bursts into one reload.
+      if (anyGeneratingRef.current) { pendingOverlayHydrateRef.current = true; return; }
+      if (overlayHydrateTimerRef.current) clearTimeout(overlayHydrateTimerRef.current);
+      overlayHydrateTimerRef.current = setTimeout(() => {
+        overlayHydrateTimerRef.current = null;
+        void useChatStore.getState().hydrate();
+      }, 250);
     }).then(u => unlistens.push(u));
     listen<{ agentId: string; chatId?: string; tab: { title: string; url: string } | null }>('spotlight-open-chat', ({ payload }) => {
       if (payload.agentId) useAgentStore.getState().setActiveFolderId(payload.agentId);
@@ -374,7 +384,10 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     listen<{ content: string; url: string }>('browser:send-to-chat', ({ payload }) => {
       useUIStore.getState().setInput(`[From browser: ${payload.url}]\n\n${payload.content}`);
     }).then(u => unlistens.push(u));
-    return () => unlistens.forEach(u => u());
+    return () => {
+      unlistens.forEach(u => u());
+      if (overlayHydrateTimerRef.current) clearTimeout(overlayHydrateTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -692,6 +705,18 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => { void flushState(); }, 1500);
   }, [flushState]);
+
+  // Overlay wrote the shared conversation while we were streaming: flush our side first
+  // (merge-on-persist keeps both), THEN reload — hydrating before the flush would drop the
+  // reply that just finished.
+  useEffect(() => {
+    if (anyGenerating || !pendingOverlayHydrateRef.current) return;
+    pendingOverlayHydrateRef.current = false;
+    void (async () => {
+      await flushState();
+      await useChatStore.getState().hydrate();
+    })();
+  }, [anyGenerating, flushState]);
 
   useEffect(() => {
     const unsub1 = useChatStore.subscribe(() => persistState());
