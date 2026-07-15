@@ -33,12 +33,11 @@ const BROWSER_LABEL = 'browser-panel';
 // URL poll and other per-page injections below, so we read the loaded DOM rather than a blank page.
 const CONTENT_SETTLE_MS = 1200;
 
-// Present a genuine desktop Safari identity — WKWebView *is* WebKit/Safari, so this matches the real
-// JS environment (no Chrome token, no missing navigator.userAgentData). Paired with a document-start
-// mask (see the Rust `browser_create` command) that fills in `window.safari`, the one global real
-// Safari exposes that WKWebView omits.
+// Present a genuine desktop Chrome identity to bypass Google's strict anti-bot and embedded webview blocks.
+// Paired with a document-start mask (see the Rust `browser_create` command) that fills in `window.chrome`, 
+// which is required for Google Sign-In to trust the environment.
 const BROWSER_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15';
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 function tryHostname(rawUrl: string): string {
   try { return new URL(rawUrl).hostname; } catch { return rawUrl; }

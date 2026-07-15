@@ -3317,11 +3317,11 @@ fn check_page_is_private(html: String, url: String) -> bool {
 
 // Document-start mask that makes the embedded WKWebView present as genuine desktop Safari.
 //
-// WKWebView *is* WebKit/Safari under the hood, but it omits `window.safari` — an object real
-// desktop Safari always exposes. That absence is one of the few reliable client-side tells that
-// distinguishes an embedded webview from the real browser, and Google's "this browser may not be
-// secure" check is the kind of gate that keys on it. We define a minimal, believable `window.safari`
-// before any page script runs so the environment is internally consistent with the Safari UA.
+// To bypass Google's strict blocks on embedded webviews (which trigger the "this browser may not be
+// secure" error on sign-in), we spoof a modern Google Chrome identity. This requires both a Chrome
+// User-Agent string (set in JS) and a `window.chrome` object injected before page load. Google's
+// detection JS checks for `window.chrome` if the UA says Chrome. We define a minimal believable
+// `window.chrome` here so the environment is internally consistent with the spoofed UA.
 //
 // Runs via `initialization_script_for_all_frames` (document-start, every frame) so the mask is in
 // place before Google's detection JS — our older post-load `browser_eval` injection fires far too
@@ -3329,18 +3329,13 @@ fn check_page_is_private(html: String, url: String) -> bool {
 const BROWSER_MASK_SCRIPT: &str = r#"
 (function () {
   try {
-    if (!('safari' in window)) {
-      var pushNotification = {
-        toString: function () { return '[object SafariRemoteNotification]'; },
-        permission: function () { return { deviceToken: null, permission: 'default' }; },
-        requestPermission: function () {}
+    if (!('chrome' in window)) {
+      window.chrome = {
+        runtime: {},
+        loadTimes: function() { return {}; },
+        csi: function() { return {}; },
+        app: {}
       };
-      Object.defineProperty(window, 'safari', {
-        value: Object.freeze({ pushNotification: Object.freeze(pushNotification) }),
-        configurable: false,
-        enumerable: false,
-        writable: false
-      });
     }
   } catch (e) {}
 })();
@@ -3606,7 +3601,7 @@ async fn browser_download_url(_app: tauri::AppHandle, url: String, filename: Str
     // browser-panel, so a page must not be able to make the backend fetch internal endpoints.
     egress_host_allowed(&url)?;
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
         .build()
         .map_err(|e| e.to_string())?;
     // Stream with a hard size cap so a remote-triggered download can't exhaust memory (the previous
