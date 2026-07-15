@@ -85,6 +85,14 @@ function openSpaceLog(fromTabId: string | undefined, spaceId: string | undefined
 // (Inbox, Calendar, To-Do, Messages), then the creation/utility apps.
 const APPS: AppEntry[] = [
   {
+    id: 'canvas',
+    label: '+ Create app',
+    sub: 'Build apps & prototypes',
+    icon: Code2,
+    tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
+    open: (tabId) => launch(tabId, { type: 'code-canvas', label: 'Untitled Canvas' }),
+  },
+  {
     id: 'inbox',
     label: 'Inbox',
     sub: 'Gmail & iCloud mail',
@@ -152,17 +160,9 @@ const APPS: AppEntry[] = [
     open: (tabId) => launch(tabId, { type: 'doc', label: 'Untitled Doc' }),
   },
   {
-    id: 'canvas',
-    label: 'Canvas',
-    sub: 'Build apps & prototypes',
-    icon: Code2,
-    tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
-    open: (tabId) => launch(tabId, { type: 'code-canvas', label: 'Untitled Canvas' }),
-  },
-  {
     id: 'agentforge-code',
     label: 'Code',
-    sub: 'Build with Codey',
+    sub: 'Real development — open a folder, write & run code',
     icon: FolderGit2,
     tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
     // Code is a CANVAS (Codey's coding surface), not a space — open it in the CURRENT space so that
@@ -369,12 +369,22 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
     [now],
   );
 
-  // Docs — saved Library artifacts (most-recent first)
+  // Docs — saved Library artifacts (most-recent first, excludes apps)
   const docs = useMemo(
     () =>
       [...(savedApps ?? [])]
+        .filter((a: any) => a.type !== 'code')
         .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
         .slice(0, 8),
+    [savedApps],
+  );
+
+  // Apps — saved Codey apps
+  const yourApps = useMemo(
+    () =>
+      [...(savedApps ?? [])]
+        .filter((a: any) => a.type === 'code')
+        .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
     [savedApps],
   );
 
@@ -634,6 +644,27 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             })}
           </div>
         </Section>
+
+        {/* ── Your apps ── */}
+        {yourApps.length > 0 && (
+          <Section title="Your apps" count={yourApps.length}>
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              {yourApps.map((app: any) => (
+                <Tile key={app.id} onClick={() => openDoc(app, tabId)}>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-wash ring-1 ring-edge">
+                    <Code2 className="h-[18px] w-[18px] text-ink-2" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-medium text-ink">
+                      {app?.title || 'Untitled App'}
+                    </span>
+                    <span className="block truncate text-[11px] text-ink-3">{relativeTime(app?.updatedAt)}</span>
+                  </span>
+                </Tile>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* ── Docs ── */}
         <Section title="Docs" count={docs.length}>
