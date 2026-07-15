@@ -312,8 +312,13 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     return c;
   }, []);
   const anyGenerating = generatingChats.size > 0;
+  const anyGeneratingRef = useRef(false);
+  // Overlay wrote the shared conversation while we were mid-stream → reload deferred to stream end.
+  const pendingOverlayHydrateRef = useRef(false);
+  const overlayHydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     (window as any).__isGenerating = anyGenerating;
+    anyGeneratingRef.current = anyGenerating;
   }, [anyGenerating]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);

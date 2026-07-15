@@ -135,6 +135,26 @@ const TIER_16: CatalogModel[] = [
 
 const TIER_32: CatalogModel[] = [
   {
+    // The everyday DEFAULT on a 32GB+ Mac: a general MoE (only ~3B active/token), fast and
+    // strong at chat/writing/life. Its code-tuned twin below shares the same size but is NOT
+    // primary — that one surfaces only through the Code panel's coder nudge, so the general
+    // assistant is never hijacked by a coding model. Both carry layers:24 so the KV estimate
+    // reflects the real MoE layer count rather than the dense-30B guess.
+    id: 'qwen3-30b-a3b',
+    name: 'Qwen3 30B-A3B',
+    ggufFilename: 'Qwen_Qwen3-30B-A3B-Q4_K_M.gguf',
+    downloadUrl: 'https://huggingface.co/bartowski/Qwen_Qwen3-30B-A3B-GGUF/resolve/main/Qwen_Qwen3-30B-A3B-Q4_K_M.gguf',
+    sizeMb: 19046,
+    ramGb: 32,
+    contextK: 32,
+    role: 'General',
+    bestFor: 'The best everyday local assistant — near-32B smarts but far faster (mixture-of-experts: only ~3B active per token)',
+    notGreatFor: 'The very deepest reasoning, where the dense 32B edges ahead',
+    tag: 'Fast · Smart',
+    primary: true,
+    layers: 24,
+  },
+  {
     id: 'qwen3-coder-30b-a3b',
     name: 'Qwen3 Coder 30B-A3B',
     ggufFilename: 'Qwen_Qwen3-Coder-30B-A3B-Q4_K_M.gguf',
@@ -143,11 +163,11 @@ const TIER_32: CatalogModel[] = [
     ramGb: 32,
     contextK: 32,
     role: 'Coder',
-    bestFor: 'The best everyday local coding assistant — near-32B smarts but far faster (mixture-of-experts: only ~3B active per token)',
-    notGreatFor: 'The very deepest reasoning, where the dense 32B edges ahead',
+    bestFor: 'The best local coding assistant — near-32B coding smarts but far faster (mixture-of-experts: only ~3B active per token)',
+    notGreatFor: 'Everyday chat and writing — the general 30B twin is the better default for that',
     tag: 'Fast · Smart · Coder',
-    primary: true,
-    layers: 24, // Reduces KV estimation for MoE models
+    // NOT primary: this is the Code-panel coder nudge pick, never the general default.
+    layers: 24, // MoE: KV estimate uses the real layer count, not the dense-30B guess
   },
   {
     id: 'qwen3-32b',
@@ -274,10 +294,11 @@ const SAFETY = 0.9;            // leave ~10% of that budget free for OS/app spik
 const COMPUTE_BUFFER_GB = 1.0; // llama.cpp compute/graph buffers
 const CONTEXT_LADDER = [32, 16, 8, 4]; // K tokens — try the largest first
 const MIN_RECOMMEND_CONTEXT_K = 16;    // a recommended model must run at ≥16K
-// The 8-bit KV-cache launch path (-ctk/-ctv q8_0) is staged but UNVERIFIED on the
-// bundled llama-server. Until it's tested end-to-end, the fit ladder only considers
-// full-precision KV — so every "runs at NK context" label is one the engine can
-// actually honor. Flip this on (and pass the flags in start_local_model) once verified.
+// The 8-bit KV-cache launch path (-ctk/-ctv q8_0) is VERIFIED end-to-end on the bundled
+// llama-server (b9821): start_local_model passes the flags, and `-fa auto` enables Flash
+// Attention on Metal so quantized KV loads and serves correctly (health 200 + real
+// completion confirmed). With it on, the fit ladder may use 8-bit KV to fit a model at a
+// longer context, and start_local_model honors that per-launch via its kv8bit arg.
 const KV8BIT_RUNTIME_READY = true;
 
 // KV cache is driven by layer count (the real factor). We estimate layers from
