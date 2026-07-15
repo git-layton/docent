@@ -424,8 +424,13 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
     } else {
-      // First run or stale schema — reseed cleanly. v4 additionally wipes ALL conversation data
+      // [DATA-WIPE LANDMINE]
+      // WARNING: First run or stale schema — reseed cleanly. v4 additionally wipes ALL conversation data
       // (chats + messages) so DM and Space threads start completely isolated (one-time clean reset).
+      //
+      // ONCE A BUILD WITH THIS SCHEMA HAS SHIPPED TO USERS, DO NOT BUMP THROUGH HERE!
+      // If `STORE_VERSION` changes post-release, you MUST write a non-destructive migration runner
+      // above this block instead of falling through to this wipe path.
       if (version !== null) {
         console.info(`[SpaceStore] schema v${version} → v${STORE_VERSION}, reseeding + clearing chats`);
       }
