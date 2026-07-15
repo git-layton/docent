@@ -41,10 +41,6 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Push tag to public releases repository
-        run: |
-          git remote add public https://x-access-token:${{ secrets.RELEASES_REPO_TOKEN }}@github.com/git-layton/agent-forge-releases.git
-          git push public ${{ github.ref_name }}
 
       - name: Build, sign & publish
         uses: tauri-apps/tauri-action@v0
