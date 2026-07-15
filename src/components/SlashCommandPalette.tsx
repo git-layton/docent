@@ -1,4 +1,4 @@
-import { Brain, Globe, Database, BookOpen, ListTodo, type LucideIcon } from 'lucide-react';
+import { Brain, Globe, Database, BookOpen, ListTodo, Telescope, type LucideIcon } from 'lucide-react';
 
 export interface SlashCommand {
   cmd: string;
@@ -10,6 +10,7 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: 'think',     label: 'Deep Thinking',   desc: 'Enable deep reasoning for next message',  icon: Brain    },
   { cmd: 'search',    label: 'Web Search',       desc: 'Force a live internet search',            icon: Globe    },
+  { cmd: 'research',  label: 'Deep Research',    desc: 'Launch an async background research job', icon: Telescope },
   { cmd: 'knowledge', label: 'Knowledge Base',       desc: "Search your Knowledge Base — memos, notes & saved files · ⌘⇧K", icon: Database },
   { cmd: 'memo',      label: 'New Memo',         desc: 'Open the memo compose panel',             icon: BookOpen },
   { cmd: 'plan',      label: 'Plan Mode',        desc: 'Agent responds with a structured plan',   icon: ListTodo },

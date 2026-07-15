@@ -9,10 +9,12 @@ mod mail;
 mod imessage;
 mod calendar;
 mod notes;
+mod music;
 mod permissions;
 mod pty;
 mod screenshot;
 mod input;
+pub mod jobs;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -132,7 +134,7 @@ fn normalize_path_lexically(path: PathBuf) -> PathBuf {
     normalized
 }
 
-fn knowledge_root() -> PathBuf {
+pub(crate) fn knowledge_root() -> PathBuf {
     normalize_path_lexically(knowledge_core_path())
 }
 
@@ -4045,6 +4047,7 @@ pub fn run() {
             RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
         ))))
         .setup(|app| {
+            jobs::check_interrupted_jobs();
             // ── Spotlight window ──────────────────────────────────────────────
             let spotlight_url = if cfg!(debug_assertions) {
                 tauri::WebviewUrl::External(
@@ -4132,6 +4135,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            jobs::get_active_jobs,
+            jobs::start_job,
+            jobs::update_job,
+            jobs::cancel_job,
             greet,
             open_spoken_content_settings,
             get_ram_stats,
@@ -4250,6 +4257,10 @@ pub fn run() {
             notes::notes_create,
             notes::notes_update,
             notes::notes_delete,
+            music::music_play,
+            music::music_pause,
+            music::music_create_playlist,
+            music::music_add_track_to_playlist,
             browser_create,
             browser_navigate,
             browser_reload,
@@ -4436,6 +4447,7 @@ mod tests {
             "eventkit_authorization_status", "eventkit_request_access", "eventkit_list_calendars", "eventkit_list_events", "eventkit_save_event", "eventkit_update_event", "eventkit_delete_event",
             "eventkit_list_reminders", "eventkit_save_reminder", "eventkit_set_reminder_completed", "eventkit_delete_reminder", "eventkit_update_reminder",
             "notes_list_folders", "notes_list", "notes_read", "notes_create", "notes_update", "notes_delete",
+            "music_play", "music_pause", "music_create_playlist", "music_add_track_to_playlist",
             "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
             "download_model", "upsert_graph_node", "upsert_graph_batch", "get_graph_stats", "get_graph_full", "setup_relay",
             // File access (Workshop model) — the filesystem and shell are NEVER reachable from a

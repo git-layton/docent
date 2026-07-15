@@ -14,6 +14,7 @@ import { useMemoryStore } from './store/useMemoryStore';
 import { useTaskStore } from './store/useTaskStore';
 import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
+import { useJobStore } from './store/useJobStore';
 
 import { getContextLimit, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, modelSupportsVision, modelSupportsAudio, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
 import { assessContextHealth } from './services/contextHealth';
@@ -39,6 +40,7 @@ import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { writeMemory, restoreArchivedFile } from './lib/ipc';
 import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ActivityCenter } from './components/ActivityCenter';
 import { NukeShieldModal } from './components/NukeShieldModal';
 import { FileActionCard } from './components/FileActionCard';
 import { CommandActionCard } from './components/CommandActionCard';
@@ -2564,6 +2566,17 @@ const handleSendMessage = async () => {
         useChatStore.getState().setActiveChatId(chatId);
       }
     }
+
+    if (_input.trim().toLowerCase().startsWith('/research ')) {
+      const topic = _input.trim().slice(10).trim();
+      useUIStore.getState().setInput('');
+      useUIStore.getState().setAttachedDocs([]);
+      import('./services/deepResearch').then(m => m.launchDeepResearch(topic, _selectedModel, chatId));
+      useUIStore.getState().showToast(`Deep Research started for: ${topic}`);
+      useJobStore.getState().setActivityCenterOpen(true);
+      return;
+    }
+
     const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
     // "Ask Alexis to set up a routine" — if the message reads as a recurring/watch request, surface
     // a proposal card above the composer. Pure detection, no LLM call; the user confirms before it saves.
@@ -3462,6 +3475,8 @@ if (isSpotlight) {
           }}
         />
       )}
+
+      <ActivityCenter />
 
       {showDreamBanner && dreamLog && (
         <MorningBriefingBanner

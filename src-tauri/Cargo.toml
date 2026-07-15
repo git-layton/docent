@@ -50,6 +50,7 @@ imap = "2"
 native-tls = "0.2"
 mail-parser = "0.9"
 lettre = "0.11"
+uuid = { version = "1.23.5", features = ["v4"] }
 
 # Native macOS Calendar/Reminders via EventKit (objc2 bindings). Calendar events + reminders sync to
 # the user's other devices over iCloud. Feature-gated per Obj-C class/method used in calendar.rs.

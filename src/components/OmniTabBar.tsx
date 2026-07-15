@@ -5,6 +5,7 @@ import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMessagesStore } from '../store/useMessagesStore';
+import { useJobStore } from '../store/useJobStore';
 import type { OmniTab } from '../types/omniTab';
 import { TabOverflowMenu } from './TabOverflowMenu';
 
@@ -324,6 +325,7 @@ export function OmniTabBar(): React.JSX.Element {
   const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
   const splitTabId = useUIStore(s => s.splitTabId);
+  const hasActiveJobs = useJobStore(s => s.jobs.some(j => j.status === 'InProgress'));
 
   // Poll the iMessage unread count so the Messages tab's activity bubble (and the Home card) stay
   // fresh. OmniTabBar is always mounted, so this is the app-wide heartbeat for that count. Held off
@@ -385,6 +387,14 @@ export function OmniTabBar(): React.JSX.Element {
           <TabOverflowMenu tabs={overflowTabs} />
         </div>
       )}
+      {/* Activity Center toggle */}
+      <button
+        onClick={() => useJobStore.getState().toggleActivityCenter()}
+        className={`shrink-0 self-center p-1.5 mr-1 rounded-lg transition-colors ${hasActiveJobs ? 'text-blue-500 animate-pulse' : 'text-ink-3 hover:text-ink hover:bg-wash'}`}
+        title="Activity Center"
+      >
+        <Activity className="w-4 h-4" />
+      </button>
       {/* Settings gear — pinned here (not the Start page or the collapsible sidebar) so
           settings stay one click away from EVERY surface. ⌘, opens the same modal. */}
       <button

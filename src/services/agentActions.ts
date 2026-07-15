@@ -64,6 +64,10 @@ export function describeAction(a: AgentAction): string {
     case 'note.delete': return `Delete a note`;
     case 'task.delete': return `Delete a to-do`;
     case 'calendar.delete': return `Delete a calendar event`;
+    case 'music.play': return `Play Apple Music`;
+    case 'music.pause': return `Pause Apple Music`;
+    case 'music.create_playlist': return `Create Apple Music playlist “${a.name ?? ''}”`;
+    case 'music.add_track': return `Add “${a.trackName ?? ''}” to playlist “${a.playlistName ?? ''}”`;
     case 'playbook.capture': return `Save “${a.title ?? 'this'}” as a reusable playbook`;
     case 'playbook.execute': return `Run the “${a.title ?? a.id ?? ''}” playbook — you'll approve each step`;
     default: return `${a.tool} ${a.op}`;
@@ -126,6 +130,23 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
     case 'note.delete': { await getNotes().deleteNote(String(a.id)); return 'Deleted note'; }
     case 'task.delete': { await getTasks().deleteTask(String(a.id)); return 'Deleted to-do'; }
     case 'calendar.delete': { await getCalendar().deleteEvent(String(a.id)); return 'Deleted event'; }
+    case 'music.play': { await invoke('music_play'); return 'Playing Apple Music'; }
+    case 'music.pause': { await invoke('music_pause'); return 'Paused Apple Music'; }
+    case 'music.create_playlist': { 
+      const id = await invoke<string>('music_create_playlist', { name: String(a.name ?? '') });
+      return `Created playlist “${a.name ?? ''}” (ID: ${id})`;
+    }
+    case 'music.add_track': {
+      try {
+        await invoke('music_add_track_to_playlist', { trackName: String(a.trackName ?? ''), playlistName: String(a.playlistName ?? '') });
+        return `Added “${a.trackName ?? ''}” to playlist`;
+      } catch (e: any) {
+        if (e?.includes('Track not found')) {
+          return `Failed: Track "${a.trackName}" is not in your Apple Music library. Find and add it manually first.`;
+        }
+        throw e;
+      }
+    }
     // SAFETY BACKSTOP: a playbook is a PROPOSAL, never an executor. Approving a playbook.execute must
     // re-emit each step as its own forge:action (so any per-step send/delete still hits the approval
     // gate) — steps must NEVER run from here. Reaching this means the proposal-expansion was bypassed.

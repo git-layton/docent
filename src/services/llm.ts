@@ -394,6 +394,10 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     `- {"tool":"playbook","op":"capture","title":"…","intent":"the kind of task this is for","steps":[{"intent":"step 1","toolHint":"optional tool"},{"intent":"step 2"}]}  // when the user asks to save a repeatable, multi-step procedure (≥2 steps)\n` +
     `- {"tool":"note","op":"delete","id":"…"}\n` +
     `- {"tool":"task","op":"delete","id":"…"}\n` +
+    `- {"tool":"music","op":"play"}  // resumes playback in Apple Music\n` +
+    `- {"tool":"music","op":"pause"}  // pauses playback in Apple Music\n` +
+    `- {"tool":"music","op":"create_playlist","name":"…"}\n` +
+    `- {"tool":"music","op":"add_track","trackName":"…","playlistName":"…"}\n` +
     `Creating a note/to-do/event applies automatically. Sending a message/email or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Use memory.save when YOU notice something durable worth carrying forward (it's written to your own private memory, not shown as a message, and you'll see it again automatically) — restating the same thing just updates it, so don't worry about duplicates. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
 
   // Tier 2 — relevant memory retrieved for THIS message (semantic, gated by relevance). Placed near
