@@ -59,6 +59,7 @@ import { NewSpaceModal } from './components/NewSpaceModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { AppSidebar } from './components/AppSidebar';
+import { NewShellSidebar } from './components/NewShellSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { PlannerPanel } from './components/PlannerPanel';
@@ -3651,7 +3652,7 @@ if (isSpotlight) {
       )}
 
       {/* ── Sidebar ── */}
-      <AppSidebar />
+      {appSettings.newShellEnabled ? <NewShellSidebar /> : <AppSidebar />}
 
       {/* ── Center column: tab bar + viewport ── */}
       <div className="flex-1 flex flex-col overflow-hidden relative min-w-0">
