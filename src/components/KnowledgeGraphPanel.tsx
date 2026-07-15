@@ -118,6 +118,12 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
       }));
       return { nodes: g.nodes as GraphNode[], edges };
     };
+    // Clear any open selection first — after a refetch the selected node may no longer exist, and
+    // the detail sidebar would otherwise show a stale node (and a dangling delete target).
+    setSelectedNode(null);
+    setHighlightIds(new Set());
+    setSidebarOpen(false);
+    setConfirmingDelete(false);
     setLoading(true);
     try {
       const full = asGraph(await invoke('get_graph_full').catch(() => null));
@@ -234,11 +240,17 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
 
   const handleResearchNode = useCallback(() => {
     if (!selectedNode || !onSendPrompt) return;
-    const origin = selectedNode.source_url
-      ? ` I first saw it at ${selectedNode.source_url}.`
-      : '';
+    // Node labels/urls come from LLM extraction over untrusted pages, so treat them as data, not
+    // trusted prompt text: collapse to a single line, cap length, and only pass through a URL that
+    // is actually a well-formed http(s) link. This keeps a page from smuggling instructions into
+    // the message the user sends to their own agent.
+    const cleanLabel = selectedNode.label.replace(/[\r\n`]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!cleanLabel) return;
+    const url = selectedNode.source_url ?? '';
+    const cleanUrl = /^https?:\/\/[^\s]+$/i.test(url) ? url.slice(0, 300) : '';
+    const origin = cleanUrl ? ` I first saw it at ${cleanUrl}.` : '';
     onSendPrompt(
-      `Research "${selectedNode.label}" for me.${origin} Dig deeper, then relate what you find to what's already in my knowledge base.`
+      `Research "${cleanLabel}" for me.${origin} Dig deeper, then relate what you find to what's already in my knowledge base.`
     );
   }, [selectedNode, onSendPrompt]);
 

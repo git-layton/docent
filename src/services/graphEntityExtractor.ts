@@ -90,6 +90,51 @@ export async function upsertGraphEdge(edge: {
   }
 }
 
+interface BatchNode {
+  id: string;
+  nodeType: string;
+  label: string;
+  sourceUrl?: string;
+  sourcePath?: string;
+}
+
+interface BatchEdge {
+  sourceId: string;
+  targetId: string;
+  relation: string;
+  weight?: number;
+}
+
+// One transactional write for a whole extraction (nodes then edges) instead of dozens of separate
+// IPC round-trips. Best-effort: a backend failure is logged, never thrown.
+export async function upsertGraphBatch(nodes: BatchNode[], edges: BatchEdge[]): Promise<boolean> {
+  if (nodes.length === 0 && edges.length === 0) return true;
+  try {
+    await invoke('upsert_graph_batch', {
+      nodes: nodes.map(n => ({
+        id: n.id,
+        nodeType: n.nodeType,
+        label: n.label,
+        sourceUrl: n.sourceUrl ?? null,
+        sourcePath: n.sourcePath ?? null,
+        metadataJson: '{}',
+      })),
+      edges: edges.map(e => ({
+        id: `${e.sourceId}-${e.relation}-${e.targetId}`,
+        sourceId: e.sourceId,
+        targetId: e.targetId,
+        relation: e.relation,
+        weight: e.weight ?? 1.0,
+        metadataJson: '{}',
+      })),
+    });
+    return true;
+  } catch (err) {
+    console.warn('[graph] upsert_graph_batch failed:', err);
+    return false;
+  }
+}
+
 // ── LLM extraction pipeline ─────────────────────────────────────────────────
 
 interface RawExtraction {
@@ -125,17 +170,21 @@ export async function extractAndWriteGraph(opts: {
 }): Promise<ExtractedGraph> {
   const { text, sourceTitle, sourceNodeId, sourceNodeType = 'page', sourceUrl, sourcePath, modelConfig } = opts;
 
-  // Always record the source node itself, even when extraction is skipped or fails — the graph
-  // should at least show what was ingested. It must also exist before any appears_in edge (FK).
-  const sourceOk = await upsertGraphNode({
+  const sourceNode: BatchNode = {
     id: sourceNodeId,
     nodeType: sourceNodeType,
     label: sourceTitle || sourceUrl || sourcePath || sourceNodeId,
     sourceUrl,
     sourcePath,
-  });
+  };
 
-  if (text.trim().length < MIN_EXTRACTION_CHARS) return { nodes: [], edges: [] };
+  // Always record the source node itself, even when extraction is skipped or fails — the graph
+  // should at least show what was ingested. It must also exist before any appears_in edge (FK); the
+  // batch below inserts nodes before edges, so ordering holds inside the transaction.
+  if (text.trim().length < MIN_EXTRACTION_CHARS) {
+    await upsertGraphNode(sourceNode);
+    return { nodes: [], edges: [] };
+  }
 
   const prompt = buildEntityExtractionPrompt(text.slice(0, 4000), sourceTitle, sourceUrl ?? sourcePath ?? '');
 
@@ -178,21 +227,21 @@ export async function extractAndWriteGraph(opts: {
   const edges: ExtractedGraph['edges'] = [];
   const writtenIds = new Set<string>();
 
+  // Source node leads the batch so the appears_in edges resolve against it inside the transaction.
+  const batchNodes: BatchNode[] = [sourceNode];
+  const batchEdges: BatchEdge[] = [];
+
   for (const entity of entities) {
     const id = sanitizeEntityId(entity.id);
     const label = String(entity.label ?? '').trim();
-    if (!id || !label) continue;
+    if (!id || !label || writtenIds.has(id)) continue;
     const type = sanitizeEntityId(entity.type) || 'entity';
 
-    const ok = await upsertGraphNode({ id, nodeType: type, label, sourceUrl, sourcePath });
-    if (!ok) continue;
     writtenIds.add(id);
     nodes.push({ id, type, label });
-
-    if (sourceOk) {
-      edges.push({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
-      await upsertGraphEdge({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
-    }
+    batchNodes.push({ id, nodeType: type, label, sourceUrl, sourcePath });
+    edges.push({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
+    batchEdges.push({ sourceId: id, targetId: sourceNodeId, relation: 'appears_in' });
   }
 
   for (const rel of relations) {
@@ -204,8 +253,10 @@ export async function extractAndWriteGraph(opts: {
     if (!writtenIds.has(source) || !writtenIds.has(target)) continue;
 
     edges.push({ sourceId: source, targetId: target, relation });
-    await upsertGraphEdge({ sourceId: source, targetId: target, relation });
+    batchEdges.push({ sourceId: source, targetId: target, relation });
   }
+
+  await upsertGraphBatch(batchNodes, batchEdges);
 
   return { nodes, edges };
 }

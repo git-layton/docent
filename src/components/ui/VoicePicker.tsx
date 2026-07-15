@@ -90,7 +90,11 @@ export function VoicePicker({
           disabled={noVoices}
           className="flex-1 bg-inset border-2 border-edge rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-accent text-ink disabled:opacity-50"
         >
-          {allowInherit && <option value="">{inheritLabel}</option>}
+          {allowInherit && (
+            <option value="">
+              {inheritLabel} {fallbackVoiceURI ? `(${voices.find(v => v.voiceURI === fallbackVoiceURI)?.name || 'System default'})` : ''}
+            </option>
+          )}
           {!allowInherit && noVoices && <option value="">No voices available</option>}
           {!allowInherit && !noVoices && !voiceURI && <option value="">System default</option>}
           {groups.map(g => (

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search, FolderOpen, Eye, Mic, ShieldAlert } from 'lucide-react';
+import { Download, CheckCircle, Loader2, AlertCircle, ExternalLink, Zap, Search, FolderOpen, Eye, Mic, ShieldAlert, Trash2 } from 'lucide-react';
 import { MODEL_CATALOG, recommendSetup, fitOnMac, type CatalogModel } from '../data/modelCatalog';
 import { supportsVision } from '../services/llm';
 
@@ -24,6 +24,7 @@ interface ModelStorePanelProps {
   // 'recommended' shows ONLY the single best pick for this Mac (clean getting-started view).
   // 'full' (default) shows the searchable list of every model + "also available" + "needs more RAM".
   mode?: 'full' | 'recommended';
+  onDownloadStart?: () => void;
 }
 
 const DEFAULT_PORT = 8080;
@@ -37,10 +38,10 @@ function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'full' }: ModelStorePanelProps) {
+export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, onDownloadStart, mode = 'full' }: ModelStorePanelProps) {
   const [states, setStates] = useState<Record<string, ModelState>>({});
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'All' | 'General' | 'Coder' | 'Reasoning'>('All');
+  const [roleFilter, setRoleFilter] = useState<'All' | 'General' | 'Coder' | 'Reasoning' | 'Vision' | 'Audio'>('All');
   const [importing, setImporting] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
   const ramGb = Math.floor(ramMb / 1024);
@@ -86,6 +87,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     const st = states[model.id]?.status;
     if (st === 'downloading' || st === 'installing') return;
     setModelState(model.id, { status: 'downloading', pct: 0, downloadedMb: 0, totalMb: model.sizeMb / 1024 });
+    onDownloadStart?.();
     try {
       const filePath = await invoke<string>('download_model', {
         url: model.downloadUrl,
@@ -166,6 +168,19 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     setModelState(model.id, { status: 'idle' });
   }
 
+  async function handleDelete(model: CatalogModel) {
+    // openDialog (plugin-dialog `open`) is the FILE PICKER — not a confirm. Use the webview's
+    // native confirm for the "are you sure?" gate.
+    if (!window.confirm('Delete this model from your Mac? This frees up space.')) return;
+
+    try {
+      await invoke('delete_model', { filename: model.ggufFilename, mmproj: model.mmprojFilename });
+      setModelState(model.id, { status: 'idle', endpoint: undefined });
+    } catch (err: any) {
+      console.error('Failed to delete model', err);
+    }
+  }
+
   async function handleUseModel(model: CatalogModel) {
     const state = states[model.id];
     if (!state?.endpoint) return;
@@ -219,10 +234,10 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     <button
       onClick={handleImport}
       disabled={importing}
-      className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-ink-2 border border-edge rounded-xl hover:bg-inset transition-colors disabled:opacity-50"
+      className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3.5 text-[11px] font-black uppercase tracking-widest text-ink-2 bg-panel-2/40 hover:bg-panel border border-edge rounded-2xl transition-all disabled:opacity-50 shadow-sm backdrop-blur-xl"
     >
-      {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
-      {importing ? 'Loading model…' : 'Use a .gguf I already have'}
+      {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
+      {importing ? 'Scanning…' : 'Scan for existing models'}
     </button>
   );
 
@@ -251,7 +266,10 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     m.name.toLowerCase().includes(searchLower) ||
     m.role.toLowerCase().includes(searchLower) ||
     m.bestFor.toLowerCase().includes(searchLower)) &&
-    (roleFilter === 'All' || m.role === roleFilter);
+    (roleFilter === 'All' || 
+     m.role === roleFilter || 
+     (roleFilter === 'Vision' && m.vision) || 
+     (roleFilter === 'Audio' && m.audio));
 
   // ── Recommended-only: the single best pick for this Mac, no list, no search ──
   if (mode === 'recommended') {
@@ -270,12 +288,11 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
     }
     const pick = rec.recommended;
     return (
-      <div className="space-y-2">
-        {/* Say WHY this is the pick — matched to this Mac, at a context the engine will really serve. */}
-        <p className="text-[10px] font-black uppercase tracking-widest text-ink-3">
-          Our pick for your {ramGb}GB Mac · {rec.tierLabel.toLowerCase()}
+      <div className="space-y-3">
+        <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pl-1">
+          Recommended for your {ramGb}GB Mac
         </p>
-        <ModelCard model={pick} state={states[pick.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />
+        <ModelCard model={pick} state={states[pick.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onDelete={handleDelete} onUse={handleUseModel} />
         {importRow}
       </div>
     );
@@ -311,15 +328,15 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
             className="w-full pl-8 pr-3 py-2 text-xs bg-inset border border-edge rounded-xl outline-none focus:border-accent transition-colors"
           />
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-          {(['All', 'General', 'Coder', 'Reasoning'] as const).map(role => (
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+          {(['All', 'General', 'Coder', 'Reasoning', 'Vision', 'Audio'] as const).map(role => (
             <button
               key={role}
               onClick={() => setRoleFilter(role)}
-              className={`shrink-0 px-3 py-1 text-[10px] font-black uppercase rounded-full border transition-colors ${
+              className={`shrink-0 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-full border transition-all ${
                 roleFilter === role
-                  ? 'bg-accent text-on-accent border-accent'
-                  : 'bg-surface text-ink-2 border-edge hover:border-edge-strong'
+                  ? 'bg-ink text-surface border-ink shadow-md'
+                  : 'bg-panel-2/50 backdrop-blur-md text-ink-2 border-edge hover:bg-panel shadow-sm'
               }`}
             >
               {role}
@@ -333,19 +350,19 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, mode = 'f
       )}
 
       {recommended.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-1">
+        <div className="space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pl-1 pt-2">
             Recommended for your {ramGb}GB Mac
           </p>
-          {recommended.map(({ m }) => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
+          {recommended.map(({ m }) => <ModelCard key={m.id} model={m} state={states[m.id]} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onDelete={handleDelete} onUse={handleUseModel} />)}
         </div>
       )}
       {others.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pt-3">
-            Also runs — reduced context on your Mac
+        <div className="space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-ink-3 pl-1 pt-4">
+            Also runs (Reduced context on your Mac)
           </p>
-          {others.map(({ m, fit }) => <ModelCard key={m.id} model={m} state={states[m.id]} fitLabel={fit.label} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onUse={handleUseModel} />)}
+          {others.map(({ m, fit }) => <ModelCard key={m.id} model={m} state={states[m.id]} fitLabel={fit.label} onDownload={handleDownload} onLoad={handleLoad} onCancel={handleCancel} onDelete={handleDelete} onUse={handleUseModel} />)}
         </div>
       )}
       {tooLarge.length > 0 && (
@@ -377,20 +394,24 @@ interface ModelCardProps {
   onDownload: (m: CatalogModel) => void;
   onLoad: (m: CatalogModel) => void;
   onCancel: (m: CatalogModel) => void;
+  onDelete: (m: CatalogModel) => void;
   onUse: (m: CatalogModel) => void;
 }
 
-function ModelCard({ model, state, fitLabel, onDownload, onLoad, onCancel, onUse }: ModelCardProps) {
+function ModelCard({ model, state, fitLabel, onDownload, onLoad, onCancel, onDelete, onUse }: ModelCardProps) {
   const status = state?.status ?? 'idle';
 
   return (
-    <div className={`border rounded-2xl p-4 transition-all ${
+    <div className={`border rounded-2xl p-5 transition-all shadow-sm backdrop-blur-xl ${
       status === 'ready'
-        ? 'border-success/40 bg-success-soft/40'
-        : 'border-edge bg-panel'
+        ? 'border-success/40 bg-success-soft/30'
+        : 'border-edge bg-panel-2/40 hover:bg-panel'
     }`}>
       {model.tag && (
-        <div className="text-[9px] font-black uppercase tracking-widest text-success mb-2">{model.tag}</div>
+        <div className="flex items-center gap-1.5 mb-3">
+          <Zap className="w-3 h-3 text-accent" />
+          <span className="text-[9px] font-black uppercase tracking-widest text-accent">{model.tag}</span>
+        </div>
       )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -460,13 +481,22 @@ function ModelCard({ model, state, fitLabel, onDownload, onLoad, onCancel, onUse
           </a>
         )}
         {status === 'downloaded' && (
-          <button
-            onClick={() => onLoad(model)}
-            className="flex items-center gap-2 px-3 py-2 border border-accent text-accent text-[11px] font-black rounded-xl hover:bg-accent hover:text-on-accent transition-all"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            Load model
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onLoad(model)}
+              className="flex items-center gap-2 px-4 py-2 border border-accent text-accent text-[11px] font-black uppercase tracking-wide rounded-xl hover:bg-accent hover:text-on-accent transition-all shadow-sm"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Load model
+            </button>
+            <button
+              onClick={() => onDelete(model)}
+              className="flex items-center justify-center p-2 border border-edge text-ink-3 rounded-xl hover:bg-danger hover:text-danger-soft hover:border-danger transition-all"
+              title="Delete from Mac"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
         )}
         {status === 'downloading' && (
           <div className="space-y-2">

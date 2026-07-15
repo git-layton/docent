@@ -3958,6 +3958,81 @@ fn delete_graph_node(id: String) -> Result<(), String> {
     Ok(())
 }
 
+// Batched, transactional graph write. Extraction produces many entities + edges at once; doing them
+// as one connection + one transaction (nodes before edges, so the edge FKs resolve) replaces dozens
+// of separate `upsert_graph_*` IPC round-trips — each of which otherwise opens its own SQLite
+// connection and contends for the write lock. Per-row failures are swallowed (best-effort mirror);
+// only a failure to open the DB or commit surfaces.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphNodeInput {
+    id: String,
+    node_type: String,
+    label: String,
+    source_url: Option<String>,
+    source_path: Option<String>,
+    #[serde(default)]
+    metadata_json: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphEdgeInput {
+    id: String,
+    source_id: String,
+    target_id: String,
+    relation: String,
+    #[serde(default)]
+    weight: Option<f64>,
+    #[serde(default)]
+    metadata_json: Option<String>,
+}
+
+#[tauri::command]
+fn upsert_graph_batch(nodes: Vec<GraphNodeInput>, edges: Vec<GraphEdgeInput>) -> Result<(), String> {
+    let mut conn = open_graph_db()?;
+    let now = now_secs();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for n in &nodes {
+        // Ignore a single malformed row rather than sinking the whole batch. A constraint error
+        // leaves the transaction usable for the remaining statements.
+        let _ = tx.execute(
+            "INSERT INTO graph_nodes (id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+                 node_type     = excluded.node_type,
+                 label         = excluded.label,
+                 source_url    = excluded.source_url,
+                 source_path   = excluded.source_path,
+                 metadata_json = excluded.metadata_json,
+                 updated_at    = excluded.updated_at",
+            rusqlite::params![
+                n.id, n.node_type, n.label, n.source_url, n.source_path,
+                n.metadata_json.clone().unwrap_or_else(|| "{}".to_string()), now
+            ],
+        );
+    }
+    for e in &edges {
+        let _ = tx.execute(
+            "INSERT INTO graph_edges (id, source_id, target_id, relation, weight, metadata_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+                 source_id     = excluded.source_id,
+                 target_id     = excluded.target_id,
+                 relation      = excluded.relation,
+                 weight        = excluded.weight,
+                 metadata_json = excluded.metadata_json",
+            rusqlite::params![
+                e.id, e.source_id, e.target_id, e.relation,
+                e.weight.unwrap_or(1.0),
+                e.metadata_json.clone().unwrap_or_else(|| "{}".to_string()), now
+            ],
+        );
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -4194,6 +4269,7 @@ pub fn run() {
             browser_agent_report,
             upsert_graph_node,
             upsert_graph_edge,
+            upsert_graph_batch,
             get_graph_neighbors,
             get_graph_full,
             get_graph_stats,
@@ -4362,7 +4438,7 @@ mod tests {
             "eventkit_list_reminders", "eventkit_save_reminder", "eventkit_set_reminder_completed", "eventkit_delete_reminder", "eventkit_update_reminder",
             "notes_list_folders", "notes_list", "notes_read", "notes_create", "notes_update", "notes_delete",
             "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
-            "download_model", "upsert_graph_node", "get_graph_stats", "get_graph_full", "setup_relay",
+            "download_model", "upsert_graph_node", "upsert_graph_batch", "get_graph_stats", "get_graph_full", "setup_relay",
             // File access (Workshop model) — the filesystem and shell are NEVER reachable from a
             // remote page in the browser panel, even read-only or workspace-scoped.
             "fs_list", "fs_read", "fs_write", "fs_mkdir", "fs_delete", "fs_move", "fs_import",

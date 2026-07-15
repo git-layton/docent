@@ -142,6 +142,7 @@ allow = [
   "start_local_model",
   "sync_knowledge_core_index",
   "update_inbox_capture",
+  "upsert_graph_batch",
   "upsert_graph_edge",
   "upsert_graph_node",
   "webview_screenshot",
