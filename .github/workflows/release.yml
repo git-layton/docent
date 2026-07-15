@@ -42,35 +42,60 @@ jobs:
         run: npm ci
 
 
-      - name: Build, sign & publish
+      - name: Build & Sign App (tauri-action)
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
-          # Tauri update-signing key (minisign). Generated locally with `tauri signer generate`;
-          # the PRIVATE key + its password live only in repo secrets, never in git.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Builds are AD-HOC signed until the Apple Developer ID lands. We tried a self-signed
-          # stable identity (to stop macOS TCC voiding permission grants on every update — TCC
-          # keys grants to the signing identity), but GitHub's hardened macOS runners deny the
-          # trust-settings change self-signed certs need (security authorizationdb → -60005), so
-          # codesign can never resolve the identity there. When the paid Apple Developer account
-          # is approved: create a "Developer ID Application" cert, replace the APPLE_CERTIFICATE /
-          # APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY secrets, set that identity in
-          # tauri.conf.json, uncomment the env lines below (incl. notarization), and re-tag.
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          owner: git-layton
-          repo: agent-forge-releases
-          tagName: ${{ github.ref_name }}
-          releaseName: "Agent Forge ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download. The app auto-updates itself on next launch."
-          releaseDraft: false
-          prerelease: false
-          includeUpdaterJson: true
           args: --target aarch64-apple-darwin
+
+      - name: Publish to Public Releases Repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # The tag must exist on the public repo first
+          git remote add public https://x-access-token:${{ secrets.RELEASES_REPO_TOKEN }}@github.com/git-layton/agent-forge-releases.git
+          git push public ${VERSION} || true
+
+          # Strip the 'v' prefix for the updater json
+          RAW_VERSION=${VERSION#v}
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          # Find the built assets
+          DMG_PATH=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
+          TAR_PATH=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name "*.tar.gz" | head -n 1)
+          SIG_PATH=${TAR_PATH}.sig
+          SIG=$(cat ${SIG_PATH})
+
+          # Generate latest.json
+          cat <<EOF > latest.json
+          {
+            "version": "${RAW_VERSION}",
+            "notes": "See the assets to download this version and install.",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "${SIG}",
+                "url": "https://github.com/git-layton/agent-forge-releases/releases/download/${VERSION}/$(basename ${TAR_PATH})"
+              }
+            }
+          }
+          EOF
+
+          # Create release and upload all assets using the gh CLI (which doesn't hang on large files)
+          gh release create ${VERSION} \
+            --repo git-layton/agent-forge-releases \
+            --title "Agent Forge ${VERSION}" \
+            --notes "See the assets below to download. The app auto-updates itself on next launch." \
+            ${DMG_PATH} \
+            ${TAR_PATH} \
+            ${SIG_PATH} \
+            latest.json
