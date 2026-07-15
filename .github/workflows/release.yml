@@ -41,6 +41,11 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      - name: Pre-sign external binaries
+        run: |
+          echo "Signing llama-libs..."
+          codesign --force -s "Developer ID Application: Alexander Layton (57R6U422C4)" --options runtime --timestamp src-tauri/bin/llama-libs/*.dylib
+
 
       - name: Build & Sign App (tauri-action)
         uses: tauri-apps/tauri-action@v0
