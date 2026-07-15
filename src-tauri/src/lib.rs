@@ -12,6 +12,7 @@ mod notes;
 mod permissions;
 mod pty;
 mod screenshot;
+mod input;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -4191,6 +4192,9 @@ pub fn run() {
             permissions::automation_grant,
             permissions::open_privacy_settings,
             permissions::notify_user,
+            permissions::accessibility_authorized,
+            permissions::accessibility_request_access,
+            input::inject_click,
             get_active_tab,
             show_spotlight,
             hide_spotlight,

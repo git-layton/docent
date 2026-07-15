@@ -8,6 +8,37 @@
 //! (`screen_capture_authorized`, `eventkit_authorization_status`, `imessage_check_access`);
 //! this module only adds what was missing: Automation consent and a generic settings opener.
 
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+    fn AXIsProcessTrustedWithOptions(options: *const core::ffi::c_void) -> bool;
+}
+
+#[tauri::command]
+pub fn accessibility_authorized() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe { AXIsProcessTrusted() }
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+#[tauri::command]
+pub fn accessibility_request_access() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use objc2_foundation::{NSDictionary, NSString, NSNumber};
+        use objc2::rc::Retained;
+        
+        let key = NSString::from_str("AXTrustedCheckOptionPrompt");
+        let val = NSNumber::new_bool(true);
+        let dict = NSDictionary::dictionaryWithObject_forKey(&val, &key);
+        AXIsProcessTrustedWithOptions(Retained::as_ptr(&dict) as *const core::ffi::c_void)
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
 /// Ask for Automation consent for a scriptable app by sending it a benign AppleEvent (`get name`).
 ///
 /// The first call launches the target app and fires the macOS consent dialog — unavoidable:
@@ -75,6 +106,7 @@ pub fn open_privacy_settings(pane: String) -> Result<(), String> {
         "fulldisk" => "Privacy_AllFiles",
         "calendars" => "Privacy_Calendars",
         "reminders" => "Privacy_Reminders",
+        "accessibility" => "Privacy_Accessibility",
         other => return Err(format!("unknown privacy pane '{other}'")),
     };
     // Same `open x-apple.systempreferences:` pattern as imessage_open_fda_settings.
