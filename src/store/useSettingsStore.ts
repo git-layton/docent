@@ -111,9 +111,11 @@ interface SettingsStore {
   onboardingComplete: boolean;
   showOnboarding: boolean;
   onboardingInitialStep: number;
+  hasPromptedMacPermissions: boolean;
   setOnboardingComplete: (v: boolean) => void;
   setShowOnboarding: (v: boolean) => void;
   setOnboardingInitialStep: (step: number) => void;
+  setHasPromptedMacPermissions: (v: boolean) => void;
 
   // Actions
   setModels: (fn: ((prev: Model[]) => Model[]) | Model[]) => void;
@@ -211,6 +213,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   onboardingComplete: false,
   showOnboarding: false,
   onboardingInitialStep: 1,
+  hasPromptedMacPermissions: false,
 
   theme: DEFAULT_THEME,
   accentColor: DEFAULT_ACCENT,
@@ -228,6 +231,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setOnboardingComplete: (v) => set({ onboardingComplete: v }),
   setShowOnboarding: (v) => set({ showOnboarding: v }),
   setOnboardingInitialStep: (step) => set({ onboardingInitialStep: step }),
+  setHasPromptedMacPermissions: (v) => { set({ hasPromptedMacPermissions: v }); void get().persist(); },
 
   setModels: (fn) =>
     set(s => ({ models: typeof fn === 'function' ? fn(s.models) : fn })),
@@ -321,6 +325,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       delete savedIntegrations.googleWorkspace;
     }
     const onboardingComplete = await db.get('onboardingComplete', false);
+    const hasPromptedMacPermissions = await db.get('hasPromptedMacPermissions', false);
     const theme: ThemeMode = await db.get('theme', DEFAULT_THEME);
     const accentColor: string = await db.get('accentColor', DEFAULT_ACCENT);
     applyTheme(theme, accentColor);
@@ -340,13 +345,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       appSettings: { ...s.appSettings, ...appSettings },
       selectedModelId: settings.selectedModelId ?? '',
       onboardingComplete,
+      hasPromptedMacPermissions,
     }));
     // Migrate any legacy plaintext secret into the Keychain + redact the on-disk blob.
     if (needsMigration) void get().persist();
   },
 
   persist: async () => {
-    const { models, userName, userProfile, userAvatar, integrations, appSettings, selectedModelId, onboardingComplete, theme, accentColor } = get();
+    const { models, userName, userProfile, userAvatar, integrations, appSettings, selectedModelId, onboardingComplete, hasPromptedMacPermissions, theme, accentColor } = get();
     // SEC-APIKEYS: write REDACTED copies to disk — secrets go to the Keychain (a value is only blanked
     // on disk once its Keychain write is confirmed, so a secret is never lost). In-memory state keeps
     // the live secrets. Without Tauri this is a no-op and the blobs persist exactly as before.
@@ -361,5 +367,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     await db.set('appSettings', appSettings);
     await db.set('settings', { selectedModelId });
     await db.set('onboardingComplete', onboardingComplete);
+    await db.set('hasPromptedMacPermissions', hasPromptedMacPermissions);
   },
 }));

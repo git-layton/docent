@@ -90,6 +90,7 @@ import { speak, cancelSpeech, resolveVoicePrefs } from './lib/voice';
 import { generateId } from './lib/id';
 import { SpotlightListener } from './components/managers/SpotlightListener';
 import { SystemMonitor } from './components/managers/SystemMonitor';
+import { PermissionsBootstrapper } from './components/managers/PermissionsBootstrapper';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -3434,6 +3435,7 @@ if (isSpotlight) {
 
   return (
     <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-base text-ink">
+      <PermissionsBootstrapper />
       <SpotlightListener anyGeneratingRef={anyGeneratingRef} pendingOverlayHydrateRef={pendingOverlayHydrateRef} />
       <SystemMonitor
         llamaServerPid={llamaServerPid}
