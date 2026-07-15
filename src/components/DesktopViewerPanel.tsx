@@ -5,6 +5,7 @@ import { Monitor, AlertTriangle, Settings } from 'lucide-react';
 
 export function DesktopViewerPanel() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const [accessibilityAuthorized, setAccessibilityAuthorized] = useState<boolean | null>(null);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
 
   useEffect(() => {
@@ -13,8 +14,10 @@ export function DesktopViewerPanel() {
 
     const init = async () => {
       const auth = await invoke<boolean>('screen_capture_authorized').catch(() => true);
+      const accAuth = await invoke<boolean>('accessibility_authorized').catch(() => true);
       if (!active) return;
       setAuthorized(auth);
+      setAccessibilityAuthorized(accAuth);
 
       if (auth) {
         const fetchFrame = async () => {
@@ -41,20 +44,25 @@ export function DesktopViewerPanel() {
     };
   }, []);
 
-  if (authorized === false) {
+  if (authorized === false || accessibilityAuthorized === false) {
+    const isScreen = authorized === false;
+    const isAcc = accessibilityAuthorized === false;
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-panel">
         <div className="w-16 h-16 rounded-2xl bg-danger/10 text-danger flex items-center justify-center mb-6">
           <AlertTriangle className="w-8 h-8" />
         </div>
-        <h2 className="text-xl font-bold text-ink mb-2">Screen Recording Required</h2>
+        <h2 className="text-xl font-bold text-ink mb-2">Permissions Required</h2>
         <p className="text-sm text-ink-2 max-w-md mx-auto leading-relaxed mb-6">
-          To view and control your desktop, Agent Forge needs screen recording permissions.
-          Please open <strong>System Settings &gt; Privacy &amp; Security &gt; Screen Recording</strong>,
-          enable access for Agent Forge, and then restart the app.
+          To view and control your desktop, Agent Forge needs permissions.
+          Please open <strong>System Settings &gt; Privacy &amp; Security</strong>,
+          enable {isScreen ? 'Screen Recording' : ''}{isScreen && isAcc ? ' and ' : ''}{isAcc ? 'Accessibility' : ''} for Agent Forge, and then restart the app.
         </p>
         <button
-          onClick={() => open('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture').catch(() => {})}
+          onClick={() => {
+            if (isScreen) open('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture').catch(() => {});
+            if (isAcc) open('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility').catch(() => {});
+          }}
           className="flex items-center gap-2 px-4 py-2 bg-accent text-on-accent font-bold rounded-xl shadow-sm hover:opacity-90 active:scale-95 transition-all"
         >
           <Settings className="w-4 h-4" />
@@ -63,6 +71,45 @@ export function DesktopViewerPanel() {
       </div>
     );
   }
+
+  const handleImageClick = async (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!accessibilityAuthorized) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const img = e.currentTarget;
+    const naturalW = img.naturalWidth;
+    const naturalH = img.naturalHeight;
+    
+    const imgRatio = naturalW / naturalH;
+    const boxRatio = rect.width / rect.height;
+    
+    let renderW, renderH, offsetX, offsetY;
+    if (imgRatio > boxRatio) {
+      renderW = rect.width;
+      renderH = rect.width / imgRatio;
+      offsetX = 0;
+      offsetY = (rect.height - renderH) / 2;
+    } else {
+      renderW = rect.height * imgRatio;
+      renderH = rect.height;
+      offsetX = (rect.width - renderW) / 2;
+      offsetY = 0;
+    }
+    
+    if (x >= offsetX && x <= offsetX + renderW && y >= offsetY && y <= offsetY + renderH) {
+      const mappedX = ((x - offsetX) / renderW) * naturalW;
+      const mappedY = ((y - offsetY) / renderH) * naturalH;
+      
+      try {
+        await invoke('inject_click', { x: mappedX, y: mappedY });
+      } catch (err) {
+        console.error("Failed to inject click:", err);
+      }
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col h-full bg-panel overflow-hidden relative">
@@ -83,7 +130,8 @@ export function DesktopViewerPanel() {
           <img
             src={frameSrc}
             alt="Live Desktop Feed"
-            className="max-w-full max-h-full object-contain pointer-events-none"
+            className="max-w-full max-h-full object-contain cursor-pointer"
+            onClick={handleImageClick}
           />
         ) : (
           <div className="flex flex-col items-center gap-3 text-ink-3">

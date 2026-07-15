@@ -27,13 +27,34 @@ pub fn accessibility_authorized() -> bool {
 pub fn accessibility_request_access() -> bool {
     #[cfg(target_os = "macos")]
     unsafe {
-        use objc2_foundation::{NSDictionary, NSString, NSNumber};
-        use objc2::rc::Retained;
+        extern "C" {
+            static kCFBooleanTrue: *const core::ffi::c_void;
+            static kCFTypeDictionaryKeyCallBacks: core::ffi::c_void;
+            static kCFTypeDictionaryValueCallBacks: core::ffi::c_void;
+            static kAXTrustedCheckOptionPrompt: *const core::ffi::c_void;
+            fn CFDictionaryCreate(
+                allocator: *const core::ffi::c_void,
+                keys: *const *const core::ffi::c_void,
+                values: *const *const core::ffi::c_void,
+                numValues: isize,
+                keyCallBacks: *const core::ffi::c_void,
+                valueCallBacks: *const core::ffi::c_void,
+            ) -> *const core::ffi::c_void;
+        }
         
-        let key = NSString::from_str("AXTrustedCheckOptionPrompt");
-        let val = NSNumber::new_bool(true);
-        let dict = NSDictionary::dictionaryWithObject_forKey(&val, &key);
-        AXIsProcessTrustedWithOptions(Retained::as_ptr(&dict) as *const core::ffi::c_void)
+        let keys: [*const core::ffi::c_void; 1] = [kAXTrustedCheckOptionPrompt];
+        let values: [*const core::ffi::c_void; 1] = [kCFBooleanTrue];
+        
+        let dict = CFDictionaryCreate(
+            core::ptr::null(),
+            keys.as_ptr(),
+            values.as_ptr(),
+            1,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks,
+        );
+        
+        AXIsProcessTrustedWithOptions(dict)
     }
     #[cfg(not(target_os = "macos"))]
     false

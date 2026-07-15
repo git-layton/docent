@@ -10,6 +10,8 @@ description = "Every registered app command; for local trusted windows only (aut
 
 [permission.commands]
 allow = [
+  "accessibility_authorized",
+  "accessibility_request_access",
   "append_task",
   "archive_memory_file",
   "automation_grant",
@@ -86,6 +88,7 @@ allow = [
   "imessage_unread_count",
   "init_file_watcher",
   "init_knowledge_core",
+  "inject_click",
   "keychain_delete",
   "keychain_get",
   "keychain_save",

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { relaunch } from '@tauri-apps/plugin-process';
 import {
   Monitor, CalendarDays, ListChecks, StickyNote, Send, MessageSquare,
-  CheckCircle2, Loader2, ExternalLink, ShieldCheck, RotateCw, Globe, Compass,
+  CheckCircle2, Loader2, ExternalLink, ShieldCheck, RotateCw, Globe, Compass, MousePointer2
 } from 'lucide-react';
 
 /**
@@ -67,6 +67,14 @@ const ROWS: RowDef[] = [
     probe: async () => (await invoke<boolean>('screen_capture_authorized')) ? 'granted' : 'unknown',
     grant: async () => (await invoke<boolean>('request_screen_capture_access')) ? 'granted' : 'needsRestart',
     settingsPane: () => invoke('open_screen_recording_settings'),
+    restartToApply: true,
+  },
+  {
+    id: 'accessibility', label: 'Accessibility (Desktop Control)', icon: MousePointer2,
+    desc: 'Let the assistant click and interact with your desktop natively.',
+    probe: async () => (await invoke<boolean>('accessibility_authorized')) ? 'granted' : 'unknown',
+    grant: async () => (await invoke<boolean>('accessibility_request_access')) ? 'granted' : 'needsRestart',
+    settingsPane: () => invoke('open_privacy_settings', { pane: 'accessibility' }),
     restartToApply: true,
   },
   eventkitRow('calendar', 'event', 'calendars', 'Calendar', 'Read and create events in your real calendars (iCloud, Google…).', CalendarDays),
