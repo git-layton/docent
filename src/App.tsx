@@ -121,7 +121,8 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   // with the UI toggle — fires on boot and on every change, from whichever panel flips it.
   useEffect(() => {
     invoke('set_developer_mode', { on: !!appSettings.developerMode }).catch(() => {});
-  }, [appSettings.developerMode]);
+    document.documentElement.dataset.glass = appSettings.glassEnabled ? 'true' : 'false';
+  }, [appSettings.developerMode, appSettings.glassEnabled]);
   const userProfile = useSettingsStore(s => s.userProfile);
   const userName = useSettingsStore(s => s.userName);
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);

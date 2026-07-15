@@ -63,6 +63,59 @@
   --af-glow-ember: rgba(224, 120, 90, 0.18);
 }
 
+/* ── Glassmorphism Uplift ───────────────────────────────────────────────
+   Applied when settings.glassEnabled is true (via [data-glass="true"]).
+   "safe-premium" discipline: floating chrome only. */
+
+[data-glass="true"] {
+  --af-panel: rgba(255, 255, 255, 0.70);
+  --af-panel-2: rgba(250, 249, 246, 0.80);
+}
+
+[data-theme='dark'][data-glass="true"] {
+  --af-panel: rgba(18, 20, 26, 0.70);
+  --af-panel-2: rgba(23, 25, 32, 0.80);
+}
+
+.glass-chrome {
+  background: var(--color-panel);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-chrome {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--color-panel);
+  }
+}
+
+.cursor-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.cursor-glow::before {
+  content: '';
+  position: absolute;
+  top: var(--y, -100px);
+  left: var(--x, -100px);
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle closest-side, var(--af-glow-ember), transparent);
+  transform: translate(-50%, -50%);
+  transition: opacity 0.2s;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cursor-glow:hover::before {
+  opacity: 1;
+}
+
 /* ── Accent ramps ─────────────────────────────────────────────────────────
    accent        interactive fill (buttons, active states)
    accent-strong hover / pressed / high-emphasis text on light surfaces
