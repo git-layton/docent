@@ -44,7 +44,7 @@ jobs:
       - name: Build, sign & publish
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
           # Tauri update-signing key (minisign). Generated locally with `tauri signer generate`;
           # the PRIVATE key + its password live only in repo secrets, never in git.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -64,6 +64,8 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
+          owner: git-layton
+          repo: agent-forge-releases
           tagName: ${{ github.ref_name }}
           releaseName: "Agent Forge ${{ github.ref_name }}"
           releaseBody: "See the assets below to download. The app auto-updates itself on next launch."
