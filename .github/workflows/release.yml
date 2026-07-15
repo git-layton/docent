@@ -61,19 +61,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
           VERSION: ${{ github.ref_name }}
         run: |
-          # The tag must exist on the public repo first
-          git remote add public https://x-access-token:${{ secrets.RELEASES_REPO_TOKEN }}@github.com/git-layton/agent-forge-releases.git
-          git push public ${VERSION} || true
-
           # Strip the 'v' prefix for the updater json
           RAW_VERSION=${VERSION#v}
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           
-          # Find the built assets
+          # Find the built assets (wrap in quotes to handle spaces in app name)
           DMG_PATH=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
           TAR_PATH=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name "*.tar.gz" | head -n 1)
-          SIG_PATH=${TAR_PATH}.sig
-          SIG=$(cat ${SIG_PATH})
+          SIG_PATH="${TAR_PATH}.sig"
+          SIG=$(cat "${SIG_PATH}")
 
           # Generate latest.json
           cat <<EOF > latest.json
@@ -84,18 +80,18 @@ jobs:
             "platforms": {
               "darwin-aarch64": {
                 "signature": "${SIG}",
-                "url": "https://github.com/git-layton/agent-forge-releases/releases/download/${VERSION}/$(basename ${TAR_PATH})"
+                "url": "https://github.com/git-layton/agent-forge-releases/releases/download/${VERSION}/$(basename "${TAR_PATH}")"
               }
             }
           }
           EOF
 
-          # Create release and upload all assets using the gh CLI (which doesn't hang on large files)
+          # Create release and upload all assets using the gh CLI
           gh release create ${VERSION} \
             --repo git-layton/agent-forge-releases \
             --title "Agent Forge ${VERSION}" \
             --notes "See the assets below to download. The app auto-updates itself on next launch." \
-            ${DMG_PATH} \
-            ${TAR_PATH} \
-            ${SIG_PATH} \
+            "${DMG_PATH}" \
+            "${TAR_PATH}" \
+            "${SIG_PATH}" \
             latest.json
