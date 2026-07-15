@@ -88,6 +88,8 @@ import { useSpaceStore, CODEY_CHAT_ID } from './store/useSpaceStore';
 import { useMarginaliaStore } from './store/useMarginaliaStore';
 import { speak, cancelSpeech, resolveVoicePrefs } from './lib/voice';
 import { generateId } from './lib/id';
+import { SpotlightListener } from './components/managers/SpotlightListener';
+import { SystemMonitor } from './components/managers/SystemMonitor';
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
@@ -317,7 +319,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const anyGeneratingRef = useRef(false);
   // Overlay wrote the shared conversation while we were mid-stream → reload deferred to stream end.
   const pendingOverlayHydrateRef = useRef(false);
-  const overlayHydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     (window as any).__isGenerating = anyGenerating;
     anyGeneratingRef.current = anyGenerating;
@@ -354,43 +355,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
   // Auto-update: one silent check shortly after launch (no-op offline / in dev).
   useEffect(() => { checkForUpdatesOnStartup(); }, []);
-
-  // Spotlight window events
-  useEffect(() => {
-    const unlistens: (() => void)[] = [];
-    listen<{ level: string; msg: string }>('spotlight-log', ({ payload }) => {
-      useUIStore.getState().addLog(payload.level, payload.msg);
-    }).then(u => unlistens.push(u));
-    listen<void>('spotlight-chat-updated', () => {
-      // Hydrate replaces in-memory chats wholesale — doing that mid-stream wipes the in-flight
-      // reply (spec §3a), so defer to stream end; otherwise debounce bursts into one reload.
-      if (anyGeneratingRef.current) { pendingOverlayHydrateRef.current = true; return; }
-      if (overlayHydrateTimerRef.current) clearTimeout(overlayHydrateTimerRef.current);
-      overlayHydrateTimerRef.current = setTimeout(() => {
-        overlayHydrateTimerRef.current = null;
-        void useChatStore.getState().hydrate();
-      }, 250);
-    }).then(u => unlistens.push(u));
-    listen<{ agentId: string; chatId?: string; tab: { title: string; url: string } | null }>('spotlight-open-chat', ({ payload }) => {
-      if (payload.agentId) useAgentStore.getState().setActiveFolderId(payload.agentId);
-      useChatStore.getState().setActiveChatId(payload.chatId ?? null);
-    }).then(u => unlistens.push(u));
-    listen<{ url: string; title: string; content: string }>('browser:page-changed', ({ payload }) => {
-      useBrowserStore.getState().setActiveTab({
-        url: payload.url,
-        title: payload.title,
-        content: payload.content,
-        lastCapturedAt: Date.now(),
-      });
-    }).then(u => unlistens.push(u));
-    listen<{ content: string; url: string }>('browser:send-to-chat', ({ payload }) => {
-      useUIStore.getState().setInput(`[From browser: ${payload.url}]\n\n${payload.content}`);
-    }).then(u => unlistens.push(u));
-    return () => {
-      unlistens.forEach(u => u());
-      if (overlayHydrateTimerRef.current) clearTimeout(overlayHydrateTimerRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     const boot = async () => {
@@ -597,51 +561,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       scheduleDream();
     }, DREAM_WARMUP_MS);
 
-    // RAM polling — every 2s (reaper only fires if a llama-server was actually spawned)
-    const ramInterval = setInterval(async () => {
-      try {
-        const stats = await invoke<{ total_mb: number; used_mb: number; available_mb: number }>('get_ram_stats');
-        useUIStore.getState().setRamStats(stats);
-
-        // All reaper logic is gated on llamaServerPid being set
-        setLlamaServerPid(pid => {
-          if (pid === null) return pid;
-
-          const hw = useUIStore.getState().hwProfile ?? { cooldown_mb: 1500, critical_mb: 800, recovery_mb: 2500 };
-
-          setLlamaCoolingDown(prev => {
-            if (stats.available_mb < hw.cooldown_mb && stats.available_mb >= hw.critical_mb && !prev && !llamaPaused) {
-              useUIStore.getState().showToast('⚠️ RAM pressure — LLaMA will pause after this response');
-              return true;
-            }
-            return prev;
-          });
-
-          setLlamaPaused(prev => {
-            if (stats.available_mb < hw.critical_mb && !prev) {
-              abortControllersRef.current.forEach(c => c.abort());
-              abortControllersRef.current.clear();
-              setGeneratingChats(new Set());
-              setLlamaCoolingDown(false);
-              invoke('sigstop_llama_server').catch(() => {});
-              useUIStore.getState().showToast('🚨 LLaMA force-hibernated — RAM critical');
-              return true;
-            }
-            if (stats.available_mb > hw.recovery_mb && prev) {
-              invoke('sigcont_llama_server').catch(() => {});
-              useUIStore.getState().showToast('✅ LLaMA resumed — RAM recovered');
-              return false;
-            }
-            return prev;
-          });
-
-          return pid;
-        });
-      } catch (e) { /* Tauri not available in browser dev */ }
-    }, 2000);
-
     return () => {
-      clearInterval(ramInterval);
       clearTimeout(warmupTimeout);
       if (dreamTimerRef.current) clearInterval(dreamTimerRef.current);
       if (routineTimerRef.current) clearInterval(routineTimerRef.current);
@@ -678,16 +598,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     }, 2 * 60 * 1000);
     return () => clearTimeout(timer);
   }, []);
-
-  // Soft-reaper: when cooling down and generation finishes naturally → apply SIGSTOP
-  useEffect(() => {
-    if (llamaServerPid !== null && llamaCoolingDown && !anyGenerating && !llamaPaused) {
-      setLlamaCoolingDown(false);
-      setLlamaPaused(true);
-      invoke('sigstop_llama_server').catch(() => {});
-      useUIStore.getState().showToast('🛑 LLaMA hibernated — RAM low');
-    }
-  }, [llamaServerPid, llamaCoolingDown, anyGenerating, llamaPaused]);
 
   const flushState = useCallback(async () => {
     if (!useUIStore.getState().isDbLoaded) return;
@@ -3524,6 +3434,18 @@ if (isSpotlight) {
 
   return (
     <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-base text-ink">
+      <SpotlightListener anyGeneratingRef={anyGeneratingRef} pendingOverlayHydrateRef={pendingOverlayHydrateRef} />
+      <SystemMonitor
+        llamaServerPid={llamaServerPid}
+        setLlamaServerPid={setLlamaServerPid}
+        llamaPaused={llamaPaused}
+        setLlamaPaused={setLlamaPaused}
+        llamaCoolingDown={llamaCoolingDown}
+        setLlamaCoolingDown={setLlamaCoolingDown}
+        anyGenerating={anyGenerating}
+        setGeneratingChats={setGeneratingChats}
+        abortControllersRef={abortControllersRef}
+      />
 
       {nukeShieldPending && (
         <NukeShieldModal
