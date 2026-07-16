@@ -1,7 +1,7 @@
 import './index.css';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { relaunch } from "@tauri-apps/plugin-process";
-import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search } from 'lucide-react';
+import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search, Info } from 'lucide-react';
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
@@ -3534,17 +3534,31 @@ if (isSpotlight) {
       )}
 
       {toastMessage && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300] bg-ink text-panel px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 font-bold text-xs uppercase tracking-widest">
-           <AlertTriangle className="w-4 h-4 text-warning" />
-           {toastMessage}
-           {toastAction && (
-             <button
-               onClick={() => { toastAction.onClick(); useUIStore.getState().clearToast(); }}
-               className="ml-1 underline underline-offset-2 text-warning hover:opacity-80 transition-colors"
-             >
-               {toastAction.label}
-             </button>
-           )}
+        <div className="fixed top-6 right-6 z-[300] bg-panel/80 backdrop-blur-3xl border border-edge-2 px-4 py-3 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-right-8 fade-in duration-300 max-w-sm pointer-events-auto">
+           <div className="shrink-0 mt-0.5">
+             {(toastMessage.toLowerCase().includes('fail') || toastMessage.toLowerCase().includes('error') || toastMessage.toLowerCase().includes("couldn't")) ? (
+               <AlertTriangle className="w-5 h-5 text-danger" />
+             ) : (
+               <Info className="w-5 h-5 text-accent" />
+             )}
+           </div>
+           <div className="flex flex-col gap-1">
+             <span className="text-sm font-bold text-ink leading-tight">
+               {(toastMessage.toLowerCase().includes('fail') || toastMessage.toLowerCase().includes('error') || toastMessage.toLowerCase().includes("couldn't")) ? 'Error' : 'Notification'}
+             </span>
+             <span className="text-xs text-ink-2 leading-relaxed font-medium line-clamp-3">{toastMessage}</span>
+             {toastAction && (
+               <button
+                 onClick={() => { toastAction.onClick(); useUIStore.getState().clearToast(); }}
+                 className="mt-1.5 self-start text-[10px] font-bold uppercase tracking-wider bg-surface px-3 py-1.5 rounded-lg border border-edge hover:bg-wash transition-colors text-ink"
+               >
+                 {toastAction.label}
+               </button>
+             )}
+           </div>
+           <button onClick={() => useUIStore.getState().clearToast()} className="shrink-0 ml-2 text-ink-3 hover:text-ink transition-colors">
+             <X className="w-4 h-4" />
+           </button>
         </div>
       )}
 

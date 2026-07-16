@@ -180,8 +180,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set(s => ({ logs: [...s.logs.slice(-499), { time: new Date().toLocaleTimeString([], { hour12: false }), level, msg }] })),
   clearLogs: () => set({ logs: [] }),
   showToast: (msg, action) => {
+    const isError = msg.toLowerCase().includes('fail') || msg.toLowerCase().includes('error') || msg.toLowerCase().includes("couldn't");
+    if (isError) {
+      set(s => ({ logs: [...s.logs.slice(-499), { time: new Date().toLocaleTimeString([], { hour12: false }), level: 'error', msg }] }));
+    }
     set({ toastMessage: msg, toastAction: action ?? null });
-    setTimeout(() => set({ toastMessage: null, toastAction: null }), 4000);
+    setTimeout(() => set({ toastMessage: null, toastAction: null }), isError ? 5000 : 3000);
   },
   clearToast: () => set({ toastMessage: null, toastAction: null }),
   setInput: (v) => set({ input: v }),
