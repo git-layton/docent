@@ -1,7 +1,7 @@
 import './index.css';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { relaunch } from "@tauri-apps/plugin-process";
-import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw } from 'lucide-react';
+import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings } from 'lucide-react';
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
@@ -62,12 +62,11 @@ import { ModelWizardModal } from './components/ModelWizardModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { LockedSetupScreen } from './components/LockedSetupScreen';
 import { AppSidebar } from './components/AppSidebar';
-import { NewShellSidebar } from './components/NewShellSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { PlannerPanel } from './components/PlannerPanel';
 import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
-import { ActivityPanel, ActivityMonitorBar } from './components/ActivityMonitor';
+import { ActivityPanel } from './components/ActivityMonitor';
 import { TypingIndicator } from './components/ui/TypingIndicator';
 import { ThoughtProcess } from './components/ui/ThoughtProcess';
 import { FormattedText } from './components/ui/FormattedText';
@@ -671,8 +670,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const activeMessages = useMemo(() => activeChatId ? (messages[activeChatId] ?? []) : [], [messages, activeChatId]);
-  // Compact live load + context bar shown at the top of the chat (toggleable).
-  const [activityBarOpen, setActivityBarOpen] = useState(true);
   const activeChat = useMemo(() => {
     if (!activeChatId) return null;
     const c = chats.find(c => c.id === activeChatId);
@@ -3103,40 +3100,8 @@ const handleSendMessage = async () => {
   // Render the content for any tab — the chat (space-log) is just another tab,
   // shown full-width by default and splittable beside another.
   const renderTabContent = (tab: typeof activeOmniTab) => {
-    if (tab?.type === 'home') {
-      return <StartPage onAsk={handleSendPrompt} tabId={tab.id} />;
-    }
-    if (!tab || tab.type === 'space-log') {
-      return (
-        <>
-          {activityBarOpen ? (
-            <ActivityMonitorBar
-              messages={activeMessages}
-              systemPromptLen={systemPromptLen}
-              limit={selectedModel?.contextLimit ?? 32000}
-              health={contextHealth}
-              onRunDreamCycle={runDreamCycle}
-              onHide={() => setActivityBarOpen(false)}
-            />
-          ) : (
-            <button
-              onClick={() => setActivityBarOpen(true)}
-              className="shrink-0 self-start mx-2 mt-1 px-2 py-1 text-[10px] font-bold text-ink-3 hover:text-ink-2 rounded-lg hover:bg-wash"
-              title="Show the live load + context bar"
-            >
-              Show activity
-            </button>
-          )}
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <ChatPanel
-              mode="inline"
-              spaceLogProps={spaceLogProps}
-              chatInputBarProps={chatInputBarProps}
-              onSendPrompt={handleSendPrompt}
-            />
-          </div>
-        </>
-      );
+    if (!tab || tab.type === 'home' || tab.type === 'space-log') {
+      return <StartPage onAsk={handleSendPrompt} tabId={tab?.id ?? 'default'} />;
     }
     if (tab.type === 'web') {
       return <BrowserTabContent tabId={tab.id} initialUrl={tab.url} />;
@@ -3593,7 +3558,7 @@ if (isSpotlight) {
       )}
 
       {/* ── Sidebar ── */}
-      {appSettings.newShellEnabled ? <NewShellSidebar /> : <AppSidebar />}
+      {!appSettings.newShellEnabled && <AppSidebar />}
 
       {/* ── Center column: tab bar + viewport ── */}
       <div className="flex-1 flex flex-col overflow-hidden relative min-w-0">
@@ -3642,14 +3607,18 @@ if (isSpotlight) {
               collapsedTitle="Show agent"
               hideTitle="Hide agent"
               header={
-                <select
-                  value={activeAssistant?.id ?? ''}
-                  onChange={(e) => useAgentStore.getState().setActiveFolderId(e.target.value)}
-                  className="text-xs font-semibold text-ink bg-transparent outline-none flex-1 min-w-0 cursor-pointer"
-                  title="Switch agent"
-                >
-                  {assistants.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+                <div className="flex items-center gap-2 flex-1 justify-between">
+                  <span className="text-xs font-semibold text-ink tracking-tight uppercase">
+                    {activeAssistant?.name || 'Alexis'}
+                  </span>
+                  <button
+                    onClick={() => useAgentStore.getState().setShowAssistantSettings(true)}
+                    className="p-1 rounded text-ink-3 hover:text-ink hover:bg-inset transition-colors"
+                    title="Agent Settings"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               }
             >
               <ChatPanel
@@ -3657,6 +3626,7 @@ if (isSpotlight) {
                 spaceLogProps={spaceLogProps}
                 chatInputBarProps={chatInputBarProps}
                 onSendPrompt={handleSendPrompt}
+                hideHeader={true}
               />
             </DockedAgentRail>
           )}

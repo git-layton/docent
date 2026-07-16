@@ -9,7 +9,6 @@ import {
   Mail,
   MessageSquare,
   MessageCircle,
-  Building2,
   Star,
   Sunrise,
   Sun,
@@ -24,9 +23,9 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
-import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { IntegrationsDashboard } from './IntegrationsDashboard';
+import { useUIStore } from '../store/useUIStore';
+
 import { useAgentStore } from '../store/useAgentStore';
 import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
@@ -429,17 +428,6 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
     [chats],
   );
 
-  // Integrations — connected accounts read straight from settings
-  const connected = useMemo(() => {
-    const out: { id: string; label: string; icon: React.ElementType }[] = [];
-    if (integrations?.slack?.botToken) out.push({ id: 'slack', label: 'Slack', icon: MessageSquare });
-    for (const acct of (((integrations as any)?.mailAccounts ?? []) as Array<{ id: string; provider: string; email: string }>)) {
-      out.push({ id: `mail-${acct.id}`, label: acct.email, icon: Mail });
-    }
-    if (integrations?.gus?.accessToken) out.push({ id: 'gus', label: 'GUS', icon: Building2 });
-    return out;
-  }, [integrations]);
-
   const openDoc = (item: any, fromTabId?: string) => {
     useUIStore.getState().setCanvasContent(item);
     launch(fromTabId, {
@@ -529,9 +517,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
       >
         <Settings className="h-[18px] w-[18px]" />
       </button>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-8 py-10">
-        {!searchActive && <IntegrationsDashboard />}
-        {/* ── Compact header + omni-bar ── */}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-8 py-10">        {/* ── Compact header + omni-bar ── */}
         <div className="flex flex-col">
           <div className="flex items-baseline justify-between gap-4 pr-12">
             <h1 className="font-serif text-2xl tracking-tight text-ink sm:text-[28px]">
@@ -607,6 +593,8 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
           </div>
         </Section>
         )}
+
+
 
         {/* ── Apps ── */}
         <Section title="Apps">
@@ -717,28 +705,6 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
           )}
         </Section>
 
-        {/* ── Integrations ── */}
-        <Section title="Integrations" count={connected.length}>
-          {connected.length === 0 ? (
-            <EmptyHint>No integrations connected yet — connect Gmail, Slack, Drive and more in Settings.</EmptyHint>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {connected.map((it) => {
-                const Icon = it.icon;
-                return (
-                  <div
-                    key={it.id}
-                    className="inline-flex items-center gap-2 rounded-full border border-edge bg-panel-2 px-3 py-1.5"
-                  >
-                    <Icon className="h-3.5 w-3.5 text-ink-2" />
-                    <span className="text-[12px] font-medium text-ink">{it.label}</span>
-                    <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-success" title="Connected" />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Section>
         </>)}
       </div>
     </div>

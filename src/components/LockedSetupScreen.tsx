@@ -71,7 +71,7 @@ export function LockedSetupScreen() {
   }, []);
 
   return (
-    <div className="absolute inset-0 z-[50] flex items-center justify-center bg-panel/80 backdrop-blur-xl">
+    <div className="absolute inset-0 z-[50] flex items-center justify-center bg-black/80 backdrop-blur-md">
       <div className="w-full max-w-md p-8 rounded-[2rem] bg-panel-2 border border-edge shadow-2xl flex flex-col items-center text-center gap-6 animate-in fade-in zoom-in-95">
         <div className="w-16 h-16 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center mb-2">
           <Loader2 className="w-8 h-8 text-accent animate-spin" />

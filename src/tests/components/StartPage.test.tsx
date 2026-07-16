@@ -13,7 +13,7 @@ beforeEach(() => {
   useSettingsStore.setState({ userName: 'Sam', integrations: {} } as any)
   useUIStore.setState({ savedApps: [] } as any)
   useSpaceStore.setState({
-    spaces: [{ id: 'space-home', kind: 'space', name: 'Home', agentIds: ['alexis'], peopleIds: [], tabIds: ['log'], chatId: 'c1', createdAt: 0, updatedAt: 0 }],
+    spaces: [{ id: 'space-home', kind: 'space', name: 'Personal', agentIds: ['alexis'], peopleIds: [], tabIds: ['log'], chatId: 'c1', createdAt: 0, updatedAt: 0 }],
     activeSpaceId: 'space-home',
     omniTabs: [{ id: 'log', type: 'space-log', label: 'Chat', spaceId: 'space-home', isPinned: true }],
     activeOmniTabId: 'home',

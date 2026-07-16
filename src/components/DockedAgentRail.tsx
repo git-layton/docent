@@ -90,7 +90,7 @@ export function DockedAgentRail({
     <div
       ref={railRef}
       style={{ width }}
-      className="relative shrink-0 flex flex-col border-l border-edge bg-panel"
+      className="relative shrink-0 flex flex-col m-3 rounded-2xl shadow-2xl ring-1 ring-white/10 bg-panel/60 backdrop-blur-3xl overflow-hidden"
     >
       <div
         onMouseDown={handleResizeDrag}
@@ -98,7 +98,6 @@ export function DockedAgentRail({
         title="Drag to resize"
       />
       <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0">
-        <Icon className="w-4 h-4 text-accent shrink-0" />
         <div className="flex-1 min-w-0 flex items-center gap-2">{header}</div>
         <button
           onClick={() => onToggle(false)}

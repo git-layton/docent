@@ -344,7 +344,7 @@ describe('hydrate — first-run seeding', () => {
     await useSpaceStore.getState().hydrate()
     const { spaces } = useSpaceStore.getState()
     expect(spaces).toHaveLength(1)
-    expect(spaces[0].name).toBe('Home')
+    expect(spaces[0].name).toBe('Personal')
     expect(spaces[0].id).toBe('space-home')
   })
 

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
-  Menu, Settings,
-  BookOpen, Search,
+  Settings,
+  BookOpen,
   Hash, FileText, Zap, Bookmark, Info
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
@@ -12,8 +12,6 @@ import { useMemoryStore } from '../store/useMemoryStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
 import { normalizeChatRecord } from '../services/channels';
-import { OmniSearch } from './OmniSearch';
-import type { SearchDoc } from '../services/universalSearch';
 
 interface ChatHeaderProps {
   dropdownRef: React.RefObject<HTMLDivElement | null>;
@@ -25,8 +23,6 @@ interface ChatHeaderProps {
   errorLogsCount: number;
   onRunDreamCycle: () => void;
   onToast: (msg: string, action?: { label: string; onClick: () => void }) => void;
-  /** Send a message to the active Space's agent — wired from App's handleSendPrompt. */
-  onSendPrompt: (text: string) => void;
 }
 
 export function ChatHeader({
@@ -39,7 +35,6 @@ export function ChatHeader({
   errorLogsCount: _errorLogsCount,
   onRunDreamCycle: _onRunDreamCycle,
   onToast: _onToast,
-  onSendPrompt,
 }: ChatHeaderProps) {
   // Store reads
   const showPlanner = useTaskStore(s => s.showPlanner);
@@ -72,16 +67,6 @@ export function ChatHeader({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showSearch]);
-
-  // Open a hit within this Space: focus the matching tab, or jump to the conversation log.
-  const runSpaceDoc = (doc: SearchDoc) => {
-    const st = useSpaceStore.getState();
-    if (doc.id.startsWith('tab-')) st.setActiveTab(doc.id.slice(4));
-    else if (doc.id.startsWith('chat-')) {
-      const log = st.omniTabs.find(t => t.type === 'space-log' && t.spaceId === headerActiveSpaceId);
-      if (log) st.setActiveTab(log.id);
-    }
-  };
 
   const activeAssistant = useMemo(() => assistants.find(a => a.id === activeFolderId) ?? assistants[0], [assistants, activeFolderId]);
   const activeAgentPinnedMessageObjects = useMemo(() => globalPins.filter(p => p.agentId === activeAssistant?.id), [globalPins, activeAssistant?.id]);
@@ -120,7 +105,6 @@ export function ChatHeader({
     <>
       <header className="h-12 shrink-0 flex items-center justify-between px-3 lg:px-4 border-b border-edge bg-panel z-10">
         <div className="flex items-center gap-3 relative" ref={dropdownRef}>
-          <button onClick={() => useUIStore.getState().setIsSidebarOpen(v => !v)} className="p-2 -ml-2 rounded-lg hover:bg-wash text-ink-3 transition-colors"><Menu className="w-5 h-5" /></button>
           <div className="relative" ref={contextPeekRef}>
             {/* The name trigger acts as a button only in 1:1 DMs (toggles the context peek).
                 In channels it's a plain container hosting the Members button, so it must NOT
@@ -239,30 +223,6 @@ export function ChatHeader({
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Search this Space — the same omni-bar as Home, scoped to this Space's tabs + conversation */}
-          {headerActiveSpaceId && (
-            <div className="relative" ref={searchRef}>
-              <button
-                onClick={() => setShowSearch(v => !v)}
-                className={`p-2 rounded-lg transition-colors ${showSearch ? 'bg-accent-soft text-accent-soft-ink' : 'hover:bg-wash text-ink-3 hover:text-accent'}`}
-                title="Search this space"
-              >
-                <Search className="w-5 h-5" />
-              </button>
-              {showSearch && (
-                <div className="absolute right-0 top-full mt-2 w-[22rem] z-50">
-                  <OmniSearch
-                    scope={{ kind: 'space', spaceId: headerActiveSpaceId }}
-                    agentName={activeAssistant?.name}
-                    autoFocus
-                    placeholder={activeAssistant?.name ? `Search this space, or ask ${activeAssistant.name}…` : 'Search this space…'}
-                    onAsk={(t) => { onSendPrompt(t); setShowSearch(false); }}
-                    onRun={(doc) => { runSpaceDoc(doc); setShowSearch(false); }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
           {ramStats && ramStats.available_mb < (hwProfile?.hud_show_mb ?? 2000) && (
             <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
               ramStats.available_mb < (hwProfile?.hud_warn_mb ?? 1200) ? 'bg-danger-soft text-danger' :

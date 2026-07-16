@@ -5,10 +5,10 @@ const hit = (title: string, score: number): RagHit => ({ path: `/${title}`, titl
 
 describe('memoryContext — relevance gating (Tier 2)', () => {
   it('drops hits below the similarity cutoff', () => {
-    const out = formatRelevantHits([hit('A', 0.9), hit('B', 0.2), hit('C', 0.4)]);
+    const out = formatRelevantHits([hit('A', 0.9), hit('B', 0.2), hit('C', 0.6)]);
     expect(out).toContain('A');
-    expect(out).toContain('C');
-    expect(out).not.toContain('B'); // 0.2 < 0.35 cutoff
+    expect(out).toContain('C'); // 0.6 > 0.55 cutoff
+    expect(out).not.toContain('B'); // 0.2 < 0.55 cutoff
   });
 
   it('caps the number of injected hits', () => {

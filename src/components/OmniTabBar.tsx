@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, Activity, StickyNote, Images, Monitor, Settings } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMessagesStore } from '../store/useMessagesStore';
-import { useJobStore } from '../store/useJobStore';
+
 import type { OmniTab } from '../types/omniTab';
 import { TabOverflowMenu } from './TabOverflowMenu';
 
@@ -325,7 +325,6 @@ export function OmniTabBar(): React.JSX.Element {
   const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
   const splitTabId = useUIStore(s => s.splitTabId);
-  const hasActiveJobs = useJobStore(s => s.jobs.some(j => j.status === 'InProgress'));
 
   // Poll the iMessage unread count so the Messages tab's activity bubble (and the Home card) stay
   // fresh. OmniTabBar is always mounted, so this is the app-wide heartbeat for that count. Held off
@@ -364,7 +363,7 @@ export function OmniTabBar(): React.JSX.Element {
   }, []);
 
   return (
-    <div className="h-12 flex items-center justify-between bg-panel/80 backdrop-blur-[40px] border border-edge rounded-[32px] max-w-[650px] mx-auto mt-4 px-2 shrink-0 relative z-20 shadow-2xl focus-within:ring-2 focus-within:ring-primary transition-shadow">
+    <div className="h-10 flex items-center justify-between bg-panel/30 backdrop-blur-md border-b border-edge px-4 shrink-0 relative z-20">
       <div
         ref={stripRef}
         onWheel={handleWheel}
@@ -383,27 +382,10 @@ export function OmniTabBar(): React.JSX.Element {
       {/* Overflow dropdown is pinned outside the scrolling strip so its panel
           (which drops below the bar) isn't clipped by the strip's overflow. */}
       {overflowTabs.length > 0 && (
-        <div className="shrink-0 pr-2">
+        <div className="shrink-0 pl-2">
           <TabOverflowMenu tabs={overflowTabs} />
         </div>
       )}
-      {/* Activity Center toggle */}
-      <button
-        onClick={() => useJobStore.getState().toggleActivityCenter()}
-        className={`shrink-0 self-center p-1.5 mr-1 rounded-lg transition-colors ${hasActiveJobs ? 'text-blue-500 animate-pulse' : 'text-ink-3 hover:text-ink hover:bg-wash'}`}
-        title="Activity Center"
-      >
-        <Activity className="w-4 h-4" />
-      </button>
-      {/* Settings gear — pinned here (not the Start page or the collapsible sidebar) so
-          settings stay one click away from EVERY surface. ⌘, opens the same modal. */}
-      <button
-        onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
-        className="shrink-0 self-center p-1.5 mr-2 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
-        title="Settings (⌘,)"
-      >
-        <Settings className="w-4 h-4" />
-      </button>
     </div>
   );
 }

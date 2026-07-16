@@ -25,25 +25,24 @@ describe('recommendSetup — memory-computed local picks (Apple Silicon)', () =>
     expect(rec.recommended.id).toBe('qwen3-8b')
   })
 
-  it('32GB → Qwen3 14B, not a 27B+ it cannot fit at 32K', () => {
+  it('32GB → Fast Multimodal (Gemma 4 12B), prioritizing speed and vision over dense size', () => {
     const rec = recLocal(32)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen3-14b')
+    expect(rec.recommended.id).toBe('gemma4-12b')
   })
 
-  // The everyday default must be the GENERAL 30B MoE, not its code-tuned twin — the coder
-  // is reserved for the Code panel's nudge, so a general Mac never defaults to a coding model.
-  it('48GB → general Qwen3 30B-A3B (fast MoE default, the general twin over the coder/dense 32B)', () => {
+  // The everyday default prioritizes speed and vision (Gemma 4 12B) over larger models like 30B MoE
+  it('48GB → Fast Multimodal (Gemma 4 12B)', () => {
     const rec = recLocal(48)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen3-30b-a3b')
+    expect(rec.recommended.id).toBe('gemma4-12b')
     expect(rec.recommended.role).toBe('General')
   })
 
-  it('64GB → general Qwen3 30B-A3B (the 70B does not fit at a usable context)', () => {
+  it('64GB → Fast Multimodal (Gemma 4 12B) due to speed prioritization', () => {
     const rec = recLocal(64)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.id).toBe('qwen3-30b-a3b')
+    expect(rec.recommended.id).toBe('gemma4-12b')
     expect(rec.recommended.role).toBe('General')
   })
 
@@ -68,10 +67,11 @@ describe('recommendSetup — memory-computed local picks (Apple Silicon)', () =>
     }
   })
 
-  it('96GB → the 70B-class becomes recommendable', () => {
+  it('96GB → Fast Multimodal (Gemma 4 12B) remains the default for speed and vision', () => {
     const rec = recLocal(96)
     if (rec.kind !== 'local') throw new Error('expected local')
-    expect(rec.recommended.sizeMb).toBeGreaterThan(40000)
+    expect(rec.recommended.sizeMb).toBeLessThan(10000)
+    expect(rec.recommended.id).toBe('gemma4-12b')
   })
 
   it('every local pick runs at full 32K and actually fits', () => {

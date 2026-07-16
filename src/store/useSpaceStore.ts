@@ -26,7 +26,7 @@ export const CODEY_CHAT_ID = 'chat-codey';
 const defaultSpace: Space = {
   id: 'space-home',
   kind: 'space',
-  name: 'Home',
+  name: 'Personal',
   agentIds: ['alexis'],
   peopleIds: [],
   tabIds: ['tab-space-log-default'],
