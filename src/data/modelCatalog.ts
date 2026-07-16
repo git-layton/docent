@@ -109,6 +109,7 @@ const TIER_16: CatalogModel[] = [
     bestFor: 'The best all-rounder on a 16GB Mac — current-gen chat and writing, and it natively SEES images (screenshots, charts, photos)',
     notGreatFor: 'The heaviest reasoning and coding — the 30B-class models still win if you have 32GB',
     tag: 'Google · Vision · New',
+    primary: true,
     vision: true,
     audio: true,
     // unsloth ships a generic 'mmproj-F16.gguf' name — we save it under a unique one so
@@ -388,9 +389,11 @@ export function recommendSetup(
 
   // Prioritize SPEED as the most important factor. Instead of maxing out the user's 
   // RAM with a massive, slow model, we look for a highly-capable primary model in 
-  // the fast "sweet spot" (under 10GB) first. If none fits, we pick any primary, 
-  // or the largest of the fast models, or simply the smallest model available.
+  // the fast "sweet spot" (under 10GB) first. We ALSO explicitly prioritize multimodal
+  // models (Vision + Audio) as the first recommendation.
   const chosen =
+    runnable.find(({ m }) => m.primary && m.vision && m.audio && m.sizeMb < 10000) ??
+    runnable.find(({ m }) => m.primary && m.vision && m.sizeMb < 10000) ??
     runnable.find(({ m }) => m.primary && m.sizeMb < 10000) ??
     runnable.find(({ m }) => m.primary) ??
     runnable.filter(({ m }) => m.sizeMb < 10000).sort((a, b) => b.m.sizeMb - a.m.sizeMb)[0] ??

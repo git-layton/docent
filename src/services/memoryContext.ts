@@ -16,7 +16,7 @@ export interface RagHit { path: string; title: string; snippet: string; score: n
 
 const TIER1_BUDGET = 2000;     // chars of always-on memory digest
 const TIER1_PER_FILE = 400;    // chars taken from each memory file
-const TIER2_MIN_SCORE = 0.35;  // cosine-sim cutoff for per-turn injection (Rust already pre-filters >0.25)
+const TIER2_MIN_SCORE = 0.55;  // cosine-sim cutoff for per-turn injection (Rust already pre-filters >0.25)
 const TIER2_MAX = 4;           // max retrieved snippets injected per turn
 
 const isTauri = () => !!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
