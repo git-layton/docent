@@ -60,6 +60,7 @@ import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { NewSpaceModal } from './components/NewSpaceModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
+import { LockedSetupScreen } from './components/LockedSetupScreen';
 import { AppSidebar } from './components/AppSidebar';
 import { NewShellSidebar } from './components/NewShellSidebar';
 import { ArtifactStartModal } from './components/ArtifactStartModal';
@@ -3725,10 +3726,14 @@ if (isSpotlight) {
       {showOnboarding && (
         <OnboardingWizard onClose={() => {
           const ss = useSettingsStore.getState();
-          // Gate: the app needs a model. Don't let setup be dismissed until one is connected.
-          if (ss.models.length === 0) { useUIStore.getState().showToast('Connect a model to start using Agent Forge.'); return; }
-          ss.setShowOnboarding(false); ss.setOnboardingInitialStep(1);
+          ss.setShowOnboarding(false);
+          ss.setOnboardingInitialStep(1);
         }} initialStep={onboardingInitialStep} />
+      )}
+
+      {/* Lock screen for background downloads (if onboarding is skipped/dismissed) */}
+      {!showOnboarding && models.length === 0 && (
+        <LockedSetupScreen />
       )}
 
       {/* Agent action approval — sends/deletes the agent wants to run (local writes auto-applied) */}
