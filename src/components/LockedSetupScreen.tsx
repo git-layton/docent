@@ -110,13 +110,24 @@ export function LockedSetupScreen() {
 
         <div className="w-full space-y-3">
           <p className="text-xs text-ink-2">Don't want to wait? You can connect a cloud model (like OpenAI or Gemini) to start immediately.</p>
-          <button 
-            onClick={() => useSettingsStore.getState().setShowModelWizard(true)}
-            className="w-full flex items-center justify-center gap-2 py-3 px-5 rounded-xl border-2 border-edge text-sm font-black text-ink-2 hover:border-accent hover:text-accent transition-all"
-          >
-            <Cloud className="w-4 h-4" />
-            Connect a Cloud Model
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => useSettingsStore.getState().setShowModelWizard(true)}
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-xl border-2 border-edge text-sm font-black text-ink-2 hover:border-accent hover:text-accent transition-all"
+            >
+              <Cloud className="w-4 h-4" />
+              Cloud Model
+            </button>
+            <button 
+              onClick={() => {
+                useSettingsStore.getState().setShowOnboarding(true);
+                useSettingsStore.getState().setOnboardingInitialStep(1);
+              }}
+              className="flex-1 py-3 px-3 rounded-xl bg-wash text-sm font-black text-ink hover:bg-inset transition-all"
+            >
+              Retry Setup
+            </button>
+          </div>
         </div>
       </div>
     </div>

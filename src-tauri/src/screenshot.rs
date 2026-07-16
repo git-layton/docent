@@ -126,6 +126,150 @@ pub async fn webview_screenshot(
     Err("webview_screenshot is only available on macOS".into())
 }
 
+// ─── The browser panel's eyes — snapshot the embedded web content itself ────────────────────────────
+//
+// `webview_screenshot` above snapshots the MAIN window's WKWebView. The in-app browser renders in a
+// SEPARATE child WKWebView (`browser-panel`, created via `add_child`), so the main-window snapshot
+// can't see it. These commands snapshot the browser panel's OWN webview via `takeSnapshot`, which
+// paints exactly what the user sees — including canvas/image-heavy apps and complex SPAs (Gmail,
+// dashboards) that defeat DOM text extraction. This is the "look at the page in detail" path: the PNG
+// can go to a vision model, and `browser_snapshot_text` runs it through the same on-device Apple Vision
+// OCR the screen-read path uses, so even a text-only model gets a faithful read of the rendered page.
+//
+// SECURITY: like every capture command, this is granted to LOCAL trusted windows only (auto-generated
+// `allow-app-local`) and is NEVER added to `allow-browser-remote` — a remote page must not screenshot
+// itself and exfiltrate the frame. The caller-label guard below is defense-in-depth on top of the ACL.
+
+/// Snapshot the given panel webview and return raw PNG bytes. Runs `takeSnapshot` on the child
+/// WKWebView's full visible view (no crop rect — the panel IS the page content) and bridges the async
+/// completion block back over a one-shot channel with a bounded wait so a stuck snapshot times out.
+#[cfg(target_os = "macos")]
+fn snapshot_webview_png(app: &tauri::AppHandle, label: &str) -> Result<Vec<u8>, String> {
+    use block2::RcBlock;
+    use objc2::rc::Retained;
+    use objc2::{AllocAnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+    use objc2_foundation::{NSDictionary, NSError, NSString};
+    use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
+    use std::sync::mpsc;
+    use tauri::Manager;
+
+    let webview = app
+        .get_webview(label)
+        .ok_or_else(|| format!("webview '{}' not found", label))?;
+
+    let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+
+    webview
+        .with_webview(move |pw| {
+            // SAFETY: `inner()` is the panel's WKWebView (an NSView subclass), valid for the life of the
+            // webview. We only touch it here, on the main thread, inside this closure.
+            let wk_ptr = pw.inner() as *mut WKWebView;
+            if wk_ptr.is_null() {
+                let _ = tx.send(Err("no webview handle".into()));
+                return;
+            }
+            let webview: &WKWebView = unsafe { &*wk_ptr };
+
+            let mtm = match MainThreadMarker::new() {
+                Some(m) => m,
+                None => {
+                    let _ = tx.send(Err("not on main thread".into()));
+                    return;
+                }
+            };
+            // No `setRect` — snapshot the panel's full visible view; the whole panel is the web page.
+            let config = unsafe { WKSnapshotConfiguration::new(mtm) };
+
+            let tx_done = tx.clone();
+            let handler = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
+                let result = (|| -> Result<Vec<u8>, String> {
+                    if image.is_null() {
+                        return Err(if error.is_null() {
+                            "snapshot returned no image".into()
+                        } else {
+                            "snapshot failed".into()
+                        });
+                    }
+                    let image: &NSImage = unsafe { &*image };
+                    let tiff = image.TIFFRepresentation().ok_or("no TIFF representation")?;
+                    let rep = NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(), &tiff)
+                        .ok_or("could not build bitmap rep")?;
+                    let props: Retained<NSDictionary<NSString>> = NSDictionary::new();
+                    let png = unsafe {
+                        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &props)
+                    }
+                    .ok_or("PNG encode failed")?;
+                    Ok(png.to_vec())
+                })();
+                let _ = tx_done.send(result);
+            });
+
+            unsafe { webview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler) };
+        })
+        .map_err(|e| format!("with_webview failed: {e}"))?;
+
+    rx.recv_timeout(std::time::Duration::from_secs(8))
+        .map_err(|_| "browser snapshot timed out".to_string())?
+}
+
+/// Snapshot the browser panel and return a base64 PNG (no `data:` prefix), ready for a vision model.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn browser_snapshot(
+    caller: tauri::Webview,
+    app: tauri::AppHandle,
+    label: String,
+) -> Result<String, String> {
+    use base64::Engine;
+    if !matches!(caller.label(), "main" | "spotlight") {
+        return Err("browser snapshot not permitted from this webview".into());
+    }
+    let png = snapshot_webview_png(&app, &label)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(png))
+}
+
+/// Snapshot the browser panel and return its on-device-OCR text (`{ text }`). The primary "read the
+/// rendered page" path for text-only models — no cloud, no API key.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn browser_snapshot_text(
+    caller: tauri::Webview,
+    app: tauri::AppHandle,
+    label: String,
+) -> Result<serde_json::Value, String> {
+    if !matches!(caller.label(), "main" | "spotlight") {
+        return Err("browser snapshot not permitted from this webview".into());
+    }
+    let png = snapshot_webview_png(&app, &label)?;
+    // Vision is synchronous; run it off the async runtime. Cap like the tab/screen paths (12k chars).
+    let text = tauri::async_runtime::spawn_blocking(move || ocr_png(&png))
+        .await
+        .map_err(|e| format!("ocr task failed: {e}"))??;
+    let capped: String = text.chars().take(12000).collect();
+    Ok(serde_json::json!({ "text": capped }))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn browser_snapshot(
+    _caller: tauri::Webview,
+    _app: tauri::AppHandle,
+    _label: String,
+) -> Result<String, String> {
+    Err("browser_snapshot is only available on macOS".into())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn browser_snapshot_text(
+    _caller: tauri::Webview,
+    _app: tauri::AppHandle,
+    _label: String,
+) -> Result<serde_json::Value, String> {
+    Err("browser_snapshot_text is only available on macOS".into())
+}
+
 // ───────────────────────────────────────────────────────────────────────────────────────────────
 // The agent's SCREEN eyes — capture whatever app the user is looking at (Slack, Mail, Messages,
 // anything) so a vision model can read it. This is the "perception" leg of the screen-aware overlay.

@@ -29,10 +29,6 @@ function normalizeUrl(input: string): string {
 
 const BROWSER_LABEL = 'browser-panel';
 
-// Wait for a settled navigation before grabbing page HTML — same order of magnitude as the nav-bar
-// URL poll and other per-page injections below, so we read the loaded DOM rather than a blank page.
-const CONTENT_SETTLE_MS = 1200;
-
 // Present a genuine desktop Chrome identity to bypass Google's strict anti-bot and embedded webview blocks.
 // Paired with a document-start mask (see the Rust `browser_create` command) that fills in `window.chrome`, 
 // which is required for Google Sign-In to trust the environment.
@@ -382,13 +378,15 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         spaceId,
       });
 
-      // Populate the page's readable text for agents. Skip private and non-http(s) pages: we don't
-      // capture content behind auth/login walls, and about:/javascript:/data: URLs have nothing to
-      // read. Debounce until the navigation settles so we read the loaded DOM, not a blank page.
-      // Best-effort and non-fatal — capturePageText resolves to '' on any failure.
-      if (isPrivate || !/^https?:\/\//i.test(url)) return;
-
-      await new Promise<void>(r => setTimeout(r, CONTENT_SETTLE_MS));
+      // Populate the readable text of the page the user is CURRENTLY viewing so chat can answer about
+      // it (the [CURRENT BROWSER PAGE] block — already tagged untrusted web content). Skip only
+      // non-http(s) URLs (about:/javascript:/data: have nothing to read). We intentionally do NOT skip
+      // `isPrivate` pages here: that flag governs auto-digest-to-KB and cross-Space RECALL (the visit
+      // log above), NOT whether the assistant may read the page the user is actively looking at and
+      // asking about — blocking that would mean the assistant can't see the user's own open
+      // inbox/dashboard. capturePageText self-retries until the page has rendered, so no fixed settle
+      // is needed here; it is best-effort and resolves to '' on any failure.
+      if (!/^https?:\/\//i.test(url)) return;
       if (cancelled || visitIdRef.current !== visitId) return;
 
       const captured = await capturePageText(url);

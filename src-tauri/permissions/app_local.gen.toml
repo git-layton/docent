@@ -28,6 +28,8 @@ allow = [
   "browser_password_event",
   "browser_reload",
   "browser_set_zoom",
+  "browser_snapshot",
+  "browser_snapshot_text",
   "cancel_download",
   "cancel_job",
   "capture_screen",

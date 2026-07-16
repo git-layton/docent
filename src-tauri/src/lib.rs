@@ -4190,6 +4190,8 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             screenshot::webview_screenshot,
+            screenshot::browser_snapshot,
+            screenshot::browser_snapshot_text,
             screenshot::capture_screen,
             screenshot::capture_screen_text,
             screenshot::preview_screen_thumb,
