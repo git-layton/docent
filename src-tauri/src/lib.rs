@@ -4473,9 +4473,10 @@ mod tests {
         // Spotlight (separate local window) keeps the access it needs.
         assert!(allowed("write_memory", "spotlight", "spotlight", &local), "spotlight write_memory");
 
-        // (b) A remote page in browser-panel may reach ONLY the four fire-and-forget reporters.
+        // (b) A remote page in browser-panel may reach ONLY the fire-and-forget reporters.
         for cmd in [
             "browser_agent_report", "browser_open_tab", "browser_password_event", "browser_download_url",
+            "browser_report_nav",
         ] {
             assert!(allowed(cmd, "main", "browser-panel", &remote), "remote must reach safe cmd {cmd}");
         }
@@ -4500,8 +4501,9 @@ mod tests {
             // Interactive terminal (PTY) — a remote page must NEVER reach an interactive shell with
             // the user's real credentials. These run the login shell; treat as maximally privileged.
             "pty_spawn", "pty_write", "pty_resize", "pty_kill",
-            // Screen capture — a remote page must NEVER snapshot the user's app window.
-            "webview_screenshot",
+            // Screen capture — a remote page must NEVER snapshot the user's app window, nor the
+            // browser panel it is rendered in (that would let it screenshot itself and exfiltrate).
+            "webview_screenshot", "browser_snapshot", "browser_snapshot_text",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),

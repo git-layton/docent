@@ -27,6 +27,8 @@ export interface AgentElement {
   submit: boolean;
   /** `href` for links, for source attribution. */
   href: string;
+  /** For `<select>` elements: the visible option labels (capped), so the agent can choose one. */
+  options?: string[];
 }
 
 /** A single observation of the page, reported back after navigation or an action. */
@@ -40,8 +42,8 @@ export interface Observation {
 }
 
 // Cap how much we pull off any one page so a single observation can't blow the model's context.
-const MAX_ELEMENTS = 120;
-const MAX_TEXT_CHARS = 6000;
+const MAX_ELEMENTS = 150;
+const MAX_TEXT_CHARS = 12000;
 
 /**
  * Script that extracts visible page text + enumerates interactive elements, tags each with a
@@ -71,7 +73,7 @@ export function buildAnnotatorScript(requestId: string): string {
       if (!t) t = (el.value || el.placeholder || el.innerText || el.textContent || '').trim();
       return t.replace(/\\s+/g,' ').slice(0,120);
     }
-    var sel = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [onclick]';
+    var sel = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], [role="checkbox"], [onclick]';
     var nodes = document.querySelectorAll(sel);
     var elements = [];
     var idx = 0;
@@ -84,11 +86,30 @@ export function buildAnnotatorScript(requestId: string): string {
       var isText = (tag==='textarea') || (tag==='input' && ['text','search','email','url','tel','number',''].indexOf(type)>=0);
       var isSubmit = type==='submit' || (tag==='button' && (type===''||type==='submit') && !!el.closest('form'));
       el.setAttribute('data-agf-idx', String(idx));
-      elements.push({ i: idx, tag: tag, type: type, label: label(el), text: isText, submit: isSubmit, href: el.getAttribute('href')||'' });
+      var item = { i: idx, tag: tag, type: type, label: label(el), text: isText, submit: isSubmit, href: el.getAttribute('href')||'' };
+      if (tag==='select') {
+        try {
+          var opts = [];
+          for (var oi=0; oi<el.options.length && oi<40; oi++) opts.push((el.options[oi].text||'').trim().slice(0,60));
+          item.options = opts;
+        } catch(_){}
+      }
+      elements.push(item);
       idx++;
     }
-    var text = (document.body ? document.body.innerText : '') || '';
-    text = text.replace(/[ \\t]+\\n/g,'\\n').replace(/\\n{3,}/g,'\\n\\n').trim().slice(0,${MAX_TEXT_CHARS});
+    // Rendered text: top document plus any SAME-ORIGIN iframe bodies (webmail message panes / reading
+    // views). Cross-origin frames throw on contentDocument access — swallow and skip.
+    function clean(s){ return (s||'').replace(/[ \\t]+\\n/g,'\\n').replace(/\\n{3,}/g,'\\n\\n').trim(); }
+    var textParts = [(document.body ? document.body.innerText : '') || ''];
+    try {
+      var frames = document.querySelectorAll('iframe');
+      for (var fi=0; fi<frames.length && fi<8; fi++){
+        var fd = null;
+        try { fd = frames[fi].contentDocument; } catch(_) { fd = null; }
+        if (fd && fd.body){ var ft = fd.body.innerText || ''; if (ft && ft.trim().length>40) textParts.push(ft); }
+      }
+    } catch(_){}
+    var text = clean(textParts.join('\\n\\n')).slice(0,${MAX_TEXT_CHARS});
     report({ requestId: REQ, url: location.href, title: document.title || '', text: text, elements: elements });
   } catch(e){
     report({ requestId: REQ, url: (location && location.href) || '', title: '', text: '', elements: [], error: String(e) });
@@ -113,6 +134,69 @@ export function buildTypeScript(index: number, value: string): string {
 /** Scroll down by ~85% of the viewport to reveal more content. */
 export function buildScrollScript(): string {
   return `(function(){ try { window.scrollBy(0, Math.round(window.innerHeight*0.85)); } catch(_){} })();`;
+}
+
+/**
+ * Choose an option in the `<select>` tagged with the given index. Matches `value` against option text
+ * or value (case-insensitive, substring), fires input/change so frameworks notice. No-op if not a select.
+ */
+export function buildSelectScript(index: number, value: string): string {
+  const v = JSON.stringify(value);
+  return `(function(){ try {
+    var el=document.querySelector('[data-agf-idx="${index}"]');
+    if(!el||el.tagName!=='SELECT')return;
+    var want=String(${v}).toLowerCase();
+    var chosen=-1;
+    for(var i=0;i<el.options.length;i++){
+      var o=el.options[i];
+      var t=(o.text||'').toLowerCase(), val=(o.value||'').toLowerCase();
+      if(t===want||val===want){chosen=i;break;}
+      if(chosen<0&&(t.indexOf(want)>=0||val.indexOf(want)>=0))chosen=i;
+    }
+    if(chosen>=0){ el.selectedIndex=chosen; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+  } catch(_){} })();`;
+}
+
+/**
+ * Press a single key on the element tagged with the given index (or the document if it no longer
+ * exists). Dispatches keydown/keypress/keyup with the right `key`/`keyCode` — Enter submits a focused
+ * search box, Tab/Escape/Arrow navigate. Whitelisted keys only, so this can't be used to smuggle text.
+ */
+export function buildPressKeyScript(index: number, key: string): string {
+  const KEY_CODES: Record<string, number> = {
+    Enter: 13, Tab: 9, Escape: 27, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39,
+    Backspace: 8, Delete: 46, Home: 36, End: 35, PageDown: 34, PageUp: 33, ' ': 32,
+  };
+  const code = KEY_CODES[key] ?? 0;
+  const k = JSON.stringify(key);
+  return `(function(){ try {
+    var el=document.querySelector('[data-agf-idx="${index}"]')||document.activeElement||document.body;
+    if(!el)return;
+    try{ el.focus(); }catch(_){}
+    var key=${k}, code=${code};
+    ['keydown','keypress','keyup'].forEach(function(type){
+      var ev;
+      try{ ev=new KeyboardEvent(type,{key:key,code:key,keyCode:code,which:code,bubbles:true,cancelable:true}); }
+      catch(_){ ev=document.createEvent('Event'); ev.initEvent(type,true,true); ev.key=key; ev.keyCode=code; ev.which=code; }
+      el.dispatchEvent(ev);
+    });
+    // Enter on a lone input inside a form: submit it so search boxes without a visible button work.
+    if(key==='Enter'&&el.form&&el.tagName==='INPUT'){ try{ if(el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit(); }catch(_){} }
+  } catch(_){} })();`;
+}
+
+/** Hover the element tagged with the given index — reveals hover menus / tooltips before a click. */
+export function buildHoverScript(index: number): string {
+  return `(function(){ try {
+    var el=document.querySelector('[data-agf-idx="${index}"]');
+    if(!el)return;
+    el.scrollIntoView({block:'center'});
+    var r=el.getBoundingClientRect();
+    var opts={bubbles:true,cancelable:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2};
+    ['pointerover','mouseover','pointerenter','mouseenter','mousemove'].forEach(function(type){
+      try{ el.dispatchEvent(new MouseEvent(type,opts)); }catch(_){}
+    });
+  } catch(_){} })();`;
 }
 
 /**
