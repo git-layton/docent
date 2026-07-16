@@ -35,6 +35,9 @@ export default {
         tiny:  ['10px', { lineHeight: '1.2' }],
         mini:  ['11px', { lineHeight: '1.4' }],
       },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'Avenir', 'Helvetica', 'Arial', 'sans-serif'],
+      },
     },
   },
   plugins: [],

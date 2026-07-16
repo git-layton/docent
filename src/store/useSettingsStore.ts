@@ -311,9 +311,19 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       visionProvider: 'auto',
       visionModelId: '',
       visionEndpoint: '',
-      newShellEnabled: false,
-      glassEnabled: false,
+      newShellEnabled: true,
+      glassEnabled: true,
     });
+    
+    // One-time migration for existing users to turn on the massive UI redesign
+    const uiMigrated = await db.get('v2_4_6_ui_migrated', false);
+    if (!uiMigrated) {
+      appSettings.newShellEnabled = true;
+      appSettings.glassEnabled = true;
+      await db.set('appSettings', appSettings);
+      await db.set('v2_4_6_ui_migrated', true);
+    }
+
     // Migrate legacy single googleWorkspace → googleWorkspaces array
     if (savedIntegrations.googleWorkspace && !savedIntegrations.googleWorkspaces) {
       const gw = savedIntegrations.googleWorkspace;
