@@ -320,6 +320,137 @@ fn pulse_glow(app: &tauri::AppHandle) {
     });
 }
 
+#[derive(serde::Serialize)]
+pub struct WindowInfo {
+    pub id: u32,
+    pub app: String,
+    pub title: String,
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
+    use core_graphics::window::{CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly, kCGNullWindowID, kCGWindowListExcludeDesktopElements};
+    use core_foundation::array::CFArray;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::CFString;
+    use core_foundation::number::CFNumber;
+    use core_foundation::base::TCFType;
+    
+    let mut windows = Vec::new();
+    unsafe {
+        let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+        let window_info = CGWindowListCopyWindowInfo(options, kCGNullWindowID);
+        if window_info.is_null() {
+            return Err("Failed to get window list".into());
+        }
+        let array = CFArray::<CFDictionary>::wrap_under_create_rule(window_info);
+        
+        let k_owner_name = CFString::new("kCGWindowOwnerName");
+        let k_name = CFString::new("kCGWindowName");
+        let k_number = CFString::new("kCGWindowNumber");
+        let k_layer = CFString::new("kCGWindowLayer");
+        
+        for i in 0..array.len() {
+            let dict = array.get(i).unwrap();
+            
+            let layer_ref = dict.find(k_layer.as_CFTypeRef() as *const _);
+            if let Some(l) = layer_ref {
+                let cf_num = CFNumber::wrap_under_get_rule(*l as _);
+                if cf_num.to_i32() != Some(0) {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+            
+            let mut id = 0u32;
+            let num_ref = dict.find(k_number.as_CFTypeRef() as *const _);
+            if let Some(n) = num_ref {
+                let cf_num = CFNumber::wrap_under_get_rule(*n as _);
+                if let Some(val) = cf_num.to_i32() {
+                    id = val as u32;
+                }
+            }
+            
+            let mut app = String::new();
+            let app_ref = dict.find(k_owner_name.as_CFTypeRef() as *const _);
+            if let Some(a) = app_ref {
+                let cf_str = CFString::wrap_under_get_rule(*a as _);
+                app = cf_str.to_string();
+            }
+            
+            let mut title = String::new();
+            let title_ref = dict.find(k_name.as_CFTypeRef() as *const _);
+            if let Some(t) = title_ref {
+                let cf_str = CFString::wrap_under_get_rule(*t as _);
+                title = cf_str.to_string();
+            }
+            
+            if app.is_empty() && title.is_empty() {
+                continue;
+            }
+            
+            windows.push(WindowInfo { id, app, title });
+        }
+    }
+    
+    Ok(windows)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
+    Err("list_windows is only available on macOS".into())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn capture_window(window_id: u32, window: tauri::WebviewWindow) -> Result<String, String> {
+    use base64::Engine;
+
+    if !matches!(window.label(), "main" | "spotlight") {
+        return Err("screen capture not permitted from this window".into());
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("agentforge-capture-{stamp}.png"));
+
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x")
+        .arg("-t")
+        .arg("png")
+        .arg("-l")
+        .arg(window_id.to_string())
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("could not run screencapture: {e}"))?;
+
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return Err("screencapture failed".into());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+    
+    if bytes.is_empty() {
+        return Err("screen capture was empty".into());
+    }
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn capture_window(_window_id: u32, _window: tauri::WebviewWindow) -> Result<String, String> {
+    Err("capture_window is only available on macOS".into())
+}
+
 /// Capture the current screen as a PNG, returned as a base64 `data:` URL ready for `describeImage`.
 #[cfg(target_os = "macos")]
 #[tauri::command]

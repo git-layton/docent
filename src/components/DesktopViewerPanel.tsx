@@ -1,22 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { Monitor, AlertTriangle, Settings, X, ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
 
-const mockWindows = [
-  { id: 1, app: 'Safari', title: 'Agent Forge Documentation' },
-  { id: 2, app: 'Notes', title: 'Meeting Notes - Tuesday' },
-  { id: 3, app: 'VS Code', title: 'DesktopViewerPanel.tsx - agent-forge' },
-  { id: 4, app: 'Terminal', title: 'zsh - 80x24' },
-];
+interface WindowInfo {
+  id: number;
+  app: string;
+  title: string;
+}
 
 export function DesktopViewerPanel() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [accessibilityAuthorized, setAccessibilityAuthorized] = useState<boolean | null>(null);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [showWindowSelector, setShowWindowSelector] = useState(false);
-  const [selectedWindowId, setSelectedWindowId] = useState(1);
-  const selectedWindow = mockWindows.find(w => w.id === selectedWindowId) || mockWindows[0];
+  const [windows, setWindows] = useState<WindowInfo[]>([]);
+  const [selectedWindowId, setSelectedWindowId] = useState<number | null>(null);
+  const selectedWindowIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    selectedWindowIdRef.current = selectedWindowId;
+  }, [selectedWindowId]);
 
   useEffect(() => {
     let active = true;
@@ -30,10 +34,24 @@ export function DesktopViewerPanel() {
       setAccessibilityAuthorized(accAuth);
 
       if (auth) {
+        // Fetch window list
+        try {
+          const list = await invoke<WindowInfo[]>('list_windows');
+          if (active && list && list.length > 0) {
+            setWindows(list);
+            setSelectedWindowId(list[0].id);
+          }
+        } catch (err) {
+          console.error("Failed to list windows", err);
+        }
+
         const fetchFrame = async () => {
           try {
-            const dataUrl = await invoke<string>('capture_screen');
-            if (active) setFrameSrc(dataUrl);
+            const currentId = selectedWindowIdRef.current;
+            if (currentId !== null) {
+              const dataUrl = await invoke<string>('capture_window', { windowId: currentId });
+              if (active) setFrameSrc(dataUrl);
+            }
           } catch (err) {
             // Silently ignore capture errors to keep polling alive
           }
@@ -53,6 +71,8 @@ export function DesktopViewerPanel() {
       if (timer) clearInterval(timer);
     };
   }, []);
+
+  const selectedWindow = windows.find(w => w.id === selectedWindowId) || windows[0];
 
   if (authorized === false || accessibilityAuthorized === false) {
     const isScreen = authorized === false;
@@ -162,15 +182,15 @@ export function DesktopViewerPanel() {
           
           {/* Expanded Selector Popup */}
           {showWindowSelector && (
-            <div className="pointer-events-auto mb-4 w-[400px] bg-panel/80 backdrop-blur-3xl border border-edge-2 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4">
-              <div className="px-4 py-3 border-b border-edge flex items-center justify-between">
+            <div className="pointer-events-auto mb-4 w-[400px] max-h-[400px] flex flex-col bg-panel/80 backdrop-blur-3xl border border-edge-2 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4">
+              <div className="px-4 py-3 shrink-0 border-b border-edge flex items-center justify-between">
                 <span className="text-xs font-bold tracking-widest uppercase text-ink-3">Open Windows</span>
                 <button onClick={() => setShowWindowSelector(false)} className="text-ink-3 hover:text-ink">
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="max-h-[300px] overflow-y-auto p-2 space-y-1">
-                {mockWindows.map((win) => (
+              <div className="overflow-y-auto p-2 space-y-1">
+                {windows.map((win) => (
                   <button
                     key={win.id}
                     onClick={() => { setSelectedWindowId(win.id); setShowWindowSelector(false); }}
@@ -193,8 +213,9 @@ export function DesktopViewerPanel() {
           <div className="pointer-events-auto flex items-center p-1.5 bg-black/60 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl transition-all hover:bg-black/80">
             <button 
               onClick={() => {
-                const idx = mockWindows.findIndex(w => w.id === selectedWindowId);
-                const prev = mockWindows[idx > 0 ? idx - 1 : mockWindows.length - 1];
+                if (windows.length === 0) return;
+                const idx = windows.findIndex(w => w.id === selectedWindowId);
+                const prev = windows[idx > 0 ? idx - 1 : windows.length - 1];
                 setSelectedWindowId(prev.id);
               }}
               className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors"
@@ -216,8 +237,9 @@ export function DesktopViewerPanel() {
 
             <button 
               onClick={() => {
-                const idx = mockWindows.findIndex(w => w.id === selectedWindowId);
-                const next = mockWindows[idx < mockWindows.length - 1 ? idx + 1 : 0];
+                if (windows.length === 0) return;
+                const idx = windows.findIndex(w => w.id === selectedWindowId);
+                const next = windows[idx < windows.length - 1 ? idx + 1 : 0];
                 setSelectedWindowId(next.id);
               }}
               className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors"

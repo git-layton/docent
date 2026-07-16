@@ -4231,6 +4231,8 @@ pub fn run() {
             screenshot::webview_screenshot,
             screenshot::browser_snapshot,
             screenshot::browser_snapshot_text,
+            screenshot::list_windows,
+            screenshot::capture_window,
             screenshot::capture_screen,
             screenshot::capture_screen_text,
             screenshot::preview_screen_thumb,

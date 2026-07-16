@@ -67,3 +67,4 @@ objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfigura
 # On-device OCR (Apple Vision framework) — read screen text locally, no cloud/API key. See screenshot.rs.
 objc2-vision = { version = "0.3", features = ["VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation", "VNTypes"] }
 core-graphics = "0.23"
+core-foundation = "0.9"
