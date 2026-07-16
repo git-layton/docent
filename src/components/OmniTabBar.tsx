@@ -364,11 +364,11 @@ export function OmniTabBar(): React.JSX.Element {
   }, []);
 
   return (
-    <div className="h-10 flex items-end bg-base border-b border-edge shrink-0 relative z-20">
+    <div className="h-12 flex items-center justify-between bg-panel/80 backdrop-blur-[40px] border border-edge rounded-[32px] max-w-[650px] mx-auto mt-4 px-2 shrink-0 relative z-20 shadow-2xl focus-within:ring-2 focus-within:ring-primary transition-shadow">
       <div
         ref={stripRef}
         onWheel={handleWheel}
-        className="flex-1 min-w-0 flex items-end px-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex-1 min-w-0 flex items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {visibleTabs.map((tab) => (
           <TabPill
