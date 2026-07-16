@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
-import { Monitor, AlertTriangle, Settings } from 'lucide-react';
+import { Monitor, AlertTriangle, Settings, X, ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
+
+const mockWindows = [
+  { id: 1, app: 'Safari', title: 'Agent Forge Documentation' },
+  { id: 2, app: 'Notes', title: 'Meeting Notes - Tuesday' },
+  { id: 3, app: 'VS Code', title: 'DesktopViewerPanel.tsx - agent-forge' },
+  { id: 4, app: 'Terminal', title: 'zsh - 80x24' },
+];
 
 export function DesktopViewerPanel() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [accessibilityAuthorized, setAccessibilityAuthorized] = useState<boolean | null>(null);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
+  const [showWindowSelector, setShowWindowSelector] = useState(false);
+  const [selectedWindowId, setSelectedWindowId] = useState(1);
+  const selectedWindow = mockWindows.find(w => w.id === selectedWindowId) || mockWindows[0];
 
   useEffect(() => {
     let active = true;
@@ -125,13 +135,20 @@ export function DesktopViewerPanel() {
       </div>
 
       {/* Viewport */}
-      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
         {frameSrc ? (
           <img
             src={frameSrc}
             alt="Live Desktop Feed"
-            className="max-w-full max-h-full object-contain cursor-pointer"
-            onClick={handleImageClick}
+            className="max-w-full max-h-full object-contain cursor-pointer transition-opacity duration-300"
+            style={{ opacity: showWindowSelector ? 0.3 : 1 }}
+            onClick={(e) => {
+              if (showWindowSelector) {
+                setShowWindowSelector(false);
+              } else {
+                handleImageClick(e);
+              }
+            }}
           />
         ) : (
           <div className="flex flex-col items-center gap-3 text-ink-3">
@@ -139,6 +156,76 @@ export function DesktopViewerPanel() {
             <span className="text-xs font-bold uppercase tracking-widest">Connecting...</span>
           </div>
         )}
+
+        {/* Floating Window Selector (Mock UI) */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center z-20 pointer-events-none">
+          
+          {/* Expanded Selector Popup */}
+          {showWindowSelector && (
+            <div className="pointer-events-auto mb-4 w-[400px] bg-panel/80 backdrop-blur-3xl border border-edge-2 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4">
+              <div className="px-4 py-3 border-b border-edge flex items-center justify-between">
+                <span className="text-xs font-bold tracking-widest uppercase text-ink-3">Open Windows</span>
+                <button onClick={() => setShowWindowSelector(false)} className="text-ink-3 hover:text-ink">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="max-h-[300px] overflow-y-auto p-2 space-y-1">
+                {mockWindows.map((win) => (
+                  <button
+                    key={win.id}
+                    onClick={() => { setSelectedWindowId(win.id); setShowWindowSelector(false); }}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-colors ${selectedWindowId === win.id ? 'bg-accent/20 border border-accent/30' : 'hover:bg-wash border border-transparent'}`}
+                  >
+                    <div className="w-8 h-8 shrink-0 rounded-lg bg-surface flex items-center justify-center border border-edge shadow-sm">
+                      <LayoutTemplate className="w-4 h-4 text-ink-2" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-ink truncate">{win.app}</div>
+                      <div className="text-xs text-ink-3 truncate">{win.title}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Persistent Pill Bar */}
+          <div className="pointer-events-auto flex items-center p-1.5 bg-black/60 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl transition-all hover:bg-black/80">
+            <button 
+              onClick={() => {
+                const idx = mockWindows.findIndex(w => w.id === selectedWindowId);
+                const prev = mockWindows[idx > 0 ? idx - 1 : mockWindows.length - 1];
+                setSelectedWindowId(prev.id);
+              }}
+              className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            
+            <button 
+              onClick={() => setShowWindowSelector(!showWindowSelector)}
+              className="px-4 py-1.5 flex flex-col items-center min-w-[160px] hover:bg-white/5 rounded-full transition-colors"
+            >
+              <span className="text-xs font-bold text-white truncate max-w-[140px]">
+                {selectedWindow?.app}
+              </span>
+              <span className="text-[10px] text-white/50 truncate max-w-[140px]">
+                {selectedWindow?.title}
+              </span>
+            </button>
+
+            <button 
+              onClick={() => {
+                const idx = mockWindows.findIndex(w => w.id === selectedWindowId);
+                const next = mockWindows[idx < mockWindows.length - 1 ? idx + 1 : 0];
+                setSelectedWindowId(next.id);
+              }}
+              className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
