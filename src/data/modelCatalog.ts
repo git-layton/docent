@@ -377,8 +377,7 @@ export function recommendSetup(
   const runnable = MODEL_CATALOG
     .filter(m => !m.gated && (!role || m.role === role))
     .map(m => ({ m, fit: fitOnMac(m, ramGb) }))
-    .filter(({ fit }) => fit.fits && fit.contextK >= 32 && !fit.kv8bit)
-    .sort((a, b) => b.m.sizeMb - a.m.sizeMb);
+    .filter(({ fit }) => fit.fits && fit.contextK >= 32 && !fit.kv8bit);
 
   if (runnable.length === 0) {
     return {
@@ -387,13 +386,15 @@ export function recommendSetup(
     };
   }
 
-  // Among the largest size class, prefer a General-purpose model deterministically.
-  const top = runnable[0];
-  const sameClass = runnable.filter(({ m }) => Math.abs(m.sizeMb - top.m.sizeMb) < 2000);
+  // Prioritize SPEED as the most important factor. Instead of maxing out the user's 
+  // RAM with a massive, slow model, we look for a highly-capable primary model in 
+  // the fast "sweet spot" (under 10GB) first. If none fits, we pick any primary, 
+  // or the largest of the fast models, or simply the smallest model available.
   const chosen =
-    sameClass.find(({ m }) => m.primary) ??
-    sameClass.find(({ m }) => m.role === 'General') ??
-    sameClass.sort((a, b) => a.m.id.localeCompare(b.m.id))[0];
+    runnable.find(({ m }) => m.primary && m.sizeMb < 10000) ??
+    runnable.find(({ m }) => m.primary) ??
+    runnable.filter(({ m }) => m.sizeMb < 10000).sort((a, b) => b.m.sizeMb - a.m.sizeMb)[0] ??
+    runnable.sort((a, b) => a.m.sizeMb - b.m.sizeMb)[0];
 
   return {
     kind: 'local',

@@ -690,6 +690,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
   const decoder = new TextDecoder();
   let fullText = '';
   let buffer = '';
+  let isReasoning = false;
 
   try {
       while (true) {
@@ -713,7 +714,24 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
                       if (provider === 'anthropic' && data.type === 'content_block_delta') {
                           chunk = data.delta?.text || '';
                       } else if (provider !== 'anthropic') {
-                          chunk = data.choices?.[0]?.delta?.content || '';
+                          const rContent = data.choices?.[0]?.delta?.reasoning_content;
+                          const content = data.choices?.[0]?.delta?.content;
+                          
+                          if (rContent) {
+                              if (!isReasoning) {
+                                  isReasoning = true;
+                                  chunk = '<think>\n' + rContent;
+                              } else {
+                                  chunk = rContent;
+                              }
+                          } else if (content) {
+                              if (isReasoning) {
+                                  isReasoning = false;
+                                  chunk = '\n</think>\n\n' + content;
+                              } else {
+                                  chunk = content;
+                              }
+                          }
                       }
 
                       if (chunk) {
@@ -723,6 +741,12 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
                   } catch (e) { }
               }
           }
+      }
+      
+      if (isReasoning) {
+          const closing = '\n</think>\n';
+          fullText += closing;
+          if (onChunk) onChunk(closing);
       }
   } finally {
       reader.releaseLock();
