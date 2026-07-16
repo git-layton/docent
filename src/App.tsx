@@ -3534,7 +3534,7 @@ if (isSpotlight) {
       )}
 
       {toastMessage && (
-        <div className="fixed top-6 right-6 z-[300] bg-panel/80 backdrop-blur-3xl border border-edge-2 px-4 py-3 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-right-8 fade-in duration-300 max-w-sm pointer-events-auto">
+        <div className="fixed top-6 right-6 z-[300] bg-black/70 backdrop-blur-3xl border border-white/10 px-4 py-3 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-right-8 fade-in duration-300 max-w-sm pointer-events-auto">
            <div className="shrink-0 mt-0.5">
              {(toastMessage.toLowerCase().includes('fail') || toastMessage.toLowerCase().includes('error') || toastMessage.toLowerCase().includes("couldn't")) ? (
                <AlertTriangle className="w-5 h-5 text-danger" />
@@ -3543,20 +3543,20 @@ if (isSpotlight) {
              )}
            </div>
            <div className="flex flex-col gap-1">
-             <span className="text-sm font-bold text-ink leading-tight">
+             <span className="text-sm font-bold text-white leading-tight">
                {(toastMessage.toLowerCase().includes('fail') || toastMessage.toLowerCase().includes('error') || toastMessage.toLowerCase().includes("couldn't")) ? 'Error' : 'Notification'}
              </span>
-             <span className="text-xs text-ink-2 leading-relaxed font-medium line-clamp-3">{toastMessage}</span>
+             <span className="text-xs text-white/70 leading-relaxed font-medium line-clamp-3">{toastMessage}</span>
              {toastAction && (
                <button
                  onClick={() => { toastAction.onClick(); useUIStore.getState().clearToast(); }}
-                 className="mt-1.5 self-start text-[10px] font-bold uppercase tracking-wider bg-surface px-3 py-1.5 rounded-lg border border-edge hover:bg-wash transition-colors text-ink"
+                 className="mt-1.5 self-start text-[10px] font-bold uppercase tracking-wider bg-white/10 px-3 py-1.5 rounded-lg border border-white/5 hover:bg-white/20 transition-colors text-white"
                >
                  {toastAction.label}
                </button>
              )}
            </div>
-           <button onClick={() => useUIStore.getState().clearToast()} className="shrink-0 ml-2 text-ink-3 hover:text-ink transition-colors">
+           <button onClick={() => useUIStore.getState().clearToast()} className="shrink-0 ml-2 text-white/40 hover:text-white transition-colors">
              <X className="w-4 h-4" />
            </button>
         </div>
