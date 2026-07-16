@@ -26,8 +26,8 @@ pub async fn webview_screenshot(
 ) -> Result<String, String> {
     use base64::Engine;
     use block2::RcBlock;
-    use objc2::{AllocAnyThread, MainThreadMarker};
     use objc2::rc::Retained;
+    use objc2::{AllocAnyThread, MainThreadMarker};
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
     use objc2_core_foundation::{CGPoint, CGRect, CGSize};
     use objc2_foundation::{NSDictionary, NSError, NSString};
@@ -106,7 +106,9 @@ pub async fn webview_screenshot(
                 let _ = tx_done.send(result);
             });
 
-            unsafe { webview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler) };
+            unsafe {
+                webview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler)
+            };
         })
         .map_err(|e| format!("with_webview failed: {e}"))?;
 
@@ -205,7 +207,9 @@ fn snapshot_webview_png(app: &tauri::AppHandle, label: &str) -> Result<Vec<u8>, 
                 let _ = tx_done.send(result);
             });
 
-            unsafe { webview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler) };
+            unsafe {
+                webview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler)
+            };
         })
         .map_err(|e| format!("with_webview failed: {e}"))?;
 
@@ -301,7 +305,9 @@ static GLOW_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 fn pulse_glow(app: &tauri::AppHandle) {
     use std::sync::atomic::Ordering;
     use tauri::{Emitter, Manager};
-    let Some(w) = app.get_webview_window("glow") else { return };
+    let Some(w) = app.get_webview_window("glow") else {
+        return;
+    };
     // `screencapture` grabs the MAIN display, so the glow must ride that same monitor — the
     // primary — not whichever screen the (never user-moved) glow window happens to sit on.
     if let Ok(Some(monitor)) = w.primary_monitor() {
@@ -330,13 +336,16 @@ pub struct WindowInfo {
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
-    use core_graphics::window::{CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly, kCGNullWindowID, kCGWindowListExcludeDesktopElements};
     use core_foundation::array::CFArray;
-    use core_foundation::dictionary::CFDictionary;
-    use core_foundation::string::CFString;
-    use core_foundation::number::CFNumber;
     use core_foundation::base::TCFType;
-    
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_graphics::window::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+        CGWindowListCopyWindowInfo,
+    };
+
     let mut windows = Vec::new();
     unsafe {
         let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
@@ -345,15 +354,15 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
             return Err("Failed to get window list".into());
         }
         let array = CFArray::<CFDictionary>::wrap_under_create_rule(window_info);
-        
+
         let k_owner_name = CFString::new("kCGWindowOwnerName");
         let k_name = CFString::new("kCGWindowName");
         let k_number = CFString::new("kCGWindowNumber");
         let k_layer = CFString::new("kCGWindowLayer");
-        
+
         for i in 0..array.len() {
             let dict = array.get(i).unwrap();
-            
+
             let layer_ref = dict.find(k_layer.as_CFTypeRef() as *const _);
             if let Some(l) = layer_ref {
                 let cf_num = CFNumber::wrap_under_get_rule(*l as _);
@@ -363,7 +372,7 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
             } else {
                 continue;
             }
-            
+
             let mut id = 0u32;
             let num_ref = dict.find(k_number.as_CFTypeRef() as *const _);
             if let Some(n) = num_ref {
@@ -372,29 +381,29 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
                     id = val as u32;
                 }
             }
-            
+
             let mut app = String::new();
             let app_ref = dict.find(k_owner_name.as_CFTypeRef() as *const _);
             if let Some(a) = app_ref {
                 let cf_str = CFString::wrap_under_get_rule(*a as _);
                 app = cf_str.to_string();
             }
-            
+
             let mut title = String::new();
             let title_ref = dict.find(k_name.as_CFTypeRef() as *const _);
             if let Some(t) = title_ref {
                 let cf_str = CFString::wrap_under_get_rule(*t as _);
                 title = cf_str.to_string();
             }
-            
+
             if app.is_empty() && title.is_empty() {
                 continue;
             }
-            
+
             windows.push(WindowInfo { id, app, title });
         }
     }
-    
+
     Ok(windows)
 }
 
@@ -406,7 +415,10 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>, String> {
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub async fn capture_window(window_id: u32, window: tauri::WebviewWindow) -> Result<String, String> {
+pub async fn capture_window(
+    window_id: u32,
+    window: tauri::WebviewWindow,
+) -> Result<String, String> {
     use base64::Engine;
 
     if !matches!(window.label(), "main" | "spotlight") {
@@ -436,7 +448,7 @@ pub async fn capture_window(window_id: u32, window: tauri::WebviewWindow) -> Res
 
     let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
     let _ = std::fs::remove_file(&path);
-    
+
     if bytes.is_empty() {
         return Err("screen capture was empty".into());
     }
@@ -447,7 +459,10 @@ pub async fn capture_window(window_id: u32, window: tauri::WebviewWindow) -> Res
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-pub async fn capture_window(_window_id: u32, _window: tauri::WebviewWindow) -> Result<String, String> {
+pub async fn capture_window(
+    _window_id: u32,
+    _window: tauri::WebviewWindow,
+) -> Result<String, String> {
     Err("capture_window is only available on macOS".into())
 }
 
@@ -490,7 +505,8 @@ pub async fn capture_screen(window: tauri::WebviewWindow) -> Result<String, Stri
     }
     if bytes.is_empty() {
         return Err(
-            "screen capture was empty — grant Screen Recording in System Settings, then relaunch".into(),
+            "screen capture was empty — grant Screen Recording in System Settings, then relaunch"
+                .into(),
         );
     }
 
@@ -539,7 +555,9 @@ pub async fn preview_screen_thumb(window: tauri::WebviewWindow) -> Result<String
     }
     let thumb = make_thumb(&path);
     let _ = std::fs::remove_file(&path);
-    thumb.ok_or_else(|| "could not build preview — grant Screen Recording in System Settings, then relaunch".into())
+    thumb.ok_or_else(|| {
+        "could not build preview — grant Screen Recording in System Settings, then relaunch".into()
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -556,7 +574,9 @@ pub async fn preview_screen_thumb(_window: tauri::WebviewWindow) -> Result<Strin
 /// immediately — the (slower) OCR pass runs after that, off the UI's critical path.
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
+pub async fn capture_screen_text(
+    window: tauri::WebviewWindow,
+) -> Result<serde_json::Value, String> {
     if !matches!(window.label(), "main" | "spotlight") {
         return Err("screen capture not permitted from this window".into());
     }
@@ -595,7 +615,8 @@ pub async fn capture_screen_text(window: tauri::WebviewWindow) -> Result<serde_j
 
     if bytes.is_empty() {
         return Err(
-            "screen capture was empty — grant Screen Recording in System Settings, then relaunch".into(),
+            "screen capture was empty — grant Screen Recording in System Settings, then relaunch"
+                .into(),
         );
     }
     // Vision is synchronous; run it off the async runtime. Cap like the tab path (12k chars) so a
@@ -636,7 +657,10 @@ fn make_thumb(src: &std::path::Path) -> Option<String> {
     if b.is_empty() {
         return None;
     }
-    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(b)))
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(b)
+    ))
 }
 
 /// Run Apple's on-device text recognition over PNG bytes; returns the recognized lines joined.
@@ -653,8 +677,11 @@ fn ocr_png(bytes: &[u8]) -> Result<String, String> {
 
     let data = NSData::with_bytes(bytes);
     let options: Retained<NSDictionary<VNImageOption, AnyObject>> = NSDictionary::new();
-    let handler =
-        VNImageRequestHandler::initWithData_options(VNImageRequestHandler::alloc(), &data, &options);
+    let handler = VNImageRequestHandler::initWithData_options(
+        VNImageRequestHandler::alloc(),
+        &data,
+        &options,
+    );
 
     let request = VNRecognizeTextRequest::new();
     request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
@@ -682,7 +709,9 @@ fn ocr_png(bytes: &[u8]) -> Result<String, String> {
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-pub async fn capture_screen_text(_window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
+pub async fn capture_screen_text(
+    _window: tauri::WebviewWindow,
+) -> Result<serde_json::Value, String> {
     Err("capture_screen_text is only available on macOS".into())
 }
 

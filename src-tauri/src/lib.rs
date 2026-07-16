@@ -1,20 +1,20 @@
-use std::sync::{Arc, Mutex};
+use futures_util::StreamExt;
 use notify::Watcher;
 use std::path::{Component, Path, PathBuf};
-use sysinfo::{System, CpuRefreshKind, RefreshKind};
+use std::sync::{Arc, Mutex};
+use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tauri::{Emitter, Manager};
-use futures_util::StreamExt;
 
-mod mail;
-mod imessage;
 mod calendar;
-mod notes;
+mod imessage;
+mod input;
+pub mod jobs;
+mod mail;
 mod music;
+mod notes;
 mod permissions;
 mod pty;
 mod screenshot;
-mod input;
-pub mod jobs;
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -43,7 +43,10 @@ struct ActiveGuard<'a> {
 }
 impl Drop for ActiveGuard<'_> {
     fn drop(&mut self) {
-        self.set.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.name);
+        self.set
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.name);
     }
 }
 
@@ -104,7 +107,9 @@ fn knowledge_core_path() -> std::path::PathBuf {
 
 fn models_dir() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let dir = std::path::PathBuf::from(home).join("AgentForge").join("models");
+    let dir = std::path::PathBuf::from(home)
+        .join("AgentForge")
+        .join("models");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -165,7 +170,11 @@ fn assert_no_symlink_escape(root: &Path, candidate: &Path) -> Result<(), String>
 fn knowledge_path_from_input(input: &str) -> Result<PathBuf, String> {
     let root = knowledge_root();
     let raw = PathBuf::from(input);
-    let joined = if raw.is_absolute() { raw } else { root.join(raw) };
+    let joined = if raw.is_absolute() {
+        raw
+    } else {
+        root.join(raw)
+    };
     let normalized = normalize_path_lexically(joined);
     if !normalized.starts_with(&root) {
         return Err("Path is outside the Knowledge Core".to_string());
@@ -187,7 +196,11 @@ fn workspace_root() -> PathBuf {
 fn workspace_path_from_input(input: &str) -> Result<PathBuf, String> {
     let root = workspace_root();
     let raw = PathBuf::from(input);
-    let joined = if raw.is_absolute() { raw } else { root.join(raw) };
+    let joined = if raw.is_absolute() {
+        raw
+    } else {
+        root.join(raw)
+    };
     let normalized = normalize_path_lexically(joined);
     if !normalized.starts_with(&root) {
         return Err("Path is outside the agent workspace".to_string());
@@ -241,7 +254,11 @@ fn run_git(args: &[&str], cwd: &std::path::Path) -> Result<String, String> {
 fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
-            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast()
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
         }
         std::net::IpAddr::V6(v6) => {
             // An IPv4-mapped address (e.g. ::ffff:127.0.0.1) must be judged by its V4 rules — V6
@@ -262,14 +279,18 @@ fn egress_host_allowed(url: &str) -> Result<(), String> {
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(format!("scheme '{}' not allowed", parsed.scheme()));
     }
-    let host = parsed.host_str().ok_or_else(|| "URL has no host".to_string())?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "URL has no host".to_string())?;
     if host.eq_ignore_ascii_case("localhost") {
         return Err("downloads from localhost are not allowed".to_string());
     }
     let bare = host.trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
         if is_blocked_ip(ip) {
-            return Err("downloads from loopback/private/link-local addresses are not allowed".to_string());
+            return Err(
+                "downloads from loopback/private/link-local addresses are not allowed".to_string(),
+            );
         }
     }
     Ok(())
@@ -322,17 +343,31 @@ fn real_available_mb(total_mb: u64) -> u64 {
     let mut speculative = 0u64;
     let mut purgeable = 0u64;
     let pages = |line: &str| -> u64 {
-        line.rsplit(':').next().unwrap_or("").trim().trim_end_matches('.').replace(',', "").parse().unwrap_or(0)
+        line.rsplit(':')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches('.')
+            .replace(',', "")
+            .parse()
+            .unwrap_or(0)
     };
     for line in text.lines() {
         if let Some(i) = line.find("page size of ") {
             if let Some(tok) = line[i + 13..].split_whitespace().next() {
-                if let Ok(v) = tok.parse::<u64>() { page_size = v; }
+                if let Ok(v) = tok.parse::<u64>() {
+                    page_size = v;
+                }
             }
-        } else if line.starts_with("Pages free:") { free = pages(line); }
-        else if line.starts_with("Pages inactive:") { inactive = pages(line); }
-        else if line.starts_with("Pages speculative:") { speculative = pages(line); }
-        else if line.starts_with("Pages purgeable:") { purgeable = pages(line); }
+        } else if line.starts_with("Pages free:") {
+            free = pages(line);
+        } else if line.starts_with("Pages inactive:") {
+            inactive = pages(line);
+        } else if line.starts_with("Pages speculative:") {
+            speculative = pages(line);
+        } else if line.starts_with("Pages purgeable:") {
+            purgeable = pages(line);
+        }
     }
     let avail = (free + inactive + speculative + purgeable).saturating_mul(page_size) / 1024 / 1024;
     avail.min(total_mb)
@@ -355,9 +390,9 @@ fn get_ram_stats() -> serde_json::Value {
 #[derive(serde::Serialize)]
 struct HardwareSummary {
     total_mb: u64,
-    chip: String,            // human label, e.g. "Apple M3 Pro" or the Intel brand string
-    is_apple_silicon: bool,  // gates the bundled (arm64-only) llama-server engine
-    arch: String,            // "aarch64" | "x86_64" | …
+    chip: String,           // human label, e.g. "Apple M3 Pro" or the Intel brand string
+    is_apple_silicon: bool, // gates the bundled (arm64-only) llama-server engine
+    arch: String,           // "aarch64" | "x86_64" | …
     cpu_count: usize,
 }
 
@@ -380,12 +415,22 @@ fn get_hardware_summary() -> HardwareSummary {
         .map(|c| c.brand().trim().to_string())
         .unwrap_or_default();
     let chip = if brand.is_empty() {
-        if is_apple_silicon { "Apple Silicon".to_string() } else { arch.clone() }
+        if is_apple_silicon {
+            "Apple Silicon".to_string()
+        } else {
+            arch.clone()
+        }
     } else {
         brand
     };
 
-    HardwareSummary { total_mb, chip, is_apple_silicon, arch, cpu_count }
+    HardwareSummary {
+        total_mb,
+        chip,
+        is_apple_silicon,
+        arch,
+        cpu_count,
+    }
 }
 
 // ─── 1.2 System Stats (CPU + RAM + Network) ──────────────────────────────────
@@ -405,7 +450,8 @@ fn get_system_stats(state: tauri::State<SysState>) -> serde_json::Value {
     let internet_ok = std::net::TcpStream::connect_timeout(
         &"1.1.1.1:53".parse().unwrap(),
         std::time::Duration::from_millis(800),
-    ).is_ok();
+    )
+    .is_ok();
 
     serde_json::json!({
         "cpu_pct": (cpu_usage * 10.0).round() / 10.0,
@@ -433,7 +479,7 @@ struct HardwareProfile {
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct DreamItem {
     pub id: String,
-    pub r#type: String,              // "merged" | "updated" | "pruned"
+    pub r#type: String, // "merged" | "updated" | "pruned"
     pub description: String,
     pub archive_paths: Vec<String>,
     pub original_paths: Vec<String>, // parallel to archive_paths — where to restore
@@ -531,7 +577,9 @@ fn sigcont_llama_server(state: tauri::State<LlamaState>) -> serde_json::Value {
 /// wedge every subsequent write. NON-reentrant — never acquire it twice on one call stack.
 static GIT_LOCK: Mutex<()> = Mutex::new(());
 fn git_guard() -> std::sync::MutexGuard<'static, ()> {
-    GIT_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    GIT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[tauri::command]
@@ -557,7 +605,7 @@ fn safe_write_file_inner(path: String, content: String) -> serde_json::Value {
     };
     let existing_lines = previous_content
         .as_deref()
-            .map(|s| s.lines().count() as u32)
+        .map(|s| s.lines().count() as u32)
         .unwrap_or(0);
 
     if let Some(parent) = file_path.parent() {
@@ -617,7 +665,14 @@ fn init_knowledge_core() -> serde_json::Value {
     let root = knowledge_root();
 
     // Always ensure subdirectory structure exists (idempotent)
-    for subdir in &["memory/goals", "memory/decisions", "memory/metrics", "memory/research", "memory/memos", "library"] {
+    for subdir in &[
+        "memory/goals",
+        "memory/decisions",
+        "memory/metrics",
+        "memory/research",
+        "memory/memos",
+        "library",
+    ] {
         let _ = std::fs::create_dir_all(root.join(subdir));
     }
 
@@ -688,11 +743,11 @@ fn write_memory(
         }
     };
 
-    let stash_out = run_git(&["stash", "--include-untracked"], &repo_root)
-        .unwrap_or_default();
+    let stash_out = run_git(&["stash", "--include-untracked"], &repo_root).unwrap_or_default();
     let stashed = !stash_out.contains("No local changes");
 
-    let write_result = safe_write_file_inner(file_path.to_string_lossy().to_string(), content.clone());
+    let write_result =
+        safe_write_file_inner(file_path.to_string_lossy().to_string(), content.clone());
     if write_result["blocked"].as_bool().unwrap_or(false) {
         if stashed {
             let _ = run_git(&["stash", "pop"], &repo_root);
@@ -720,8 +775,7 @@ fn write_memory(
     );
 
     let _ = run_git(&["add", &rel_path], &repo_root);
-    let commit_out = run_git(&["commit", "-m", &full_message], &repo_root)
-        .unwrap_or_default();
+    let commit_out = run_git(&["commit", "-m", &full_message], &repo_root).unwrap_or_default();
     let commit_hash = commit_out
         .lines()
         .find(|l| l.starts_with('['))
@@ -753,11 +807,16 @@ fn walk_md_files(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, Strin
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            if path.file_name().map(|n| n == ".archive").unwrap_or(false) { continue; }
+            if path.file_name().map(|n| n == ".archive").unwrap_or(false) {
+                continue;
+            }
             if let Ok(mut sub) = walk_md_files(&path) {
                 out.append(&mut sub);
             }
-        } else if matches!(path.extension().and_then(|s| s.to_str()), Some("md") | Some("txt")) {
+        } else if matches!(
+            path.extension().and_then(|s| s.to_str()),
+            Some("md") | Some("txt")
+        ) {
             out.push(path);
         }
     }
@@ -779,7 +838,9 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
         let mut lines = content.lines();
         lines.next(); // skip opening ---
         for line in lines {
-            if line == "---" { break; }
+            if line == "---" {
+                break;
+            }
             if let Some(v) = line.strip_prefix("title:") {
                 return v.trim().trim_matches('"').to_string();
             }
@@ -803,15 +864,27 @@ fn extract_title(content: &str, path: &std::path::Path) -> String {
 /// interleaving stay correct when search_knowledge runs as the FALLBACK for search_knowledge_semantic.
 /// Coverage (fraction of distinct query terms found) dominates; repetition adds a small saturating
 /// bonus. Never exceeds 1.0 — a raw occurrence count must never reach the frontend as a "cosine".
-fn keyword_relevance(matched_distinct: usize, total_keywords: usize, total_occurrences: usize) -> f64 {
-    if total_keywords == 0 || matched_distinct == 0 { return 0.0; }
+fn keyword_relevance(
+    matched_distinct: usize,
+    total_keywords: usize,
+    total_occurrences: usize,
+) -> f64 {
+    if total_keywords == 0 || matched_distinct == 0 {
+        return 0.0;
+    }
     let coverage = matched_distinct as f64 / total_keywords as f64;
     let occ = (total_occurrences as f64 / (total_keywords as f64 * 5.0)).min(1.0);
     (coverage * 0.85 + occ * 0.15).min(1.0)
 }
 
 #[tauri::command]
-fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
+fn search_knowledge(
+    query: String,
+    extra_path: Option<String>,
+    agent_id: Option<String>,
+    max_results: Option<usize>,
+    snippet_chars: Option<usize>,
+) -> serde_json::Value {
     let root = knowledge_root();
     let query_lower = query.to_lowercase();
     let keywords: Vec<&str> = query_lower.split_whitespace().collect();
@@ -829,22 +902,27 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
         root.join("memory")
     };
 
-    let mut dirs_to_search: Vec<std::path::PathBuf> = vec![
-        root.join("library"),
-        memory_dir,
-    ];
+    let mut dirs_to_search: Vec<std::path::PathBuf> = vec![root.join("library"), memory_dir];
     if let Some(ref ep) = extra_path {
         if let Ok(p) = knowledge_path_from_input(ep) {
-            if p.exists() { dirs_to_search.push(p); }
+            if p.exists() {
+                dirs_to_search.push(p);
+            }
         }
     }
 
     for dir in dirs_to_search {
-        if !dir.exists() { continue; }
-        let Ok(files) = walk_md_files(&dir) else { continue };
+        if !dir.exists() {
+            continue;
+        }
+        let Ok(files) = walk_md_files(&dir) else {
+            continue;
+        };
 
         for path in files {
-            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             let body = strip_frontmatter(&content);
             let body_lower = body.to_lowercase();
 
@@ -852,9 +930,14 @@ fn search_knowledge(query: String, extra_path: Option<String>, agent_id: Option<
             let mut total_occurrences = 0usize;
             for kw in &keywords {
                 let c = body_lower.matches(*kw).count();
-                if c > 0 { matched_distinct += 1; total_occurrences += c; }
+                if c > 0 {
+                    matched_distinct += 1;
+                    total_occurrences += c;
+                }
             }
-            if matched_distinct == 0 { continue; }
+            if matched_distinct == 0 {
+                continue;
+            }
             // [0,1] cosine-comparable score (not a raw count) — see keyword_relevance.
             let score = keyword_relevance(matched_distinct, keywords.len(), total_occurrences);
 
@@ -899,8 +982,7 @@ fn append_task(text: String, agent_id: Option<String>) -> serde_json::Value {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let existing = std::fs::read_to_string(&tasks_path)
-        .unwrap_or_else(|_| "# Tasks\n".to_string());
+    let existing = std::fs::read_to_string(&tasks_path).unwrap_or_else(|_| "# Tasks\n".to_string());
     let new_content = format!("{}- [ ] {}\n", existing, text);
 
     if let Err(e) = std::fs::write(&tasks_path, &new_content) {
@@ -935,9 +1017,13 @@ fn complete_task(
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let existing = std::fs::read_to_string(&path)
-        .unwrap_or_else(|_| "# Completed Tasks\n".to_string());
-    let details_str = if details.is_empty() { "—".to_string() } else { details };
+    let existing =
+        std::fs::read_to_string(&path).unwrap_or_else(|_| "# Completed Tasks\n".to_string());
+    let details_str = if details.is_empty() {
+        "—".to_string()
+    } else {
+        details
+    };
     let entry = format!(
         "\n## ✅ {}\n- **Completed**: {}\n- **Due**: {}\n- **Details**: {}\n",
         title, completed_at, due_date, details_str
@@ -983,33 +1069,52 @@ use std::sync::OnceLock;
 static EMBEDDER: OnceLock<Mutex<fastembed::TextEmbedding>> = OnceLock::new();
 
 fn get_or_init_embedder() -> Result<&'static Mutex<fastembed::TextEmbedding>, String> {
-    if let Some(e) = EMBEDDER.get() { return Ok(e); }
+    if let Some(e) = EMBEDDER.get() {
+        return Ok(e);
+    }
     let model = fastembed::TextEmbedding::try_new(
         fastembed::InitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
             .with_cache_dir(knowledge_root().join(".models")),
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     // Ignore error if another thread already set it
     let _ = EMBEDDER.set(Mutex::new(model));
     Ok(EMBEDDER.get().unwrap())
 }
 
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() { return 0.0; }
+    if a.len() != b.len() {
+        return 0.0;
+    }
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if na == 0.0 || nb == 0.0 { 0.0 } else { dot / (na * nb) }
+    if na == 0.0 || nb == 0.0 {
+        0.0
+    } else {
+        dot / (na * nb)
+    }
 }
 
 /// Memory "importance" in [0.05, 1.0], parsed from the gatekeeper frontmatter so retrieval can
 /// prefer higher-confidence, better-sourced memories. A weak signal by design — it only modulates
 /// ranking, never the relevance threshold. Mirrors the confidence/evidence labels in memoryGatekeeper.ts.
 fn parse_memory_importance(content: &str) -> f32 {
-    let head = content.chars().take(1200).collect::<String>().to_lowercase();
-    let mut score: f32 = if head.contains("confidence: high") { 1.0 }
-        else if head.contains("confidence: low") { 0.3 }
-        else { 0.6 }; // medium / unlabeled
-    if head.contains("evidence_state: needs_verification") || head.contains("evidence_state: conflicting") {
+    let head = content
+        .chars()
+        .take(1200)
+        .collect::<String>()
+        .to_lowercase();
+    let mut score: f32 = if head.contains("confidence: high") {
+        1.0
+    } else if head.contains("confidence: low") {
+        0.3
+    } else {
+        0.6
+    }; // medium / unlabeled
+    if head.contains("evidence_state: needs_verification")
+        || head.contains("evidence_state: conflicting")
+    {
         score *= 0.6;
     } else if head.contains("evidence_state: inferred") {
         score *= 0.85;
@@ -1025,15 +1130,23 @@ fn chunk_text(content: &str) -> Vec<String> {
     // Split on ## headings first
     let sections: Vec<&str> = body.split("\n## ").collect();
     for (i, section) in sections.iter().enumerate() {
-        let section = if i == 0 { section.to_string() } else { format!("## {section}") };
+        let section = if i == 0 {
+            section.to_string()
+        } else {
+            format!("## {section}")
+        };
         if section.len() <= 1200 {
             let trimmed = section.trim().to_string();
-            if trimmed.len() >= 60 { chunks.push(trimmed); }
+            if trimmed.len() >= 60 {
+                chunks.push(trimmed);
+            }
         } else {
             // Split long sections by blank lines
             for para in section.split("\n\n") {
                 let trimmed = para.trim().to_string();
-                if trimmed.len() >= 60 { chunks.push(trimmed); }
+                if trimmed.len() >= 60 {
+                    chunks.push(trimmed);
+                }
             }
         }
     }
@@ -1059,11 +1172,15 @@ fn open_index_db() -> Result<rusqlite::Connection, String> {
             importance    REAL NOT NULL DEFAULT 0.5
         );
         CREATE INDEX IF NOT EXISTS idx_bv_file ON brain_vectors(file_path);",
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     // Migration for indexes created before the importance column existed. Older rows keep the 0.5
     // default until their file is touched and re-indexed; the duplicate-column error is expected on
     // fresh DBs (where CREATE TABLE already added it) and is intentionally ignored.
-    let _ = conn.execute("ALTER TABLE brain_vectors ADD COLUMN importance REAL NOT NULL DEFAULT 0.5", []);
+    let _ = conn.execute(
+        "ALTER TABLE brain_vectors ADD COLUMN importance REAL NOT NULL DEFAULT 0.5",
+        [],
+    );
     Ok(conn)
 }
 
@@ -1076,21 +1193,36 @@ fn queue_file_for_index(conn: &rusqlite::Connection, file_path: &str) -> Result<
         "INSERT INTO pending_index (file_path, queued_at, status) VALUES (?1, ?2, 'pending')
          ON CONFLICT(file_path) DO UPDATE SET queued_at = ?2, status = 'pending'",
         rusqlite::params![file_path, now],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 fn walk_and_queue_dir(dir: &std::path::Path, conn: &rusqlite::Connection) -> u32 {
-    let entries = match std::fs::read_dir(dir) { Ok(e) => e, Err(_) => return 0 };
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
     let mut count = 0u32;
     for entry in entries.flatten() {
         let path = entry.path();
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        if name.starts_with('.') { continue; }
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if name.starts_with('.') {
+            continue;
+        }
         if path.is_dir() {
-            if name == ".archive" { continue; }
+            if name == ".archive" {
+                continue;
+            }
             count += walk_and_queue_dir(&path, conn);
-        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("md") | Some("txt")) {
+        } else if matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("md") | Some("txt")
+        ) {
             if queue_file_for_index(conn, &path.to_string_lossy()).is_ok() {
                 count += 1;
             }
@@ -1102,22 +1234,33 @@ fn walk_and_queue_dir(dir: &std::path::Path, conn: &rusqlite::Connection) -> u32
 #[tauri::command]
 fn init_file_watcher() {
     // Guard: only one watcher thread ever
-    if WATCHER_RUNNING.swap(true, Ordering::SeqCst) { return; }
+    if WATCHER_RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
 
     // Embedder thread: loads model then drains the pending_index queue
     std::thread::spawn(|| {
         let embedder = match get_or_init_embedder() {
             Ok(e) => e,
-            Err(e) => { eprintln!("[embedder] Init failed: {e}"); return; }
+            Err(e) => {
+                eprintln!("[embedder] Init failed: {e}");
+                return;
+            }
         };
         loop {
             let conn = match open_index_db() {
                 Ok(c) => c,
-                Err(_) => { std::thread::sleep(std::time::Duration::from_secs(10)); continue; }
+                Err(_) => {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    continue;
+                }
             };
             let pending: Vec<String> = conn
                 .prepare("SELECT file_path FROM pending_index WHERE status = 'pending' LIMIT 10")
-                .and_then(|mut s| s.query_map([], |r| r.get(0)).map(|it| it.flatten().collect()))
+                .and_then(|mut s| {
+                    s.query_map([], |r| r.get(0))
+                        .map(|it| it.flatten().collect())
+                })
                 .unwrap_or_default();
 
             if pending.is_empty() {
@@ -1126,25 +1269,42 @@ fn init_file_watcher() {
             }
 
             for file_path in pending {
-                let content = match std::fs::read_to_string(&file_path) { Ok(c) => c, Err(_) => continue };
-                let mtime = std::fs::metadata(&file_path).ok()
+                let content = match std::fs::read_to_string(&file_path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                let mtime = std::fs::metadata(&file_path)
+                    .ok()
                     .and_then(|m| m.modified().ok())
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64).unwrap_or(0);
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
                 let importance = parse_memory_importance(&content);
 
-                let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path]);
+                let _ = conn.execute(
+                    "DELETE FROM brain_vectors WHERE file_path = ?1",
+                    rusqlite::params![&file_path],
+                );
 
                 let chunks = chunk_text(&content);
                 if chunks.is_empty() {
-                    let _ = conn.execute("UPDATE pending_index SET status='indexed' WHERE file_path=?1", rusqlite::params![&file_path]);
+                    let _ = conn.execute(
+                        "UPDATE pending_index SET status='indexed' WHERE file_path=?1",
+                        rusqlite::params![&file_path],
+                    );
                     continue;
                 }
 
                 let texts: Vec<&str> = chunks.iter().map(|s| s.as_str()).collect();
                 let embeddings = {
                     let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
-                    match guard.embed(texts, None) { Ok(e) => e, Err(e) => { eprintln!("[embedder] embed error: {e}"); continue; } }
+                    match guard.embed(texts, None) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            eprintln!("[embedder] embed error: {e}");
+                            continue;
+                        }
+                    }
                 };
 
                 for (i, (chunk, vector)) in chunks.iter().zip(embeddings.iter()).enumerate() {
@@ -1155,7 +1315,10 @@ fn init_file_watcher() {
                         rusqlite::params![chunk_id, &file_path, i as i64, chunk, blob, mtime, importance as f64],
                     );
                 }
-                let _ = conn.execute("UPDATE pending_index SET status='indexed' WHERE file_path=?1", rusqlite::params![&file_path]);
+                let _ = conn.execute(
+                    "UPDATE pending_index SET status='indexed' WHERE file_path=?1",
+                    rusqlite::params![&file_path],
+                );
             }
         }
     });
@@ -1169,16 +1332,26 @@ fn init_file_watcher() {
 
         let conn = match open_index_db() {
             Ok(c) => c,
-            Err(e) => { eprintln!("[watcher] DB init failed: {e}"); WATCHER_RUNNING.store(false, Ordering::SeqCst); return; }
+            Err(e) => {
+                eprintln!("[watcher] DB init failed: {e}");
+                WATCHER_RUNNING.store(false, Ordering::SeqCst);
+                return;
+            }
         };
 
         let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
         let mut watcher: notify::RecommendedWatcher = match notify::RecommendedWatcher::new(
-            move |event| { let _ = tx.send(event); },
+            move |event| {
+                let _ = tx.send(event);
+            },
             notify::Config::default(),
         ) {
             Ok(w) => w,
-            Err(e) => { eprintln!("[watcher] Create failed: {e}"); WATCHER_RUNNING.store(false, Ordering::SeqCst); return; }
+            Err(e) => {
+                eprintln!("[watcher] Create failed: {e}");
+                WATCHER_RUNNING.store(false, Ordering::SeqCst);
+                return;
+            }
         };
 
         if let Err(e) = watcher.watch(&watch_path, notify::RecursiveMode::Recursive) {
@@ -1187,7 +1360,8 @@ fn init_file_watcher() {
             return;
         }
 
-        let mut debounce: std::collections::HashMap<std::path::PathBuf, std::time::Instant> = std::collections::HashMap::new();
+        let mut debounce: std::collections::HashMap<std::path::PathBuf, std::time::Instant> =
+            std::collections::HashMap::new();
         let debounce_dur = std::time::Duration::from_secs(2);
 
         loop {
@@ -1195,11 +1369,22 @@ fn init_file_watcher() {
                 Ok(Ok(event)) => {
                     let now = std::time::Instant::now();
                     for path in event.paths {
-                        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                        if name.starts_with('.') { continue; }
+                        let name = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        if name.starts_with('.') {
+                            continue;
+                        }
                         // Skip files inside .archive/ — soft-deleted, not for indexing
-                        if path.components().any(|c| c.as_os_str() == ".archive") { continue; }
-                        if matches!(path.extension().and_then(|e| e.to_str()), Some("md") | Some("txt")) {
+                        if path.components().any(|c| c.as_os_str() == ".archive") {
+                            continue;
+                        }
+                        if matches!(
+                            path.extension().and_then(|e| e.to_str()),
+                            Some("md") | Some("txt")
+                        ) {
                             debounce.insert(path, now);
                         }
                     }
@@ -1230,32 +1415,59 @@ fn init_file_watcher() {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
             let archive_dir = purge_root.join("memory").join(".archive");
-            if !archive_dir.exists() { continue; }
-            let Ok(entries) = std::fs::read_dir(&archive_dir) else { continue };
+            if !archive_dir.exists() {
+                continue;
+            }
+            let Ok(entries) = std::fs::read_dir(&archive_dir) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let path = entry.path();
-                if !path.is_file() { continue; }
+                if !path.is_file() {
+                    continue;
+                }
                 let Ok(meta) = path.metadata() else { continue };
-                let Ok(modified) = meta.modified() else { continue };
-                if modified.elapsed().unwrap_or_default() < seven_days { continue; }
+                let Ok(modified) = meta.modified() else {
+                    continue;
+                };
+                if modified.elapsed().unwrap_or_default() < seven_days {
+                    continue;
+                }
                 // Remove from vector index
                 if let Ok(conn) = open_index_db() {
                     let ps = path.to_string_lossy().to_string();
-                    let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path=?1", rusqlite::params![&ps]);
-                    let _ = conn.execute("DELETE FROM pending_index WHERE file_path=?1", rusqlite::params![&ps]);
+                    let _ = conn.execute(
+                        "DELETE FROM brain_vectors WHERE file_path=?1",
+                        rusqlite::params![&ps],
+                    );
+                    let _ = conn.execute(
+                        "DELETE FROM pending_index WHERE file_path=?1",
+                        rusqlite::params![&ps],
+                    );
                 }
                 // git rm + commit; fall back to fs::remove_file
                 if let Ok(rel) = path.strip_prefix(&purge_root) {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let name = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
                     // MAINT-GITRACE: hold GIT_LOCK only around the git mutation — never across the
                     // hourly sleep — so the unattended purge can't interleave with a foreground write.
                     let git_ok = {
                         let _git = git_guard();
                         run_git(&["rm", "--force", &rel.to_string_lossy()], &purge_root)
-                            .and_then(|_| run_git(&["commit", "-m", &format!("purge: 7-day expiry {name}")], &purge_root))
+                            .and_then(|_| {
+                                run_git(
+                                    &["commit", "-m", &format!("purge: 7-day expiry {name}")],
+                                    &purge_root,
+                                )
+                            })
                             .is_ok()
                     };
-                    if !git_ok { let _ = std::fs::remove_file(&path); }
+                    if !git_ok {
+                        let _ = std::fs::remove_file(&path);
+                    }
                 }
             }
         }
@@ -1279,10 +1491,30 @@ fn get_index_status() -> serde_json::Value {
         Ok(c) => c,
         Err(e) => return serde_json::json!({ "error": e }),
     };
-    let total: i64 = conn.query_row("SELECT COUNT(*) FROM pending_index", [], |r| r.get(0)).unwrap_or(0);
-    let indexed: i64 = conn.query_row("SELECT COUNT(*) FROM pending_index WHERE status = 'indexed'", [], |r| r.get(0)).unwrap_or(0);
-    let pending: i64 = conn.query_row("SELECT COUNT(*) FROM pending_index WHERE status = 'pending'", [], |r| r.get(0)).unwrap_or(0);
-    let vectors: i64 = conn.query_row("SELECT COUNT(DISTINCT file_path) FROM brain_vectors", [], |r| r.get(0)).unwrap_or(0);
+    let total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM pending_index", [], |r| r.get(0))
+        .unwrap_or(0);
+    let indexed: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pending_index WHERE status = 'indexed'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let pending: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pending_index WHERE status = 'pending'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let vectors: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT file_path) FROM brain_vectors",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
     serde_json::json!({
         "total_files": total,
         "indexed": indexed,
@@ -1307,7 +1539,12 @@ fn embed_text(text: String) -> Result<Vec<f32>, String> {
 }
 
 #[tauri::command]
-fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_results: Option<usize>, snippet_chars: Option<usize>) -> serde_json::Value {
+fn search_knowledge_semantic(
+    query: String,
+    agent_id: Option<String>,
+    max_results: Option<usize>,
+    snippet_chars: Option<usize>,
+) -> serde_json::Value {
     let max_results = max_results.unwrap_or(5);
     let snippet_chars = snippet_chars.unwrap_or(400);
     if let Some(ref id) = agent_id {
@@ -1319,24 +1556,49 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
     // Fall back to keyword search if model not loaded yet
     let embedder = match get_or_init_embedder() {
         Ok(e) => e,
-        Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
+        Err(_) => {
+            return search_knowledge(
+                query,
+                None,
+                agent_id,
+                Some(max_results),
+                Some(snippet_chars),
+            )
+        }
     };
 
     let query_vec: Vec<f32> = {
         let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
         match guard.embed(vec![query.as_str()], None) {
             Ok(mut e) if !e.is_empty() => e.remove(0),
-            _ => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
+            _ => {
+                return search_knowledge(
+                    query,
+                    None,
+                    agent_id,
+                    Some(max_results),
+                    Some(snippet_chars),
+                )
+            }
         }
     };
 
     let conn = match open_index_db() {
         Ok(c) => c,
-        Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)),
+        Err(_) => {
+            return search_knowledge(
+                query,
+                None,
+                agent_id,
+                Some(max_results),
+                Some(snippet_chars),
+            )
+        }
     };
 
     let root = knowledge_root();
-    let memory_prefix = agent_id.as_ref()
+    let memory_prefix = agent_id
+        .as_ref()
         .map(|id| root.join("memory").join(id).to_string_lossy().to_string())
         .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
     let library_prefix = root.join("library").to_string_lossy().to_string();
@@ -1348,12 +1610,28 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
 
         stmt.query_map(
             rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%")],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
-        ).map(|it| it.flatten().collect()).unwrap_or_default()
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map(|it| it.flatten().collect())
+        .unwrap_or_default()
     };
 
     if rows.is_empty() {
-        return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars));
+        return search_knowledge(
+            query,
+            None,
+            agent_id,
+            Some(max_results),
+            Some(snippet_chars),
+        );
     }
 
     // Re-rank like the Generative-Agents retrieval score: relevance (cosine) stays dominant, but at
@@ -1362,16 +1640,21 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
     // remain raw cosine, so the frontend relevance thresholds keep their exact meaning.
     let now_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64).unwrap_or(0);
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     const HALF_LIFE_SECS: f64 = 30.0 * 24.0 * 60.0 * 60.0; // ~half weight at 30 days old
 
-    let mut scored: Vec<(f32, f32, String, String)> = rows.into_iter()
+    let mut scored: Vec<(f32, f32, String, String)> = rows
+        .into_iter()
         .filter_map(|(path, content, blob, last_modified, importance)| {
-            let vec: Vec<f32> = blob.chunks_exact(4)
+            let vec: Vec<f32> = blob
+                .chunks_exact(4)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                 .collect();
             let cosine = cosine_similarity(&query_vec, &vec);
-            if cosine <= 0.25 { return None; }
+            if cosine <= 0.25 {
+                return None;
+            }
             let age = (now_secs - last_modified).max(0) as f64;
             let recency = (-std::f64::consts::LN_2 * age / HALF_LIFE_SECS).exp() as f32; // 1.0 fresh → 0.5 @30d
             let rank = cosine * (0.80 + 0.15 * recency + 0.05 * importance as f32);
@@ -1391,11 +1674,14 @@ fn search_knowledge_semantic(query: String, agent_id: Option<String>, max_result
     // surfaces above a stale, weak one at comparable similarity, without dropping anything relevant.
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    let results: Vec<serde_json::Value> = scored.into_iter().map(|(cosine, _rank, path, content)| {
-        let snippet: String = content.chars().take(snippet_chars).collect();
-        let title = extract_title_from_path(&path);
-        serde_json::json!({ "path": path, "title": title, "snippet": snippet, "score": cosine })
-    }).collect();
+    let results: Vec<serde_json::Value> = scored
+        .into_iter()
+        .map(|(cosine, _rank, path, content)| {
+            let snippet: String = content.chars().take(snippet_chars).collect();
+            let title = extract_title_from_path(&path);
+            serde_json::json!({ "path": path, "title": title, "snippet": snippet, "score": cosine })
+        })
+        .collect();
 
     serde_json::json!({ "results": results })
 }
@@ -1404,7 +1690,9 @@ fn extract_title_from_path(path: &str) -> String {
     // Try to read the file to get a proper title; fall back to filename stem
     if let Ok(content) = std::fs::read_to_string(path) {
         let t = extract_title(&content, std::path::Path::new(path));
-        if t != "Untitled" { return t; }
+        if t != "Untitled" {
+            return t;
+        }
     }
     std::path::Path::new(path)
         .file_stem()
@@ -1427,17 +1715,31 @@ fn delete_memory_file(path: String) -> serde_json::Value {
 
     // Remove from vector index tables (ignore errors — file might not be indexed yet)
     if let Ok(conn) = open_index_db() {
-        let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path_str]);
-        let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&file_path_str]);
+        let _ = conn.execute(
+            "DELETE FROM brain_vectors WHERE file_path = ?1",
+            rusqlite::params![&file_path_str],
+        );
+        let _ = conn.execute(
+            "DELETE FROM pending_index WHERE file_path = ?1",
+            rusqlite::params![&file_path_str],
+        );
     }
 
     // Try git rm + commit to maintain audit trail
     if let Ok(rel) = git_rel_path(&file_path, &repo_root) {
         let git_ok = run_git(&["rm", "--force", &rel], &repo_root)
             .and_then(|_| {
-                let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                run_git(&["commit", "-m", &format!("chore: delete {name}")], &repo_root)
-            }).is_ok();
+                let name = file_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                run_git(
+                    &["commit", "-m", &format!("chore: delete {name}")],
+                    &repo_root,
+                )
+            })
+            .is_ok();
 
         if git_ok {
             return serde_json::json!({ "ok": true, "method": "git" });
@@ -1469,17 +1771,31 @@ fn archive_memory_file(path: String) -> serde_json::Value {
     let archive_dir = repo_root.join("memory").join(".archive");
     let _ = std::fs::create_dir_all(&archive_dir);
 
-    let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-    let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("md");
+    let stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    let ext = file_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("md");
     let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let archive_name = format!("{}-{}.{}", stem, secs, ext);
     let archive_path = archive_dir.join(&archive_name);
 
     // Remove from vector index
     if let Ok(conn) = open_index_db() {
-        let _ = conn.execute("DELETE FROM brain_vectors WHERE file_path = ?1", rusqlite::params![&file_path_str]);
-        let _ = conn.execute("DELETE FROM pending_index WHERE file_path = ?1", rusqlite::params![&file_path_str]);
+        let _ = conn.execute(
+            "DELETE FROM brain_vectors WHERE file_path = ?1",
+            rusqlite::params![&file_path_str],
+        );
+        let _ = conn.execute(
+            "DELETE FROM pending_index WHERE file_path = ?1",
+            rusqlite::params![&file_path_str],
+        );
     }
 
     if std::fs::rename(&file_path, &archive_path).is_err() {
@@ -1492,10 +1808,17 @@ fn archive_memory_file(path: String) -> serde_json::Value {
 
     let archive_str = archive_path.to_string_lossy().to_string();
     let _ = run_git(&["add", "-A"], &repo_root);
-    let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let commit_out = run_git(&["commit", "-m", &format!("archive: {name}")], &repo_root)
-        .unwrap_or_default();
-    let commit_hash = commit_out.lines().find(|l| l.starts_with('[')).map(|l| l.to_string());
+    let name = file_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let commit_out =
+        run_git(&["commit", "-m", &format!("archive: {name}")], &repo_root).unwrap_or_default();
+    let commit_hash = commit_out
+        .lines()
+        .find(|l| l.starts_with('['))
+        .map(|l| l.to_string());
 
     serde_json::json!({ "ok": true, "archive_path": archive_str, "commit": commit_hash })
 }
@@ -1511,9 +1834,15 @@ fn restore_archived_file(archive_path: String, original_path: String) -> serde_j
 
     let dest = if original_path.is_empty() {
         // Fallback: strip timestamp suffix, restore to memos/
-        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("restored");
+        let stem = src
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("restored");
         let clean_stem = stem.rsplit_once('-').map(|(s, _)| s).unwrap_or(stem);
-        repo_root.join("memory").join("memos").join(format!("{}.md", clean_stem))
+        repo_root
+            .join("memory")
+            .join("memos")
+            .join(format!("{}.md", clean_stem))
     } else {
         match knowledge_path_from_input(&original_path) {
             Ok(p) => p,
@@ -1537,10 +1866,17 @@ fn restore_archived_file(archive_path: String, original_path: String) -> serde_j
     }
 
     let _ = run_git(&["add", "-A"], &repo_root);
-    let name = dest.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let commit_out = run_git(&["commit", "-m", &format!("restore: {name}")], &repo_root)
-        .unwrap_or_default();
-    let commit_hash = commit_out.lines().find(|l| l.starts_with('[')).map(|l| l.to_string());
+    let name = dest
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let commit_out =
+        run_git(&["commit", "-m", &format!("restore: {name}")], &repo_root).unwrap_or_default();
+    let commit_hash = commit_out
+        .lines()
+        .find(|l| l.starts_with('['))
+        .map(|l| l.to_string());
 
     serde_json::json!({ "ok": true, "restored_path": dest.to_string_lossy(), "commit": commit_hash })
 }
@@ -1548,8 +1884,12 @@ fn restore_archived_file(archive_path: String, original_path: String) -> serde_j
 #[tauri::command]
 fn read_dream_log() -> serde_json::Value {
     let log_path = knowledge_root()
-        .join("workspace").join(".dream_logs").join("latest.json");
-    if !log_path.exists() { return serde_json::json!({ "exists": false }); }
+        .join("workspace")
+        .join(".dream_logs")
+        .join("latest.json");
+    if !log_path.exists() {
+        return serde_json::json!({ "exists": false });
+    }
     match std::fs::read_to_string(&log_path) {
         Ok(s) => match serde_json::from_str::<serde_json::Value>(&s) {
             Ok(v) => serde_json::json!({ "exists": true, "log": v }),
@@ -1564,7 +1904,10 @@ fn write_dream_log(log: serde_json::Value) -> serde_json::Value {
     let log_dir = knowledge_root().join("workspace").join(".dream_logs");
     let _ = std::fs::create_dir_all(&log_dir);
     let log_path = log_dir.join("latest.json");
-    match std::fs::write(&log_path, serde_json::to_string_pretty(&log).unwrap_or_default()) {
+    match std::fs::write(
+        &log_path,
+        serde_json::to_string_pretty(&log).unwrap_or_default(),
+    ) {
         Ok(_) => serde_json::json!({ "ok": true }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
     }
@@ -1573,28 +1916,40 @@ fn write_dream_log(log: serde_json::Value) -> serde_json::Value {
 #[tauri::command]
 fn list_archive_files() -> serde_json::Value {
     let archive_dir = knowledge_root().join("memory").join(".archive");
-    if !archive_dir.exists() { return serde_json::json!({ "files": [] }); }
+    if !archive_dir.exists() {
+        return serde_json::json!({ "files": [] });
+    }
 
     let mut files: Vec<serde_json::Value> = match std::fs::read_dir(&archive_dir) {
-        Ok(entries) => entries.flatten().filter_map(|e| {
-            let path = e.path();
-            if !path.is_file() { return None; }
-            let name = path.file_name()?.to_string_lossy().to_string();
-            let modified_secs = path.metadata().ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs()).unwrap_or(0);
-            Some(serde_json::json!({
-                "name": name,
-                "path": path.to_string_lossy(),
-                "modified_secs": modified_secs
-            }))
-        }).collect(),
+        Ok(entries) => entries
+            .flatten()
+            .filter_map(|e| {
+                let path = e.path();
+                if !path.is_file() {
+                    return None;
+                }
+                let name = path.file_name()?.to_string_lossy().to_string();
+                let modified_secs = path
+                    .metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                Some(serde_json::json!({
+                    "name": name,
+                    "path": path.to_string_lossy(),
+                    "modified_secs": modified_secs
+                }))
+            })
+            .collect(),
         Err(_) => vec![],
     };
 
     files.sort_by(|a, b| {
-        b["modified_secs"].as_u64().unwrap_or(0)
+        b["modified_secs"]
+            .as_u64()
+            .unwrap_or(0)
             .cmp(&a["modified_secs"].as_u64().unwrap_or(0))
     });
 
@@ -1602,17 +1957,29 @@ fn list_archive_files() -> serde_json::Value {
 }
 
 fn collect_knowledge_files(dir: &Path, files: &mut Vec<serde_json::Value>, skip_tasks: bool) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return; };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') { continue; }
+        if name.starts_with('.') {
+            continue;
+        }
         if path.is_dir() {
-            if name == ".archive" { continue; }
+            if name == ".archive" {
+                continue;
+            }
             collect_knowledge_files(&path, files, skip_tasks);
-        } else if matches!(path.extension().and_then(|s| s.to_str()), Some("md") | Some("txt")) {
-            if skip_tasks && name == "tasks.md" { continue; }
-            let display_name = path.file_stem()
+        } else if matches!(
+            path.extension().and_then(|s| s.to_str()),
+            Some("md") | Some("txt")
+        ) {
+            if skip_tasks && name == "tasks.md" {
+                continue;
+            }
+            let display_name = path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or(&name)
                 .to_string();
@@ -1633,7 +2000,9 @@ fn list_agent_memory_files(agent_id: String) -> serde_json::Value {
     let mut files = Vec::new();
     collect_knowledge_files(&dir, &mut files, true);
     files.sort_by(|a, b| {
-        b["name"].as_str().unwrap_or("")
+        b["name"]
+            .as_str()
+            .unwrap_or("")
             .cmp(a["name"].as_str().unwrap_or(""))
     });
     serde_json::json!({ "files": files })
@@ -1645,7 +2014,9 @@ fn list_library_files() -> serde_json::Value {
     let mut files = Vec::new();
     collect_knowledge_files(&dir, &mut files, false);
     files.sort_by(|a, b| {
-        b["name"].as_str().unwrap_or("")
+        b["name"]
+            .as_str()
+            .unwrap_or("")
             .cmp(a["name"].as_str().unwrap_or(""))
     });
     serde_json::json!({ "files": files })
@@ -1693,9 +2064,16 @@ fn read_dir_sorted(dir: &Path, rel_root: &Path) -> Result<Vec<serde_json::Value>
         .map(|e| entry_json(&e, rel_root))
         .collect();
     entries.sort_by(|a, b| {
-        let (ad, bd) = (a["isDir"].as_bool().unwrap_or(false), b["isDir"].as_bool().unwrap_or(false));
+        let (ad, bd) = (
+            a["isDir"].as_bool().unwrap_or(false),
+            b["isDir"].as_bool().unwrap_or(false),
+        );
         bd.cmp(&ad).then_with(|| {
-            a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
+            a["name"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase()
+                .cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
         })
     });
     Ok(entries)
@@ -1716,7 +2094,9 @@ fn fs_list(path: Option<String>) -> serde_json::Value {
         Err(e) => return serde_json::json!({ "ok": false, "error": e, "entries": [] }),
     };
     match read_dir_sorted(&dir, &workspace_root()) {
-        Ok(entries) => serde_json::json!({ "ok": true, "entries": entries, "root": workspace_root().to_string_lossy() }),
+        Ok(entries) => {
+            serde_json::json!({ "ok": true, "entries": entries, "root": workspace_root().to_string_lossy() })
+        }
         Err(e) => serde_json::json!({ "ok": false, "error": e, "entries": [] }),
     }
 }
@@ -1796,7 +2176,11 @@ fn fs_move(from: String, to: String) -> serde_json::Value {
     }
     match std::fs::rename(&src, &dst) {
         Ok(_) => {
-            commit_workspace(&format!("workspace: move {} -> {}", workspace_rel(&src), workspace_rel(&dst)));
+            commit_workspace(&format!(
+                "workspace: move {} -> {}",
+                workspace_rel(&src),
+                workspace_rel(&dst)
+            ));
             serde_json::json!({ "ok": true, "path": workspace_rel(&dst) })
         }
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
@@ -1832,9 +2216,19 @@ fn fs_probe_context(path: String) -> serde_json::Value {
     let mut dir = if p.is_dir() {
         p.clone()
     } else {
-        p.parent().map(|x| x.to_path_buf()).unwrap_or_else(|| p.clone())
+        p.parent()
+            .map(|x| x.to_path_buf())
+            .unwrap_or_else(|| p.clone())
     };
-    const MARKERS: [&str; 7] = [".git", "package.json", "Cargo.toml", "pyproject.toml", "go.mod", ".hg", ".svn"];
+    const MARKERS: [&str; 7] = [
+        ".git",
+        "package.json",
+        "Cargo.toml",
+        "pyproject.toml",
+        "go.mod",
+        ".hg",
+        ".svn",
+    ];
     loop {
         for marker in MARKERS.iter() {
             if dir.join(marker).exists() {
@@ -1903,7 +2297,11 @@ fn fs_delete_external(webview: tauri::Webview, path: String) -> serde_json::Valu
         return serde_json::json!({ "ok": false, "error": e });
     }
     let p = PathBuf::from(&path);
-    let result = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+    let result = if p.is_dir() {
+        std::fs::remove_dir_all(&p)
+    } else {
+        std::fs::remove_file(&p)
+    };
     match result {
         Ok(_) => serde_json::json!({ "ok": true }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
@@ -1919,7 +2317,11 @@ fn fs_reveal(webview: tauri::Webview, path: String) -> serde_json::Value {
     if let Err(e) = ensure_trusted_caller(&webview) {
         return serde_json::json!({ "ok": false, "error": e });
     }
-    match std::process::Command::new("open").arg("-R").arg(&path).spawn() {
+    match std::process::Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .spawn()
+    {
         Ok(_) => serde_json::json!({ "ok": true }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
     }
@@ -1955,7 +2357,9 @@ fn run_command(webview: tauri::Webview, command: String, cwd: String) -> serde_j
             "stdout": String::from_utf8_lossy(&out.stdout),
             "stderr": String::from_utf8_lossy(&out.stderr),
         }),
-        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string(), "stdout": "", "stderr": "" }),
+        Err(e) => {
+            serde_json::json!({ "ok": false, "error": e.to_string(), "stdout": "", "stderr": "" })
+        }
     }
 }
 
@@ -1998,7 +2402,9 @@ fn run_osascript(script: &str) -> Option<String> {
         .args(["-e", script])
         .output()
         .ok()?;
-    if !output.status.success() { return None; }
+    if !output.status.success() {
+        return None;
+    }
     Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -2015,12 +2421,15 @@ fn strip_html(html: &str) -> String {
             match lower.find(&open_pat) {
                 None => break,
                 Some(start) => match lower[start..].find(&close_pat) {
-                    None => { work.replace_range(start.., ""); break; }
+                    None => {
+                        work.replace_range(start.., "");
+                        break;
+                    }
                     Some(rel_end) => {
                         let end = start + rel_end + close_pat.len();
                         work.replace_range(start..end, " ");
                     }
-                }
+                },
             }
         }
     }
@@ -2029,14 +2438,21 @@ fn strip_html(html: &str) -> String {
     for c in work.chars() {
         match c {
             '<' => in_tag = true,
-            '>' => { in_tag = false; out.push(' '); }
+            '>' => {
+                in_tag = false;
+                out.push(' ');
+            }
             _ if !in_tag => out.push(c),
             _ => {}
         }
     }
     let decoded = out
-        .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-        .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ");
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
     decoded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -2045,11 +2461,21 @@ fn is_challenge_page(text: &str) -> bool {
     let lower = text.to_lowercase();
     // Cloudflare, Amazon WAF, generic bot-detection markers
     let markers = [
-        "just a moment", "checking your browser", "enable javascript and cookies",
-        "ddos protection by cloudflare", "ray id:", "please verify you are a human",
-        "access denied", "403 forbidden", "attention required!", "sorry, you have been blocked",
-        "your request has been blocked", "security check", "prove you are human",
-        "cf-ray", "cloudflare to restrict access",
+        "just a moment",
+        "checking your browser",
+        "enable javascript and cookies",
+        "ddos protection by cloudflare",
+        "ray id:",
+        "please verify you are a human",
+        "access denied",
+        "403 forbidden",
+        "attention required!",
+        "sorry, you have been blocked",
+        "your request has been blocked",
+        "security check",
+        "prove you are human",
+        "cf-ray",
+        "cloudflare to restrict access",
     ];
     markers.iter().any(|m| lower.contains(m))
 }
@@ -2057,7 +2483,9 @@ fn is_challenge_page(text: &str) -> bool {
 /// Fetches a URL with curl and returns stripped plain text.
 /// Used as fallback when browser JS extraction is unavailable.
 fn fetch_url_text(url: &str) -> Option<String> {
-    if !url.starts_with("http") { return None; }
+    if !url.starts_with("http") {
+        return None;
+    }
     let output = std::process::Command::new("curl")
         .args([
             "-s", "-L",
@@ -2069,11 +2497,15 @@ fn fetch_url_text(url: &str) -> Option<String> {
         ])
         .output()
         .ok()?;
-    if !output.status.success() { return None; }
+    if !output.status.success() {
+        return None;
+    }
     let html = String::from_utf8_lossy(&output.stdout);
     let text = strip_html(&html);
     let trimmed = text.trim().to_string();
-    if trimmed.is_empty() { return None; }
+    if trimmed.is_empty() {
+        return None;
+    }
     // Detect bot-protection challenge pages — return a note instead of garbage
     if is_challenge_page(&trimmed) {
         return Some("[This page is protected by a bot-detection challenge (e.g. Cloudflare). Page content could not be read automatically. To enable content reading from protected pages, go to Chrome → View → Developer → Allow JavaScript from Apple Events.]".to_string());
@@ -2092,7 +2524,9 @@ return t & "|||URL|||" & u"#;
     let raw = run_osascript(chrome_info)?;
     let (title, url) = raw.split_once("|||URL|||")?;
     let url = url.trim().to_string();
-    if url.is_empty() { return None; }
+    if url.is_empty() {
+        return None;
+    }
     let title = title.trim().to_string();
     let chrome_text = r#"tell application "Google Chrome"
     set txt to execute active tab of front window javascript "(function(){var s=document.querySelector('article')||document.querySelector('[role=\"main\"]')||document.querySelector('main')||document.querySelector('#main-content')||document.body;return s.innerText.substring(0,12000);})()"
@@ -2115,7 +2549,9 @@ return t & "|||URL|||" & u"#;
     let raw = run_osascript(safari_info)?;
     let (title, url) = raw.split_once("|||URL|||")?;
     let url = url.trim().to_string();
-    if url.is_empty() { return None; }
+    if url.is_empty() {
+        return None;
+    }
     let title = title.trim().to_string();
     let safari_js = r#"tell application "Safari"
     set txt to do JavaScript "(function(){var s=document.querySelector('article')||document.querySelector('[role=\"main\"]')||document.querySelector('main')||document.querySelector('#main-content')||document.body;return s.innerText.substring(0,12000);})()" in current tab of front window
@@ -2162,7 +2598,8 @@ fn get_active_tab(cache: tauri::State<TabCache>, preferred: Option<String>) -> s
     if let Some(cached) = cache.0.lock().unwrap_or_else(|e| e.into_inner()).take() {
         let cached_browser = cached.get("browser").and_then(|b| b.as_str()).unwrap_or("");
         let pref = preferred.as_deref().unwrap_or("auto");
-        if pref == "auto" || pref.is_empty() || cached_browser == pref || cached_browser.is_empty() {
+        if pref == "auto" || pref.is_empty() || cached_browser == pref || cached_browser.is_empty()
+        {
             return cached;
         }
     }
@@ -2185,7 +2622,10 @@ fn dock_spotlight_right(w: &tauri::WebviewWindow) {
         let work_y = area.position.y as f64 / scale;
         let panel_w = 400.0_f64;
         let _ = w.set_size(tauri::LogicalSize::new(panel_w, work_h.max(320.0)));
-        let _ = w.set_position(tauri::LogicalPosition::new(work_x + work_w - panel_w, work_y));
+        let _ = w.set_position(tauri::LogicalPosition::new(
+            work_x + work_w - panel_w,
+            work_y,
+        ));
     }
 }
 
@@ -2219,7 +2659,8 @@ fn relay_env_path() -> std::path::PathBuf {
 fn relay_plist_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     std::path::PathBuf::from(home)
-        .join("Library").join("LaunchAgents")
+        .join("Library")
+        .join("LaunchAgents")
         .join("com.agentforge.relay.plist")
 }
 
@@ -2237,23 +2678,43 @@ fn gen_token() -> String {
             .as_nanos() as u64;
         seed ^= std::process::id() as u64 * 0x9e3779b97f4a7c15;
         for chunk in buf.chunks_mut(8) {
-            seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
             let bytes = seed.to_le_bytes();
-            for (i, b) in chunk.iter_mut().enumerate() { *b = bytes[i % 8]; }
+            for (i, b) in chunk.iter_mut().enumerate() {
+                *b = bytes[i % 8];
+            }
         }
     }
     buf.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 fn sanitize_instance_id(s: &str) -> String {
     let lower = s.to_lowercase();
-    let replaced: String = lower.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    let replaced: String = lower
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
     let trimmed = replaced.trim_matches('-').to_string();
-    if trimmed.is_empty() { "agent-forge-local".to_string() } else { trimmed[..trimmed.len().min(80)].to_string() }
+    if trimmed.is_empty() {
+        "agent-forge-local".to_string()
+    } else {
+        trimmed[..trimmed.len().min(80)].to_string()
+    }
 }
 
 fn find_node_bin() -> Option<String> {
@@ -2265,14 +2726,20 @@ fn find_node_bin() -> Option<String> {
         "/usr/bin/node",
     ];
     for candidate in &candidates {
-        let output = std::process::Command::new("sh").args(["-c", &format!("command -v {}", candidate)]).output();
+        let output = std::process::Command::new("sh")
+            .args(["-c", &format!("command -v {}", candidate)])
+            .output();
         if let Ok(out) = output {
             if out.status.success() {
                 let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !path.is_empty() { return Some(path); }
+                if !path.is_empty() {
+                    return Some(path);
+                }
             }
         }
-        if std::path::Path::new(candidate).exists() { return Some(candidate.to_string()); }
+        if std::path::Path::new(candidate).exists() {
+            return Some(candidate.to_string());
+        }
     }
     None
 }
@@ -2284,7 +2751,8 @@ fn parse_relay_tokens(env_content: &str) -> Vec<(String, String, String, String,
         let line = line.trim();
         if line.starts_with("FORGE_RELAY_TOKENS=") {
             let val = &line["FORGE_RELAY_TOKENS=".len()..];
-            return val.split(',')
+            return val
+                .split(',')
                 .filter_map(|entry| {
                     let parts: Vec<&str> = entry.splitn(5, ':').collect();
                     if parts.len() >= 3 {
@@ -2295,8 +2763,12 @@ fn parse_relay_tokens(env_content: &str) -> Vec<(String, String, String, String,
                         let share_id = parts.get(4).unwrap_or(&"").trim().to_string();
                         if !owner_id.is_empty() && !token.is_empty() {
                             Some((owner_id, owner_label, token, instance_id, share_id))
-                        } else { None }
-                    } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
         }
@@ -2319,12 +2791,16 @@ fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
     // Find node
     let node_bin = match find_node_bin() {
         Some(n) => n,
-        None => return serde_json::json!({ "ok": false, "error": "Node.js not found. Please install Node.js from https://nodejs.org and try again." }),
+        None => {
+            return serde_json::json!({ "ok": false, "error": "Node.js not found. Please install Node.js from https://nodejs.org and try again." })
+        }
     };
 
     // Find relay script — try resource dir (production), then walk up from exe (dev mode)
     let relay_script = {
-        let from_resource = app.path().resource_dir()
+        let from_resource = app
+            .path()
+            .resource_dir()
             .ok()
             .map(|d| d.join("forge-relay.mjs"))
             .filter(|p| p.exists());
@@ -2333,12 +2809,18 @@ fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
             // dev: exe is at src-tauri/target/debug/agent-forge → go up 3 to project root
             let root = exe.parent()?.parent()?.parent()?.parent()?;
             let candidate = root.join("scripts").join("forge-relay.mjs");
-            if candidate.exists() { Some(candidate) } else { None }
+            if candidate.exists() {
+                Some(candidate)
+            } else {
+                None
+            }
         });
 
         match from_resource.or(from_exe) {
             Some(p) => p,
-            None => return serde_json::json!({ "ok": false, "error": "Could not locate forge-relay.mjs. Make sure the app was built correctly." }),
+            None => {
+                return serde_json::json!({ "ok": false, "error": "Could not locate forge-relay.mjs. Make sure the app was built correctly." })
+            }
         }
     };
 
@@ -2346,7 +2828,10 @@ fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
     let plist_path = relay_plist_path();
     let log_dir = {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        std::path::PathBuf::from(home).join("Library").join("Logs").join("AgentForge")
+        std::path::PathBuf::from(home)
+            .join("Library")
+            .join("Logs")
+            .join("AgentForge")
     };
 
     // Generate env file if it doesn't exist
@@ -2354,7 +2839,8 @@ fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
         let pt = gen_token();
         let tt = gen_token();
         let at = gen_token();
-        let hostname = std::process::Command::new("hostname").output()
+        let hostname = std::process::Command::new("hostname")
+            .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_else(|_| "local".to_string());
         let iid = sanitize_instance_id(&format!("agent-forge-{}", hostname));
@@ -2376,8 +2862,12 @@ fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
         let owners = parse_relay_tokens(&content);
         let pt = owners.first().map(|o| o.2.clone()).unwrap_or_default();
         let tt = owners.get(1).map(|o| o.2.clone()).unwrap_or_default();
-        let at = parse_env_value(&content, "FORGE_RELAY_ADMIN_TOKEN").unwrap_or("").to_string();
-        let iid = parse_env_value(&content, "FORGE_RELAY_INSTANCE_ID").unwrap_or("agent-forge-local").to_string();
+        let at = parse_env_value(&content, "FORGE_RELAY_ADMIN_TOKEN")
+            .unwrap_or("")
+            .to_string();
+        let iid = parse_env_value(&content, "FORGE_RELAY_INSTANCE_ID")
+            .unwrap_or("agent-forge-local")
+            .to_string();
         (pt, tt, at, iid)
     };
 
@@ -2393,13 +2883,16 @@ fn setup_relay(app: tauri::AppHandle) -> serde_json::Value {
     let mut env_pairs = String::new();
     for line in env_content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         if let Some(eq_pos) = line.find('=') {
             let key = &line[..eq_pos];
             let val = &line[eq_pos + 1..];
             env_pairs.push_str(&format!(
                 "    <key>{}</key>\n    <string>{}</string>\n",
-                xml_escape(key), xml_escape(val)
+                xml_escape(key),
+                xml_escape(val)
             ));
         }
     }
@@ -2478,8 +2971,12 @@ fn get_relay_status() -> serde_json::Value {
 
     if installed {
         if let Ok(content) = std::fs::read_to_string(&env_path) {
-            instance_id = parse_env_value(&content, "FORGE_RELAY_INSTANCE_ID").unwrap_or("").to_string();
-            admin_token = parse_env_value(&content, "FORGE_RELAY_ADMIN_TOKEN").unwrap_or("").to_string();
+            instance_id = parse_env_value(&content, "FORGE_RELAY_INSTANCE_ID")
+                .unwrap_or("")
+                .to_string();
+            admin_token = parse_env_value(&content, "FORGE_RELAY_ADMIN_TOKEN")
+                .unwrap_or("")
+                .to_string();
             for (oid, olabel, token, iid, sid) in parse_relay_tokens(&content) {
                 owners.push(serde_json::json!({ "id": oid, "label": olabel, "token": token, "instanceId": iid, "shareId": sid }));
             }
@@ -2517,10 +3014,11 @@ fn check_relay_health() -> bool {
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::Duration;
-    let Ok(mut stream) = TcpStream::connect_timeout(
-        &"127.0.0.1:8765".parse().unwrap(),
-        Duration::from_secs(1),
-    ) else { return false; };
+    let Ok(mut stream) =
+        TcpStream::connect_timeout(&"127.0.0.1:8765".parse().unwrap(), Duration::from_secs(1))
+    else {
+        return false;
+    };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = write!(stream, "GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n");
     let mut buf = [0u8; 256];
@@ -2536,8 +3034,16 @@ fn get_tailscale_hostname() -> Option<String> {
     let output = std::process::Command::new("tailscale")
         .args(["status", "--json"])
         .output()
-        .or_else(|_| std::process::Command::new("/usr/local/bin/tailscale").args(["status", "--json"]).output())
-        .or_else(|_| std::process::Command::new("/opt/homebrew/bin/tailscale").args(["status", "--json"]).output());
+        .or_else(|_| {
+            std::process::Command::new("/usr/local/bin/tailscale")
+                .args(["status", "--json"])
+                .output()
+        })
+        .or_else(|_| {
+            std::process::Command::new("/opt/homebrew/bin/tailscale")
+                .args(["status", "--json"])
+                .output()
+        });
     if let Ok(out) = output {
         if out.status.success() {
             let json_str = String::from_utf8_lossy(&out.stdout);
@@ -2545,7 +3051,9 @@ fn get_tailscale_hostname() -> Option<String> {
                 // Try Self.DNSName first (MagicDNS)
                 if let Some(dns) = v.pointer("/Self/DNSName").and_then(|v| v.as_str()) {
                     let trimmed = dns.trim_end_matches('.');
-                    if !trimmed.is_empty() { return Some(trimmed.to_string()); }
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
                 }
                 // Fall back to Self.TailscaleIPs[0]
                 if let Some(ip) = v.pointer("/Self/TailscaleIPs/0").and_then(|v| v.as_str()) {
@@ -2561,15 +3069,14 @@ fn get_tailscale_hostname() -> Option<String> {
 
 fn inbox_raw_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    std::path::PathBuf::from(home).join("AgentForge").join("inbox").join("raw")
+    std::path::PathBuf::from(home)
+        .join("AgentForge")
+        .join("inbox")
+        .join("raw")
 }
 
 fn is_safe_capture_component(s: &str) -> bool {
-    !s.is_empty()
-        && !s.contains('/')
-        && !s.contains('\\')
-        && !s.contains("..")
-        && s != "."
+    !s.is_empty() && !s.contains('/') && !s.contains('\\') && !s.contains("..") && s != "."
 }
 
 #[tauri::command]
@@ -2623,7 +3130,11 @@ fn create_inbox_capture(payload: serde_json::Value) -> serde_json::Value {
         return serde_json::json!({ "ok": false, "error": "invalid ownerId" });
     }
     // Use provided id or generate one from timestamp + random suffix
-    let capture_id = match payload.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+    let capture_id = match payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
         Some(id) => id.to_string(),
         None => {
             let ts = std::time::SystemTime::now()
@@ -2676,11 +3187,18 @@ fn create_inbox_capture(payload: serde_json::Value) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn update_inbox_capture(owner_id: String, capture_id: String, patch: serde_json::Value) -> serde_json::Value {
+fn update_inbox_capture(
+    owner_id: String,
+    capture_id: String,
+    patch: serde_json::Value,
+) -> serde_json::Value {
     if !is_safe_capture_component(&owner_id) || !is_safe_capture_component(&capture_id) {
         return serde_json::json!({ "ok": false, "error": "invalid owner or capture id" });
     }
-    let manifest_path = inbox_raw_path().join(&owner_id).join(&capture_id).join("manifest.json");
+    let manifest_path = inbox_raw_path()
+        .join(&owner_id)
+        .join(&capture_id)
+        .join("manifest.json");
     if !manifest_path.exists() {
         return serde_json::json!({ "ok": false, "error": "capture not found" });
     }
@@ -2716,7 +3234,11 @@ fn update_inbox_capture(owner_id: String, capture_id: String, patch: serde_json:
 }
 
 #[tauri::command]
-fn read_inbox_attachment(owner_id: String, capture_id: String, filename: String) -> serde_json::Value {
+fn read_inbox_attachment(
+    owner_id: String,
+    capture_id: String,
+    filename: String,
+) -> serde_json::Value {
     if !is_safe_capture_component(&owner_id)
         || !is_safe_capture_component(&capture_id)
         || !is_safe_capture_component(&filename)
@@ -2731,7 +3253,13 @@ fn read_inbox_attachment(owner_id: String, capture_id: String, filename: String)
     match std::fs::read(&path) {
         Ok(bytes) => {
             // Determine a basic mime type from extension
-            let mime = match path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str() {
+            let mime = match path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase()
+                .as_str()
+            {
                 "jpg" | "jpeg" => "image/jpeg",
                 "png" => "image/png",
                 "gif" => "image/gif",
@@ -2804,14 +3332,18 @@ fn set_network_active(
             iid_b, name_b
         );
         loop {
-            if stop_b.load(Ordering::SeqCst) { return; }
+            if stop_b.load(Ordering::SeqCst) {
+                return;
+            }
             let _ = std::net::UdpSocket::bind("0.0.0.0:0").and_then(|s| {
                 s.set_broadcast(true)?;
                 s.send_to(hb.as_bytes(), "255.255.255.255:47321")
             });
             // Sleep 15s in 100ms increments to stay responsive to stop signal
             for _ in 0..150 {
-                if stop_b.load(Ordering::SeqCst) { return; }
+                if stop_b.load(Ordering::SeqCst) {
+                    return;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
@@ -2831,16 +3363,23 @@ fn set_network_active(
         while !stop_l.load(Ordering::SeqCst) {
             let (n, addr) = match sock.recv_from(&mut buf) {
                 Ok(r) => r,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut => continue,
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    continue
+                }
                 Err(_) => continue,
             };
             let msg = String::from_utf8_lossy(&buf[..n]);
             let v: serde_json::Value = match serde_json::from_str(&msg) {
-                Ok(v) => v, Err(_) => continue,
+                Ok(v) => v,
+                Err(_) => continue,
             };
             let id = v["id"].as_str().unwrap_or("").to_string();
-            if id.is_empty() || id == iid_l { continue; }
+            if id.is_empty() || id == iid_l {
+                continue;
+            }
             let typ = v["type"].as_str().unwrap_or("");
             let ip = addr.ip().to_string();
             let now = net_now_secs();
@@ -2850,9 +3389,14 @@ fn set_network_active(
             } else if typ == "heartbeat" {
                 let name = v["name"].as_str().unwrap_or("Unknown").to_string();
                 if let Some(e) = peers.iter_mut().find(|p| p.peer.id == id) {
-                    e.peer.name = name; e.peer.ip = ip; e.last_seen_secs = now;
+                    e.peer.name = name;
+                    e.peer.ip = ip;
+                    e.last_seen_secs = now;
                 } else {
-                    peers.push(PeerEntry { peer: NetworkPeer { id, name, ip }, last_seen_secs: now });
+                    peers.push(PeerEntry {
+                        peer: NetworkPeer { id, name, ip },
+                        last_seen_secs: now,
+                    });
                 }
             }
             // Expire peers older than 45s
@@ -2867,9 +3411,14 @@ fn set_network_active(
 #[tauri::command]
 fn get_network_peers(state: tauri::State<Mutex<NetworkState>>) -> Vec<NetworkPeer> {
     let ns = state.lock().unwrap_or_else(|e| e.into_inner());
-    if !ns.active { return vec![]; }
+    if !ns.active {
+        return vec![];
+    }
     let cutoff = net_now_secs().saturating_sub(45);
-    let result: Vec<NetworkPeer> = ns.peers.lock().unwrap_or_else(|e| e.into_inner())
+    let result: Vec<NetworkPeer> = ns
+        .peers
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
         .iter()
         .filter(|p| p.last_seen_secs >= cutoff)
         .map(|p| p.peer.clone())
@@ -2901,8 +3450,14 @@ fn list_gguf_models() -> Vec<GgufModel> {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.ends_with(".gguf") {
-                let size_mb = entry.metadata().map(|m| m.len() / (1024 * 1024)).unwrap_or(0);
-                result.push(GgufModel { filename: name, size_mb });
+                let size_mb = entry
+                    .metadata()
+                    .map(|m| m.len() / (1024 * 1024))
+                    .unwrap_or(0);
+                result.push(GgufModel {
+                    filename: name,
+                    size_mb,
+                });
             }
         }
     }
@@ -2948,7 +3503,10 @@ async fn download_model(
 
     // Already downloaded — hand back the existing file instead of fetching it again.
     if final_path.exists() {
-        return final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string());
+        return final_path
+            .to_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Path error".to_string());
     }
 
     // Refuse to start a second concurrent download of the same file.
@@ -2959,10 +3517,19 @@ async fn download_model(
         }
     }
     // Frees the active slot on every return path below.
-    let _active_guard = ActiveGuard { set: &dl_state.active, name: filename.clone() };
+    let _active_guard = ActiveGuard {
+        set: &dl_state.active,
+        name: filename.clone(),
+    };
 
     // Clear any stale cancel flag
-    { dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename.clone(), false); }
+    {
+        dl_state
+            .cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(filename.clone(), false);
+    }
 
     let client = reqwest::Client::builder()
         .user_agent("AgentForge")
@@ -2979,7 +3546,13 @@ async fn download_model(
 
     loop {
         attempt += 1;
-        if *dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false) {
+        if *dl_state
+            .cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&filename)
+            .unwrap_or(&false)
+        {
             let _ = std::fs::remove_file(&part_path);
             return Err("cancelled".to_string());
         }
@@ -3005,7 +3578,10 @@ async fn download_model(
         // The .part already holds the whole file (Range starts at/after EOF).
         if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && resume_from > 0 {
             std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
-            return final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string());
+            return final_path
+                .to_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| "Path error".to_string());
         }
         if !status.is_success() {
             return Err(format!("HTTP {}", status));
@@ -3015,11 +3591,18 @@ async fn download_model(
         // it ignored it, so start the file fresh.
         let resuming = resume_from > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
         let body_len = response.content_length().unwrap_or(0);
-        let total = if resuming { resume_from + body_len } else { body_len };
+        let total = if resuming {
+            resume_from + body_len
+        } else {
+            body_len
+        };
         let mut downloaded: u64 = if resuming { resume_from } else { 0 };
 
         let mut file = if resuming {
-            std::fs::OpenOptions::new().append(true).open(&part_path).map_err(|e| e.to_string())?
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(&part_path)
+                .map_err(|e| e.to_string())?
         } else {
             std::fs::File::create(&part_path).map_err(|e| e.to_string())?
         };
@@ -3028,32 +3611,53 @@ async fn download_model(
         let mut interrupted = false;
 
         while let Some(chunk) = stream.next().await {
-            if *dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false) {
+            if *dl_state
+                .cancels
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&filename)
+                .unwrap_or(&false)
+            {
                 drop(file);
                 let _ = std::fs::remove_file(&part_path);
                 return Err("cancelled".to_string());
             }
             let chunk = match chunk {
                 Ok(c) => c,
-                Err(_) => { interrupted = true; break; } // connection dropped; resume next attempt
+                Err(_) => {
+                    interrupted = true;
+                    break;
+                } // connection dropped; resume next attempt
             };
             use std::io::Write;
             file.write_all(&chunk).map_err(|e| e.to_string())?;
             downloaded += chunk.len() as u64;
-            let pct = if total > 0 { (downloaded * 100 / total) as f64 } else { 0.0 };
-            let _ = app.emit("download-progress", serde_json::json!({
-                "filename": filename,
-                "pct": pct,
-                "downloaded_mb": downloaded as f64 / 1_048_576.0,
-                "total_mb": total as f64 / 1_048_576.0,
-            }));
+            let pct = if total > 0 {
+                (downloaded * 100 / total) as f64
+            } else {
+                0.0
+            };
+            let _ = app.emit(
+                "download-progress",
+                serde_json::json!({
+                    "filename": filename,
+                    "pct": pct,
+                    "downloaded_mb": downloaded as f64 / 1_048_576.0,
+                    "total_mb": total as f64 / 1_048_576.0,
+                }),
+            );
         }
 
         drop(file);
 
         if interrupted {
             if attempt < MAX_ATTEMPTS
-                && !*dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).get(&filename).unwrap_or(&false)
+                && !*dl_state
+                    .cancels
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(&filename)
+                    .unwrap_or(&false)
             {
                 tokio::time::sleep(std::time::Duration::from_secs(3 * attempt as u64)).await;
                 continue; // resume from the bytes just written
@@ -3062,13 +3666,20 @@ async fn download_model(
         }
 
         std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
-        return final_path.to_str().map(|s| s.to_string()).ok_or_else(|| "Path error".to_string());
+        return final_path
+            .to_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Path error".to_string());
     }
 }
 
 #[tauri::command]
 fn cancel_download(filename: String, dl_state: tauri::State<'_, DownloadState>) {
-    dl_state.cancels.lock().unwrap_or_else(|e| e.into_inner()).insert(filename, true);
+    dl_state
+        .cancels
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(filename, true);
 }
 
 #[tauri::command]
@@ -3095,15 +3706,15 @@ async fn start_local_model(
     let existing_pid = { *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) };
     if let Some(pid) = existing_pid {
         kill_llama(pid);
-        { *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = None; }
+        {
+            *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
     let sidecar_path = {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        exe.parent()
-            .ok_or("No parent dir")?
-            .join("llama-server")
+        exe.parent().ok_or("No parent dir")?.join("llama-server")
     };
 
     // Remember what we launched (on disk, so it survives app restarts): the engine can die
@@ -3122,11 +3733,16 @@ async fn start_local_model(
     );
 
     let mut server_args: Vec<String> = vec![
-        "-m".into(), model_path,
-        "--port".into(), port.to_string(),
-        "-c".into(), ctx_tokens.to_string(),
-        "--threads".into(), "4".into(),
-        "--host".into(), "127.0.0.1".into(),
+        "-m".into(),
+        model_path,
+        "--port".into(),
+        port.to_string(),
+        "-c".into(),
+        ctx_tokens.to_string(),
+        "--threads".into(),
+        "4".into(),
+        "--host".into(),
+        "127.0.0.1".into(),
     ];
     if kv8bit.unwrap_or(false) {
         server_args.push("-ctk".into());
@@ -3155,7 +3771,8 @@ async fn start_local_model(
     // dies (e.g. it ran out of memory) so we don't wait the full window on a failure.
     let health_url = format!("http://127.0.0.1:{}/health", port);
     let client = reqwest::Client::new();
-    for _ in 0..1200 { // up to ~10 minutes (1200 × 500ms)
+    for _ in 0..1200 {
+        // up to ~10 minutes (1200 × 500ms)
         if let Ok(Some(status)) = child.try_wait() {
             *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
             return Err(format!(
@@ -3190,7 +3807,10 @@ async fn revive_local_model(llama_state: tauri::State<'_, LlamaState>) -> Result
         serde_json::from_str(&raw).map_err(|e| format!("bad engine record: {e}"))?;
     let model_path = v["modelPath"].as_str().unwrap_or_default().to_string();
     let port = v["port"].as_u64().unwrap_or(8080) as u16;
-    let mmproj = v["mmprojPath"].as_str().map(str::to_string).filter(|s| !s.is_empty());
+    let mmproj = v["mmprojPath"]
+        .as_str()
+        .map(str::to_string)
+        .filter(|s| !s.is_empty());
     // Records from before ctxTokens existed launched at 32768 — reviving at the same
     // value keeps behavior identical for them.
     let ctx_tokens = v["ctxTokens"].as_u64().map(|c| c as u32);
@@ -3232,10 +3852,8 @@ fn extract_page_text(html: String, url: String, title: String) -> Result<String,
         .map_err(|e| format!("selector parse error: {e:?}"))?;
 
     // Collect all noise element IDs (ego_tree NodeId) so we can quickly test ancestry
-    let noise_ids: std::collections::HashSet<_> = document
-        .select(&noise_sel)
-        .map(|el| el.id())
-        .collect();
+    let noise_ids: std::collections::HashSet<_> =
+        document.select(&noise_sel).map(|el| el.id()).collect();
 
     // Walk every node; emit text only when none of its ancestors is a noise element
     let mut text_parts: Vec<String> = Vec::new();
@@ -3289,8 +3907,15 @@ fn check_page_is_private(html: String, url: String) -> bool {
     // URL-based signals
     let url_lower = url.to_lowercase();
     let private_url_patterns = [
-        "login", "signin", "sign-in", "auth", "/account", "/dashboard",
-        "/admin", "checkout", "/cart",
+        "login",
+        "signin",
+        "sign-in",
+        "auth",
+        "/account",
+        "/dashboard",
+        "/admin",
+        "checkout",
+        "/cart",
     ];
     if private_url_patterns.iter().any(|p| url_lower.contains(p)) {
         return true;
@@ -3305,9 +3930,15 @@ fn check_page_is_private(html: String, url: String) -> bool {
 
     // Common auth-wall indicators in the markup
     let auth_markers = [
-        "login-form", "signin-form", "id=\"login\"", "id=\"signin\"",
-        "class=\"login\"", "class=\"signin\"", "action=\"/login\"",
-        "action=\"/signin\"", "action=\"/auth\"",
+        "login-form",
+        "signin-form",
+        "id=\"login\"",
+        "id=\"signin\"",
+        "class=\"login\"",
+        "class=\"signin\"",
+        "action=\"/login\"",
+        "action=\"/signin\"",
+        "action=\"/auth\"",
     ];
     if auth_markers.iter().any(|m| html_lower.contains(m)) {
         return true;
@@ -3410,40 +4041,53 @@ async fn browser_create(
 }
 
 #[tauri::command]
-fn browser_navigate(caller: tauri::Webview, app: tauri::AppHandle, label: String, url: String) -> Result<(), String> {
+fn browser_navigate(
+    caller: tauri::Webview,
+    app: tauri::AppHandle,
+    label: String,
+    url: String,
+) -> Result<(), String> {
     ensure_trusted_caller(&caller)?;
     let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
-    let webview = app.get_webview(&label)
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     webview.navigate(parsed).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn browser_reload(app: tauri::AppHandle, label: String) -> Result<(), String> {
-    let webview = app.get_webview(&label)
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     webview.reload().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn browser_go_back(app: tauri::AppHandle, label: String) -> Result<(), String> {
-    let webview = app.get_webview(&label)
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     webview.eval("history.back()").map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn browser_go_forward(app: tauri::AppHandle, label: String) -> Result<(), String> {
-    let webview = app.get_webview(&label)
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     webview.eval("history.forward()").map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn browser_get_url(app: tauri::AppHandle, label: String) -> Result<String, String> {
-    let webview = app.get_webview(&label)
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
-    webview.url().map(|u| u.to_string()).map_err(|e| e.to_string())
+    webview
+        .url()
+        .map(|u| u.to_string())
+        .map_err(|e| e.to_string())
 }
 
 // ─── Caller-origin guard (defense in depth) ──────────────────────────────────
@@ -3473,14 +4117,27 @@ pub(crate) mod keychain_impl {
         use std::process::Command;
         let data = serde_json::json!({ "username": username, "password": password }).to_string();
         let out = Command::new("security")
-            .args(["add-generic-password", "-s", SERVICE, "-a", host, "-w", &data, "-U"])
+            .args([
+                "add-generic-password",
+                "-s",
+                SERVICE,
+                "-a",
+                host,
+                "-w",
+                &data,
+                "-U",
+            ])
             .output()
             .map_err(|e| e.to_string())?;
         if out.status.success() {
             Ok(())
         } else {
             let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            Err(if err.is_empty() { format!("exit {}", out.status.code().unwrap_or(-1)) } else { err })
+            Err(if err.is_empty() {
+                format!("exit {}", out.status.code().unwrap_or(-1))
+            } else {
+                err
+            })
         }
     }
 
@@ -3488,11 +4145,17 @@ pub(crate) mod keychain_impl {
         use std::process::Command;
         let out = Command::new("security")
             .args(["find-generic-password", "-s", SERVICE, "-a", host, "-w"])
-            .output().ok()?;
-        if !out.status.success() { return None; }
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
         let data = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let val: serde_json::Value = serde_json::from_str(&data).ok()?;
-        Some((val["username"].as_str()?.to_string(), val["password"].as_str()?.to_string()))
+        Some((
+            val["username"].as_str()?.to_string(),
+            val["password"].as_str()?.to_string(),
+        ))
     }
 
     pub fn delete(host: &str) -> Result<(), String> {
@@ -3505,7 +4168,12 @@ pub(crate) mod keychain_impl {
 }
 
 #[tauri::command]
-fn keychain_save(webview: tauri::Webview, host: String, username: String, password: String) -> serde_json::Value {
+fn keychain_save(
+    webview: tauri::Webview,
+    host: String,
+    username: String,
+    password: String,
+) -> serde_json::Value {
     if let Err(e) = ensure_trusted_caller(&webview) {
         return serde_json::json!({ "ok": false, "error": e });
     }
@@ -3517,7 +4185,9 @@ fn keychain_save(webview: tauri::Webview, host: String, username: String, passwo
         }
     }
     #[cfg(not(target_os = "macos"))]
-    { serde_json::json!({ "ok": false, "error": "macOS only" }) }
+    {
+        serde_json::json!({ "ok": false, "error": "macOS only" })
+    }
 }
 
 #[tauri::command]
@@ -3533,17 +4203,23 @@ fn keychain_get(webview: tauri::Webview, host: String) -> serde_json::Value {
         // server-side too.
         if host.starts_with("mail:") {
             return match keychain_impl::get(&host) {
-                Some((username, _password)) => serde_json::json!({ "ok": true, "username": username }),
+                Some((username, _password)) => {
+                    serde_json::json!({ "ok": true, "username": username })
+                }
                 None => serde_json::json!({ "ok": false }),
             };
         }
         match keychain_impl::get(&host) {
-            Some((username, password)) => serde_json::json!({ "ok": true, "username": username, "password": password }),
+            Some((username, password)) => {
+                serde_json::json!({ "ok": true, "username": username, "password": password })
+            }
             None => serde_json::json!({ "ok": false }),
         }
     }
     #[cfg(not(target_os = "macos"))]
-    { serde_json::json!({ "ok": false }) }
+    {
+        serde_json::json!({ "ok": false })
+    }
 }
 
 #[tauri::command]
@@ -3559,7 +4235,9 @@ fn keychain_delete(webview: tauri::Webview, host: String) -> serde_json::Value {
         }
     }
     #[cfg(not(target_os = "macos"))]
-    { serde_json::json!({ "ok": true }) }
+    {
+        serde_json::json!({ "ok": true })
+    }
 }
 
 #[tauri::command]
@@ -3576,12 +4254,16 @@ fn browser_password_event(
     username: Option<String>,
     password: Option<String>,
 ) -> Result<(), String> {
-    app.emit("browser:password-event", serde_json::json!({
-        "type": event_type,
-        "host": host,
-        "username": username,
-        "password": password,
-    })).map_err(|e| e.to_string())
+    app.emit(
+        "browser:password-event",
+        serde_json::json!({
+            "type": event_type,
+            "host": host,
+            "username": username,
+            "password": password,
+        }),
+    )
+    .map_err(|e| e.to_string())
 }
 
 // Return channel for the agentic browse loop. `browser_eval` is fire-and-forget — it can't hand a
@@ -3606,39 +4288,61 @@ fn browser_agent_report(app: tauri::AppHandle, payload: serde_json::Value) -> Re
 // authority and reveals nothing.
 #[tauri::command]
 fn browser_report_nav(app: tauri::AppHandle) -> Result<(), String> {
-    app.emit("browser:nav-changed", ()).map_err(|e| e.to_string())
+    app.emit("browser:nav-changed", ())
+        .map_err(|e| e.to_string())
 }
 
 // ─── Additional Browser Commands ─────────────────────────────────────────────
 
 #[tauri::command]
-fn browser_eval(caller: tauri::Webview, app: tauri::AppHandle, label: String, script: String) -> Result<(), String> {
+fn browser_eval(
+    caller: tauri::Webview,
+    app: tauri::AppHandle,
+    label: String,
+    script: String,
+) -> Result<(), String> {
     ensure_trusted_caller(&caller)?;
-    let webview = app.get_webview(&label)
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     webview.eval(&script).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn browser_find(app: tauri::AppHandle, label: String, query: String, forward: bool) -> Result<(), String> {
-    let webview = app.get_webview(&label)
+fn browser_find(
+    app: tauri::AppHandle,
+    label: String,
+    query: String,
+    forward: bool,
+) -> Result<(), String> {
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     let escaped = query.replace('\\', "\\\\").replace('\'', "\\'");
     let direction = if forward { "false" } else { "true" };
-    webview.eval(&format!("window.find('{}', false, {}, false)", escaped, direction))
+    webview
+        .eval(&format!(
+            "window.find('{}', false, {}, false)",
+            escaped, direction
+        ))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn browser_set_zoom(app: tauri::AppHandle, label: String, factor: f64) -> Result<(), String> {
-    let webview = app.get_webview(&label)
+    let webview = app
+        .get_webview(&label)
         .ok_or_else(|| format!("webview '{}' not found", label))?;
     let clamped = factor.clamp(0.25, 5.0);
     webview.set_zoom(clamped).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn browser_download_url(_app: tauri::AppHandle, url: String, filename: String) -> Result<String, String> {
+async fn browser_download_url(
+    _app: tauri::AppHandle,
+    url: String,
+    filename: String,
+) -> Result<String, String> {
     // SSRF: reject loopback/private/link-local hosts — this command is reachable from the remote
     // browser-panel, so a page must not be able to make the backend fetch internal endpoints.
     egress_host_allowed(&url)?;
@@ -3670,10 +4374,15 @@ async fn browser_download_url(_app: tauri::AppHandle, url: String, filename: Str
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let downloads = std::path::PathBuf::from(home).join("Downloads");
     let _ = std::fs::create_dir_all(&downloads);
-    let safe_name: String = filename.chars()
+    let safe_name: String = filename
+        .chars()
         .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_' || *c == ' ')
         .collect();
-    let name = if safe_name.trim().is_empty() { "download".to_string() } else { safe_name.trim().to_string() };
+    let name = if safe_name.trim().is_empty() {
+        "download".to_string()
+    } else {
+        safe_name.trim().to_string()
+    };
     let dest = downloads.join(&name);
     std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
     Ok(dest.to_string_lossy().to_string())
@@ -3743,9 +4452,11 @@ fn open_graph_db() -> Result<rusqlite::Connection, String> {
         CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_id);
         CREATE INDEX IF NOT EXISTS idx_graph_nodes_type   ON graph_nodes(node_type);",
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     // Enable cascade deletes via foreign keys
-    conn.execute_batch("PRAGMA foreign_keys = ON;").map_err(|e| e.to_string())?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|e| e.to_string())?;
     Ok(conn)
 }
 
@@ -3836,8 +4547,12 @@ fn get_graph_neighbors(node_id: String, max_depth: u32) -> Result<GraphSubgraph,
                 .flat_map(|(src, tgt)| {
                     let n = nid.clone();
                     let mut v = Vec::new();
-                    if src != n { v.push(src); }
-                    if tgt != n { v.push(tgt); }
+                    if src != n {
+                        v.push(src);
+                    }
+                    if tgt != n {
+                        v.push(tgt);
+                    }
                     v
                 })
                 .collect();
@@ -3852,7 +4567,10 @@ fn get_graph_neighbors(node_id: String, max_depth: u32) -> Result<GraphSubgraph,
 
     // Fetch all nodes in the visited set
     let node_ids: Vec<String> = visited_nodes.into_iter().collect();
-    let ph: String = (1..=node_ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
+    let ph: String = (1..=node_ids.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let node_sql = format!(
         "SELECT id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at
@@ -3862,14 +4580,14 @@ fn get_graph_neighbors(node_id: String, max_depth: u32) -> Result<GraphSubgraph,
     let nodes: Vec<GraphNode> = stmt
         .query_map(rusqlite::params_from_iter(node_ids.iter()), |row| {
             Ok(GraphNode {
-                id:            row.get(0)?,
-                node_type:     row.get(1)?,
-                label:         row.get(2)?,
-                source_url:    row.get(3)?,
-                source_path:   row.get(4)?,
+                id: row.get(0)?,
+                node_type: row.get(1)?,
+                label: row.get(2)?,
+                source_url: row.get(3)?,
+                source_path: row.get(4)?,
                 metadata_json: row.get(5)?,
-                created_at:    row.get(6)?,
-                updated_at:    row.get(7)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -3886,18 +4604,22 @@ fn get_graph_neighbors(node_id: String, max_depth: u32) -> Result<GraphSubgraph,
         "SELECT id, source_id, target_id, relation, weight, metadata_json, created_at
          FROM graph_edges WHERE source_id IN ({ph}) AND target_id IN ({ph2})"
     );
-    let combined_ids: Vec<String> = node_ids.iter().cloned().chain(node_ids.iter().cloned()).collect();
+    let combined_ids: Vec<String> = node_ids
+        .iter()
+        .cloned()
+        .chain(node_ids.iter().cloned())
+        .collect();
     let mut stmt2 = conn.prepare(&edge_sql).map_err(|e| e.to_string())?;
     let edges: Vec<GraphEdge> = stmt2
         .query_map(rusqlite::params_from_iter(combined_ids.iter()), |row| {
             Ok(GraphEdge {
-                id:            row.get(0)?,
-                source_id:     row.get(1)?,
-                target_id:     row.get(2)?,
-                relation:      row.get(3)?,
-                weight:        row.get(4)?,
+                id: row.get(0)?,
+                source_id: row.get(1)?,
+                target_id: row.get(2)?,
+                relation: row.get(3)?,
+                weight: row.get(4)?,
                 metadata_json: row.get(5)?,
-                created_at:    row.get(6)?,
+                created_at: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -3920,34 +4642,36 @@ fn get_graph_full() -> Result<GraphSubgraph, String> {
     let nodes: Vec<GraphNode> = stmt
         .query_map([], |row| {
             Ok(GraphNode {
-                id:            row.get(0)?,
-                node_type:     row.get(1)?,
-                label:         row.get(2)?,
-                source_url:    row.get(3)?,
-                source_path:   row.get(4)?,
+                id: row.get(0)?,
+                node_type: row.get(1)?,
+                label: row.get(2)?,
+                source_url: row.get(3)?,
+                source_path: row.get(4)?,
                 metadata_json: row.get(5)?,
-                created_at:    row.get(6)?,
-                updated_at:    row.get(7)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
 
-    let mut stmt2 = conn.prepare(
-        "SELECT id, source_id, target_id, relation, weight, metadata_json, created_at
+    let mut stmt2 = conn
+        .prepare(
+            "SELECT id, source_id, target_id, relation, weight, metadata_json, created_at
          FROM graph_edges",
-    ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     let edges: Vec<GraphEdge> = stmt2
         .query_map([], |row| {
             Ok(GraphEdge {
-                id:            row.get(0)?,
-                source_id:     row.get(1)?,
-                target_id:     row.get(2)?,
-                relation:      row.get(3)?,
-                weight:        row.get(4)?,
+                id: row.get(0)?,
+                source_id: row.get(1)?,
+                target_id: row.get(2)?,
+                relation: row.get(3)?,
+                weight: row.get(4)?,
                 metadata_json: row.get(5)?,
-                created_at:    row.get(6)?,
+                created_at: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -3969,14 +4693,16 @@ fn get_graph_stats() -> Result<GraphStats, String> {
         .query_row("SELECT COUNT(*) FROM graph_edges", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
 
-    let mut stmt = conn.prepare(
-        "SELECT n.id, n.label,
+    let mut stmt = conn
+        .prepare(
+            "SELECT n.id, n.label,
                 (SELECT COUNT(*) FROM graph_edges
                  WHERE source_id = n.id OR target_id = n.id) AS degree
          FROM graph_nodes n
          ORDER BY degree DESC
          LIMIT 10",
-    ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
 
     let most_connected: Vec<(String, String, i64)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
@@ -3984,14 +4710,21 @@ fn get_graph_stats() -> Result<GraphStats, String> {
         .filter_map(|r| r.ok())
         .collect();
 
-    Ok(GraphStats { node_count, edge_count, most_connected })
+    Ok(GraphStats {
+        node_count,
+        edge_count,
+        most_connected,
+    })
 }
 
 #[tauri::command]
 fn delete_graph_node(id: String) -> Result<(), String> {
     let conn = open_graph_db()?;
-    conn.execute("DELETE FROM graph_nodes WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM graph_nodes WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -4026,7 +4759,10 @@ struct GraphEdgeInput {
 }
 
 #[tauri::command]
-fn upsert_graph_batch(nodes: Vec<GraphNodeInput>, edges: Vec<GraphEdgeInput>) -> Result<(), String> {
+fn upsert_graph_batch(
+    nodes: Vec<GraphNodeInput>,
+    edges: Vec<GraphEdgeInput>,
+) -> Result<(), String> {
     let mut conn = open_graph_db()?;
     let now = now_secs();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -4377,8 +5113,12 @@ mod tests {
     #[test]
     fn parse_memory_importance_reads_confidence_and_evidence() {
         // High confidence, first-party → top importance.
-        let hi = parse_memory_importance("---\nconfidence: high\nevidence_state: first_party\n---\n# x");
-        assert!((hi - 1.0).abs() < 1e-6, "high/first_party should be 1.0, got {hi}");
+        let hi =
+            parse_memory_importance("---\nconfidence: high\nevidence_state: first_party\n---\n# x");
+        assert!(
+            (hi - 1.0).abs() < 1e-6,
+            "high/first_party should be 1.0, got {hi}"
+        );
         // Low confidence → low importance.
         let lo = parse_memory_importance("---\nconfidence: low\n---\n");
         assert!((lo - 0.3).abs() < 1e-6, "low should be 0.3, got {lo}");
@@ -4386,10 +5126,16 @@ mod tests {
         assert!((parse_memory_importance("# just a note") - 0.6).abs() < 1e-6);
         // needs_verification discounts even high confidence (1.0 * 0.6 = 0.6).
         let nv = parse_memory_importance("confidence: high\nevidence_state: needs_verification");
-        assert!(nv > 0.55 && nv < 0.65, "needs_verification should discount high→~0.6, got {nv}");
+        assert!(
+            nv > 0.55 && nv < 0.65,
+            "needs_verification should discount high→~0.6, got {nv}"
+        );
         // Output always stays within bounds.
         let f = parse_memory_importance("confidence: low\nevidence_state: conflicting");
-        assert!((0.05..=1.0).contains(&f), "importance must stay in [0.05,1.0], got {f}");
+        assert!(
+            (0.05..=1.0).contains(&f),
+            "importance must stay in [0.05,1.0], got {f}"
+        );
     }
 
     // ── Keyword-fallback score normalization ──────────────────────────────────
@@ -4400,13 +5146,22 @@ mod tests {
         assert_eq!(keyword_relevance(0, 3, 0), 0.0);
         // Full coverage scores high but never exceeds 1.0, even with heavy repetition.
         let full = keyword_relevance(3, 3, 3);
-        assert!((0.85..=1.0).contains(&full), "full coverage should be >=0.85, got {full}");
-        assert!(keyword_relevance(2, 2, 1000) <= 1.0, "repetition must not exceed 1.0");
+        assert!(
+            (0.85..=1.0).contains(&full),
+            "full coverage should be >=0.85, got {full}"
+        );
+        assert!(
+            keyword_relevance(2, 2, 1000) <= 1.0,
+            "repetition must not exceed 1.0"
+        );
         // More coverage ranks above less.
         assert!(keyword_relevance(1, 3, 1) < full);
         // A single term out of many stays below the frontend's 0.35/0.3 cosine gates — so weak
         // keyword hits no longer trivially pass (the bug being fixed).
-        assert!(keyword_relevance(1, 4, 1) < 0.3, "weak partial match should be gated");
+        assert!(
+            keyword_relevance(1, 4, 1) < 0.3,
+            "weak partial match should be gated"
+        );
     }
 
     // ── Capability ACL gating ─────────────────────────────────────────────────
@@ -4466,46 +5221,121 @@ mod tests {
 
         // (a) Local app UI keeps full access to everything it uses.
         for cmd in [
-            "keychain_get", "keychain_save", "keychain_delete", "browser_eval", "browser_navigate",
-            "browser_create", "write_memory", "mail_test_connection", "start_local_model",
-            "browser_agent_report", "browser_download_url",
+            "keychain_get",
+            "keychain_save",
+            "keychain_delete",
+            "browser_eval",
+            "browser_navigate",
+            "browser_create",
+            "write_memory",
+            "mail_test_connection",
+            "start_local_model",
+            "browser_agent_report",
+            "browser_download_url",
         ] {
-            assert!(allowed(cmd, "main", "main", &local), "local main must reach {cmd}");
+            assert!(
+                allowed(cmd, "main", "main", &local),
+                "local main must reach {cmd}"
+            );
         }
         // Spotlight (separate local window) keeps the access it needs.
-        assert!(allowed("write_memory", "spotlight", "spotlight", &local), "spotlight write_memory");
+        assert!(
+            allowed("write_memory", "spotlight", "spotlight", &local),
+            "spotlight write_memory"
+        );
 
         // (b) A remote page in browser-panel may reach ONLY the fire-and-forget reporters.
         for cmd in [
-            "browser_agent_report", "browser_open_tab", "browser_password_event", "browser_download_url",
+            "browser_agent_report",
+            "browser_open_tab",
+            "browser_password_event",
+            "browser_download_url",
             "browser_report_nav",
         ] {
-            assert!(allowed(cmd, "main", "browser-panel", &remote), "remote must reach safe cmd {cmd}");
+            assert!(
+                allowed(cmd, "main", "browser-panel", &remote),
+                "remote must reach safe cmd {cmd}"
+            );
         }
 
         // ...and is denied everything dangerous — credential theft, JS injection, navigation,
         // mail, fs, model, and graph commands.
         for cmd in [
-            "keychain_get", "keychain_save", "keychain_delete", "browser_eval", "browser_navigate",
-            "browser_create", "browser_reload", "mail_test_connection", "mail_fetch_recent", "mail_fetch_sent",
-            "imessage_check_access", "imessage_open_fda_settings", "imessage_unread_count", "imessage_list_chats", "imessage_fetch_messages", "imessage_send",
-            "eventkit_authorization_status", "eventkit_request_access", "eventkit_list_calendars", "eventkit_list_events", "eventkit_save_event", "eventkit_update_event", "eventkit_delete_event",
-            "eventkit_list_reminders", "eventkit_save_reminder", "eventkit_set_reminder_completed", "eventkit_delete_reminder", "eventkit_update_reminder",
-            "notes_list_folders", "notes_list", "notes_read", "notes_create", "notes_update", "notes_delete",
-            "music_play", "music_pause", "music_create_playlist", "music_add_track_to_playlist",
-            "write_memory", "safe_write_file", "read_knowledge_file", "start_local_model",
-            "download_model", "upsert_graph_node", "upsert_graph_batch", "get_graph_stats", "get_graph_full", "setup_relay",
+            "keychain_get",
+            "keychain_save",
+            "keychain_delete",
+            "browser_eval",
+            "browser_navigate",
+            "browser_create",
+            "browser_reload",
+            "mail_test_connection",
+            "mail_fetch_recent",
+            "mail_fetch_sent",
+            "imessage_check_access",
+            "imessage_open_fda_settings",
+            "imessage_unread_count",
+            "imessage_list_chats",
+            "imessage_fetch_messages",
+            "imessage_send",
+            "eventkit_authorization_status",
+            "eventkit_request_access",
+            "eventkit_list_calendars",
+            "eventkit_list_events",
+            "eventkit_save_event",
+            "eventkit_update_event",
+            "eventkit_delete_event",
+            "eventkit_list_reminders",
+            "eventkit_save_reminder",
+            "eventkit_set_reminder_completed",
+            "eventkit_delete_reminder",
+            "eventkit_update_reminder",
+            "notes_list_folders",
+            "notes_list",
+            "notes_read",
+            "notes_create",
+            "notes_update",
+            "notes_delete",
+            "music_play",
+            "music_pause",
+            "music_create_playlist",
+            "music_add_track_to_playlist",
+            "write_memory",
+            "safe_write_file",
+            "read_knowledge_file",
+            "start_local_model",
+            "download_model",
+            "upsert_graph_node",
+            "upsert_graph_batch",
+            "get_graph_stats",
+            "get_graph_full",
+            "setup_relay",
             // File access (Workshop model) — the filesystem and shell are NEVER reachable from a
             // remote page in the browser panel, even read-only or workspace-scoped.
-            "fs_list", "fs_read", "fs_write", "fs_mkdir", "fs_delete", "fs_move", "fs_import",
-            "fs_probe_context", "fs_read_external", "fs_list_external", "fs_write_external",
-            "fs_delete_external", "fs_reveal", "run_command",
+            "fs_list",
+            "fs_read",
+            "fs_write",
+            "fs_mkdir",
+            "fs_delete",
+            "fs_move",
+            "fs_import",
+            "fs_probe_context",
+            "fs_read_external",
+            "fs_list_external",
+            "fs_write_external",
+            "fs_delete_external",
+            "fs_reveal",
+            "run_command",
             // Interactive terminal (PTY) — a remote page must NEVER reach an interactive shell with
             // the user's real credentials. These run the login shell; treat as maximally privileged.
-            "pty_spawn", "pty_write", "pty_resize", "pty_kill",
+            "pty_spawn",
+            "pty_write",
+            "pty_resize",
+            "pty_kill",
             // Screen capture — a remote page must NEVER snapshot the user's app window, nor the
             // browser panel it is rendered in (that would let it screenshot itself and exfiltrate).
-            "webview_screenshot", "browser_snapshot", "browser_snapshot_text",
+            "webview_screenshot",
+            "browser_snapshot",
+            "browser_snapshot_text",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),
@@ -4548,7 +5378,11 @@ mod tests {
                 ok.then(|| name.to_string())
             })
             .collect();
-        assert!(registered.len() > 50, "parsed too few commands ({})", registered.len());
+        assert!(
+            registered.len() > 50,
+            "parsed too few commands ({})",
+            registered.len()
+        );
 
         // Commands the generated `allow-app-local` permission grants (read from the built manifest).
         let acl: serde_json::Value = serde_json::from_str(
@@ -4626,7 +5460,11 @@ mod tests {
         // Set a known HOME so knowledge_root() is deterministic in tests
         std::env::set_var("HOME", "/tmp/test_home");
         let result = knowledge_path_from_input("memory/goals.md");
-        assert!(result.is_ok(), "Expected Ok for valid sub-path, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Expected Ok for valid sub-path, got: {:?}",
+            result
+        );
         let path = result.unwrap();
         assert!(path.starts_with("/tmp/test_home/AgentForge"));
     }
@@ -4643,7 +5481,10 @@ mod tests {
     fn test_knowledge_path_absolute_outside_root() {
         std::env::set_var("HOME", "/tmp/test_home");
         let result = knowledge_path_from_input("/etc/passwd");
-        assert!(result.is_err(), "Expected Err for absolute path outside root");
+        assert!(
+            result.is_err(),
+            "Expected Err for absolute path outside root"
+        );
     }
 
     #[test]
@@ -4658,7 +5499,11 @@ mod tests {
         std::env::set_var("HOME", "/tmp/test_home");
         // Empty string → PathBuf::from("") → relative empty → joined to root → equals root
         let result = knowledge_path_from_input("");
-        assert!(result.is_ok(), "Expected Ok for empty string (root itself), got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Expected Ok for empty string (root itself), got: {:?}",
+            result
+        );
     }
 
     // ── is_safe_agent_id ──────────────────────────────────────────────────────
@@ -4862,7 +5707,10 @@ mod tests {
         let section = "A".repeat(100);
         let content = format!("# Title\n\n{}", section);
         let chunks = chunk_text(&content);
-        assert!(!chunks.is_empty(), "Long content should produce at least one chunk");
+        assert!(
+            !chunks.is_empty(),
+            "Long content should produce at least one chunk"
+        );
     }
 
     #[test]

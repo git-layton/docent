@@ -45,7 +45,11 @@ export function DesktopViewerPanel() {
           console.error("Failed to list windows", err);
         }
 
+        let isFetching = false;
+        
         const fetchFrame = async () => {
+          if (isFetching || !active) return;
+          isFetching = true;
           try {
             const currentId = selectedWindowIdRef.current;
             if (currentId !== null) {
@@ -54,12 +58,14 @@ export function DesktopViewerPanel() {
             }
           } catch (err) {
             // Silently ignore capture errors to keep polling alive
+          } finally {
+            isFetching = false;
           }
         };
 
         // Initial fetch
         await fetchFrame();
-        // Poll at 2 FPS (500ms) to maintain a live feed without overloading screencapture
+        // Poll every 500ms, but skip the cycle if the previous fetch is still running
         timer = setInterval(fetchFrame, 500);
       }
     };
