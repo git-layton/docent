@@ -3611,13 +3611,22 @@ if (isSpotlight) {
                   <span className="text-xs font-semibold text-ink tracking-tight uppercase">
                     {activeAssistant?.name || 'Alexis'}
                   </span>
-                  <button
-                    onClick={() => useAgentStore.getState().setShowAssistantSettings(true)}
-                    className="p-1 rounded text-ink-3 hover:text-ink hover:bg-inset transition-colors"
-                    title="Agent Settings"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => window.dispatchEvent(new CustomEvent('forge:open-cmdk'))}
+                      className="p-1 rounded text-ink-3 hover:text-ink hover:bg-inset transition-colors"
+                      title="Search chat (⌘K)"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => useAgentStore.getState().setShowAssistantSettings(true)}
+                      className="p-1 rounded text-ink-3 hover:text-ink hover:bg-inset transition-colors"
+                      title="Agent Settings"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               }
             >

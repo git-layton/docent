@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
@@ -322,9 +322,11 @@ function NewTabButton() {
 // ---------------------------------------------------------------------------
 export function OmniTabBar(): React.JSX.Element {
   const allTabs = useSpaceStore(s => s.omniTabs);
+  const spaces = useSpaceStore(s => s.spaces);
   const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
   const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
   const splitTabId = useUIStore(s => s.splitTabId);
+  const [showSpaceMenu, setShowSpaceMenu] = useState(false);
 
   // Poll the iMessage unread count so the Messages tab's activity bubble (and the Home card) stay
   // fresh. OmniTabBar is always mounted, so this is the app-wide heartbeat for that count. Held off
@@ -364,6 +366,43 @@ export function OmniTabBar(): React.JSX.Element {
 
   return (
     <div className="h-10 flex items-center justify-between bg-panel/30 backdrop-blur-md border-b border-edge px-4 shrink-0 relative z-20">
+      <div className="relative flex items-center pr-3 border-r border-edge mr-3">
+        <button
+          onClick={() => setShowSpaceMenu(!showSpaceMenu)}
+          className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
+          title="Switch Space"
+        >
+          <Layers className="w-4 h-4" />
+        </button>
+        {showSpaceMenu && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowSpaceMenu(false)} />
+            <div className="absolute top-full left-0 mt-2 w-64 z-50 overflow-hidden rounded-2xl border border-edge-2 bg-black/95 backdrop-blur-xl shadow-xl">
+              <div className="px-3 pt-3 pb-2 text-[10px] font-bold text-ink-3 tracking-widest uppercase">SPACES</div>
+              <div className="flex flex-col py-1">
+                {spaces.filter(s => s.kind === 'space').map(space => (
+                  <button
+                    key={space.id}
+                    onClick={() => { useSpaceStore.getState().setActiveSpaceId(space.id); setShowSpaceMenu(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${activeSpaceId === space.id ? 'bg-wash text-ink' : 'text-ink-2 hover:bg-wash'}`}
+                  >
+                    <div className={`w-3 h-3 rounded-full shrink-0 ${activeSpaceId === space.id ? 'bg-accent' : 'bg-ink-3'}`} />
+                    <span className="text-sm font-semibold truncate">{space.name}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="border-t border-edge my-1" />
+              <button
+                onClick={() => { useUIStore.getState().openSpaceWizard(); setShowSpaceMenu(false); }}
+                className="w-full flex items-center gap-2 px-4 py-3 text-left transition-colors text-ink-2 hover:bg-wash"
+              >
+                <Plus className="w-4 h-4 text-ink-3" />
+                <span className="text-sm font-semibold">New space</span>
+              </button>
+            </div>
+          </>
+        )}
+      </div>
       <div
         ref={stripRef}
         onWheel={handleWheel}
