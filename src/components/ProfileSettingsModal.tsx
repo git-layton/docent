@@ -1605,7 +1605,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
               </div>
 
               {/* Developer Mode — gates agent shell/command execution */}
-              <div className="p-5 rounded-2xl border border-edge bg-panel">
+              <div className="p-5 rounded-2xl border border-edge bg-panel flex flex-col gap-5">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex flex-col">
                     <span className="text-sm font-black uppercase tracking-widest">Developer Mode</span>
@@ -1613,6 +1613,26 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
                   </div>
                   <button onClick={() => setAppSettings((prev: any) => ({ ...prev, developerMode: !prev.developerMode }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.developerMode ? 'bg-primary' : 'bg-inset'}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.developerMode ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 border-t border-edge pt-5">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest">Glass UI Redesign</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Enable the stunning glassmorphism UI overlay and frosted aesthetics.</span>
+                  </div>
+                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, glassEnabled: !prev.glassEnabled }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.glassEnabled ? 'bg-primary' : 'bg-inset'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.glassEnabled ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 border-t border-edge pt-5">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest">New Shell IA</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Use the completely redesigned app layout structure and unified sidebars.</span>
+                  </div>
+                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, newShellEnabled: !prev.newShellEnabled }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.newShellEnabled ? 'bg-primary' : 'bg-inset'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.newShellEnabled ? 'right-0.5' : 'left-0.5'}`} />
                   </button>
                 </div>
               </div>

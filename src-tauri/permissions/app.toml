@@ -32,4 +32,5 @@ allow = [
   "browser_open_tab",
   "browser_password_event",
   "browser_download_url",
+  "browser_report_nav",
 ]

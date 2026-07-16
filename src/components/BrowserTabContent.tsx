@@ -13,6 +13,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { generatePageDigest } from '../services/pageDigest';
 import { capturePageText } from '../services/pageCapture';
+import { readBrowserVisualText } from '../services/browserVision';
 import { BrowserContextMenu } from './BrowserContextMenu';
 import { BrowserPasswordBar } from './BrowserPasswordBar';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -389,8 +390,18 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       if (!/^https?:\/\//i.test(url)) return;
       if (cancelled || visitIdRef.current !== visitId) return;
 
-      const captured = await capturePageText(url);
-      if (cancelled || visitIdRef.current !== visitId || !captured) return;
+      let captured = await capturePageText(url);
+      if (cancelled || visitIdRef.current !== visitId) return;
+
+      // Pixel-level fallback: if DOM text came back thin (canvas/PDF/image-heavy pages, or a page that
+      // paints without readable text nodes), LOOK at the rendered panel via on-device OCR and keep
+      // whichever read is richer. Best-effort and non-fatal — resolves to '' when unavailable.
+      if (captured.length < 200) {
+        const visual = await readBrowserVisualText();
+        if (cancelled || visitIdRef.current !== visitId) return;
+        if (visual.length > captured.length) captured = visual;
+      }
+      if (!captured) return;
 
       useBrowserStore.getState().updateActiveTabContent(captured);
       setPageContent(captured);

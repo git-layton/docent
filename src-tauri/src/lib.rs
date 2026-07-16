@@ -3341,6 +3341,31 @@ const BROWSER_MASK_SCRIPT: &str = r#"
       };
     }
   } catch (e) {}
+
+  // Event-driven navigation signal (top frame only). Patch the History API and listen for
+  // popstate/hashchange/load, pinging the app so it re-reads the authoritative URL — no more polling,
+  // and SPA route changes (Gmail folders/threads) are caught instantly. Runs at document-start for
+  // every document, so it re-arms after full-page navigations too. Reports NOTHING but the ping.
+  try {
+    if (window.top === window && !window.__agfNavHook) {
+      window.__agfNavHook = true;
+      var ping = function () {
+        try { var T = window.__TAURI_INTERNALS__; if (T) T.invoke('browser_report_nav'); } catch (e) {}
+      };
+      var wrap = function (name) {
+        var orig = history[name];
+        if (typeof orig === 'function') {
+          history[name] = function () { var r = orig.apply(this, arguments); ping(); return r; };
+        }
+      };
+      wrap('pushState');
+      wrap('replaceState');
+      window.addEventListener('popstate', ping);
+      window.addEventListener('hashchange', ping);
+      window.addEventListener('load', ping);
+      document.addEventListener('DOMContentLoaded', ping);
+    }
+  } catch (e) {}
 })();
 "#;
 
@@ -3568,6 +3593,20 @@ fn browser_password_event(
 fn browser_agent_report(app: tauri::AppHandle, payload: serde_json::Value) -> Result<(), String> {
     app.emit("browser-agent:observation", payload)
         .map_err(|e| e.to_string())
+}
+
+// Event-driven navigation signal, replacing the old 800ms URL poll. A document-start hook in the
+// panel (BROWSER_MASK_SCRIPT) pings this on pushState/replaceState/popstate/hashchange/load so the app
+// learns about in-page (SPA) route changes instantly instead of polling.
+//
+// SPOOFING GUARD: this carries NO url — it is a pure "something navigated, re-read me" trigger. The
+// address bar is ALWAYS refreshed from the authoritative `browser_get_url` (the real WKWebView URL),
+// never from a value the untrusted page supplies, so a remote page can't fake the displayed address.
+// That is also why this is safe to expose to remote origins (allow-browser-remote): it grants no
+// authority and reveals nothing.
+#[tauri::command]
+fn browser_report_nav(app: tauri::AppHandle) -> Result<(), String> {
+    app.emit("browser:nav-changed", ()).map_err(|e| e.to_string())
 }
 
 // ─── Additional Browser Commands ─────────────────────────────────────────────
@@ -4279,6 +4318,7 @@ pub fn run() {
             browser_open_tab,
             browser_password_event,
             browser_agent_report,
+            browser_report_nav,
             upsert_graph_node,
             upsert_graph_edge,
             upsert_graph_batch,
