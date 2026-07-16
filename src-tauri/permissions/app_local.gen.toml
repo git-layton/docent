@@ -27,6 +27,7 @@ allow = [
   "browser_open_tab",
   "browser_password_event",
   "browser_reload",
+  "browser_report_nav",
   "browser_set_zoom",
   "browser_snapshot",
   "browser_snapshot_text",
