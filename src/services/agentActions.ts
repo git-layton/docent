@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCalendar, getTasks, getNotes } from './connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { validateAgentAction } from './modelBlocks';
+import { useReceiptStore, type ReceiptSurface } from './receipts';
 
 export interface AgentAction {
   tool: string; // 'note' | 'task' | 'calendar' | 'message'
@@ -136,24 +137,44 @@ export function describeAction(a: AgentAction): string {
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Execute one action via the connectors/commands. Returns a short result string; throws on failure. */
+/** Which ledger surface an action's tool belongs to. */
+const TOOL_SURFACE: Record<string, ReceiptSurface> = {
+  note: 'notes', task: 'tasks', calendar: 'calendar',
+  message: 'messages', mail: 'mail', music: 'music', playbook: 'playbook',
+};
+
+/** Execute one action via the connectors/commands. Returns a short result string; throws on
+ * failure. Every SUCCESSFUL action lands in the receipt ledger — what happened, in the words
+ * the approval card used — with a working undo where the action is genuinely reversible
+ * (creates and completes). Sends and deletes are recorded but not undoable; the ledger never
+ * claims reversibility it can't deliver. */
 export async function executeAgentAction(a: AgentAction): Promise<string> {
+  const { result, undo } = await executeInner(a);
+  useReceiptStore.getState().record(
+    { surface: TOOL_SURFACE[a.tool] ?? 'system', action: result, summary: describeAction(a) },
+    undo,
+  );
+  return result;
+}
+
+async function executeInner(a: AgentAction): Promise<{ result: string; undo?: () => Promise<void> }> {
   switch (`${a.tool}.${a.op}`) {
     case 'note.create': {
       const body = `<div>${escapeHtml(String(a.body ?? '')).split('\n').join('</div><div>')}</div>`;
-      await getNotes().createNote(a.folder, String(a.title ?? 'Untitled'), body);
-      return `Created note “${a.title ?? 'Untitled'}”`;
+      const id = await getNotes().createNote(a.folder, String(a.title ?? 'Untitled'), body);
+      return { result: `Created note “${a.title ?? 'Untitled'}”`, undo: () => getNotes().deleteNote(id) };
     }
     case 'task.create': {
-      await getTasks().createTask({ title: String(a.title ?? ''), dueDate: a.dueDate, details: a.details, location: a.location });
-      return `Added to-do “${a.title ?? ''}”`;
+      const id = await getTasks().createTask({ title: String(a.title ?? ''), dueDate: a.dueDate, details: a.details, location: a.location });
+      return { result: `Added to-do “${a.title ?? ''}”`, undo: () => getTasks().deleteTask(id) };
     }
     case 'task.complete': {
-      await getTasks().setCompleted(String(a.id), true);
-      return 'Marked to-do complete';
+      const id = String(a.id);
+      await getTasks().setCompleted(id, true);
+      return { result: 'Marked to-do complete', undo: () => getTasks().setCompleted(id, false) };
     }
     case 'calendar.create': {
-      await getCalendar().createEvent({
+      const id = await getCalendar().createEvent({
         title: String(a.title ?? ''),
         start: String(a.start),
         end: String(a.end ?? a.start),
@@ -162,7 +183,7 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
         notes: a.notes,
         recurrence: a.yearly ? 'yearly' : 'none',
       });
-      return `Added event “${a.title ?? ''}”`;
+      return { result: `Added event “${a.title ?? ''}”`, undo: () => getCalendar().deleteEvent(id) };
     }
     case 'message.send': {
       let guid: string | undefined = a.chatGuid;
@@ -172,7 +193,7 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
       }
       if (!guid) throw new Error(`No conversation matching "${a.to ?? ''}"`);
       await invoke('imessage_send', { chatGuid: guid, text: String(a.text ?? '') });
-      return 'Sent iMessage';
+      return { result: 'Sent iMessage' };
     }
     case 'mail.send': {
       const accounts = ((useSettingsStore.getState().integrations as any)?.mailAccounts ?? []) as Array<{ email: string; provider: string }>;
@@ -185,24 +206,24 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
         to: Array.isArray(a.to) ? a.to : [a.to].filter(Boolean),
         cc: Array.isArray(a.cc) ? a.cc : [], subject: String(a.subject ?? ''), body: String(a.body ?? ''), inReplyTo: null,
       });
-      return 'Sent email';
+      return { result: 'Sent email' };
     }
-    case 'note.delete': { await getNotes().deleteNote(String(a.id)); return 'Deleted note'; }
-    case 'task.delete': { await getTasks().deleteTask(String(a.id)); return 'Deleted to-do'; }
-    case 'calendar.delete': { await getCalendar().deleteEvent(String(a.id)); return 'Deleted event'; }
-    case 'music.play': { await invoke('music_play'); return 'Playing Apple Music'; }
-    case 'music.pause': { await invoke('music_pause'); return 'Paused Apple Music'; }
-    case 'music.create_playlist': { 
+    case 'note.delete': { await getNotes().deleteNote(String(a.id)); return { result: 'Deleted note' }; }
+    case 'task.delete': { await getTasks().deleteTask(String(a.id)); return { result: 'Deleted to-do' }; }
+    case 'calendar.delete': { await getCalendar().deleteEvent(String(a.id)); return { result: 'Deleted event' }; }
+    case 'music.play': { await invoke('music_play'); return { result: 'Playing Apple Music' }; }
+    case 'music.pause': { await invoke('music_pause'); return { result: 'Paused Apple Music' }; }
+    case 'music.create_playlist': {
       const id = await invoke<string>('music_create_playlist', { name: String(a.name ?? '') });
-      return `Created playlist “${a.name ?? ''}” (ID: ${id})`;
+      return { result: `Created playlist “${a.name ?? ''}” (ID: ${id})` };
     }
     case 'music.add_track': {
       try {
         await invoke('music_add_track_to_playlist', { trackName: String(a.trackName ?? ''), playlistName: String(a.playlistName ?? '') });
-        return `Added “${a.trackName ?? ''}” to playlist`;
+        return { result: `Added “${a.trackName ?? ''}” to playlist` };
       } catch (e: any) {
         if (e?.includes('Track not found')) {
-          return `Failed: Track "${a.trackName}" is not in your Apple Music library. Find and add it manually first.`;
+          return { result: `Failed: Track "${a.trackName}" is not in your Apple Music library. Find and add it manually first.` };
         }
         throw e;
       }

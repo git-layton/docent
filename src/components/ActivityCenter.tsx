@@ -1,8 +1,36 @@
+import { useEffect } from 'react';
 import { useJobStore } from '../store/useJobStore';
-import { Activity, X, Play, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { useReceiptStore } from '../services/receipts';
+import { useUIStore } from '../store/useUIStore';
+import { Activity, X, Play, Loader2, AlertCircle, CheckCircle, Undo2, RotateCcw } from 'lucide-react';
+
+function receiptTime(ts: number): string {
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
 
 export function ActivityCenter() {
   const { jobs, isActivityCenterOpen, toggleActivityCenter, resumeJob, dismissJob, cancelJob } = useJobStore();
+  const receipts = useReceiptStore(s => s.receipts);
+  const isUndoable = useReceiptStore(s => s.isUndoable);
+
+  // Load persisted receipt history the first time the panel opens.
+  useEffect(() => {
+    if (isActivityCenterOpen) useReceiptStore.getState().hydrate().catch(() => {});
+  }, [isActivityCenterOpen]);
+
+  const undoReceipt = async (id: string) => {
+    try {
+      await useReceiptStore.getState().undo(id);
+      useUIStore.getState().showToast('↩︎ Undone');
+    } catch (e: any) {
+      useUIStore.getState().showToast(e?.message ?? 'Could not undo that.');
+    }
+  };
 
   if (!isActivityCenterOpen) return null;
 
@@ -64,6 +92,44 @@ export function ActivityCenter() {
               )}
             </div>
           ))
+        )}
+
+        {/* Receipt ledger — what agents did, with a working undo while one is available. */}
+        {receipts.length > 0 && (
+          <>
+            <div className="px-1 pt-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-black/40 dark:text-white/40">
+              Agent actions
+            </div>
+            {receipts.slice(0, 30).map(r => (
+              <div key={r.id} className="p-3 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className={
+                      r.status === 'undone'
+                        ? 'text-sm text-black/40 dark:text-white/40 line-through truncate'
+                        : 'text-sm font-medium text-black/90 dark:text-white/90 truncate'
+                    }>
+                      {r.action}
+                    </div>
+                    <div className="text-xs text-black/60 dark:text-white/60 mt-0.5 break-words">{r.summary}</div>
+                    <div className="text-[10px] text-black/40 dark:text-white/40 mt-1">
+                      {r.status === 'undone' ? 'Undone · ' : ''}{receiptTime(r.ts)}
+                    </div>
+                  </div>
+                  {r.status === 'done' && isUndoable(r.id) && (
+                    <button
+                      onClick={() => undoReceipt(r.id)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-blue-500 hover:bg-blue-500/15 shrink-0"
+                      title={`Undo: ${r.action}`}
+                    >
+                      <Undo2 className="w-3 h-3" /> Undo
+                    </button>
+                  )}
+                  {r.status === 'undone' && <RotateCcw className="w-3.5 h-3.5 text-black/30 dark:text-white/30 shrink-0" />}
+                </div>
+              </div>
+            ))}
+          </>
         )}
       </div>
     </div>
