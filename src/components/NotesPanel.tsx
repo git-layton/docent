@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { StickyNote, RotateCw, Plus, ArrowLeft, Pencil, Trash2, Share2, X, Send, Mail, MessageCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
@@ -11,8 +11,8 @@ import { useToolContextStore } from '../store/useToolContextStore';
 
 interface ImChat { guid: string; name: string }
 
-// HTML ↔ plaintext for the editor (Notes bodies are HTML). Keep it simple: strip tags for editing,
-// escape + <br> when saving so user line breaks survive.
+// HTML ↔ plaintext, used for sharing and tool context only. Editing no longer round-trips
+// through plaintext — that path silently flattened bold/lists/images on the first edit.
 function htmlToText(html: string): string {
   const el = document.createElement('div');
   el.innerHTML = html;
@@ -27,13 +27,18 @@ function textToHtml(text: string): string {
 // a bare white frame, and so note content (which assumes a light background) stays readable in dark mode.
 const NOTE_PAPER = '#fcfcfa';
 const NOTE_INK = '#1c1b17';
+// Placeholder paragraph for empty notes; carries an id so edit mode can remove exactly it.
+const EMPTY_NOTE_HTML = '<p id="__empty" style="color:#9a988f">(empty note)</p>';
 function paperNoteDoc(html: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     html,body{margin:0;background:${NOTE_PAPER};color:${NOTE_INK};
       font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
       padding:20px 26px;-webkit-font-smoothing:antialiased;}
+    body{box-sizing:border-box;min-height:100vh;caret-color:${NOTE_INK};}
+    body:focus{outline:none;}
+    body[contenteditable="true"]:empty::before{content:"Write your note…";color:#9a988f;}
     img{max-width:100%;height:auto;} a{color:#534ab7;} *{max-width:100%;}
-  </style></head><body>${html || '<p style="color:#9a988f">(empty note)</p>'}</body></html>`;
+  </style></head><body>${html || EMPTY_NOTE_HTML}</body></html>`;
 }
 function relativeTime(ts: number): string {
   if (!ts) return '';
@@ -76,8 +81,9 @@ export function NotesPanel() {
   const [bodyLoading, setBodyLoading] = useState(false);
 
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const editingRef = useRef(false);
 
   const [sharing, setSharing] = useState(false);
   const [chats, setChats] = useState<ImChat[]>([]);
@@ -158,7 +164,8 @@ export function NotesPanel() {
     try {
       const full = await getNotes().readNote(n.id);
       notesCache.bodies[n.id] = full.body;
-      setBody(full.body);
+      // Never clobber the paper surface mid-edit — a reloaded srcDoc would drop the user's changes.
+      if (!editingRef.current) setBody(full.body);
     } catch (e) {
       if (!cached) setError(String(e));
     } finally {
@@ -166,13 +173,42 @@ export function NotesPanel() {
     }
   };
 
-  const startEdit = () => { setDraft(htmlToText(body)); setEditing(true); };
+  // Edit the note's real HTML in place (contentEditable on the paper iframe's body) so whatever
+  // formatting the backend gave us survives untouched wherever the user didn't type. The iframe is
+  // sandboxed without allow-scripts, so nothing in the note can run — allow-same-origin only lets
+  // us reach contentDocument.
+  const applyEditable = useCallback((on: boolean) => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc?.body) return;
+    if (on) {
+      doc.getElementById('__empty')?.remove();
+      doc.body.contentEditable = 'true';
+      doc.body.focus();
+    } else {
+      doc.body.contentEditable = 'false';
+    }
+  }, []);
+
+  useEffect(() => {
+    editingRef.current = editing;
+    applyEditable(editing);
+  }, [editing, applyEditable]);
+
+  const startEdit = () => setEditing(true);
+
+  const cancelEdit = () => {
+    setEditing(false);
+    const doc = iframeRef.current?.contentDocument;
+    if (doc?.body) doc.body.innerHTML = body || EMPTY_NOTE_HTML;
+  };
 
   const saveEdit = async () => {
     if (!selected) return;
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc?.body) return;
     setSaving(true);
     try {
-      const html = textToHtml(draft);
+      const html = doc.body.innerHTML;
       await getNotes().updateNote(selected.id, html);
       notesCache.bodies[selected.id] = html; // keep the cached body in step with the save
       setBody(html);
@@ -244,9 +280,14 @@ export function NotesPanel() {
           </button>
           <span className="text-sm font-semibold text-ink truncate flex-1 px-1">{selected.title || '(untitled)'}</span>
           {editing ? (
-            <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity disabled:opacity-40">
-              {saving ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />} Save
-            </button>
+            <>
+              <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity disabled:opacity-40">
+                {saving ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />} Save
+              </button>
+              <button onClick={cancelEdit} disabled={saving} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Cancel editing">
+                <X className="w-4 h-4" />
+              </button>
+            </>
           ) : (
             <>
               <button onClick={startEdit} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
@@ -261,17 +302,17 @@ export function NotesPanel() {
         <div className="flex-1 overflow-y-auto">
           {bodyLoading ? (
             <div className="h-full flex items-center justify-center gap-2 text-ink-3"><RotateCw className="w-5 h-5 animate-spin" /> <span className="text-sm">Loading note…</span></div>
-          ) : editing ? (
-            <textarea
-              autoFocus
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              placeholder="Write your note…"
-              style={{ background: NOTE_PAPER, color: NOTE_INK }}
-              className="w-full h-full resize-none px-6 py-5 text-[15px] outline-none leading-[1.65] font-sans"
-            />
           ) : (
-            <iframe title="note" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={paperNoteDoc(body)} className="w-full h-full border-0" style={{ background: NOTE_PAPER }} />
+            <iframe
+              ref={iframeRef}
+              title="note"
+              sandbox="allow-same-origin"
+              referrerPolicy="no-referrer"
+              srcDoc={paperNoteDoc(body)}
+              onLoad={() => applyEditable(editingRef.current)}
+              className="w-full h-full border-0"
+              style={{ background: NOTE_PAPER }}
+            />
           )}
         </div>
 
