@@ -206,6 +206,23 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   urlRef.current = url;
   activeTabIdRef.current = activeTabId;
 
+  // Pull the AUTHORITATIVE current URL from the real WKWebView and sync the address bar. Never trusts
+  // a page-supplied value — the panel's nav hook only pings "something navigated"; we read the truth
+  // here — so a remote page can't spoof the displayed address. Shared by the nav-event listener and
+  // the low-frequency safety-net poll.
+  const syncUrlFromWebview = useCallback(async () => {
+    if (!mountedRef.current) return;
+    try {
+      const currentUrl = await invoke<string>('browser_get_url', { label: BROWSER_LABEL });
+      if (!mountedRef.current) return;
+      if (currentUrl && currentUrl !== urlRef.current) {
+        setUrl(currentUrl);
+        setInputUrl(currentUrl);
+        setIsLoading(false);
+      }
+    } catch (_) { /* webview may not exist yet */ }
+  }, []);
+
   const proactiveEnabled = useBrowserStore(s => s.proactiveEnabled);
   const favorites = useBrowserStore(s => s.favorites);
   const isFavorited = favorites.some(f => f.url === url);
@@ -288,19 +305,11 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       if (!wv || !mountedRef.current) return;
       webviewRef.current = wv;
 
-      // Poll URL every 800ms to sync nav bar with user clicks inside the webview
-      pollInterval = setInterval(async () => {
-        if (!mountedRef.current) return;
-        try {
-          const currentUrl = await invoke<string>('browser_get_url', { label: BROWSER_LABEL });
-          if (!mountedRef.current) return;
-          if (currentUrl && currentUrl !== urlRef.current) {
-            setUrl(currentUrl);
-            setInputUrl(currentUrl);
-            setIsLoading(false);
-          }
-        } catch (_) { /* webview may not exist yet */ }
-      }, 800);
+      // URL sync is primarily EVENT-DRIVEN now (the panel's document-start nav hook → `browser:nav-changed`
+      // → the listener effect below). This slow interval is only a safety net for the rare navigation
+      // that doesn't surface a history/hash/load event (some meta-refreshes, edge redirects), so it can
+      // run at a fraction of the old 800ms cadence.
+      pollInterval = setInterval(() => { syncUrlFromWebview(); }, 2500);
     }
 
     init().catch(console.error);
@@ -531,6 +540,14 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     }, 800);
     return () => clearTimeout(t);
   }, [url]);
+
+  // Event-driven navigation: the panel's document-start hook pings `browser:nav-changed` on every
+  // history/hash/load change (incl. SPA route changes like Gmail folders). Re-read the authoritative
+  // URL immediately instead of waiting on the slow poll.
+  useEffect(() => {
+    const p = listen('browser:nav-changed', () => { syncUrlFromWebview(); });
+    return () => { p.then(f => f()); };
+  }, [syncUrlFromWebview]);
 
   // Listen for popup-as-new-tab requests from WKWebView content
   useEffect(() => {

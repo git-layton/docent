@@ -4500,8 +4500,9 @@ mod tests {
             // Interactive terminal (PTY) — a remote page must NEVER reach an interactive shell with
             // the user's real credentials. These run the login shell; treat as maximally privileged.
             "pty_spawn", "pty_write", "pty_resize", "pty_kill",
-            // Screen capture — a remote page must NEVER snapshot the user's app window.
-            "webview_screenshot",
+            // Screen capture — a remote page must NEVER snapshot the user's app window, nor the
+            // browser panel it is rendered in (that would let it screenshot itself and exfiltrate).
+            "webview_screenshot", "browser_snapshot", "browser_snapshot_text",
         ] {
             assert!(
                 !allowed(cmd, "main", "browser-panel", &remote),
