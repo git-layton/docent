@@ -77,6 +77,8 @@ jobs:
           SIG=$(cat "${SIG_PATH}")
 
           # Generate latest.json
+          # GitHub replaces spaces with dots in release assets, so we must reflect that in the URL
+          ASSET_NAME=$(basename "${TAR_PATH}" | tr ' ' '.')
           cat <<EOF > latest.json
           {
             "version": "${RAW_VERSION}",
@@ -85,7 +87,7 @@ jobs:
             "platforms": {
               "darwin-aarch64": {
                 "signature": "${SIG}",
-                "url": "https://github.com/git-layton/agent-forge-releases/releases/download/${VERSION}/$(basename "${TAR_PATH}")"
+                "url": "https://github.com/git-layton/agent-forge-releases/releases/download/${VERSION}/${ASSET_NAME}"
               }
             }
           }
