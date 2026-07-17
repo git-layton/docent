@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { MessageCircle, RotateCw, ArrowLeft, Send, Search, X, ShieldAlert, Users, Paperclip, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
@@ -7,6 +7,7 @@ import { useUIStore } from '../store/useUIStore';
 import { MessagesSetupWizard } from './MessagesSetupWizard';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForImessage } from '../services/voice';
+import { usePanelResource } from '../lib/panelCache';
 import { buildVoiceCard, buildRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
 
 // Mirrors the Rust ImessageChat / ImessageMessage structs (serde camelCase).
@@ -74,15 +75,8 @@ function looksLikeNoAccess(err: string): boolean {
 }
 
 export function MessagesPanel() {
-  const [chats, setChats] = useState<ImessageChat[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-
   const [selected, setSelected] = useState<ImessageChat | null>(null);
-  const [messages, setMessages] = useState<ImessageMessage[]>([]);
-  const [msgLoading, setMsgLoading] = useState(false);
-  const [msgError, setMsgError] = useState<string | null>(null);
 
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -105,53 +99,36 @@ export function MessagesPanel() {
       imessage: { ...(prev.imessage ?? {}), enabled: accessOk, setupComplete: true },
     }));
     useSettingsStore.getState().persist();
-    // The gated load effect (below) fires once setupComplete flips true.
+    // The chats resource below is gated on setupComplete, so it starts once this flips true.
   };
 
-  const loadChats = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const list = await invoke<ImessageChat[]>('imessage_list_chats', { limit: 40 });
-      setChats(list);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, []);
+  // Conversation list — state-alive across tab switches: hydrates instantly from the panel
+  // cache on remount, revalidates silently, and polls so previews stay fresh. Gated behind
+  // setup so we don't probe (and error) behind the wizard.
+  const { data: chats = [], loading, error, refresh: refreshChats } = usePanelResource<ImessageChat[]>({
+    key: 'imessage:chats',
+    fetch: () => invoke<ImessageChat[]>('imessage_list_chats', { limit: 40 }),
+    enabled: setupComplete,
+    pollMs: 8000,
+  });
 
-  const loadMessages = useCallback(async (chat: ImessageChat, silent = false) => {
-    if (!silent) { setMsgLoading(true); setMsgError(null); }
-    try {
-      const list = await invoke<ImessageMessage[]>('imessage_fetch_messages', { chatId: chat.chatId, limit: 80 });
-      // Ignore a late response if the user switched threads meanwhile.
-      if (selectedRef.current?.chatId !== chat.chatId) return;
-      setMessages(list);
-    } catch (e) {
-      if (selectedRef.current?.chatId === chat.chatId) setMsgError(String(e));
-    } finally {
-      if (!silent) setMsgLoading(false);
-    }
-  }, []);
+  // Open thread — keyed per chat, so switching threads can never cross-paint and a previously
+  // read thread reopens instantly from cache while the poll reconciles in the background.
+  const {
+    data: messages = [],
+    loading: msgLoading,
+    error: msgError,
+    refresh: refreshMessages,
+    mutate: mutateMessages,
+  } = usePanelResource<ImessageMessage[]>({
+    key: selected ? `imessage:msgs:${selected.chatId}` : 'imessage:msgs:none',
+    fetch: () => invoke<ImessageMessage[]>('imessage_fetch_messages', { chatId: selectedRef.current!.chatId, limit: 80 }),
+    enabled: !!selected,
+    pollMs: 3000,
+  });
 
-  // Initial load + light polling so previews stay fresh (iMessage is real-time-ish).
-  // Held off until setup is done so we don't probe (and error) behind the wizard.
-  useEffect(() => {
-    if (!setupComplete) return;
-    loadChats();
-    const t = setInterval(() => loadChats(true), 8000);
-    return () => clearInterval(t);
-  }, [loadChats, setupComplete]);
-
-  // When a thread is open, load it and poll for new messages.
-  useEffect(() => {
-    setSuggestions([]); // stale suggestions belong to the previous thread
-    if (!selected) return;
-    loadMessages(selected);
-    const t = setInterval(() => { const s = selectedRef.current; if (s) loadMessages(s, true); }, 3000);
-    return () => clearInterval(t);
-  }, [selected, loadMessages]);
+  // Stale suggestions belong to the previous thread.
+  useEffect(() => { setSuggestions([]); }, [selected]);
 
   // Keep the thread pinned to the latest message as it grows.
   useEffect(() => {
@@ -183,14 +160,17 @@ export function MessagesPanel() {
     setSendError(null);
     // Optimistic echo for instant feedback; the next poll replaces it with the real row.
     const optimistic: ImessageMessage = { id: -Date.now(), text, fromMe: true, handle: '', senderName: '', date: Date.now(), service: chat.service };
-    setMessages(prev => [...prev, optimistic]);
+    mutateMessages(prev => [...(prev ?? []), optimistic]);
     setDraft('');
     try {
       await invoke('imessage_send', { chatGuid: chat.guid, text });
       // Give Messages a beat to write to chat.db, then reconcile from the source of truth.
-      setTimeout(() => { const s = selectedRef.current; if (s?.chatId === chat.chatId) loadMessages(s, true); }, 800);
+      setTimeout(() => { const s = selectedRef.current; if (s?.chatId === chat.chatId) refreshMessages(); }, 800);
     } catch (e) {
-      setMessages(prev => prev.filter(m => m.id !== optimistic.id)); // revert — it never sent
+      // Revert — it never sent. Only if this thread is still open; mutate writes to the current key.
+      if (selectedRef.current?.chatId === chat.chatId) {
+        mutateMessages(prev => (prev ?? []).filter(m => m.id !== optimistic.id));
+      }
       setDraft(text); // restore so the user doesn't lose their text
       setSendError(String(e));
     } finally {
@@ -281,7 +261,7 @@ export function MessagesPanel() {
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel">
         <div className="h-12 flex items-center gap-3 px-3 border-b border-edge shrink-0">
-          <button onClick={() => { setSelected(null); setMessages([]); setSendError(null); }} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Back">
+          <button onClick={() => { setSelected(null); setSendError(null); }} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Back">
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="w-7 h-7 rounded-full bg-inset flex items-center justify-center text-[11px] font-semibold text-ink-2 shrink-0">
@@ -295,7 +275,7 @@ export function MessagesPanel() {
             </span>
           </div>
           <div className="flex-1" />
-          <button onClick={() => loadMessages(selected)} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Refresh">
+          <button onClick={() => refreshMessages()} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Refresh">
             <RotateCw className={clsx('w-3.5 h-3.5', msgLoading && 'animate-spin')} />
           </button>
         </div>
@@ -414,7 +394,7 @@ export function MessagesPanel() {
         <span className="text-sm font-semibold text-ink">Messages</span>
         {chats.length > 0 && <span className="text-xs text-ink-3">{chats.length}</span>}
         <div className="flex-1" />
-        <button onClick={() => loadChats()} disabled={loading} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Refresh">
+        <button onClick={() => refreshChats()} disabled={loading} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Refresh">
           <RotateCw className={clsx('w-3.5 h-3.5', loading && 'animate-spin')} />
         </button>
       </div>
@@ -443,7 +423,7 @@ export function MessagesPanel() {
             <button onClick={openSettings} className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity">
               Open Privacy settings
             </button>
-            <button onClick={() => loadChats()} className="text-[11px] font-medium text-ink-3 hover:text-ink">I've granted it — refresh</button>
+            <button onClick={() => refreshChats()} className="text-[11px] font-medium text-ink-3 hover:text-ink">I've granted it — refresh</button>
           </div>
         ) : error ? (
           <div className="p-6 text-sm text-danger">Couldn't load Messages: {error}</div>
@@ -455,7 +435,7 @@ export function MessagesPanel() {
           filteredChats.map(c => (
             <button
               key={c.chatId}
-              onClick={() => { setSelected(c); setMessages([]); setDraft(''); setSendError(null); }}
+              onClick={() => { setSelected(c); setDraft(''); setSendError(null); }}
               className="w-full flex items-start gap-2.5 px-4 py-3 border-b border-edge hover:bg-wash transition-colors text-left"
             >
               {/* Reserved unread slot keeps avatars aligned whether or not the dot is shown. */}

@@ -10,6 +10,7 @@ import { db } from '../services/database';
 import { invalidateUnreadCache } from '../lib/mailUnread';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForEmail } from '../services/voice';
+import { usePanelResource } from '../lib/panelCache';
 import { buildVoiceCard, buildEmailRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
 
 interface MailHeader {
@@ -104,9 +105,6 @@ export function MailInboxPanel() {
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
 
-  const [rows, setRows] = useState<MailRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>('newest');
 
   // ── Smart filters: natural-language, persisted, re-evaluated when mail reloads ──
@@ -134,11 +132,12 @@ export function MailInboxPanel() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false); // "write like me" drafting in progress
 
-  const load = useCallback(async () => {
-    if (accounts.length === 0) { setRows([]); return; }
-    setLoading(true);
-    setError(null);
-    try {
+  // Inbox rows — state-alive across tab switches (instant reopen, silent revalidate). Keyed by
+  // the account set so adding/removing an account can never paint another set's cached rows.
+  const { data: rows = [], loading, error, refresh: load, mutate: mutateRows } = usePanelResource<MailRow[]>({
+    key: `mail:rows:${accountsKey}`,
+    fetch: async () => {
+      if (accounts.length === 0) return [];
       const per = await Promise.all(
         accounts.map(async (acct): Promise<MailRow[]> => {
           if (!(await hasSavedPassword(acct.email))) return [];
@@ -148,16 +147,9 @@ export function MailInboxPanel() {
           return headers.map(h => ({ ...h, account: acct.email, provider: acct.provider }));
         }),
       );
-      setRows(per.flat());
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountsKey]);
-
-  useEffect(() => { load(); }, [load]);
+      return per.flat();
+    },
+  });
 
   // Publish the inbox to the docked agent's context so it can read what's on screen (the list, plus
   // any open message). Cleared on unmount.
@@ -274,10 +266,10 @@ export function MailInboxPanel() {
   const clearAiFilter = () => { matchRunId.current++; setActiveFilter(null); setFilterKeys(null); setAiQuery(''); setAiError(null); setAiLoading(false); };
 
   const setSeenLocal = (row: MailRow, seen: boolean) =>
-    setRows(prev => prev.map(r => (r.account === row.account && r.uid === row.uid ? { ...r, seen } : r)));
+    mutateRows(prev => (prev ?? []).map(r => (r.account === row.account && r.uid === row.uid ? { ...r, seen } : r)));
 
   const setFlaggedLocal = (row: MailRow, flagged: boolean) =>
-    setRows(prev => prev.map(r => (r.account === row.account && r.uid === row.uid ? { ...r, flagged } : r)));
+    mutateRows(prev => (prev ?? []).map(r => (r.account === row.account && r.uid === row.uid ? { ...r, flagged } : r)));
 
   // Star / unstar ON THE SERVER (IMAP \Flagged) — optimistic with revert, like read state.
   const toggleStar = async (row: MailRow) => {
@@ -332,17 +324,17 @@ export function MailInboxPanel() {
   };
 
   const deleteMessage = async (row: MailRow) => {
-    setRows(prev => prev.filter(r => !(r.account === row.account && r.uid === row.uid)));
+    mutateRows(prev => (prev ?? []).filter(r => !(r.account === row.account && r.uid === row.uid)));
     if (selected && selected.account === row.account && selected.uid === row.uid) { setSelected(null); setBody(null); }
     if (!(await hasSavedPassword(row.account))) {
-      setRows(prev => [...prev, row]); // revert (sort happens in the view)
+      mutateRows(prev => [...(prev ?? []), row]); // revert (sort happens in the view)
       setActionError('No saved password — re-add the account in Settings.');
       return;
     }
     try {
       await invoke('mail_delete', { provider: row.provider, email: row.account, uid: row.uid });
     } catch (e) {
-      setRows(prev => [...prev, row]); // revert — message still on the server
+      mutateRows(prev => [...(prev ?? []), row]); // revert — message still on the server
       setActionError(`Delete failed on the server: ${String(e)}`);
     }
   };

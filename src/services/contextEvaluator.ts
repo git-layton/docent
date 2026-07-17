@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
+import { z } from 'zod';
 import { writeMemory } from '../lib/ipc';
 import { logError } from '../lib/log';
-import { generateTextResponse } from './llm';
+import { generateStructuredResponse, salvageArray, toWireSchema } from './structured';
 import type { PinProfile } from './pinPersonalization';
 import { formatPinProfileForPrompt, isDuplicateOfRecentPins } from './pinPersonalization';
 
@@ -46,24 +47,34 @@ Rules:
 Respond ONLY with a JSON array, no markdown fences:
 [{"msgId":"...","action":"SAVE|LOG|SKIP","content":"concise note","category":"preference|fact|event|recipe|code|decision|relationship|log","filename":"short-kebab-slug","salience_reason":"which MEMS principle(s) triggered this"}]`;
 
-const parseResponse = (text: string): any[] => {
-  try {
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) return [];
-    return JSON.parse(match[0]);
-  } catch {
-    return [];
-  }
-};
+// One evaluated message. content is load-bearing (it becomes the memory body); the rest is
+// tolerated loosely — the save-loop below already skips items without a filename.
+const EvalItemSchema = z.object({
+  msgId: z.coerce.string().catch(''),
+  action: z.enum(['SAVE', 'LOG', 'SKIP']),
+  content: z.string().catch(''),
+  category: z.string().nullish().catch(undefined),
+  filename: z.string().nullish().catch(undefined),
+  salience_reason: z.string().nullish().catch(undefined),
+});
+
+// The wire schema wraps the array in an object — some providers require an object root for
+// structured output. Validation accepts either shape (the prose fallback emits a bare array).
+const EvalWireSchema = z.object({ items: z.array(EvalItemSchema) });
+const EvalSchema = z.union([
+  salvageArray(EvalItemSchema),
+  z.object({ items: salvageArray(EvalItemSchema) }).transform(o => o.items),
+]);
 
 export const evaluateDroppedMessages = async (
   messages: any[],
   agent: any,
   agentForgePath: string,
   modelConfig: any,
-  appSettings: any,
-  integrations: any,
-  models: any[],
+  // Kept for call-site compatibility; the structured call no longer needs them.
+  _appSettings?: any,
+  _integrations?: any,
+  _models?: any[],
   pinProfile?: PinProfile,
   agentPins?: Array<{ content: string; savedAt: number }>
 ) => {
@@ -81,30 +92,14 @@ export const evaluateDroppedMessages = async (
     .map(m => `[${m.id}] ${m.role === 'user' ? 'User' : (m.agentName || agent.name)}: ${String(m.content ?? '').slice(0, 600)}`)
     .join('\n\n');
 
-  let raw = '';
-  try {
-    raw = await generateTextResponse({
-      messages: [{ id: `ctx-eval-${Date.now()}`, role: 'user', content: `Evaluate these conversation messages:\n\n${userMsg}` }],
-      modelConfig,
-      agent: { prompt: buildSystem(agent.name, existingFiles, pinProfileText), tools: {}, trainingDocs: [] },
-      profile: '',
-      tasks: [],
-      attachedDocs: [],
-      agentPinnedMessages: [],
-      mode: 'text',
-      canvasContent: null,
-      isDeepThinking: false,
-      onChunk: null,
-      signal: null,
-      appSettings,
-      integrations,
-      models,
-    });
-  } catch {
-    return;
-  }
-
-  const results = parseResponse(raw);
+  const results = (await generateStructuredResponse({
+    schema: EvalSchema,
+    wireSchema: toWireSchema(EvalWireSchema),
+    schemaName: 'mems_evaluation',
+    system: buildSystem(agent.name, existingFiles, pinProfileText),
+    user: `Evaluate these conversation messages:\n\n${userMsg}`,
+    modelConfig,
+  }).catch(() => null)) ?? [];
   const today = new Date().toISOString().split('T')[0];
 
   for (const item of results) {

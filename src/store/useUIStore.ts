@@ -35,6 +35,13 @@ interface UIStore {
 
   // Canvas & archive
   canvasContent: any;
+  /**
+   * Per-Space canvas stash. `canvasContent` is the ACTIVE Space's doc; every other Space's doc
+   * waits here under its space id ('space-home' for the global Home). Swapped by
+   * `swapCanvasForSpace` on space switch, so two Spaces can never overwrite each other's canvas
+   * — the old global-singleton behavior. Transient, like `canvasContent` itself.
+   */
+  canvasBySpace: Record<string, any>;
   canvasTab: string;
   viewMode: string;
   archiveSubView: string;
@@ -99,6 +106,8 @@ interface UIStore {
   setProposedRoutine: (v: import('../services/routines').ProposedRoutine | null) => void;
   setSlashHighlight: (v: number | ((prev: number) => number)) => void;
   setCanvasContent: (v: any | ((prev: any) => any)) => void;
+  /** Stash the outgoing Space's canvas and load the incoming Space's — see `canvasBySpace`. */
+  swapCanvasForSpace: (fromSpaceId: string | null, toSpaceId: string | null) => void;
   setCanvasTab: (v: string) => void;
   setViewMode: (v: string) => void;
   setArchiveSubView: (v: string) => void;
@@ -148,6 +157,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   proposedRoutine: null,
   slashHighlight: 0,
   canvasContent: null,
+  canvasBySpace: {},
   canvasTab: 'preview',
   viewMode: 'chat',
   archiveSubView: 'code',
@@ -207,6 +217,15 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set(s => ({ slashHighlight: typeof v === 'function' ? v(s.slashHighlight) : v })),
   setCanvasContent: (v) =>
     set(s => ({ canvasContent: typeof v === 'function' ? v(s.canvasContent) : v })),
+  swapCanvasForSpace: (fromSpaceId, toSpaceId) =>
+    set(s => {
+      const keyOf = (id: string | null) => id ?? 'space-home';
+      const fromKey = keyOf(fromSpaceId);
+      const toKey = keyOf(toSpaceId);
+      if (fromKey === toKey) return {};
+      const canvasBySpace = { ...s.canvasBySpace, [fromKey]: s.canvasContent };
+      return { canvasBySpace, canvasContent: canvasBySpace[toKey] ?? null };
+    }),
   setCanvasTab: (v) => set({ canvasTab: v }),
   setViewMode: (v) => set({ viewMode: v }),
   setArchiveSubView: (v) => set({ archiveSubView: v }),

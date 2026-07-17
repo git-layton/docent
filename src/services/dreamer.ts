@@ -1,6 +1,9 @@
 // ─── Dream Cycle Service ──────────────────────────────────────────────────────
 // Builds prompts for the Dreamer agent and parses its JSON response.
 
+import { z } from 'zod';
+import { extractJson, salvageArray } from './structured';
+
 export type DreamerOp =
   | { type: 'merge'; description: string; source_paths: string[]; target_path: string; merged_content: string }
   | { type: 'prune'; description: string; source_path: string }
@@ -12,6 +15,26 @@ export type DreamerOp =
 export interface DreamerPlan {
   operations: DreamerOp[];
 }
+
+// One schema per op, matching the fields the apply-loop in App.tsx actually depends on. Extra
+// keys pass through (looseObject) so prompt evolution can't silently drop data.
+const optStr = z.string().nullish().catch(undefined).transform(v => v ?? undefined);
+export const DreamerOpSchema = z.discriminatedUnion('type', [
+  z.looseObject({ type: z.literal('merge'), description: z.string(), source_paths: z.array(z.string()).min(1), target_path: z.string().min(1), merged_content: z.string() }),
+  z.looseObject({ type: z.literal('prune'), description: z.string(), source_path: z.string().min(1) }),
+  z.looseObject({ type: z.literal('update'), description: z.string(), target_path: z.string().min(1), updated_content: z.string() }),
+  z.looseObject({ type: z.literal('insight'), description: z.string(), title: z.string().min(1), insight: z.string().min(1), source_paths: z.array(z.string()).min(1) }),
+  z.looseObject({ type: z.literal('playbook_refine'), description: z.string(), target_path: z.string().min(1), steps: z.array(z.looseObject({ intent: z.string().min(1), toolHint: optStr })).min(1) }),
+  z.looseObject({ type: z.literal('notice'), description: z.string(), title: z.string().min(1), body: z.string().min(1), agentId: optStr }),
+]);
+
+/** Strict shape for the wire — compiled to a grammar/json_schema so a capable server can't
+ * produce an invalid plan in the first place. */
+export const DreamerPlanWireSchema = z.object({ operations: z.array(DreamerOpSchema) });
+
+/** Lenient validation side: each operation is salvaged individually, so one malformed op never
+ * discards the valid ones beside it. */
+export const DreamerPlanSchema = z.object({ operations: salvageArray(DreamerOpSchema) });
 
 export function buildDreamerSystemPrompt(): string {
   return `You are the Dreamer — a background agent for Agent Forge that runs while the user is away.
@@ -153,23 +176,6 @@ Respond with ONLY the JSON operations plan.`;
 }
 
 export function parseDreamerResponse(raw: string): DreamerPlan | null {
-  let cleaned = raw.trim();
-
-  // Strip markdown code fences if present
-  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) cleaned = fenceMatch[1].trim();
-
-  // Find JSON object bounds (handles preamble text)
-  const jsonStart = cleaned.indexOf('{');
-  const jsonEnd = cleaned.lastIndexOf('}');
-  if (jsonStart === -1 || jsonEnd === -1) return null;
-  cleaned = cleaned.slice(jsonStart, jsonEnd + 1);
-
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (!Array.isArray(parsed.operations)) return null;
-    return parsed as DreamerPlan;
-  } catch {
-    return null;
-  }
+  const result = DreamerPlanSchema.safeParse(extractJson(raw));
+  return result.success ? (result.data as DreamerPlan) : null;
 }

@@ -8,7 +8,7 @@ import { useChatStore } from '../store/useChatStore';
 import { rankSearchDocs, type SearchDoc, type ScoredDoc } from '../services/universalSearch';
 import { buildSearchCorpus, type SearchScope } from '../services/searchCorpus';
 import { searchWebHistory } from '../services/webHistory';
-import { quickSearchAnswer, hasSearchModel } from '../services/searchAnswer';
+import { quickSearchAnswer, hasSearchModel, type AnswerBasis } from '../services/searchAnswer';
 import { searchKnowledgeDocs, mergeRanked, isKnowledgeDoc } from '../services/semanticDocs';
 import { useMemoryStore } from '../store/useMemoryStore';
 
@@ -142,6 +142,7 @@ export function OmniSearch({
   const [answer, setAnswer] = useState('');
   const [answering, setAnswering] = useState(false);
   const [answerError, setAnswerError] = useState<string | null>(null);
+  const [answerBasis, setAnswerBasis] = useState<AnswerBasis>('unknown');
   const matchesRef = useRef<ScoredDoc[]>(displayed);
   matchesRef.current = displayed;
 
@@ -149,7 +150,7 @@ export function OmniSearch({
   const wordCount = queryText ? queryText.split(/\s+/).filter(Boolean).length : 0;
   const wantsAnswer = queryText.length >= 5 && (wordCount >= 2 || queryText.endsWith('?'));
   useEffect(() => {
-    setAnswer(''); setAnswerError(null); setAnswering(false);
+    setAnswer(''); setAnswerError(null); setAnswering(false); setAnswerBasis('unknown');
     if (!wantsAnswer || !hasSearchModel()) return;
     const ctrl = new AbortController();
     const timer = setTimeout(async () => {
@@ -159,6 +160,7 @@ export function OmniSearch({
           signal: ctrl.signal,
           includeWebHistory: !!includeWebHistory, // space scope must not leak global browsing history
           onChunk: (c) => { if (!ctrl.signal.aborted) setAnswer((prev) => prev + c); },
+          onBasis: (b) => { if (!ctrl.signal.aborted) setAnswerBasis(b); },
         });
       } catch (e: any) {
         if (e?.name !== 'AbortError' && !ctrl.signal.aborted) setAnswerError(e?.message ?? 'Search failed.');
@@ -228,6 +230,20 @@ export function OmniSearch({
               <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-accent-strong">
                 <Sparkles className="h-3 w-3" /> Answer
                 {answering && <Loader2 className="h-3 w-3 animate-spin opacity-70" />}
+                {/* Basis badge — grounded in the user's data vs. the model's general knowledge.
+                    Parsed deterministically from the reply; no badge when the model didn't say. */}
+                {answerBasis !== 'unknown' && answerText && (
+                  <span
+                    className={clsx(
+                      'ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold normal-case tracking-normal',
+                      answerBasis === 'grounded' && 'bg-success/15 text-success',
+                      answerBasis === 'general' && 'bg-inset text-ink-3 border border-edge',
+                      answerBasis === 'unsure' && 'bg-warning-soft/60 text-warning',
+                    )}
+                  >
+                    {answerBasis === 'grounded' ? 'From your data' : answerBasis === 'general' ? 'General knowledge' : 'Unsure'}
+                  </span>
+                )}
               </div>
               {answerError ? (
                 <p className="text-[12px] text-ink-3">Couldn’t generate an answer: {answerError}</p>

@@ -4,6 +4,7 @@ import { db } from '../services/database';
 import type { OmniTab, Space, SpaceKind } from '../types/omniTab';
 import { useChatStore } from './useChatStore';
 import { useAgentStore, resolveCodeyId, CODEY_ASSISTANT } from './useAgentStore';
+import { useUIStore } from './useUIStore';
 import { normalizeChatRecord } from '../services/channels';
 import { projectContextPath, AGENTS_TEMPLATE } from '../services/fileAccess/spaces';
 import { generateId } from '../lib/id';
@@ -362,6 +363,11 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
   },
 
   setActiveSpaceId: (id) => {
+    // Swap the canvas slot BEFORE the switch: stash the outgoing space's doc, load the incoming
+    // one's. Keeps `canvasContent` (which the whole app reads) scoped per Space instead of a
+    // global singleton two Spaces could silently overwrite.
+    const prevSpaceId = get().activeSpaceId;
+    if (prevSpaceId !== id) useUIStore.getState().swapCanvasForSpace(prevSpaceId, id);
     if (!id) { set({ activeSpaceId: null }); return; }
     const { omniTabs, spaces } = get();
     const space = spaces.find(s => s.id === id);

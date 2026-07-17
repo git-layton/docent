@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, ChevronLeft, ChevronRight, X, Plus,
   ListTodo, Cake, CalendarPlus,
@@ -13,6 +13,7 @@ import type { CalEvent } from '../services/connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
 import { useToolContextStore } from '../store/useToolContextStore';
+import { usePanelResource } from '../lib/panelCache';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -51,7 +52,6 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
   // Events are read/written through the connector facade, so the panel shows whichever backend the
   // user selected (local birthdays/anniversaries, or their real macOS/Google calendar).
   const calendarBackend: string = useSettingsStore(s => (s.integrations as any).calendar?.backend ?? 'local');
-  const [events, setEvents] = useState<CalEvent[]>([]);
 
   // Native (EventKit) access gate: probe TCC status so we can guide first-run setup instead of just
   // showing an empty grid. Only relevant when the active backend is the native macOS calendar.
@@ -115,17 +115,21 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
     return map;
   }, [tasks]);
 
-  // Load events for the visible month from the active backend; reload on month/backend change and
-  // whenever the local recurring-events store changes (so local edits reflect immediately).
+  // Events for the visible month — state-alive and keyed per backend + month, so paging between
+  // months (or reopening the tab) paints instantly from cache and revalidates in the background.
   const monthStartISO = toLocalISODate(new Date(year, month, 1));
   const monthEndISO = toLocalISODate(new Date(year, month + 1, 0));
-  const loadEvents = useCallback(async () => {
-    try {
-      setEvents(await getCalendar().listEvents(monthStartISO, monthEndISO));
-    } catch {
-      setEvents([]); // no native access yet, etc. — degrade to empty rather than crash
-    }
-  }, [monthStartISO, monthEndISO, calendarBackend]);
+  const { data: events = [], refresh: loadEvents } = usePanelResource<CalEvent[]>({
+    key: `calendar:${calendarBackend}:${monthStartISO}:${monthEndISO}`,
+    fetch: async () => {
+      try {
+        return await getCalendar().listEvents(monthStartISO, monthEndISO);
+      } catch {
+        return []; // no native access yet, etc. — degrade to empty rather than crash
+      }
+    },
+  });
+  // Local recurring-event edits should reflect immediately (they feed the local backend).
   useEffect(() => { loadEvents(); }, [loadEvents, recurringEvents]);
 
   // Publish the visible month to the docked agent's context.

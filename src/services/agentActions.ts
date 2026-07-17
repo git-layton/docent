@@ -8,6 +8,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getCalendar, getTasks, getNotes } from './connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { validateAgentAction } from './modelBlocks';
 
 export interface AgentAction {
   tool: string; // 'note' | 'task' | 'calendar' | 'message'
@@ -28,7 +29,9 @@ export function actionNeedsApproval(a: AgentAction, turnIngestedUntrusted = fals
   return false;
 }
 
-/** Extract ```forge:action``` JSON blocks from an agent message. Tolerant — skips malformed blocks. */
+/** Extract ```forge:action``` JSON blocks from an agent message. Tolerant — skips malformed
+ * blocks AND known ops whose load-bearing fields are missing/invalid (schema-checked in
+ * modelBlocks), so an action that would apply garbage never reaches execution. */
 export function parseAgentActions(text: string): AgentAction[] {
   if (!text) return [];
   const out: AgentAction[] = [];
@@ -37,8 +40,9 @@ export function parseAgentActions(text: string): AgentAction[] {
   while ((m = re.exec(text)) !== null) {
     try {
       const parsed = JSON.parse(m[1].trim());
-      for (const a of Array.isArray(parsed) ? parsed : [parsed]) {
-        if (a && typeof a.tool === 'string' && typeof a.op === 'string') out.push(a as AgentAction);
+      for (const raw of Array.isArray(parsed) ? parsed : [parsed]) {
+        const a = validateAgentAction(raw);
+        if (a) out.push(a as AgentAction);
       }
     } catch {
       /* skip malformed block */
@@ -52,6 +56,58 @@ export function stripActionBlocks(text: string): string {
   return text.replace(/```forge:action\s*[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// ─── Card actions ─────────────────────────────────────────────────────────────
+// These ops don't execute through connectors — they render as the app's existing editable/
+// confirm cards. The model emits them in the ONE forge:action grammar; the app translates them
+// back into the legacy fenced-block form (```event, ```save, ```profile, …) that the message
+// renderer and its card components already understand. Legacy blocks emitted directly by a
+// model still parse too (deprecated fallback), so nothing breaks during the transition.
+const CARD_OP_TO_BLOCK: Record<string, string> = {
+  'event.create': 'event',
+  'event.update': 'event_update',
+  'event.delete': 'event_delete',
+  'library.save': 'save',
+  'profile.update': 'profile',
+};
+
+/** True when this action renders as a user-confirmed card instead of executing. */
+export function isCardAction(a: AgentAction): boolean {
+  return `${a.tool}.${a.op}` in CARD_OP_TO_BLOCK;
+}
+
+/** Render card actions back into the legacy fenced blocks the message renderer displays. */
+export function renderCardActionBlocks(actions: AgentAction[]): string {
+  return actions
+    .filter(isCardAction)
+    .map(a => {
+      const { tool: _tool, op: _op, ...fields } = a;
+      return '```' + CARD_OP_TO_BLOCK[`${a.tool}.${a.op}`] + '\n' + JSON.stringify(fields) + '\n```';
+    })
+    .join('\n\n');
+}
+
+/** Resolve fuzzy targets to exact ones BEFORE the approval card renders, so the user approves the
+ * real destination — not the model's guess, which used to be fuzzy-matched only AFTER approval.
+ * Stamps the resolved identifiers onto the action (execute then uses them verbatim); an
+ * unresolvable target is stamped as `unresolved` so the card can say so up front. */
+export async function resolveActionTargets(a: AgentAction): Promise<AgentAction> {
+  if (a.tool === 'message' && a.op === 'send' && !a.chatGuid && a.to) {
+    const chats = await invoke<Array<{ guid: string; name: string }>>('imessage_list_chats', { limit: 50 }).catch(() => [] as Array<{ guid: string; name: string }>);
+    const match = chats.find(c => c.name.toLowerCase().includes(String(a.to).toLowerCase()));
+    return match
+      ? { ...a, chatGuid: match.guid, resolvedName: match.name }
+      : { ...a, unresolved: `no conversation matching “${a.to}”` };
+  }
+  if (a.tool === 'mail' && a.op === 'send') {
+    const accounts = ((useSettingsStore.getState().integrations as any)?.mailAccounts ?? []) as Array<{ email: string; provider: string }>;
+    const acct = a.account ? accounts.find(x => x.email === a.account) : accounts[0];
+    return acct
+      ? { ...a, account: acct.email, resolvedAccount: acct.email }
+      : { ...a, unresolved: a.account ? `no connected mail account “${a.account}”` : 'no mail account is connected' };
+  }
+  return a;
+}
+
 /** Human-readable summary for a result/approval card. */
 export function describeAction(a: AgentAction): string {
   switch (`${a.tool}.${a.op}`) {
@@ -59,8 +115,12 @@ export function describeAction(a: AgentAction): string {
     case 'task.create': return `Add to-do “${a.title ?? ''}”${a.dueDate ? ` (due ${a.dueDate})` : ''}`;
     case 'task.complete': return `Mark a to-do complete`;
     case 'calendar.create': return `Add event “${a.title ?? ''}”${a.start ? ` on ${String(a.start).slice(0, 10)}` : ''}`;
-    case 'message.send': return `Send iMessage to ${a.to ?? a.chatGuid ?? 'a conversation'}: “${a.text ?? ''}”`;
-    case 'mail.send': return `Send email to ${Array.isArray(a.to) ? a.to.join(', ') : (a.to ?? '?')}: “${a.subject ?? ''}”`;
+    case 'message.send': return a.unresolved
+      ? `Send iMessage — ${a.unresolved}`
+      : `Send iMessage to ${a.resolvedName ?? a.to ?? a.chatGuid ?? 'a conversation'}: “${a.text ?? ''}”`;
+    case 'mail.send': return a.unresolved
+      ? `Send email — ${a.unresolved}`
+      : `Send email to ${Array.isArray(a.to) ? a.to.join(', ') : (a.to ?? '?')}${a.resolvedAccount ? ` (from ${a.resolvedAccount})` : ''}: “${a.subject ?? ''}”`;
     case 'note.delete': return `Delete a note`;
     case 'task.delete': return `Delete a to-do`;
     case 'calendar.delete': return `Delete a calendar event`;

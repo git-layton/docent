@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
-import { generateTextResponse } from './llm';
+import { z } from 'zod';
+import { generateStructuredResponse, salvageArray, toWireSchema } from './structured';
 import { buildEntityExtractionPrompt } from './semantic';
 
 export interface ExtractedGraph {
@@ -137,18 +138,22 @@ export async function upsertGraphBatch(nodes: BatchNode[], edges: BatchEdge[]): 
 
 // ── LLM extraction pipeline ─────────────────────────────────────────────────
 
-interface RawExtraction {
-  entities?: Array<{ id: string; type: string; label: string }>;
-  relations?: Array<{ source: string; target: string; relation: string }>;
-}
-
-function parseExtraction(raw: string): RawExtraction {
-  const stripped = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-  const start = stripped.indexOf('{');
-  const end = stripped.lastIndexOf('}');
-  if (start === -1 || end === -1) return {};
-  return JSON.parse(stripped.slice(start, end + 1));
-}
+const EntitySchema = z.object({
+  id: z.coerce.string().min(1),
+  type: z.string().catch('entity'),
+  label: z.coerce.string().min(1),
+});
+const RelationSchema = z.object({
+  source: z.coerce.string().min(1),
+  target: z.coerce.string().min(1),
+  relation: z.string().catch('related_to'),
+});
+// Wire: strict shape guiding the grammar. Validation: each entity/relation salvaged individually.
+const ExtractionWireSchema = z.object({ entities: z.array(EntitySchema), relations: z.array(RelationSchema) });
+const ExtractionSchema = z.object({
+  entities: salvageArray(EntitySchema),
+  relations: salvageArray(RelationSchema),
+});
 
 function sanitizeEntityId(value: unknown): string {
   return String(value ?? '')
@@ -188,40 +193,21 @@ export async function extractAndWriteGraph(opts: {
 
   const prompt = buildEntityExtractionPrompt(text.slice(0, 4000), sourceTitle, sourceUrl ?? sourcePath ?? '');
 
-  let raw = '';
-  try {
-    raw = await generateTextResponse({
-      messages: [{ id: `graph-extract-${Date.now()}`, role: 'user', content: prompt }],
-      modelConfig,
-      agent: { prompt: 'You are a knowledge graph extraction assistant. Return only valid JSON.', tools: {}, trainingDocs: [] },
-      profile: '',
-      tasks: [],
-      attachedDocs: [],
-      agentPinnedMessages: [],
-      mode: 'text',
-      canvasContent: null,
-      isDeepThinking: false,
-      onChunk: null,
-      signal: null,
-      appSettings: {},
-      integrations: {},
-      models: [],
-    });
-  } catch (err) {
+  const extraction = await generateStructuredResponse({
+    schema: ExtractionSchema,
+    wireSchema: toWireSchema(ExtractionWireSchema),
+    schemaName: 'entity_extraction',
+    system: 'You are a knowledge graph extraction assistant. Return only valid JSON.',
+    user: prompt,
+    modelConfig: modelConfig as any,
+  }).catch((err) => {
     console.warn('[graphEntityExtractor] AI call failed:', err);
-    return { nodes: [], edges: [] };
-  }
+    return null;
+  });
+  if (!extraction) return { nodes: [], edges: [] };
 
-  let extraction: RawExtraction;
-  try {
-    extraction = parseExtraction(raw);
-  } catch (err) {
-    console.warn('[graphEntityExtractor] JSON parse failed:', err, '\nRaw:', raw.slice(0, 200));
-    return { nodes: [], edges: [] };
-  }
-
-  const entities = (Array.isArray(extraction.entities) ? extraction.entities : []).slice(0, MAX_ENTITIES);
-  const relations = (Array.isArray(extraction.relations) ? extraction.relations : []).slice(0, MAX_RELATIONS);
+  const entities = extraction.entities.slice(0, MAX_ENTITIES);
+  const relations = extraction.relations.slice(0, MAX_RELATIONS);
 
   const nodes: ExtractedGraph['nodes'] = [];
   const edges: ExtractedGraph['edges'] = [];

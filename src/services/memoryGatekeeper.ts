@@ -74,7 +74,9 @@ const EXTERNAL_CLAIM_RE = /\b(according to|the web says|research says|study says
 const INFERRED_RE = /\b(i think|maybe|probably|seems like|might be|my guess|inferred|appears to)\b/i;
 const CONFLICT_RE = /\b(conflicts? with|contradicts?|actually|correction|correcting|no longer|replace the previous|supersedes)\b/i;
 const CHANNEL_RE = /\b(in this channel|for this channel|channel memory|product channel|team channel)\b/i;
-const PERSONAL_RE = /\b(my|me|i|wife|husband|partner|child|kid|daughter|son|family|home|address|phone|email)\b/i;
+// Signals genuinely-personal content. Deliberately excludes bare "I"/"me" — they appear in
+// nearly every English sentence, which made the `personal` privacy label fire on everything.
+const PERSONAL_RE = /\b(my|wife|husband|partner|child|kid|daughter|son|family|home|address|phone|email)\b/i;
 
 // MEMS: Emotional Enhancement (McGaugh 2003) — affective language encodes more durably
 const EMOTIONAL_RE = /\b(i'?m (so |really )?(worried|scared|excited|frustrated|angry|upset|thrilled|devastated|anxious|nervous|stressed|overwhelmed|terrified)|can'?t believe (this|it|what)|oh no|this is (terrible|amazing|awful|incredible)|i feel (like|that|so))\b/i;

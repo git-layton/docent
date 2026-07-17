@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star, Key, Plus, BookMarked, ExternalLink, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Globe, Bot, X, Lock, Zap, Star, Key, BookMarked, ExternalLink, ShieldAlert, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { Webview } from '@tauri-apps/api/webview';
@@ -150,15 +150,6 @@ function ProactiveChip({ comment, onDismiss }: ProactiveChipProps) {
   );
 }
 
-interface BrowserTabState {
-  id: string;
-  url: string;
-  title: string;
-}
-
-function makeTab(url = HOME_URL, title = ''): BrowserTabState {
-  return { id: `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, url, title: title || tryHostname(url) };
-}
 
 export interface BrowserTabContentProps {
   tabId: string;
@@ -168,9 +159,7 @@ export interface BrowserTabContentProps {
 export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps): React.JSX.Element {
   const startUrl = initialUrl ?? HOME_URL;
 
-  const initialTabRef = useRef(makeTab(startUrl));
-  const [tabs, setTabs] = useState<BrowserTabState[]>([initialTabRef.current]);
-  const [activeTabId, setActiveTabId] = useState<string>(initialTabRef.current.id);
+
 
   const [url, setUrl] = useState(startUrl);
   const [inputUrl, setInputUrl] = useState(startUrl);
@@ -201,10 +190,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   const mountedRef = useRef(true);
   const urlRef = useRef(url);
   const visitIdRef = useRef<string | null>(null);
-  const activeTabIdRef = useRef(activeTabId);
-
   urlRef.current = url;
-  activeTabIdRef.current = activeTabId;
 
   // Pull the AUTHORITATIVE current URL from the real WKWebView and sync the address bar. Never trusts
   // a page-supplied value — the panel's nav hook only pings "something navigated"; we read the truth
@@ -225,33 +211,17 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
   const proactiveEnabled = useBrowserStore(s => s.proactiveEnabled);
   const favorites = useBrowserStore(s => s.favorites);
+  const adminMode = useBrowserStore(s => s.adminMode);
+  const aiTrackingEnabled = useBrowserStore(s => s.aiTrackingEnabled);
   const isFavorited = favorites.some(f => f.url === url);
   const { comment, dismiss } = useProactiveCommentary(url, pageTitle, pageContent, proactiveEnabled);
 
-  // Hydrate store on mount, restore saved tabs
+  // Hydrate store on mount
   useEffect(() => {
-    useBrowserStore.getState().hydrate().then(() => {
-      const { savedTabs, savedActiveTabId } = useBrowserStore.getState();
-      if (savedTabs.length > 0) {
-        setTabs(savedTabs);
-        const targetId = savedActiveTabId ?? savedTabs[0].id;
-        setActiveTabId(targetId);
-        const activeTab = savedTabs.find(t => t.id === targetId) ?? savedTabs[0];
-        setUrl(activeTab.url);
-        setInputUrl(activeTab.url);
-        setPageTitle(activeTab.title);
-      }
-    }).catch(() => {});
+    useBrowserStore.getState().hydrate().catch(() => {});
   }, []);
 
-  // Sync active tab's URL/title when URL or pageTitle changes
-  useEffect(() => {
-    setTabs(prev => prev.map(t =>
-      t.id === activeTabIdRef.current
-        ? { ...t, url, title: pageTitle || (url ? tryHostname(url) : '') }
-        : t
-    ));
-  }, [url, pageTitle]);
+
 
   // Notify OmniTabBar of label changes
   useEffect(() => {
@@ -294,6 +264,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         width: Math.round(rect.width),
         height: Math.round(rect.height),
         userAgent: BROWSER_UA,
+        incognito: !useBrowserStore.getState().adminMode,
       });
 
       // The webview registers asynchronously on the main thread; poll briefly for its handle.
@@ -332,8 +303,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       const wv = webviewRef.current;
       if (!wv || !contentRef.current) return;
       const rect = contentRef.current.getBoundingClientRect();
-      wv.setPosition(new LogicalPosition(Math.round(rect.left), Math.round(rect.top))).catch(() => {});
-      wv.setSize(new LogicalSize(Math.round(rect.width), Math.round(rect.height))).catch(() => {});
+      wv.setPosition(new LogicalPosition(rect.left, rect.top)).catch(() => {});
+      wv.setSize(new LogicalSize(rect.width, rect.height)).catch(() => {});
     };
 
     const observer = new ResizeObserver(syncBounds);
@@ -377,16 +348,18 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       // Stamp the owning Space so recall stays inside the agent's consent boundary — an agent must
       // not later recall a page read in a Space it was never part of.
       const spaceId = useSpaceStore.getState().omniTabs.find((t) => t.id === tabId)?.spaceId;
-      useBrowserStore.getState().addVisitLogEntry({
-        id: visitId,
-        url,
-        title,
-        timestamp: Date.now(),
-        wordCount,
-        wasDigested: false,
-        isPrivate,
-        spaceId,
-      });
+      if (useBrowserStore.getState().adminMode) {
+        useBrowserStore.getState().addVisitLogEntry({
+          id: visitId,
+          url,
+          title,
+          timestamp: Date.now(),
+          wordCount,
+          wasDigested: false,
+          isPrivate,
+          spaceId,
+        });
+      }
 
       // Populate the readable text of the page the user is CURRENTLY viewing so chat can answer about
       // it (the [CURRENT BROWSER PAGE] block — already tagged untrusted web content). Skip only
@@ -396,6 +369,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       // asking about — blocking that would mean the assistant can't see the user's own open
       // inbox/dashboard. capturePageText self-retries until the page has rendered, so no fixed settle
       // is needed here; it is best-effort and resolves to '' on any failure.
+      if (!useBrowserStore.getState().aiTrackingEnabled) return;
+
       if (!/^https?:\/\//i.test(url)) return;
       if (cancelled || visitIdRef.current !== visitId) return;
 
@@ -426,17 +401,11 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
   // Emit page context to main window whenever page data changes
   useEffect(() => {
-    if (!url) return;
+    if (!url || !aiTrackingEnabled) return;
     emit('browser:page-changed', { url, title: pageTitle, content: pageContent }).catch(() => {});
-  }, [url, pageTitle, pageContent]);
+  }, [url, pageTitle, pageContent, aiTrackingEnabled]);
 
-  // Persist tab state when tabs change (debounced)
-  useEffect(() => {
-    const t = setTimeout(() => {
-      useBrowserStore.getState().setSavedTabs(tabs, activeTabId).catch(() => {});
-    }, 500);
-    return () => clearTimeout(t);
-  }, [tabs, activeTabId]);
+
 
   // Inject pop-up handler — opens popups as new tabs instead of hijacking current page navigation.
   // Re-injects per navigation (each page load is a fresh JS context). Skips auth/sign-in domains
@@ -554,13 +523,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     const p = listen<{ url: string }>('browser:open-tab', e => {
       const tabUrl = e.payload?.url;
       if (!tabUrl) return;
-      const t = makeTab(tabUrl, '');
-      setTabs(prev => [...prev, t]);
-      setActiveTabId(t.id);
-      setUrl(tabUrl);
-      setInputUrl(tabUrl);
-      setIsLoading(true);
-      invoke('browser_navigate', { label: BROWSER_LABEL, url: tabUrl }).catch(() => setIsLoading(false));
+      useSpaceStore.getState().openTab({ type: 'web', url: tabUrl, label: tryHostname(tabUrl) });
     });
     return () => { p.then(f => f()); };
   }, []);
@@ -603,66 +566,8 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   }, [inputUrl]);
 
   const openNewTab = useCallback(() => {
-    const t = makeTab();
-    setTabs(prev => [...prev, t]);
-    setActiveTabId(t.id);
-    setUrl(HOME_URL);
-    setInputUrl(HOME_URL);
-    setPageTitle('');
-    setIsLoading(true);
-    invoke('browser_navigate', { label: BROWSER_LABEL, url: HOME_URL }).catch(() => setIsLoading(false));
+    useSpaceStore.getState().openTab({ type: 'web', url: HOME_URL, label: 'New Tab' });
   }, []);
-
-  const closeTab = useCallback((id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setTabs(prev => {
-      if (prev.length === 1) return prev; // keep at least one tab
-      const idx = prev.findIndex(t => t.id === id);
-      const next = prev.filter(t => t.id !== id);
-      if (id === activeTabIdRef.current) {
-        const newActive = next[Math.max(0, idx - 1)];
-        setActiveTabId(newActive.id);
-        setUrl(newActive.url);
-        setInputUrl(newActive.url);
-        invoke('browser_navigate', { label: BROWSER_LABEL, url: newActive.url }).catch(() => {});
-      }
-      return next;
-    });
-  }, []);
-
-  const switchTab = useCallback((id: string) => {
-    if (id === activeTabIdRef.current) return;
-    const tab = tabs.find(t => t.id === id);
-    if (!tab) return;
-    setActiveTabId(id);
-    setUrl(tab.url);
-    setInputUrl(tab.url);
-    setPageTitle(tab.title);
-    setIsLoading(true);
-    invoke('browser_navigate', { label: BROWSER_LABEL, url: tab.url }).catch(() => setIsLoading(false));
-  }, [tabs]);
-
-  const showTabContextMenu = useCallback((e: React.MouseEvent, browserTabId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
-        { label: 'New Tab', action: openNewTab },
-        ...(tabs.length > 1 ? [{ label: 'Close Tab', action: () => closeTab(browserTabId, e), danger: true }] : []),
-        ...(tabs.length > 1 ? [{ label: 'Close Other Tabs', action: () => {
-          const keep = tabs.find(t => t.id === browserTabId);
-          if (!keep) return;
-          setTabs([keep]);
-          setActiveTabId(keep.id);
-          setUrl(keep.url);
-          setInputUrl(keep.url);
-          invoke('browser_navigate', { label: BROWSER_LABEL, url: keep.url }).catch(() => {});
-        }, danger: true }] : []),
-      ],
-    });
-  }, [tabs, openNewTab, closeTab]);
 
   const showUrlContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -759,19 +664,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           break;
         case 'w':
           e.preventDefault();
-          if (tabs.length > 1) {
-            setTabs(prev => {
-              if (prev.length === 1) return prev;
-              const idx = prev.findIndex(t => t.id === activeTabId);
-              const next = prev.filter(t => t.id !== activeTabId);
-              const newActive = next[Math.max(0, idx - 1)];
-              setActiveTabId(newActive.id);
-              setUrl(newActive.url);
-              setInputUrl(newActive.url);
-              invoke('browser_navigate', { label: BROWSER_LABEL, url: newActive.url }).catch(() => {});
-              return next;
-            });
-          }
+          useSpaceStore.getState().closeTab(tabId);
           break;
         case 'r':
           e.preventDefault();
@@ -789,7 +682,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     };
     window.addEventListener('keydown', onKey as EventListener);
     return () => window.removeEventListener('keydown', onKey as EventListener);
-  }, [tabs, activeTabId, openNewTab, handleReload, url, pageTitle, isFavorited]);
+  }, [openNewTab, handleReload, url, pageTitle, isFavorited, tabId]);
 
   // Cmd+F / Ctrl+F to toggle find bar
   useEffect(() => {
@@ -876,7 +769,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   const isGoogleAuth = tryHostname(url) === 'accounts.google.com';
 
   return (
-    <div className="flex flex-col h-full w-full bg-panel overflow-hidden select-none">
+    <div className="flex flex-col h-full w-full bg-transparent overflow-hidden select-none">
       <style>{`
         @keyframes browser-progress {
           0%   { width: 0% }
@@ -888,39 +781,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         .browser-progress-bar { animation: browser-progress 10s ease-out forwards; }
       `}</style>
 
-      {/* Tab bar */}
-      <div className="h-9 flex items-center gap-0.5 px-1.5 bg-inset shrink-0 overflow-x-auto no-scrollbar">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => switchTab(tab.id)}
-            onContextMenu={e => showTabContextMenu(e, tab.id)}
-            className={clsx(
-              'flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-[11px] font-medium shrink-0 max-w-[180px] min-w-[80px] transition-all group',
-              tab.id === activeTabId
-                ? 'bg-panel text-ink shadow-sm'
-                : 'text-ink-2 hover:bg-wash hover:text-ink',
-            )}
-          >
-            <TabFavicon url={tab.url} />
-            <span className="truncate flex-1 min-w-0 text-left">{tab.title || tryHostname(tab.url)}</span>
-            <span
-              onClick={e => closeTab(tab.id, e)}
-              className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-md hover:bg-wash opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
-              title="Close tab"
-            >
-              <X className="w-2.5 h-2.5" />
-            </span>
-          </button>
-        ))}
-        <button
-          onClick={openNewTab}
-          className="w-7 h-7 flex items-center justify-center ml-0.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors shrink-0"
-          title="New tab (Cmd+T)"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      </div>
+
 
       {/* Loading progress bar */}
       {isLoading && (
@@ -930,7 +791,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       )}
 
       {/* Nav bar */}
-      <div className="h-10 flex items-center gap-1 px-2 border-b border-edge shrink-0 z-10 bg-panel">
+      <div className="h-10 flex items-center gap-1 px-2 shrink-0 z-10 bg-panel/80 backdrop-blur-md">
         {/* Navigation buttons */}
         <div className="flex items-center gap-0.5 mr-0.5">
           <button
@@ -1022,6 +883,30 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
           title={proactiveEnabled ? 'AI commentary on' : 'AI commentary off'}
         >
           <Zap className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => useBrowserStore.getState().setAdminMode(!adminMode)}
+          className={clsx(
+            'p-1.5 rounded-lg transition-colors shrink-0',
+            adminMode
+              ? 'bg-warning-soft/50 text-warning'
+              : 'text-ink-3 hover:bg-wash hover:text-ink-2',
+          )}
+          title={adminMode ? 'Admin Mode (Saving history)' : 'Incognito Mode (No history saved)'}
+        >
+          <ShieldCheck className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => useBrowserStore.getState().setAiTrackingEnabled(!aiTrackingEnabled)}
+          className={clsx(
+            'p-1.5 rounded-lg transition-colors shrink-0',
+            aiTrackingEnabled
+              ? 'text-accent hover:bg-wash'
+              : 'bg-danger-soft/50 text-danger',
+          )}
+          title={aiTrackingEnabled ? 'AI Tracking ON' : 'AI Tracking OFF (Dark)'}
+        >
+          {aiTrackingEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
         </button>
         <button
           onClick={() => setPasswordBarOpen(v => !v)}

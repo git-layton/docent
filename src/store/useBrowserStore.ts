@@ -42,6 +42,8 @@ interface BrowserStore {
   proactiveEnabled: boolean;
   savedTabs: Array<{ id: string; url: string; title: string }>;
   savedActiveTabId: string | null;
+  adminMode: boolean;
+  aiTrackingEnabled: boolean;
 
   setActiveTab: (tab: BrowserTab | null) => void;
   updateActiveTabContent: (content: string) => void;
@@ -54,6 +56,8 @@ interface BrowserStore {
   addFavorite: (url: string, title: string) => Promise<void>;
   removeFavorite: (url: string) => Promise<void>;
   setSavedTabs: (tabs: Array<{ id: string; url: string; title: string }>, activeId: string) => Promise<void>;
+  setAdminMode: (v: boolean) => Promise<void>;
+  setAiTrackingEnabled: (v: boolean) => Promise<void>;
 
   hydrate: () => Promise<void>;
   persist: () => Promise<void>;
@@ -67,6 +71,8 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   proactiveEnabled: false,
   savedTabs: [],
   savedActiveTabId: null,
+  adminMode: false,
+  aiTrackingEnabled: true,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   updateActiveTabContent: (content) =>
@@ -115,22 +121,36 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     await get().persist();
   },
 
+  setAdminMode: async (v) => {
+    set({ adminMode: v });
+    await get().persist();
+  },
+
+  setAiTrackingEnabled: async (v) => {
+    set({ aiTrackingEnabled: v });
+    await get().persist();
+  },
+
   hydrate: async () => {
     const visitLog = await db.get('browserVisitLog', []);
     const proactiveEnabled = await db.get('browserProactiveEnabled', false);
     const favorites = await db.get('browserFavorites', DEFAULT_FAVORITES);
     const savedTabs = await db.get('browserSavedTabs', []);
     const savedActiveTabId = await db.get('browserSavedActiveTabId', null);
-    set({ visitLog, proactiveEnabled, favorites, savedTabs, savedActiveTabId });
+    const adminMode = await db.get('browserAdminMode', false);
+    const aiTrackingEnabled = await db.get('browserAiTrackingEnabled', true);
+    set({ visitLog, proactiveEnabled, favorites, savedTabs, savedActiveTabId, adminMode, aiTrackingEnabled });
   },
 
   persist: async () => {
-    const { visitLog, proactiveEnabled, favorites, savedTabs, savedActiveTabId } = get();
+    const { visitLog, proactiveEnabled, favorites, savedTabs, savedActiveTabId, adminMode, aiTrackingEnabled } = get();
     await db.set('browserVisitLog', visitLog);
     await db.set('browserProactiveEnabled', proactiveEnabled);
     await db.set('browserFavorites', favorites);
     await db.set('browserSavedTabs', savedTabs);
     await db.set('browserSavedActiveTabId', savedActiveTabId);
+    await db.set('browserAdminMode', adminMode);
+    await db.set('browserAiTrackingEnabled', aiTrackingEnabled);
   },
 }));
 

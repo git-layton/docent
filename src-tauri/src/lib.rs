@@ -4098,6 +4098,7 @@ async fn browser_create(
     width: f64,
     height: f64,
     user_agent: String,
+    incognito: bool,
 ) -> Result<(), String> {
     // Already exists (e.g. re-entrant mount) — leave it; the JS side closes stale ones first.
     if app.get_webview(&label).is_some() {
@@ -4109,6 +4110,7 @@ async fn browser_create(
         .ok_or_else(|| format!("window '{}' not found", window_label))?;
     let builder = tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
         .user_agent(&user_agent)
+        .incognito(incognito)
         .initialization_script_for_all_frames(BROWSER_MASK_SCRIPT);
     window
         .add_child(

@@ -92,3 +92,46 @@ describe('agentActions — strip + describe', () => {
     expect(describeAction({ tool: 'note', op: 'create', title: 'Plan' })).toContain('Create note');
   });
 });
+
+// ── Pre-approval target resolution ───────────────────────────────────────────
+import { vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import { resolveActionTargets } from '../../services/agentActions';
+
+describe('resolveActionTargets — approve the real destination, not the guess', () => {
+  it('stamps the resolved chat guid and display name for message.send', async () => {
+    (invoke as any).mockResolvedValueOnce([
+      { guid: 'g-1', name: 'Bobby & the group' },
+      { guid: 'g-2', name: 'Bob Smith' },
+    ]);
+    const a = await resolveActionTargets({ tool: 'message', op: 'send', to: 'bobby', text: 'hi' });
+    expect(a.chatGuid).toBe('g-1');
+    expect(a.resolvedName).toBe('Bobby & the group');
+    expect(describeAction(a)).toContain('Bobby & the group');
+  });
+
+  it('marks the action unresolved when no conversation matches', async () => {
+    (invoke as any).mockResolvedValueOnce([{ guid: 'g-1', name: 'Alice' }]);
+    const a = await resolveActionTargets({ tool: 'message', op: 'send', to: 'Zed', text: 'hi' });
+    expect(a.chatGuid).toBeUndefined();
+    expect(a.unresolved).toContain('Zed');
+    expect(describeAction(a)).toContain('no conversation matching');
+  });
+
+  it('keeps an explicit chatGuid untouched', async () => {
+    const a = await resolveActionTargets({ tool: 'message', op: 'send', chatGuid: 'g-9', text: 'hi' });
+    expect(a.chatGuid).toBe('g-9');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('marks mail.send unresolved when no account is connected', async () => {
+    const a = await resolveActionTargets({ tool: 'mail', op: 'send', to: 'x@y.com', subject: 's', body: 'b' });
+    expect(a.unresolved).toBeTruthy();
+    expect(describeAction(a)).toContain('Send email —');
+  });
+
+  it('passes non-send actions through unchanged', async () => {
+    const a = { tool: 'task', op: 'create', title: 'T' };
+    expect(await resolveActionTargets(a)).toEqual(a);
+  });
+});

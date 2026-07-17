@@ -16,11 +16,12 @@ import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 import { useJobStore } from './store/useJobStore';
 
-import { getContextLimit, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, modelSupportsVision, modelSupportsAudio, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
+import { getContextLimit, charBudget, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, modelSupportsVision, modelSupportsAudio, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
 import { assessContextHealth } from './services/contextHealth';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
-import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, stripActionBlocks, type AgentAction } from './services/agentActions';
+import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, resolveActionTargets, stripActionBlocks, type AgentAction } from './services/agentActions';
+import { parseModelBlock } from './services/modelBlocks';
 import { trustOfToolSource } from './services/trust';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
 import { searchWebHistory, renderWebRecall } from './services/webHistory';
@@ -53,7 +54,8 @@ import { MorningBriefingBanner } from './components/MorningBriefingBanner';
 import { DreamDigestModal } from './components/DreamDigestModal';
 import { DynamicBackground } from './components/DynamicBackground';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
-import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse } from './services/dreamer';
+import { buildDreamerSystemPrompt, buildDreamerUserMessage, DreamerPlanSchema, DreamerPlanWireSchema } from './services/dreamer';
+import { generateStructuredResponse, toWireSchema } from './services/structured';
 import { isDue, runRoutine, detectRoutineIntent, type Routine } from './services/routines';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agentForgeUserDocs';
 import { AssistantSettingsModal } from './components/AssistantSettingsModal';
@@ -291,7 +293,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }
     }
     const needApproval = toolActions.filter(x => actionNeedsApproval(x, turnIngestedUntrusted));
-    if (needApproval.length) setPendingActions(prev => [...prev, ...needApproval]);
+    if (needApproval.length) {
+      // Resolve fuzzy targets (iMessage conversation, mail account) BEFORE the card renders —
+      // the user must approve the actual destination, not a guess resolved after the fact.
+      const resolved = await Promise.all(needApproval.map(resolveActionTargets));
+      setPendingActions(prev => [...prev, ...resolved]);
+    }
   };
   const saveGlobalPins = useMemoryStore.getState().saveGlobalPins;
   const setMessages = useChatStore.getState().setMessages;
@@ -749,11 +756,11 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   // Index in activeMessages where the agent's context window begins (messages before = forgotten)
   const forgettingIndex = useMemo(() => {
     if (!activeMessages.length || !selectedModel) return -1;
-    const contextLimit = selectedModel.contextLimit ?? 32000;
+    const contextLimitChars = charBudget(selectedModel.contextLimit);
     const pinned = activeMessages.filter((m: any) => m.isPinned);
     const unpinned = activeMessages.filter((m: any) => !m.isPinned && !m.isToolCall);
     const pinnedLen = pinned.reduce((acc: number, m: any) => acc + String(m.content ?? '').length, 0);
-    let budget = Math.max(1000, contextLimit - systemPromptLen) - pinnedLen;
+    let budget = Math.max(1000, contextLimitChars - systemPromptLen) - pinnedLen;
     const kept: any[] = [];
     for (let i = unpinned.length - 1; i >= 0; i--) {
       const len = String(unpinned[i].content ?? '').length;
@@ -777,7 +784,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     const lastDreamAt = dreamLog?.timestamp ? Date.parse(dreamLog.timestamp) || null : null;
     return assessContextHealth({
       usedChars,
-      limitChars: selectedModel?.contextLimit ?? 32000,
+      limitChars: charBudget(selectedModel?.contextLimit),
       systemChars: breakdown.systemChars,
       pinsChars: breakdown.pinsChars,
       docsChars: breakdown.docsChars,
@@ -1720,33 +1727,23 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         return;
       }
 
-      // Token guard — cap context to 75% of model limit
-      const modelLimit = activeModel.contextLimit ?? 32000;
-      const maxChars = Math.floor(modelLimit * 0.75) * 4;
+      // Token guard — cap context to 75% of the model's char budget
+      const maxChars = Math.floor(charBudget(activeModel.contextLimit) * 0.75);
 
       // Call the Dreamer LLM
       const systemPrompt = buildDreamerSystemPrompt();
       const userMessage = buildDreamerUserMessage(memoryFiles, activeAgent.name, activeAgent.id, maxChars, { currentDate: new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) });
 
-      const rawResponse = await generateTextResponse({
-        messages: [{ id: 'dream-1', role: 'user', content: userMessage }],
+      // Grammar-enforced where the provider supports it, schema-validated always; each op is
+      // salvaged individually so one malformed op never sinks the valid ones beside it.
+      const plan = await generateStructuredResponse({
+        schema: DreamerPlanSchema,
+        wireSchema: toWireSchema(DreamerPlanWireSchema),
+        schemaName: 'dream_plan',
+        system: systemPrompt,
+        user: userMessage,
         modelConfig: activeModel,
-        agent: { prompt: systemPrompt, tools: {}, trainingDocs: [] },
-        profile: '',
-        tasks: [],
-        attachedDocs: [],
-        agentPinnedMessages: [],
-        mode: 'text',
-        canvasContent: null,
-        isDeepThinking: false,
-        onChunk: null,
-        signal: null,
-        appSettings: _appSettings,
-        integrations: _integrations,
-        models: _models,
       });
-
-      const plan = parseDreamerResponse(rawResponse);
       if (!plan || plan.operations.length === 0) {
         useUIStore.getState().showToast('🌙 Dream Cycle: Nothing to consolidate right now.');
         return;
@@ -2738,7 +2735,7 @@ const handleSendMessage = async () => {
 
     // Pre-scan for all profile facts so we can offer "Approve All"
     const allProfileFacts: string[] = [];
-    { const pr = /```profile\n([\s\S]*?)```/g; let pm; while ((pm = pr.exec(displayContent)) !== null) { try { const d = JSON.parse(pm[1].trim()); if (d.fact) allProfileFacts.push(d.fact); } catch {} } }
+    { const pr = /```profile\n([\s\S]*?)```/g; let pm; while ((pm = pr.exec(displayContent)) !== null) { const p = parseModelBlock('profile', pm[1].trim()); if (p.ok) allProfileFacts.push(p.data.fact); } }
     const pendingProfileFacts = allProfileFacts.filter(f => !useSettingsStore.getState().userProfile.includes(f));
     let profileBlockIdx = 0;
 
@@ -2750,7 +2747,8 @@ const handleSendMessage = async () => {
       
       if (lang === 'task' || lang === 'todo') {
         try {
-          const td = JSON.parse(code);
+          const tdP = parseModelBlock('task', code); if (!tdP.ok) throw new Error(tdP.error);
+          const td = tdP.data;
           elements.push(
             <div key={`task-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
               <div className="flex items-start justify-between gap-4">
@@ -2763,7 +2761,8 @@ const handleSendMessage = async () => {
         } catch { elements.push(<div key={`err-${match.index}`} className="p-2 text-xs text-danger">Failed to parse task.</div>); }
       } else if (lang === 'profile') {
         try {
-          const pData = JSON.parse(code);
+          const pP = parseModelBlock('profile', code); if (!pP.ok) throw new Error(pP.error);
+          const pData = pP.data;
           const _currentProfile = useSettingsStore.getState().userProfile;
           const isApproved = _currentProfile.includes(pData.fact);
           const thisBlockIdx = profileBlockIdx++;
@@ -2788,7 +2787,8 @@ const handleSendMessage = async () => {
         } catch { elements.push(<div key={`err-p-${match.index}`} className="p-2 text-xs text-danger">Failed to parse profile update.</div>); }
       } else if (lang === 'file_op') {
         try {
-          const fop = JSON.parse(code);
+          const fopP = parseModelBlock('file_op', code); if (!fopP.ok) throw new Error(fopP.error);
+          const fop = fopP.data;
           const opKey = `${msg.id}:${match.index}`;
           elements.push(
             fop.action === 'command'
@@ -2801,7 +2801,8 @@ const handleSendMessage = async () => {
         }
       } else if (lang === 'save') {
         try {
-          const sd = JSON.parse(code);
+          const sdP = parseModelBlock('save', code); if (!sdP.ok) throw new Error(sdP.error);
+          const sd = sdP.data;
           const saveTitle = sd.title || 'Saved Note';
           const saveContent = sd.content || code;
           elements.push(
@@ -2831,22 +2832,23 @@ const handleSendMessage = async () => {
         } catch { elements.push(<div key={`err-save-${match.index}`} className="p-2 text-xs text-danger">Failed to parse save block.</div>); }
       } else if (lang === 'event') {
         try {
-          const ev = JSON.parse(code);
-          elements.push(<EventCard key={`ev-${match.index}`} data={ev} onToast={showToast} />);
+          const evP = parseModelBlock('event', code); if (!evP.ok) throw new Error(evP.error);
+          elements.push(<EventCard key={`ev-${match.index}`} data={evP.data} onToast={showToast} />);
         } catch { elements.push(<div key={`err-ev-${match.index}`} className="p-2 text-xs text-danger">Failed to parse event block.</div>); }
       } else if (lang === 'event_update') {
         try {
-          const ev = JSON.parse(code);
-          elements.push(<EventUpdateCard key={`evu-${match.index}`} data={ev} onToast={showToast} />);
+          const evP = parseModelBlock('event_update', code); if (!evP.ok) throw new Error(evP.error);
+          elements.push(<EventUpdateCard key={`evu-${match.index}`} data={evP.data} onToast={showToast} />);
         } catch { elements.push(<div key={`err-evu-${match.index}`} className="p-2 text-xs text-danger">Failed to parse event update.</div>); }
       } else if (lang === 'event_delete') {
         try {
-          const ev = JSON.parse(code);
-          elements.push(<EventDeleteCard key={`evd-${match.index}`} data={ev} onToast={showToast} />);
+          const evP = parseModelBlock('event_delete', code); if (!evP.ok) throw new Error(evP.error);
+          elements.push(<EventDeleteCard key={`evd-${match.index}`} data={evP.data} onToast={showToast} />);
         } catch { elements.push(<div key={`err-evd-${match.index}`} className="p-2 text-xs text-danger">Failed to parse event delete.</div>); }
       } else if (lang === 'slack_post') {
         try {
-          const sd = JSON.parse(code);
+          const sdP = parseModelBlock('slack_post', code); if (!sdP.ok) throw new Error(sdP.error);
+          const sd = sdP.data;
           const _integrations = useSettingsStore.getState().integrations;
           elements.push(
             <div key={`slack-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
@@ -2876,7 +2878,8 @@ const handleSendMessage = async () => {
         } catch { elements.push(<div key={`err-sl-${match.index}`} className="p-2 text-xs text-danger">Failed to parse Slack post.</div>); }
       } else if (lang === 'gmail_draft') {
         try {
-          const gd = JSON.parse(code);
+          const gdP = parseModelBlock('gmail_draft', code); if (!gdP.ok) throw new Error(gdP.error);
+          const gd = gdP.data;
           const _integrations = useSettingsStore.getState().integrations;
           elements.push(
             <div key={`gmail-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-danger/30 bg-danger-soft/40 flex flex-col gap-3 shadow-sm">
@@ -2913,7 +2916,8 @@ const handleSendMessage = async () => {
         } catch { elements.push(<div key={`err-gm-${match.index}`} className="p-2 text-xs text-danger">Failed to parse Gmail draft.</div>); }
       } else if (lang === 'gus_create') {
         try {
-          const gc = JSON.parse(code);
+          const gcP = parseModelBlock('gus_create', code); if (!gcP.ok) throw new Error(gcP.error);
+          const gc = gcP.data;
           const _integrations = useSettingsStore.getState().integrations;
           elements.push(
             <div key={`gus-${match.index}`} className="my-3 p-4 rounded-xl border-2 border-accent/25 bg-accent-soft/30 flex flex-col gap-3 shadow-sm">
@@ -2949,18 +2953,18 @@ const handleSendMessage = async () => {
         } catch { elements.push(<div key={`err-gus-${match.index}`} className="p-2 text-xs text-danger">Failed to parse GUS work item.</div>); }
       } else if (lang === 'gcal_event') {
         try {
-          const ge = JSON.parse(code);
-          elements.push(<GcalEventCard key={`gcal-${match.index}`} data={ge} onToast={showToast} />);
+          const geP = parseModelBlock('gcal_event', code); if (!geP.ok) throw new Error(geP.error);
+          elements.push(<GcalEventCard key={`gcal-${match.index}`} data={geP.data} onToast={showToast} />);
         } catch { elements.push(<div key={`err-gcal-${match.index}`} className="p-2 text-xs text-danger">Failed to parse calendar event.</div>); }
       } else if (lang === 'gcal_update') {
         try {
-          const ge = JSON.parse(code);
-          elements.push(<GcalUpdateCard key={`gcalu-${match.index}`} data={ge} onToast={showToast} />);
+          const geP = parseModelBlock('gcal_update', code); if (!geP.ok) throw new Error(geP.error);
+          elements.push(<GcalUpdateCard key={`gcalu-${match.index}`} data={geP.data} onToast={showToast} />);
         } catch { elements.push(<div key={`err-gcalu-${match.index}`} className="p-2 text-xs text-danger">Failed to parse calendar update.</div>); }
       } else if (lang === 'gcal_delete') {
         try {
-          const ge = JSON.parse(code);
-          elements.push(<GcalDeleteCard key={`gcald-${match.index}`} data={ge} onToast={showToast} />);
+          const geP = parseModelBlock('gcal_delete', code); if (!geP.ok) throw new Error(geP.error);
+          elements.push(<GcalDeleteCard key={`gcald-${match.index}`} data={geP.data} onToast={showToast} />);
         } catch { elements.push(<div key={`err-gcald-${match.index}`} className="p-2 text-xs text-danger">Failed to parse calendar delete.</div>); }
       } else if (code.length > 5 && lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'event') {
         const codePreview = code.split('\n').slice(0, 4).join('\n') + (code.split('\n').length > 4 ? '\n...' : '');
@@ -3153,7 +3157,7 @@ const handleSendMessage = async () => {
           <ActivityPanel
             messages={activeMessages}
             systemPromptLen={systemPromptLen}
-            limit={selectedModel?.contextLimit ?? 32000}
+            limit={charBudget(selectedModel?.contextLimit)}
             health={contextHealth}
             onRunDreamCycle={runDreamCycle}
           />

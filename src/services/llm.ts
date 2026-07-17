@@ -2,11 +2,24 @@ import { renderAmbientContext } from './context/ambient';
 import { trustOfToolSource } from './trust';
 import { renderVoiceBlock } from './voice';
 
+// Token context windows used to auto-detect a limit from a model id (substring match, first hit
+// wins — keep specific keys ABOVE their generic prefixes). Fallback only: an explicit
+// contextLimit on the model config always takes precedence.
 export const MODEL_SPECS: Record<string, number> = {
   'gpt-4o': 128000,
   'gpt-4o-mini': 128000,
   'o1': 200000,
   'o3-mini': 200000,
+  'claude-fable-5': 1000000,
+  'claude-mythos-5': 1000000,
+  'claude-opus-4-8': 1000000,
+  'claude-opus-4-7': 1000000,
+  'claude-opus-4-6': 1000000,
+  'claude-opus-4': 200000,
+  'claude-sonnet-5': 1000000,
+  'claude-sonnet-4-6': 1000000,
+  'claude-sonnet-4': 200000,
+  'claude-haiku-4-5': 200000,
   'claude-3-7-sonnet': 200000,
   'claude-3-5-sonnet': 200000,
   'claude-3-5-haiku': 200000,
@@ -16,6 +29,14 @@ export const MODEL_SPECS: Record<string, number> = {
   'gemini-2.0-flash': 1000000,
   'dall-e-3': 4000,
 };
+
+// A model's contextLimit is stored in TOKENS everywhere (model catalog `context`, launch
+// ctxTokens, the wizard's input). The app measures text in CHARS; ~4 chars/token is the
+// standing approximation. Every chars-vs-limit comparison must go through charBudget — mixing
+// the units silently wastes (or overruns) ¾ of the window.
+export const TOKEN_TO_CHARS = 4;
+export const charBudget = (contextLimitTokens: unknown): number =>
+  (parseInt(String(contextLimitTokens ?? ''), 10) || 32000) * TOKEN_TO_CHARS;
 
 export const getContextLimit = (id: string) => {
   const cleanId = String(id || '').toLowerCase();
@@ -179,11 +200,10 @@ export const trimHistoryChars = (msgs: any[], charLimit: number) => {
     kept.unshift(unpinned[i]);
   }
   while (kept.length > 0 && kept[0].role === 'bot') kept.shift();
-  return [...pinned, ...kept].sort((a, b) => {
-    const aTs = parseInt(a.id.split('-')[1] || '0');
-    const bTs = parseInt(b.id.split('-')[1] || '0');
-    return aTs - bTs;
-  });
+  // Restore the input's chronological order by position — never by parsing timestamps out of
+  // message-id strings, which silently breaks the moment the id format changes.
+  const orderIndex = new Map(msgs.map((m, i) => [m, i]));
+  return [...pinned, ...kept].sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
 };
 
 export const fetchWithRetry = async (url: string, options: any, retries = 3, signal?: AbortSignal, returnRaw = false): Promise<any> => {
@@ -475,7 +495,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
 
 // Strip <think>…</think> blocks that local reasoning models (DeepSeek-R1, QwQ, etc.)
 // embed directly in their response text via OpenAI-compatible endpoints.
-const stripThinkingTags = (text: string): string =>
+export const stripThinkingTags = (text: string): string =>
   text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
 export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
@@ -554,7 +574,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
   }
 
   const contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
-  const limit = contextLimit ? parseInt(contextLimit, 10) : 32000;
+  const limit = charBudget(contextLimit);
   if (contextUsed > limit) throw new Error('Attached documents exceed the context limit of this model.');
 
   const historyBudget = Math.max(1000, limit - contextUsed);

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   ListTodo, LayoutList, CalendarDays, ChevronLeft, ChevronRight,
   GripVertical, Circle, Clock, MapPin, MessageSquare, Trash2,
@@ -19,6 +19,7 @@ import type { TaskItem } from '../services/connectors';
 import { getHolidaysForYear } from '../data/usHolidays';
 import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
 import { useToolContextStore } from '../store/useToolContextStore';
+import { usePanelResource } from '../lib/panelCache';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -104,11 +105,14 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
   // this wraps useTaskStore (behavior-preserving); for 'eventkit' it shows the real Reminders app.
   const tasksBackend = useSettingsStore(s => (s.integrations as any).tasks?.backend ?? 'local');
   const eventkitTasksActive = tasksBackend === 'eventkit';
-  const [nativeItems, setNativeItems] = useState<TaskItem[]>([]);
-  const loadNativeTasks = useCallback(async () => {
-    try { setNativeItems(await getTasks().listTasks()); } catch { setNativeItems([]); }
-  }, []);
-  useEffect(() => { if (eventkitTasksActive) loadNativeTasks(); }, [eventkitTasksActive, loadNativeTasks]);
+  // Native Reminders — state-alive across tab switches: instant reopen from cache, silent refresh.
+  const { data: nativeItems = [], refresh: loadNativeTasks } = usePanelResource<TaskItem[]>({
+    key: 'tasks:eventkit',
+    fetch: async () => {
+      try { return await getTasks().listTasks(); } catch { return []; }
+    },
+    enabled: eventkitTasksActive,
+  });
 
   // Native (Reminders) access gate — guide first-run setup instead of showing an empty list.
   const [taskAuth, setTaskAuth] = useState<string>('unknown');
