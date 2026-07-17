@@ -7,6 +7,7 @@ interface GlobalPin {
   chatId: string;
   msgId: string;
   agentId: string;
+  spaceId?: string;
   content: string;
   savedAt: number;
 }

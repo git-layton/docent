@@ -882,6 +882,7 @@ fn search_knowledge(
     query: String,
     extra_path: Option<String>,
     agent_id: Option<String>,
+    space_id: Option<String>,
     max_results: Option<usize>,
     snippet_chars: Option<usize>,
 ) -> serde_json::Value {
@@ -893,16 +894,21 @@ fn search_knowledge(
 
     let mut results: Vec<serde_json::Value> = Vec::new();
 
-    let memory_dir = if let Some(ref aid) = agent_id {
+    let mut dirs_to_search: Vec<std::path::PathBuf> = vec![root.join("library")];
+    if let Some(ref sid) = space_id {
+        if !is_safe_agent_id(sid) {
+            return serde_json::json!({ "results": [], "error": "Invalid space id" });
+        }
+        dirs_to_search.push(root.join("memory").join("spaces").join(sid));
+        dirs_to_search.push(root.join("memory").join("spaces").join("space-home"));
+    } else if let Some(ref aid) = agent_id {
         if !is_safe_agent_id(aid) {
             return serde_json::json!({ "results": [], "error": "Invalid agent id" });
         }
-        root.join("memory").join(aid)
+        dirs_to_search.push(root.join("memory").join(aid));
     } else {
-        root.join("memory")
-    };
-
-    let mut dirs_to_search: Vec<std::path::PathBuf> = vec![root.join("library"), memory_dir];
+        dirs_to_search.push(root.join("memory"));
+    }
     if let Some(ref ep) = extra_path {
         if let Ok(p) = knowledge_path_from_input(ep) {
             if p.exists() {
@@ -1542,6 +1548,7 @@ fn embed_text(text: String) -> Result<Vec<f32>, String> {
 fn search_knowledge_semantic(
     query: String,
     agent_id: Option<String>,
+    space_id: Option<String>,
     max_results: Option<usize>,
     snippet_chars: Option<usize>,
 ) -> serde_json::Value {
@@ -1560,7 +1567,8 @@ fn search_knowledge_semantic(
             return search_knowledge(
                 query,
                 None,
-                agent_id,
+                agent_id.clone(),
+                space_id.clone(),
                 Some(max_results),
                 Some(snippet_chars),
             )
@@ -1575,7 +1583,8 @@ fn search_knowledge_semantic(
                 return search_knowledge(
                     query,
                     None,
-                    agent_id,
+                    agent_id.clone(),
+                    space_id.clone(),
                     Some(max_results),
                     Some(snippet_chars),
                 )
@@ -1589,7 +1598,8 @@ fn search_knowledge_semantic(
             return search_knowledge(
                 query,
                 None,
-                agent_id,
+                agent_id.clone(),
+                space_id.clone(),
                 Some(max_results),
                 Some(snippet_chars),
             )
@@ -1597,38 +1607,42 @@ fn search_knowledge_semantic(
     };
 
     let root = knowledge_root();
-    let memory_prefix = agent_id
-        .as_ref()
-        .map(|id| root.join("memory").join(id).to_string_lossy().to_string())
-        .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
     let library_prefix = root.join("library").to_string_lossy().to_string();
 
     let rows: Vec<(String, String, Vec<u8>, i64, f64)> = {
-        let mut stmt = match conn.prepare(
-            "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
-        ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id, Some(max_results), Some(snippet_chars)) };
+        if let Some(ref sid) = space_id {
+            let space_prefix = root.join("memory").join("spaces").join(sid).to_string_lossy().to_string();
+            let global_prefix = root.join("memory").join("spaces").join("space-home").to_string_lossy().to_string();
+            let mut stmt = match conn.prepare(
+                "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2 OR file_path LIKE ?3"
+            ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id.clone(), space_id.clone(), Some(max_results), Some(snippet_chars)) };
+            
+            stmt.query_map(
+                rusqlite::params![format!("{}%", space_prefix), format!("{}%", global_prefix), format!("{}%", library_prefix)],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            ).map(|it| it.flatten().collect()).unwrap_or_default()
+        } else {
+            let memory_prefix = agent_id
+                .as_ref()
+                .map(|id| root.join("memory").join(id).to_string_lossy().to_string())
+                .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
+            let mut stmt = match conn.prepare(
+                "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
+            ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id.clone(), space_id.clone(), Some(max_results), Some(snippet_chars)) };
 
-        stmt.query_map(
-            rusqlite::params![format!("{memory_prefix}%"), format!("{library_prefix}%")],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
-        )
-        .map(|it| it.flatten().collect())
-        .unwrap_or_default()
+            stmt.query_map(
+                rusqlite::params![format!("{}%", memory_prefix), format!("{}%", library_prefix)],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            ).map(|it| it.flatten().collect()).unwrap_or_default()
+        }
     };
 
     if rows.is_empty() {
         return search_knowledge(
             query,
             None,
-            agent_id,
+            agent_id.clone(),
+            space_id.clone(),
             Some(max_results),
             Some(snippet_chars),
         );
@@ -1702,6 +1716,62 @@ fn extract_title_from_path(path: &str) -> String {
 }
 
 // ─── 5.0 Knowledge File Management ───────────────────────────────────────────
+
+
+#[tauri::command]
+fn migrate_memory_to_global() -> serde_json::Value {
+    let root = knowledge_root();
+    let memory_dir = root.join("memory");
+    let global_dir = root.join("memory").join("spaces").join("space-home");
+    
+    if !memory_dir.exists() {
+        return serde_json::json!({ "ok": true, "migrated": 0 });
+    }
+    
+    let mut migrated_count = 0;
+    if let Ok(entries) = std::fs::read_dir(&memory_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() { continue; }
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if name == "spaces" || name == ".archive" || name.starts_with('.') { continue; }
+            
+            if let Ok(agent_files) = walk_md_files(&path) {
+                for file_path in agent_files {
+                    if let Ok(mut content) = std::fs::read_to_string(&file_path) {
+                        if content.starts_with("---") {
+                            if !content.contains("scope: ") {
+                                content = content.replacen("---", "---\nscope: \"global\"", 1);
+                            }
+                        } else {
+                            content = format!("---\nscope: \"global\"\n---\n\n{}", content);
+                        }
+                        let rel_path = file_path.strip_prefix(&path).unwrap_or(&file_path);
+                        let new_path = global_dir.join(rel_path);
+                        if let Some(parent) = new_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        if std::fs::write(&new_path, content).is_ok() {
+                            let _ = std::fs::remove_file(&file_path);
+                            migrated_count += 1;
+                        }
+                    }
+                }
+            }
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+    
+    if migrated_count > 0 {
+        if let Ok(conn) = open_index_db() {
+            let _ = conn.execute("DELETE FROM brain_vectors", []);
+            let _ = conn.execute("DELETE FROM pending_index", []);
+            
+            
+        }
+    }
+    serde_json::json!({ "ok": true, "migrated": migrated_count })
+}
 
 #[tauri::command]
 fn delete_memory_file(path: String) -> serde_json::Value {
@@ -1992,13 +2062,23 @@ fn collect_knowledge_files(dir: &Path, files: &mut Vec<serde_json::Value>, skip_
 }
 
 #[tauri::command]
-fn list_agent_memory_files(agent_id: String) -> serde_json::Value {
-    if !is_safe_agent_id(&agent_id) {
-        return serde_json::json!({ "files": [], "error": "Invalid agent id" });
-    }
-    let dir = knowledge_root().join("memory").join(agent_id);
+fn list_agent_memory_files(agent_id: String, space_id: Option<String>) -> serde_json::Value {
     let mut files = Vec::new();
-    collect_knowledge_files(&dir, &mut files, true);
+    if let Some(sid) = space_id {
+        if !is_safe_agent_id(&sid) {
+            return serde_json::json!({ "files": [], "error": "Invalid space id" });
+        }
+        let space_dir = knowledge_root().join("memory").join("spaces").join(&sid);
+        let global_dir = knowledge_root().join("memory").join("spaces").join("space-home");
+        collect_knowledge_files(&space_dir, &mut files, true);
+        collect_knowledge_files(&global_dir, &mut files, true);
+    } else {
+        if !is_safe_agent_id(&agent_id) {
+            return serde_json::json!({ "files": [], "error": "Invalid agent id" });
+        }
+        let dir = knowledge_root().join("memory").join(agent_id);
+        collect_knowledge_files(&dir, &mut files, true);
+    }
     files.sort_by(|a, b| {
         b["name"]
             .as_str()
@@ -4943,6 +5023,7 @@ pub fn run() {
             write_dream_log,
             list_archive_files,
             list_agent_memory_files,
+            migrate_memory_to_global,
             list_library_files,
             read_knowledge_file,
             fs_list,
