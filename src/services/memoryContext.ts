@@ -22,15 +22,15 @@ const TIER2_MAX = 4;           // max retrieved snippets injected per turn
 const isTauri = () => !!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
 
 // Tier-1 cache — memory files only change on a save or a dream-cycle run, so a short TTL is plenty.
-let _tier1: { agentId: string; at: number; text: string } | null = null;
+let _tier1: { agentId: string; spaceId: string | null; at: number; text: string } | null = null;
 let _now = () => Date.now();
 
 /** Tier 1 — compact digest of the agent's consolidated memory files. Always injected; cached ~2 min. */
-export async function loadMemorySummary(agentId: string | null | undefined): Promise<string> {
+export async function loadMemorySummary(agentId: string | null | undefined, spaceId?: string | null): Promise<string> {
   if (!agentId || !isTauri()) return '';
-  if (_tier1 && _tier1.agentId === agentId && _now() - _tier1.at < 120_000) return _tier1.text;
+  if (_tier1 && _tier1.agentId === agentId && _tier1.spaceId === (spaceId || null) && _now() - _tier1.at < 120_000) return _tier1.text;
   try {
-    const listed = await invoke<{ files: MemFile[] }>('list_agent_memory_files', { agentId });
+    const listed = await invoke<{ files: MemFile[] }>('list_agent_memory_files', { agentId, spaceId });
     const files = listed?.files ?? [];
     // The budget (2000 chars / 400 per file) means at most ~5 files contribute — read the first
     // handful in PARALLEL (this runs on the send critical path on cache miss), assemble in order.
@@ -49,7 +49,7 @@ export async function loadMemorySummary(agentId: string | null | undefined): Pro
       }
     }
     text = text.slice(0, TIER1_BUDGET).trim();
-    _tier1 = { agentId, at: _now(), text };
+    _tier1 = { agentId, spaceId: spaceId || null, at: _now(), text };
     return text;
   } catch {
     return '';
@@ -70,12 +70,12 @@ export function formatRelevantHits(hits: RagHit[], minScore = TIER2_MIN_SCORE, m
  * prompt text AND the structured hits, so the caller can surface them as clickable sources (which
  * makes the agent's [[Title]] memory citations resolve, the same way web sources do).
  */
-export async function retrieveRelevantMemory(query: string, agentId: string | null | undefined): Promise<{ text: string; hits: RagHit[] }> {
+export async function retrieveRelevantMemory(query: string, agentId: string | null | undefined, spaceId?: string | null): Promise<{ text: string; hits: RagHit[] }> {
   const q = (query || '').trim();
   if (q.length < 4 || !isTauri()) return { text: '', hits: [] };
   try {
     const res = await invoke<{ results: RagHit[] }>('search_knowledge_semantic', {
-      query: q, agentId: agentId ?? null, maxResults: 8, snippetChars: 400,
+      query: q, agentId: agentId ?? null, spaceId: spaceId ?? null, maxResults: 8, snippetChars: 400,
     });
     // The same relevant subset that goes into the prompt — returned so it can double as sources.
     const hits = (res?.results ?? []).filter((h) => (h?.score ?? 0) >= TIER2_MIN_SCORE).slice(0, TIER2_MAX);

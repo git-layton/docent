@@ -10,6 +10,7 @@
 // it must NOT import llm.ts (mirrors memoryContext.ts) to avoid the voiceRuntime→llm cycle class.
 
 import { invoke } from '@tauri-apps/api/core';
+import { useSpaceStore } from '../store/useSpaceStore';
 
 const isTauri = () => !!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
 
@@ -54,8 +55,9 @@ export const buildPlaybookRecord = (input: {
   const now = input.now ?? new Date();
   const title = sanitizeInline(input.title).slice(0, 80) || 'Untitled playbook';
   const trigger = playbookTriggerSlug(input.intent || input.title);
-  const agentId = String(input.agentId || 'default').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'default';
-  const path = `${input.rootPath}/memory/${agentId}/playbooks/${trigger}.md`;
+  const spaceId = useSpaceStore.getState().activeSpaceId || 'space-home';
+  const path = `${input.rootPath}/memory/spaces/${spaceId}/playbooks/${trigger}.md`;
+
   const verified = input.verified === true;
   const accept = Number.isFinite(input.accept) ? Math.max(0, Math.floor(Number(input.accept))) : 0;
   const steps = (input.steps ?? []).filter((s) => s && sanitizeInline(s.intent));
@@ -130,7 +132,9 @@ export const retrievePlaybooks = async (
   if (q.length < 4 || !isTauri()) return [];
   try {
     const res = await invoke<{ results: Array<{ path: string; score: number }> }>('search_knowledge_semantic', {
-      query: q, agentId: agentId ?? null, maxResults: 6, snippetChars: 60,
+      query: q, agentId: agentId ?? null,
+      spaceId: useSpaceStore.getState().activeSpaceId || null,
+      maxResults: 6, snippetChars: 60,
     });
     const out: Playbook[] = [];
     for (const hit of res?.results ?? []) {
@@ -152,7 +156,8 @@ export const listPlaybooks = async (agentId: string | null | undefined): Promise
   const aid = String(agentId ?? '').trim();
   if (!aid || !isTauri()) return [];
   try {
-    const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', { agentId: aid }).catch(() => ({ files: [] }));
+    const spaceId = useSpaceStore.getState().activeSpaceId || null;
+    const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', { agentId: aid, spaceId: spaceId || undefined }).catch(() => ({ files: [] }));
     const out: Array<Playbook & { path: string }> = [];
     for (const f of listed?.files ?? []) {
       if (!f?.path || !f.path.includes('/playbooks/')) continue;
@@ -179,8 +184,9 @@ export const reinforcePlaybook = async (
 ): Promise<boolean> => {
   if (!rootPath || !isTauri()) return false;
   const slug = playbookTriggerSlug(trigger);
-  const aid = String(agentId || 'default').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'default';
-  const path = `${rootPath}/memory/${aid}/playbooks/${slug}.md`;
+  const spaceId = useSpaceStore.getState().activeSpaceId || 'space-home';
+  const path = `${rootPath}/memory/spaces/${spaceId}/playbooks/${slug}.md`;
+
   try {
     const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path }).catch(() => ({ ok: false, content: '' }));
     if (!read?.ok) return false;

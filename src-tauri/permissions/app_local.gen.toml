@@ -114,6 +114,7 @@ allow = [
   "mail_set_seen",
   "mail_test_connection",
   "mail_unread_count",
+  "migrate_memory_to_global",
   "music_add_track_to_playlist",
   "music_create_playlist",
   "music_pause",

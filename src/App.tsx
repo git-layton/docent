@@ -51,6 +51,7 @@ import { SourcesTray } from './components/SourcesTray';
 import type { SlashCommand } from './components/SlashCommandPalette';
 import { MorningBriefingBanner } from './components/MorningBriefingBanner';
 import { DreamDigestModal } from './components/DreamDigestModal';
+import { DynamicBackground } from './components/DynamicBackground';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
 import { buildDreamerSystemPrompt, buildDreamerUserMessage, parseDreamerResponse } from './services/dreamer';
 import { isDue, runRoutine, detectRoutineIntent, type Routine } from './services/routines';
@@ -1704,8 +1705,10 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       // Read all memory files for the active agent
       const memoryFiles: { path: string; name: string; content: string }[] = [];
 
+      const activeSpaceId = useSpaceStore.getState().activeSpaceId;
       const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', {
         agentId: activeAgent.id,
+        spaceId: activeSpaceId || undefined,
       });
       for (const file of listed.files ?? []) {
         const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: file.path }).catch(() => ({ ok: false, content: '' }));
@@ -2029,7 +2032,9 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       const _toolContext = useToolContextStore.getState().content ?? undefined;
       // Layered memory: Tier 1 = always-on consolidated digest; Tier 2 = relevance-gated retrieval
       // for this message. Both reuse existing memory files + search_knowledge_semantic.
-      const _memorySummary = await loadMemorySummary(_activeAssistant?.id);
+      
+      const activeSpace = useSpaceStore.getState().activeSpaceId;
+      const _memorySummary = await loadMemorySummary(_activeAssistant?.id, activeSpace || undefined);
       const { text: _relevantMemory, hits: _relevantMemoryHits } = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
       // Known procedures (playbooks) relevant to this turn — a propose-don't-run block; '' when none match.
       const _knownProcedures = formatProceduresBlock(await retrievePlaybooks(userMsg.content, _activeAssistant?.id));
@@ -3413,7 +3418,8 @@ if (isSpotlight) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-base text-ink">
+    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-base text-ink relative">
+      <DynamicBackground />
       <PermissionsBootstrapper />
       <SpotlightListener anyGeneratingRef={anyGeneratingRef} pendingOverlayHydrateRef={pendingOverlayHydrateRef} />
       <SystemMonitor

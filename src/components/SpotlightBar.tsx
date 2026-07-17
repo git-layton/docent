@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useSpaceStore } from '../store/useSpaceStore';
 import { writeMemory } from '../lib/ipc';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
@@ -417,7 +418,7 @@ export default function SpotlightBar() {
       // Memory + playbook reads are pure disk/index work with no dependency on the capture below —
       // kick them off FIRST so they overlap the screen grab instead of serializing after it.
       const contextPromise = Promise.all([
-        loadMemorySummary(selectedAgent?.id),
+        loadMemorySummary(selectedAgent?.id, useSpaceStore.getState().activeSpaceId || undefined),
         retrieveRelevantMemory(command, selectedAgent?.id),
         retrievePlaybooks(command, selectedAgent?.id).catch(() => []),
       ] as const);

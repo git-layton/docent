@@ -20,6 +20,7 @@ export interface MemoryGatekeeperInput {
   text: string;
   agentId?: string | null;
   agentName?: string | null;
+  spaceId?: string | null;
   channelId?: string | null;
   chatId?: string | null;
   forcedTool?: string | null;
@@ -35,6 +36,7 @@ export interface MemoryGatekeeperInput {
 
 export interface MemoryGatekeeperDecision {
   shouldSave: boolean;
+  scope: string;
   classification: MemoryClassification;
   destination: MemoryDestination;
   memoryType: MemoryType;
@@ -119,6 +121,7 @@ function makeDefaultDecision(input?: Partial<MemoryGatekeeperInput>): MemoryGate
   const sourceUrls = uniq([...(input?.sourceUrls ?? []), ...extractUrls(text)]);
   return {
     shouldSave: false,
+    scope: input?.spaceId || 'global',
     classification: 'skip',
     destination: 'skip',
     memoryType: 'none',
@@ -181,6 +184,7 @@ export function validateMemoryGatekeeperDecision(
 
   return {
     shouldSave,
+    scope: pickOne(raw.scope, ['global', ...(fallbackInput?.spaceId ? [fallbackInput.spaceId] : [])] as string[], fallback.scope),
     classification,
     destination,
     memoryType: pickOne(raw.memoryType, MEMORY_TYPES, fallback.memoryType),
@@ -210,6 +214,7 @@ export function evaluateMemoryGate(input: MemoryGatekeeperInput): MemoryGatekeep
   if (!cleanedText || TRIVIAL_RE.test(cleanedText)) {
     return validateMemoryGatekeeperDecision({
       ...makeDefaultDecision({ ...input, text: cleanedText, sourcePaths, sourceUrls }),
+      scope: input.spaceId || 'global',
       toolRoutes: routeToolCandidates(input, text, false),
     }, input);
   }
@@ -269,6 +274,12 @@ export function evaluateMemoryGate(input: MemoryGatekeeperInput): MemoryGatekeep
   if (evidenceState === 'needs_verification' && !explicit && !hasSource) shouldSave = false;
 
   let destination: MemoryDestination = 'skip';
+  let scope = input.spaceId || 'global';
+  if (explicit && /\bglobal\b|\beverywhere\b/i.test(cleanedText)) scope = 'global';
+  if (sourceUrls.length > 0) {
+      // Screen-sourced writes untrusted-external -> default space scope.
+      scope = input.spaceId || 'global';
+  }
   if (shouldSave) {
     if (isTask || isProspective) destination = 'task';
     else if (isChannelScoped && (isDecision || explicit)) destination = 'channel_memory';
@@ -305,6 +316,7 @@ export function evaluateMemoryGate(input: MemoryGatekeeperInput): MemoryGatekeep
 
   return validateMemoryGatekeeperDecision({
     shouldSave,
+    scope,
     classification,
     destination,
     memoryType,
@@ -359,6 +371,7 @@ function titleFromText(text: string): string {
 export function buildGatekeeperMemoryWrite(input: {
   rootPath: string;
   agentId: string;
+  spaceId?: string | null;
   chatId?: string | null;
   channelId?: string | null;
   text: string;
@@ -374,11 +387,16 @@ export function buildGatekeeperMemoryWrite(input: {
   const agentId = sanitizeSegment(input.agentId || 'default');
   const chatId = input.chatId ? sanitizeSegment(input.chatId) : '';
   const channelId = input.channelId ? sanitizeSegment(input.channelId) : chatId;
-  const basePath = input.decision.destination === 'library'
+  let basePath = input.decision.destination === 'library'
     ? `${input.rootPath}/library`
     : input.decision.destination === 'channel_memory'
       ? `${input.rootPath}/memory/${agentId}/channels/${channelId || 'default'}`
       : `${input.rootPath}/memory/${agentId}/gatekeeper`;
+      
+  const scopeId = input.decision.scope === 'global' ? 'space-home' : (input.decision.scope || input.spaceId || 'space-home');
+  basePath = input.decision.destination === 'library'
+    ? `${input.rootPath}/library`
+    : `${input.rootPath}/memory/spaces/${scopeId}/gatekeeper`;
   const path = `${basePath}/${slug}.md`;
   const candidate = extractMemoryCandidateText(input.text);
   const answer = String(input.answer ?? '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -392,6 +410,7 @@ export function buildGatekeeperMemoryWrite(input: {
     `confidence: ${input.decision.confidence}`,
     `privacy: ${input.decision.privacy}`,
     `agent_id: ${yamlString(agentId)}`,
+    `scope: ${yamlString(input.decision.scope)}`,
     input.chatId ? `chat_id: ${yamlString(input.chatId)}` : null,
     input.channelId ? `channel_id: ${yamlString(input.channelId)}` : null,
     `tags: [${input.decision.tags.map(yamlString).join(', ')}]`,

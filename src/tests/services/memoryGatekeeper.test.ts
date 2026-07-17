@@ -15,7 +15,7 @@ import {
 
 function makeDecision(overrides: Partial<MemoryGatekeeperDecision> = {}): MemoryGatekeeperDecision {
   return {
-    shouldSave: true,
+    shouldSave: true, scope: 'global',
     classification: 'explicit',
     destination: 'agent_memory',
     memoryType: 'fact',
@@ -390,7 +390,7 @@ describe('selectPrimaryToolRoute', () => {
 describe('shouldPersistGatekeeperDecision', () => {
   it('should return true for explicit saves to agent_memory with sufficient text', () => {
     const decision = makeDecision({
-      shouldSave: true,
+      shouldSave: true, scope: 'global',
       classification: 'explicit',
       destination: 'agent_memory',
     })
@@ -398,33 +398,33 @@ describe('shouldPersistGatekeeperDecision', () => {
   })
 
   it('should return false when shouldSave is false', () => {
-    const decision = makeDecision({ shouldSave: false, classification: 'explicit', destination: 'agent_memory' })
+    const decision = makeDecision({ shouldSave: false, scope: 'global', classification: 'explicit', destination: 'agent_memory' })
     expect(shouldPersistGatekeeperDecision(decision, 'Remember this: deploy on Tuesdays.')).toBe(false)
   })
 
   it('should return false when classification is not explicit', () => {
-    const decision = makeDecision({ shouldSave: true, classification: 'notable', destination: 'agent_memory' })
+    const decision = makeDecision({ shouldSave: true, scope: 'global', classification: 'notable', destination: 'agent_memory' })
     expect(shouldPersistGatekeeperDecision(decision, 'We decided to use React 19.')).toBe(false)
   })
 
   it('should return false when destination is inbox_only', () => {
-    const decision = makeDecision({ shouldSave: true, classification: 'explicit', destination: 'inbox_only' })
+    const decision = makeDecision({ shouldSave: true, scope: 'global', classification: 'explicit', destination: 'inbox_only' })
     expect(shouldPersistGatekeeperDecision(decision, 'Remember this: review pending claims.')).toBe(false)
   })
 
   it('should return false when destination is task', () => {
-    const decision = makeDecision({ shouldSave: true, classification: 'explicit', destination: 'task' })
+    const decision = makeDecision({ shouldSave: true, scope: 'global', classification: 'explicit', destination: 'task' })
     expect(shouldPersistGatekeeperDecision(decision, 'Remember this: schedule meeting.')).toBe(false)
   })
 
   it('should return false when extracted text is shorter than 12 chars', () => {
-    const decision = makeDecision({ shouldSave: true, classification: 'explicit', destination: 'agent_memory' })
+    const decision = makeDecision({ shouldSave: true, scope: 'global', classification: 'explicit', destination: 'agent_memory' })
     expect(shouldPersistGatekeeperDecision(decision, 'Remember this: short.')).toBe(false)
   })
 
   it('should return true for explicit save to library destination', () => {
     const decision = makeDecision({
-      shouldSave: true,
+      shouldSave: true, scope: 'global',
       classification: 'explicit',
       destination: 'library',
     })
@@ -433,7 +433,7 @@ describe('shouldPersistGatekeeperDecision', () => {
 
   it('should return true for explicit save to channel_memory destination', () => {
     const decision = makeDecision({
-      shouldSave: true,
+      shouldSave: true, scope: 'global',
       classification: 'explicit',
       destination: 'channel_memory',
     })
@@ -649,7 +649,7 @@ describe('buildGatekeeperMemoryWrite', () => {
 describe('validateMemoryGatekeeperDecision', () => {
   it('should pass through a fully valid decision unchanged', () => {
     const raw: Partial<MemoryGatekeeperDecision> = {
-      shouldSave: true,
+      shouldSave: true, scope: 'global',
       classification: 'notable',
       destination: 'agent_memory',
       memoryType: 'decision',
@@ -669,14 +669,14 @@ describe('validateMemoryGatekeeperDecision', () => {
   })
 
   it('should set shouldSave to false when classification is skip even if raw.shouldSave is true', () => {
-    const result = validateMemoryGatekeeperDecision({ shouldSave: true, classification: 'skip' })
+    const result = validateMemoryGatekeeperDecision({ shouldSave: true, scope: 'global', classification: 'skip' })
     expect(result.shouldSave).toBe(false)
     expect(result.destination).toBe('skip')
   })
 
   it('should use fallback values for invalid enum fields', () => {
     const result = validateMemoryGatekeeperDecision({
-      shouldSave: false,
+      shouldSave: false, scope: 'global',
       // @ts-expect-error intentionally invalid
       classification: 'totally-wrong',
       // @ts-expect-error intentionally invalid
@@ -702,7 +702,7 @@ describe('validateMemoryGatekeeperDecision', () => {
 
   it('should use fallback destination agent_memory when shouldSave is true but fallback destination is skip', () => {
     const result = validateMemoryGatekeeperDecision({
-      shouldSave: true,
+      shouldSave: true, scope: 'global',
       classification: 'explicit',
       // destination not provided — should default to agent_memory (since fallback would be 'skip')
     })

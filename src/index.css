@@ -74,19 +74,7 @@
   --af-edge: rgba(0, 0, 0, 0.1);
 }
 
-html[data-glass="true"]::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: 
-    radial-gradient(circle at 15% 50%, rgba(165, 155, 255, 0.25), transparent 50%),
-    radial-gradient(circle at 85% 30%, rgba(122, 110, 230, 0.25), transparent 50%),
-    radial-gradient(circle at 50% 90%, rgba(93, 202, 165, 0.20), transparent 50%);
-  background-attachment: fixed;
-  background-color: var(--af-base);
-}
+
 
 [data-theme='dark'][data-glass="true"] {
   --af-base: rgba(10, 11, 14, 0.35);
@@ -95,13 +83,7 @@ html[data-glass="true"]::before {
   --af-edge: rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme='dark'][data-glass="true"]::before {
-  background: 
-    radial-gradient(circle at 15% 50%, rgba(165, 155, 255, 0.12), transparent 50%),
-    radial-gradient(circle at 85% 30%, rgba(122, 110, 230, 0.12), transparent 50%),
-    radial-gradient(circle at 50% 90%, rgba(93, 202, 165, 0.10), transparent 50%);
-  background-color: #050608;
-}
+
 
 [data-glass="true"] body,
 [data-glass="true"] #root,
