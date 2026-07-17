@@ -94,7 +94,6 @@ describe('agentActions — strip + describe', () => {
 });
 
 // ── Pre-approval target resolution ───────────────────────────────────────────
-import { vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { resolveActionTargets } from '../../services/agentActions';
 
