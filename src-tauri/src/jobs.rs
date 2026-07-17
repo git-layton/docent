@@ -22,7 +22,10 @@ pub struct Job {
 }
 
 fn get_jobs_file_path() -> PathBuf {
-    crate::knowledge_root().join("workspace").join(".sys").join("jobs.json")
+    crate::knowledge_root()
+        .join("workspace")
+        .join(".sys")
+        .join("jobs.json")
 }
 
 pub fn read_jobs() -> Vec<Job> {
@@ -54,8 +57,11 @@ pub fn get_active_jobs() -> Vec<Job> {
 pub fn start_job(name: String) -> Result<Job, String> {
     let mut jobs = read_jobs();
     let id = uuid::Uuid::new_v4().to_string();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
     let job = Job {
         id,
         name,
@@ -63,7 +69,7 @@ pub fn start_job(name: String) -> Result<Job, String> {
         logs: vec![],
         created_at: now,
     };
-    
+
     jobs.push(job.clone());
     write_jobs(&jobs)?;
     Ok(job)
@@ -73,7 +79,7 @@ pub fn start_job(name: String) -> Result<Job, String> {
 pub fn update_job(id: String, status: JobStatus, log: Option<String>) -> Result<Job, String> {
     let mut jobs = read_jobs();
     let mut updated_job = None;
-    
+
     for job in jobs.iter_mut() {
         if job.id == id {
             job.status = status.clone();
@@ -84,7 +90,7 @@ pub fn update_job(id: String, status: JobStatus, log: Option<String>) -> Result<
             break;
         }
     }
-    
+
     if let Some(job) = updated_job {
         write_jobs(&jobs)?;
         Ok(job)
@@ -95,7 +101,12 @@ pub fn update_job(id: String, status: JobStatus, log: Option<String>) -> Result<
 
 #[tauri::command]
 pub fn cancel_job(id: String) -> Result<(), String> {
-    update_job(id, JobStatus::Cancelled, Some("Cancelled by user".to_string())).map(|_| ())
+    update_job(
+        id,
+        JobStatus::Cancelled,
+        Some("Cancelled by user".to_string()),
+    )
+    .map(|_| ())
 }
 
 pub fn check_interrupted_jobs() {
@@ -104,7 +115,8 @@ pub fn check_interrupted_jobs() {
     for job in jobs.iter_mut() {
         if job.status == JobStatus::InProgress {
             job.status = JobStatus::Interrupted;
-            job.logs.push("System restarted. Job interrupted.".to_string());
+            job.logs
+                .push("System restarted. Job interrupted.".to_string());
             changed = true;
         }
     }

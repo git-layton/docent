@@ -1,7 +1,7 @@
 use tauri::command;
 
 #[cfg(target_os = "macos")]
-use core_graphics::event::{CGEvent, CGEventType, CGMouseButton, CGEventTapLocation};
+use core_graphics::event::{CGEvent, CGEventTapLocation, CGEventType, CGMouseButton};
 #[cfg(target_os = "macos")]
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 #[cfg(target_os = "macos")]
@@ -22,15 +22,13 @@ pub fn inject_click(x: f64, y: f64) -> Result<(), String> {
             CGEventType::LeftMouseDown,
             point,
             CGMouseButton::Left,
-        ).map_err(|_| "Failed to create mouse down event".to_string())?;
+        )
+        .map_err(|_| "Failed to create mouse down event".to_string())?;
 
         // Create mouse up event
-        let mouse_up = CGEvent::new_mouse_event(
-            source,
-            CGEventType::LeftMouseUp,
-            point,
-            CGMouseButton::Left,
-        ).map_err(|_| "Failed to create mouse up event".to_string())?;
+        let mouse_up =
+            CGEvent::new_mouse_event(source, CGEventType::LeftMouseUp, point, CGMouseButton::Left)
+                .map_err(|_| "Failed to create mouse up event".to_string())?;
 
         // Post events
         mouse_down.post(CGEventTapLocation::HID);

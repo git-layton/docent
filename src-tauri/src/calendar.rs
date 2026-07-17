@@ -37,7 +37,11 @@ fn err_str(e: Retained<NSError>) -> String {
     unsafe { e.localizedDescription() }.to_string()
 }
 fn entity(kind: &str) -> EKEntityType {
-    if kind == "reminder" { EKEntityType::Reminder } else { EKEntityType::Event }
+    if kind == "reminder" {
+        EKEntityType::Reminder
+    } else {
+        EKEntityType::Event
+    }
 }
 
 /// Resolve a calendar by identifier, falling back to the default new-event calendar.
@@ -167,14 +171,20 @@ pub async fn eventkit_list_events(start_ms: i64, end_ms: i64) -> Result<Vec<EkEv
                 .map(|c| unsafe { c.calendarIdentifier() }.to_string())
                 .unwrap_or_default();
             out.push(EkEvent {
-                id: unsafe { ev.eventIdentifier() }.map(|x| x.to_string()).unwrap_or_default(),
+                id: unsafe { ev.eventIdentifier() }
+                    .map(|x| x.to_string())
+                    .unwrap_or_default(),
                 calendar_id,
                 title: unsafe { ev.title() }.to_string(),
                 start: ms_of(&s),
                 end: ms_of(&e),
                 all_day: unsafe { ev.isAllDay() },
-                location: unsafe { ev.location() }.map(|x| x.to_string()).unwrap_or_default(),
-                notes: unsafe { ev.notes() }.map(|x| x.to_string()).unwrap_or_default(),
+                location: unsafe { ev.location() }
+                    .map(|x| x.to_string())
+                    .unwrap_or_default(),
+                notes: unsafe { ev.notes() }
+                    .map(|x| x.to_string())
+                    .unwrap_or_default(),
             });
         }
         Ok(out)
@@ -228,8 +238,11 @@ pub async fn eventkit_save_event(
             };
             unsafe { ev.addRecurrenceRule(&rule) };
         }
-        unsafe { store.saveEvent_span_commit_error(&ev, EKSpan::ThisEvent, true) }.map_err(err_str)?;
-        Ok(unsafe { ev.eventIdentifier() }.map(|x| x.to_string()).unwrap_or_default())
+        unsafe { store.saveEvent_span_commit_error(&ev, EKSpan::ThisEvent, true) }
+            .map_err(err_str)?;
+        Ok(unsafe { ev.eventIdentifier() }
+            .map(|x| x.to_string())
+            .unwrap_or_default())
     })
     .await
     .map_err(|e| format!("eventkit task failed: {e}"))?
@@ -282,7 +295,8 @@ pub async fn eventkit_delete_event(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let store = unsafe { EKEventStore::new() };
         let ev = unsafe { store.eventWithIdentifier(&ns(&id)) }.ok_or("event not found")?;
-        unsafe { store.removeEvent_span_commit_error(&ev, EKSpan::ThisEvent, true) }.map_err(err_str)
+        unsafe { store.removeEvent_span_commit_error(&ev, EKSpan::ThisEvent, true) }
+            .map_err(err_str)
     })
     .await
     .map_err(|e| format!("eventkit task failed: {e}"))?
@@ -408,8 +422,11 @@ pub async fn eventkit_save_reminder(
 pub async fn eventkit_set_reminder_completed(id: String, completed: bool) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let store = unsafe { EKEventStore::new() };
-        let item = unsafe { store.calendarItemWithIdentifier(&ns(&id)) }.ok_or("reminder not found")?;
-        let r = item.downcast::<EKReminder>().map_err(|_| "item is not a reminder".to_string())?;
+        let item =
+            unsafe { store.calendarItemWithIdentifier(&ns(&id)) }.ok_or("reminder not found")?;
+        let r = item
+            .downcast::<EKReminder>()
+            .map_err(|_| "item is not a reminder".to_string())?;
         unsafe { r.setCompleted(completed) };
         unsafe { store.saveReminder_commit_error(&r, true) }.map_err(err_str)
     })
@@ -421,8 +438,11 @@ pub async fn eventkit_set_reminder_completed(id: String, completed: bool) -> Res
 pub async fn eventkit_delete_reminder(id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let store = unsafe { EKEventStore::new() };
-        let item = unsafe { store.calendarItemWithIdentifier(&ns(&id)) }.ok_or("reminder not found")?;
-        let r = item.downcast::<EKReminder>().map_err(|_| "item is not a reminder".to_string())?;
+        let item =
+            unsafe { store.calendarItemWithIdentifier(&ns(&id)) }.ok_or("reminder not found")?;
+        let r = item
+            .downcast::<EKReminder>()
+            .map_err(|_| "item is not a reminder".to_string())?;
         unsafe { store.removeReminder_commit_error(&r, true) }.map_err(err_str)
     })
     .await
@@ -437,8 +457,11 @@ pub async fn eventkit_update_reminder(
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let store = unsafe { EKEventStore::new() };
-        let item = unsafe { store.calendarItemWithIdentifier(&ns(&id)) }.ok_or("reminder not found")?;
-        let r = item.downcast::<EKReminder>().map_err(|_| "item is not a reminder".to_string())?;
+        let item =
+            unsafe { store.calendarItemWithIdentifier(&ns(&id)) }.ok_or("reminder not found")?;
+        let r = item
+            .downcast::<EKReminder>()
+            .map_err(|_| "item is not a reminder".to_string())?;
         if let Some(t) = &title {
             unsafe { r.setTitle(Some(&ns(t))) };
         }

@@ -25,7 +25,9 @@ fn chat_db_path() -> String {
 fn open_db() -> Result<rusqlite::Connection, String> {
     let path = chat_db_path();
     if !std::path::Path::new(&path).exists() {
-        return Err("No Messages database found on this Mac (~/Library/Messages/chat.db).".to_string());
+        return Err(
+            "No Messages database found on this Mac (~/Library/Messages/chat.db).".to_string(),
+        );
     }
     rusqlite::Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
         format!(
@@ -161,7 +163,12 @@ fn phone_key(raw: &str) -> Option<String> {
 }
 
 /// Best display name from a Contacts record: "First Last" → nickname → organization.
-fn contact_name(first: Option<String>, last: Option<String>, org: Option<String>, nick: Option<String>) -> Option<String> {
+fn contact_name(
+    first: Option<String>,
+    last: Option<String>,
+    org: Option<String>,
+    nick: Option<String>,
+) -> Option<String> {
     let f = first.unwrap_or_default();
     let l = last.unwrap_or_default();
     let full = format!("{} {}", f.trim(), l.trim()).trim().to_string();
@@ -208,7 +215,9 @@ fn index_handles(
     map: &mut HashMap<String, String>,
     key_fn: impl Fn(&str) -> Option<String>,
 ) {
-    let Ok(mut stmt) = conn.prepare(sql) else { return };
+    let Ok(mut stmt) = conn.prepare(sql) else {
+        return;
+    };
     let Ok(rows) = stmt.query_map([], |row| {
         Ok((
             row.get::<_, Option<String>>(0)?,
@@ -221,7 +230,9 @@ fn index_handles(
         return;
     };
     for (f, l, org, nick, raw) in rows.flatten() {
-        if let (Some(name), Some(key)) = (contact_name(f, l, org, nick), raw.and_then(|r| key_fn(&r))) {
+        if let (Some(name), Some(key)) =
+            (contact_name(f, l, org, nick), raw.and_then(|r| key_fn(&r)))
+        {
             map.entry(key).or_insert(name);
         }
     }
@@ -232,7 +243,8 @@ fn index_handles(
 fn load_contacts() -> Contacts {
     let mut c = Contacts::default();
     for db in addressbook_dbs() {
-        let Ok(conn) = rusqlite::Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+        let Ok(conn) = rusqlite::Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        else {
             continue;
         };
         index_handles(
@@ -251,7 +263,11 @@ fn load_contacts() -> Contacts {
             &mut c.by_email,
             |s| {
                 let k = s.trim().to_ascii_lowercase();
-                if k.is_empty() { None } else { Some(k) }
+                if k.is_empty() {
+                    None
+                } else {
+                    Some(k)
+                }
             },
         );
     }
@@ -416,7 +432,9 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
                     }
                 } else {
                     // 1:1 → resolve the other party's handle to their contact name.
-                    contacts.resolve(&identifier).unwrap_or_else(|| identifier.clone())
+                    contacts
+                        .resolve(&identifier)
+                        .unwrap_or_else(|| identifier.clone())
                 };
                 Ok(ImessageChat {
                     chat_id,
@@ -445,7 +463,10 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
 
 /// Fetch the most recent `limit` messages in one conversation, oldest→newest (chat order).
 #[tauri::command]
-pub async fn imessage_fetch_messages(chat_id: i64, limit: u32) -> Result<Vec<ImessageMessage>, String> {
+pub async fn imessage_fetch_messages(
+    chat_id: i64,
+    limit: u32,
+) -> Result<Vec<ImessageMessage>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ImessageMessage>, String> {
         let conn = open_db()?;
         let contacts = contacts();
@@ -606,7 +627,10 @@ mod tests {
     #[test]
     fn phone_key_matches_across_formats() {
         // A handle and a contact written differently should land on the same key.
-        assert_eq!(phone_key("+1 (555) 123-4567").as_deref(), Some("5551234567"));
+        assert_eq!(
+            phone_key("+1 (555) 123-4567").as_deref(),
+            Some("5551234567")
+        );
         assert_eq!(phone_key("+15551234567").as_deref(), Some("5551234567"));
         assert_eq!(phone_key("5551234567").as_deref(), Some("5551234567"));
         // Too short to be a real number → no key (avoids false matches on short codes).
@@ -615,9 +639,18 @@ mod tests {
 
     #[test]
     fn contact_name_prefers_full_then_nick_then_org() {
-        assert_eq!(contact_name(Some("Ada".into()), Some("Lovelace".into()), None, None).as_deref(), Some("Ada Lovelace"));
-        assert_eq!(contact_name(None, None, None, Some("Ace".into())).as_deref(), Some("Ace"));
-        assert_eq!(contact_name(None, None, Some("Analytical Engines".into()), None).as_deref(), Some("Analytical Engines"));
+        assert_eq!(
+            contact_name(Some("Ada".into()), Some("Lovelace".into()), None, None).as_deref(),
+            Some("Ada Lovelace")
+        );
+        assert_eq!(
+            contact_name(None, None, None, Some("Ace".into())).as_deref(),
+            Some("Ace")
+        );
+        assert_eq!(
+            contact_name(None, None, Some("Analytical Engines".into()), None).as_deref(),
+            Some("Analytical Engines")
+        );
         assert_eq!(contact_name(None, None, None, None), None);
     }
 

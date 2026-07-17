@@ -15,7 +15,9 @@ fn imap_endpoint(provider: &str) -> Result<(&'static str, u16), String> {
     match provider.to_ascii_lowercase().as_str() {
         "gmail" | "google" => Ok(("imap.gmail.com", 993)),
         "icloud" | "apple" | "me" => Ok(("imap.mail.me.com", 993)),
-        other => Err(format!("unknown mail provider '{other}' (expected 'gmail' or 'icloud')")),
+        other => Err(format!(
+            "unknown mail provider '{other}' (expected 'gmail' or 'icloud')"
+        )),
     }
 }
 
@@ -123,8 +125,14 @@ pub async fn mail_fetch_recent(
 
         let mut out: Vec<MailHeader> = Vec::with_capacity(fetches.len());
         for msg in fetches.iter() {
-            let seen = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Seen));
-            let flagged = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Flagged));
+            let seen = msg
+                .flags()
+                .iter()
+                .any(|f| matches!(f, imap::types::Flag::Seen));
+            let flagged = msg
+                .flags()
+                .iter()
+                .any(|f| matches!(f, imap::types::Flag::Flagged));
             let env = msg.envelope();
             let subject = env
                 .and_then(|e| e.subject)
@@ -138,10 +146,23 @@ pub async fn mail_fetch_recent(
                 .and_then(|e| e.from.as_ref())
                 .and_then(|v| v.first())
                 .map(|a| {
-                    let name = a.name.map(|b| String::from_utf8_lossy(b).trim().to_string()).unwrap_or_default();
-                    let mbox = a.mailbox.map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-                    let h = a.host.map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-                    let em = if mbox.is_empty() || h.is_empty() { String::new() } else { format!("{mbox}@{h}") };
+                    let name = a
+                        .name
+                        .map(|b| String::from_utf8_lossy(b).trim().to_string())
+                        .unwrap_or_default();
+                    let mbox = a
+                        .mailbox
+                        .map(|b| String::from_utf8_lossy(b).to_string())
+                        .unwrap_or_default();
+                    let h = a
+                        .host
+                        .map(|b| String::from_utf8_lossy(b).to_string())
+                        .unwrap_or_default();
+                    let em = if mbox.is_empty() || h.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{mbox}@{h}")
+                    };
                     (name, em)
                 })
                 .unwrap_or_default();
@@ -202,7 +223,7 @@ pub async fn mail_search(
         }
 
         matching_seqs.sort_unstable(); // oldest first
-        // Take the latest `limit`
+                                       // Take the latest `limit`
         let want = limit.max(1) as usize;
         let start_idx = matching_seqs.len().saturating_sub(want);
         let recent_seqs = &matching_seqs[start_idx..];
@@ -220,8 +241,14 @@ pub async fn mail_search(
 
         let mut out: Vec<MailHeader> = Vec::with_capacity(fetches.len());
         for msg in fetches.iter() {
-            let seen = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Seen));
-            let flagged = msg.flags().iter().any(|f| matches!(f, imap::types::Flag::Flagged));
+            let seen = msg
+                .flags()
+                .iter()
+                .any(|f| matches!(f, imap::types::Flag::Seen));
+            let flagged = msg
+                .flags()
+                .iter()
+                .any(|f| matches!(f, imap::types::Flag::Flagged));
             let env = msg.envelope();
             let subject = env
                 .and_then(|e| e.subject)
@@ -235,10 +262,23 @@ pub async fn mail_search(
                 .and_then(|e| e.from.as_ref())
                 .and_then(|v| v.first())
                 .map(|a| {
-                    let name = a.name.map(|b| String::from_utf8_lossy(b).trim().to_string()).unwrap_or_default();
-                    let mbox = a.mailbox.map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-                    let h = a.host.map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-                    let em = if mbox.is_empty() || h.is_empty() { String::new() } else { format!("{mbox}@{h}") };
+                    let name = a
+                        .name
+                        .map(|b| String::from_utf8_lossy(b).trim().to_string())
+                        .unwrap_or_default();
+                    let mbox = a
+                        .mailbox
+                        .map(|b| String::from_utf8_lossy(b).to_string())
+                        .unwrap_or_default();
+                    let h = a
+                        .host
+                        .map(|b| String::from_utf8_lossy(b).to_string())
+                        .unwrap_or_default();
+                    let em = if mbox.is_empty() || h.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{mbox}@{h}")
+                    };
                     (name, em)
                 })
                 .unwrap_or_default();
@@ -260,7 +300,6 @@ pub async fn mail_search(
     .map_err(|e| format!("mail task failed: {e}"))?
 }
 
-
 /// Parsed body + the header fields a reply needs.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -277,9 +316,12 @@ pub struct MailBody {
 
 /// Collect the email addresses out of a parsed address header (To/Cc/From).
 fn addr_emails(addr: Option<&mail_parser::Address>) -> Vec<String> {
-    addr
-        .map(|a| a.iter().filter_map(|x| x.address().map(|s| s.to_string())).collect())
-        .unwrap_or_default()
+    addr.map(|a| {
+        a.iter()
+            .filter_map(|x| x.address().map(|s| s.to_string()))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Fetch and parse one message's body by UID. `mail-parser` handles MIME/multipart/encoding,
@@ -301,29 +343,52 @@ pub async fn mail_fetch_body(
         let mut session = client
             .login(&email, &password)
             .map_err(|(e, _client)| format!("login rejected: {e}"))?;
-        session.select("INBOX").map_err(|e| format!("could not open INBOX: {e}"))?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("could not open INBOX: {e}"))?;
 
         let fetches = session
             .uid_fetch(uid.to_string(), "(RFC822)")
             .map_err(|e| format!("fetch failed: {e}"))?;
-        let msg = fetches.iter().next().ok_or_else(|| "message not found".to_string())?;
+        let msg = fetches
+            .iter()
+            .next()
+            .ok_or_else(|| "message not found".to_string())?;
         let raw = msg.body().ok_or_else(|| "no body returned".to_string())?;
 
         let parsed = mail_parser::MessageParser::default()
             .parse(raw)
             .ok_or_else(|| "could not parse message".to_string())?;
-        let text = parsed.body_text(0).map(|c| c.to_string()).unwrap_or_default();
-        let html = parsed.body_html(0).map(|c| c.to_string()).unwrap_or_default();
+        let text = parsed
+            .body_text(0)
+            .map(|c| c.to_string())
+            .unwrap_or_default();
+        let html = parsed
+            .body_html(0)
+            .map(|c| c.to_string())
+            .unwrap_or_default();
         let from = parsed.from().and_then(|a| a.first());
         let from_name = from.and_then(|a| a.name()).unwrap_or_default().to_string();
-        let from_email = from.and_then(|a| a.address()).unwrap_or_default().to_string();
+        let from_email = from
+            .and_then(|a| a.address())
+            .unwrap_or_default()
+            .to_string();
         let to = addr_emails(parsed.to());
         let cc = addr_emails(parsed.cc());
         let subject = parsed.subject().unwrap_or_default().to_string();
         let message_id = parsed.message_id().unwrap_or_default().to_string();
 
         let _ = session.logout();
-        Ok(MailBody { from_name, from_email, to, cc, subject, message_id, text, html })
+        Ok(MailBody {
+            from_name,
+            from_email,
+            to,
+            cc,
+            subject,
+            message_id,
+            text,
+            html,
+        })
     })
     .await
     .map_err(|e| format!("mail task failed: {e}"))?
@@ -334,7 +399,7 @@ pub async fn mail_fetch_body(
 #[serde(rename_all = "camelCase")]
 pub struct SentMail {
     text: String,
-    to: Vec<String>,  // recipient addresses — lets "write like me" learn a per-recipient voice
+    to: Vec<String>, // recipient addresses — lets "write like me" learn a per-recipient voice
 }
 
 /// Candidate Sent-folder names per provider (IMAP servers name this mailbox differently).
@@ -396,10 +461,16 @@ pub async fn mail_fetch_sent(
         for msg in fetches.iter() {
             if let Some(raw) = msg.body() {
                 if let Some(parsed) = mail_parser::MessageParser::default().parse(raw) {
-                    let text = parsed.body_text(0).map(|c| c.to_string()).unwrap_or_default();
+                    let text = parsed
+                        .body_text(0)
+                        .map(|c| c.to_string())
+                        .unwrap_or_default();
                     let trimmed = text.trim();
                     if !trimmed.is_empty() {
-                        out.push(SentMail { text: trimmed.to_string(), to: addr_emails(parsed.to()) });
+                        out.push(SentMail {
+                            text: trimmed.to_string(),
+                            to: addr_emails(parsed.to()),
+                        });
                     }
                 }
             }
@@ -423,12 +494,25 @@ pub async fn mail_set_seen(
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
-        let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
-        let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
-        let mut session = client.login(&email, &password).map_err(|(e, _c)| format!("login rejected: {e}"))?;
-        session.select("INBOX").map_err(|e| format!("could not open INBOX: {e}"))?;
-        let query = if seen { "+FLAGS (\\Seen)" } else { "-FLAGS (\\Seen)" };
-        session.uid_store(uid.to_string(), query).map_err(|e| format!("store failed: {e}"))?;
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls)
+            .map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client
+            .login(&email, &password)
+            .map_err(|(e, _c)| format!("login rejected: {e}"))?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("could not open INBOX: {e}"))?;
+        let query = if seen {
+            "+FLAGS (\\Seen)"
+        } else {
+            "-FLAGS (\\Seen)"
+        };
+        session
+            .uid_store(uid.to_string(), query)
+            .map_err(|e| format!("store failed: {e}"))?;
         let _ = session.logout();
         Ok(())
     })
@@ -447,12 +531,25 @@ pub async fn mail_set_flagged(
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
-        let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
-        let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
-        let mut session = client.login(&email, &password).map_err(|(e, _c)| format!("login rejected: {e}"))?;
-        session.select("INBOX").map_err(|e| format!("could not open INBOX: {e}"))?;
-        let query = if flagged { "+FLAGS (\\Flagged)" } else { "-FLAGS (\\Flagged)" };
-        session.uid_store(uid.to_string(), query).map_err(|e| format!("store failed: {e}"))?;
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls)
+            .map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client
+            .login(&email, &password)
+            .map_err(|(e, _c)| format!("login rejected: {e}"))?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("could not open INBOX: {e}"))?;
+        let query = if flagged {
+            "+FLAGS (\\Flagged)"
+        } else {
+            "-FLAGS (\\Flagged)"
+        };
+        session
+            .uid_store(uid.to_string(), query)
+            .map_err(|e| format!("store failed: {e}"))?;
         let _ = session.logout();
         Ok(())
     })
@@ -462,18 +559,24 @@ pub async fn mail_set_flagged(
 
 /// Count unread (UNSEEN) messages in INBOX — cheap SEARCH, no envelopes fetched.
 #[tauri::command]
-pub async fn mail_unread_count(
-    provider: String,
-    email: String,
-) -> Result<u32, String> {
+pub async fn mail_unread_count(provider: String, email: String) -> Result<u32, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
         let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
-        let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
-        let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
-        let mut session = client.login(&email, &password).map_err(|(e, _c)| format!("login rejected: {e}"))?;
-        session.select("INBOX").map_err(|e| format!("could not open INBOX: {e}"))?;
-        let unseen = session.search("UNSEEN").map_err(|e| format!("search failed: {e}"))?;
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls)
+            .map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client
+            .login(&email, &password)
+            .map_err(|(e, _c)| format!("login rejected: {e}"))?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("could not open INBOX: {e}"))?;
+        let unseen = session
+            .search("UNSEEN")
+            .map_err(|e| format!("search failed: {e}"))?;
         let _ = session.logout();
         Ok(unseen.len() as u32)
     })
@@ -483,18 +586,21 @@ pub async fn mail_unread_count(
 
 /// Delete a message — move it to the provider's Trash, falling back to \Deleted + expunge.
 #[tauri::command]
-pub async fn mail_delete(
-    provider: String,
-    email: String,
-    uid: u32,
-) -> Result<(), String> {
+pub async fn mail_delete(provider: String, email: String, uid: u32) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let password = mail_password(&email)?;
         let (host, port) = imap_endpoint(&provider)?;
-        let tls = native_tls::TlsConnector::builder().build().map_err(|e| format!("TLS init failed: {e}"))?;
-        let client = imap::connect((host, port), host, &tls).map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
-        let mut session = client.login(&email, &password).map_err(|(e, _c)| format!("login rejected: {e}"))?;
-        session.select("INBOX").map_err(|e| format!("could not open INBOX: {e}"))?;
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls)
+            .map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client
+            .login(&email, &password)
+            .map_err(|(e, _c)| format!("login rejected: {e}"))?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("could not open INBOX: {e}"))?;
         let trash = match provider.to_ascii_lowercase().as_str() {
             "gmail" | "google" => "[Gmail]/Trash",
             _ => "Deleted Messages", // iCloud
@@ -502,8 +608,12 @@ pub async fn mail_delete(
         let uid_s = uid.to_string();
         if session.uid_mv(&uid_s, trash).is_err() {
             // Fallback: flag deleted in INBOX and expunge.
-            session.uid_store(&uid_s, "+FLAGS (\\Deleted)").map_err(|e| format!("delete-flag failed: {e}"))?;
-            session.expunge().map_err(|e| format!("expunge failed: {e}"))?;
+            session
+                .uid_store(&uid_s, "+FLAGS (\\Deleted)")
+                .map_err(|e| format!("delete-flag failed: {e}"))?;
+            session
+                .expunge()
+                .map_err(|e| format!("expunge failed: {e}"))?;
         }
         let _ = session.logout();
         Ok(())
@@ -541,33 +651,53 @@ pub async fn mail_send(
         if to.is_empty() {
             return Err("no recipients".to_string());
         }
-        let from_mbox: Mailbox = email.parse().map_err(|e| format!("bad from address: {e}"))?;
+        let from_mbox: Mailbox = email
+            .parse()
+            .map_err(|e| format!("bad from address: {e}"))?;
         let mut builder = Message::builder().from(from_mbox).subject(subject);
         for t in &to {
-            builder = builder.to(t.parse::<Mailbox>().map_err(|e| format!("bad recipient '{t}': {e}"))?);
+            builder = builder.to(t
+                .parse::<Mailbox>()
+                .map_err(|e| format!("bad recipient '{t}': {e}"))?);
         }
         for c in &cc {
             if c.trim().is_empty() {
                 continue;
             }
-            builder = builder.cc(c.parse::<Mailbox>().map_err(|e| format!("bad cc '{c}': {e}"))?);
+            builder = builder.cc(c
+                .parse::<Mailbox>()
+                .map_err(|e| format!("bad cc '{c}': {e}"))?);
         }
         if let Some(id) = in_reply_to.filter(|s| !s.is_empty()) {
             // RFC wants the message-id in angle brackets; mail-parser strips them.
-            let id = if id.starts_with('<') { id } else { format!("<{id}>") };
+            let id = if id.starts_with('<') {
+                id
+            } else {
+                format!("<{id}>")
+            };
             builder = builder.in_reply_to(id.clone()).references(id);
         }
-        let message = builder.body(body).map_err(|e| format!("could not build message: {e}"))?;
+        let message = builder
+            .body(body)
+            .map_err(|e| format!("could not build message: {e}"))?;
 
         let password = mail_password(&email)?;
         let (host, starttls) = smtp_endpoint(&provider)?;
         let creds = Credentials::new(email.clone(), password.clone());
         let mailer = if starttls {
-            SmtpTransport::starttls_relay(host).map_err(|e| format!("smtp setup: {e}"))?.credentials(creds).build()
+            SmtpTransport::starttls_relay(host)
+                .map_err(|e| format!("smtp setup: {e}"))?
+                .credentials(creds)
+                .build()
         } else {
-            SmtpTransport::relay(host).map_err(|e| format!("smtp setup: {e}"))?.credentials(creds).build()
+            SmtpTransport::relay(host)
+                .map_err(|e| format!("smtp setup: {e}"))?
+                .credentials(creds)
+                .build()
         };
-        mailer.send(&message).map_err(|e| format!("send failed: {e}"))?;
+        mailer
+            .send(&message)
+            .map_err(|e| format!("send failed: {e}"))?;
         Ok(())
     })
     .await

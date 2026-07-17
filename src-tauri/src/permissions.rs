@@ -18,7 +18,9 @@ extern "C" {
 #[tauri::command]
 pub fn accessibility_authorized() -> bool {
     #[cfg(target_os = "macos")]
-    unsafe { AXIsProcessTrusted() }
+    unsafe {
+        AXIsProcessTrusted()
+    }
     #[cfg(not(target_os = "macos"))]
     false
 }
@@ -41,10 +43,10 @@ pub fn accessibility_request_access() -> bool {
                 valueCallBacks: *const core::ffi::c_void,
             ) -> *const core::ffi::c_void;
         }
-        
+
         let keys: [*const core::ffi::c_void; 1] = [kAXTrustedCheckOptionPrompt];
         let values: [*const core::ffi::c_void; 1] = [kCFBooleanTrue];
-        
+
         let dict = CFDictionaryCreate(
             core::ptr::null(),
             keys.as_ptr(),
@@ -53,7 +55,7 @@ pub fn accessibility_request_access() -> bool {
             &kCFTypeDictionaryKeyCallBacks,
             &kCFTypeDictionaryValueCallBacks,
         );
-        
+
         AXIsProcessTrustedWithOptions(dict)
     }
     #[cfg(not(target_os = "macos"))]
@@ -77,7 +79,10 @@ pub async fn automation_grant(target: String) -> Result<String, String> {
     };
     let script = format!("tell application \"{app}\" to get name");
     let out = tauri::async_runtime::spawn_blocking(move || {
-        std::process::Command::new("osascript").arg("-e").arg(&script).output()
+        std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
     })
     .await
     .map_err(|e| format!("automation probe task failed: {e}"))?
@@ -102,7 +107,11 @@ pub async fn automation_grant(target: String) -> Result<String, String> {
 #[tauri::command]
 pub fn notify_user(title: String, body: String) -> Result<(), String> {
     let esc = |s: &str, cap: usize| -> String {
-        s.chars().take(cap).collect::<String>().replace('\\', "\\\\").replace('"', "\\\"")
+        s.chars()
+            .take(cap)
+            .collect::<String>()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
     };
     let script = format!(
         "display notification \"{}\" with title \"{}\"",
@@ -114,7 +123,11 @@ pub fn notify_user(title: String, body: String) -> Result<(), String> {
         .arg(&script)
         .status()
         .map_err(|e| format!("could not run osascript: {e}"))?;
-    if status.success() { Ok(()) } else { Err("notification failed".into()) }
+    if status.success() {
+        Ok(())
+    } else {
+        Err("notification failed".into())
+    }
 }
 
 /// Open a specific Privacy & Security pane in System Settings — for the grants macOS refuses to
@@ -132,8 +145,14 @@ pub fn open_privacy_settings(pane: String) -> Result<(), String> {
     };
     // Same `open x-apple.systempreferences:` pattern as imessage_open_fda_settings.
     let status = std::process::Command::new("open")
-        .arg(format!("x-apple.systempreferences:com.apple.preference.security?{anchor}"))
+        .arg(format!(
+            "x-apple.systempreferences:com.apple.preference.security?{anchor}"
+        ))
         .status()
         .map_err(|e| format!("could not open System Settings: {e}"))?;
-    if status.success() { Ok(()) } else { Err("System Settings did not open".into()) }
+    if status.success() {
+        Ok(())
+    } else {
+        Err("System Settings did not open".into())
+    }
 }

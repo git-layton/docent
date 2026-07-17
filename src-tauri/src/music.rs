@@ -9,7 +9,9 @@ fn run_osascript(script: &str, args: &[&str]) -> Result<String, String> {
     for a in args {
         cmd.arg(a);
     }
-    let out = cmd.output().map_err(|e| format!("could not run osascript: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("could not run osascript: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         return Err(format!(
@@ -56,7 +58,10 @@ pub async fn music_create_playlist(name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn music_add_track_to_playlist(track_name: String, playlist_name: String) -> Result<(), String> {
+pub async fn music_add_track_to_playlist(
+    track_name: String,
+    playlist_name: String,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let script = "on run argv\n\
             tell application \"Music\"\n\

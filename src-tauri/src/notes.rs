@@ -18,7 +18,9 @@ fn run_osascript(script: &str, args: &[&str]) -> Result<String, String> {
     for a in args {
         cmd.arg(a);
     }
-    let out = cmd.output().map_err(|e| format!("could not run osascript: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("could not run osascript: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         return Err(format!(
@@ -50,7 +52,11 @@ pub async fn notes_list_folders() -> Result<Vec<String>, String> {
             return out\n\
             end tell";
         let raw = run_osascript(script, &[])?;
-        Ok(raw.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
+        Ok(raw
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect())
     })
     .await
     .map_err(|e| format!("notes task failed: {e}"))?
