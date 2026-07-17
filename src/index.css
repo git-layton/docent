@@ -13,16 +13,16 @@
 
 :root,
 [data-theme='light'] {
-  --af-base: #f3f2ee;          /* app chrome: tab strip, sidebar       */
-  --af-panel: #ffffff;         /* primary content surface              */
-  --af-panel-2: #faf9f6;       /* raised / nested surface              */
-  --af-inset: #edece7;         /* wells, inputs on panel               */
-  --af-wash: rgba(0, 0, 0, 0.045);   /* hover wash                     */
-  --af-edge: rgba(0, 0, 0, 0.08);    /* hairline border                */
-  --af-edge-2: rgba(0, 0, 0, 0.14);  /* emphasized border              */
-  --af-ink: #1c1b17;           /* primary text                         */
-  --af-ink-2: #5d5c55;         /* secondary text                       */
-  --af-ink-3: #929086;         /* tertiary text / hints                */
+  --af-base: #e6e7e5;          /* app chrome: tab strip, sidebar       */
+  --af-panel: #f4f5f3;         /* primary content surface              */
+  --af-panel-2: #ecece9;       /* raised / nested surface              */
+  --af-inset: #e0e1de;         /* wells, inputs on panel               */
+  --af-wash: rgba(0, 0, 0, 0.04);    /* hover wash                     */
+  --af-edge: rgba(0, 0, 0, 0.07);    /* hairline border                */
+  --af-edge-2: rgba(0, 0, 0, 0.12);  /* emphasized border              */
+  --af-ink: #2a2c2a;           /* primary text                         */
+  --af-ink-2: #656764;         /* secondary text                       */
+  --af-ink-3: #979995;         /* tertiary text / hints                */
 
   --af-danger: #c43d3d;
   --af-danger-soft: #fcebeb;

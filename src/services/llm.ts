@@ -320,7 +320,7 @@ export const getSystemPromptBreakdown = (params: {
   return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
@@ -354,9 +354,6 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     prompt += `[SAVED EVENTS]\nRecurring/calendar events the user has saved (reference the id to move or delete one):\n${recurringEvents.map((e: any) => `- [id: ${e.id}] ${e.name} (${e.type}, ${MONTH_ABBR[(e.month ?? 1) - 1]} ${e.day}${e.year ? `, ${e.year}` : ''})`).join('\n')}\n\n`;
   }
 
-  if (agentPinnedMessages && agentPinnedMessages.length > 0) {
-    prompt += `[AGENT MEMORIES (KNOWLEDGE BASE)]\nRemember these core facts the user explicitly pinned for you:\n${agentPinnedMessages.map((m: any) => `- ${m}`).join('\n')}\n\n`;
-  }
 
   // Tier 1 — persistent memory: a compact digest of what the agent has learned/consolidated. Always
   // present so the agent carries its knowledge across every turn (not only on explicit recall).
@@ -433,9 +430,6 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     }
   }
 
-  if (isDeepThinking) {
-    prompt += `\n[DEEP THINKING MODE]\nThink carefully before answering. If you reason through the problem, you MUST wrap ALL reasoning inside <think>...</think> tags. NEVER output your reasoning, analysis, or thought process as plain text — it will appear directly in the user's chat. Only your final response (after any </think> block) is shown to the user. If you do not use <think> tags, output your final answer directly with no preamble.`;
-  }
 
   prompt += `\n[TASK GENERATION]\nONLY if the user explicitly asks to set a reminder or create a task, output a \`\`\`task codeblock with JSON: {"title": "...", "dueDate": "YYYY-MM-DD", "location": "...", "details": "..."}.\n`;
 

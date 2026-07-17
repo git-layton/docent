@@ -79,7 +79,6 @@ export function ChatInputBar({
   onAttachedDocsChange,
 }: ChatInputBarProps) {
   const storeInput = useUIStore(s => s.input);
-  const isDeepThinking = useUIStore(s => s.isDeepThinking);
   const forcedTool = useUIStore(s => s.forcedTool);
   const isPlanMode = useUIStore(s => s.isPlanMode);
   const storeAttachedDocs = useUIStore(s => s.attachedDocs);
@@ -88,7 +87,7 @@ export function ChatInputBar({
   const slashHighlight = useUIStore(s => s.slashHighlight);
   const generationMode = useUIStore(s => s.generationMode);
   const pinnedTools = useUIStore(s => s.pinnedTools);
-  const { setInput: setStoreInput, setIsDeepThinking, setForcedTool, setIsPlanMode,
+  const { setInput: setStoreInput, setForcedTool, setIsPlanMode,
     setAttachedDocs: setStoreAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode, setPinnedTools } = useUIStore.getState();
 
   // Composer state — use the caller's own buffer when provided (the Code Team rail), else the
@@ -291,7 +290,6 @@ export function ChatInputBar({
         {/* Mode bar + model selector + actions — single row */}
         <div className="flex items-center gap-0.5 px-0.5 pt-1" ref={modelDropdownRef}>
           {/* Reasoning modes */}
-          <button onClick={() => setIsDeepThinking(v => !v)} className={`p-1.5 rounded-full transition-all ${isDeepThinking ? 'bg-accent-soft text-accent-soft-ink' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Think — extended chain-of-thought reasoning"><Brain className="w-3.5 h-3.5" /></button>
           <button onClick={() => setIsPlanMode(v => !v)} className={`p-1.5 rounded-full transition-all ${isPlanMode ? 'bg-success-soft text-success' : 'text-ink-3 hover:text-success hover:bg-wash'}`} title="Plan — structured step-by-step response"><ListTodo className="w-3.5 h-3.5" /></button>
           {/* Output modes */}
           <button onClick={() => setGenerationMode(generationMode === 'code' ? 'text' : 'code')} className={`p-1.5 rounded-full transition-all ${generationMode === 'code' ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title="Canvas — generate a code app"><Code2 className="w-3.5 h-3.5" /></button>
@@ -340,12 +338,12 @@ export function ChatInputBar({
           <div className="flex items-center gap-1 ml-auto">
             {/* Model selector — moved here from its own row */}
             <div className="relative">
-              <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-edge hover:border-edge-2 hover:bg-wash transition-all">
+              <button onClick={() => setIsModelDropdownOpen(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent-soft/30 hover:bg-accent-soft/60 border border-accent/10 transition-all shadow-sm">
                 <Zap className="w-3 h-3 text-accent" />
                 {selectedModel && modelValidation[selectedModel.id] === 'fail' && <span title="Model unreachable"><AlertTriangle className="w-3 h-3 text-danger" /></span>}
                 {selectedModel && modelValidation[selectedModel.id] === 'ok'   && <span title="Model verified"><ShieldCheck   className="w-3 h-3 text-success" /></span>}
-                <span className="text-[11px] font-medium text-ink-2 max-w-[120px] truncate">{selectedModel?.name ?? 'Model'}</span>
-                <ChevronDown className="w-3 h-3 text-ink-3 shrink-0" />
+                <span className="text-[11px] font-bold text-accent-strong max-w-[120px] truncate">{selectedModel?.name ?? 'Model'}</span>
+                <ChevronDown className="w-3 h-3 text-accent/50 shrink-0" />
               </button>
               {isModelDropdownOpen && (
                 <div className="absolute bottom-full right-0 mb-2 w-64 bg-panel-2 border border-edge rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
