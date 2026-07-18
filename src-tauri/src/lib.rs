@@ -3159,6 +3159,27 @@ fn is_safe_capture_component(s: &str) -> bool {
     !s.is_empty() && !s.contains('/') && !s.contains('\\') && !s.contains("..") && s != "."
 }
 
+/// Raw Knowledge-Core git history for the memory ledger (read-only; newest first).
+/// Format per commit: `\u{1e}<hash>\u{1f}<unix-secs>\u{1f}<subject>\n<changed files, one per line>`.
+/// The frontend parses/humanizes; this stays a dumb, safe reader. Takes the same git lock as the
+/// writers so it can never interleave with an in-flight commit.
+#[tauri::command]
+fn memory_git_log(limit: Option<u32>) -> serde_json::Value {
+    let _git = git_guard();
+    let root = knowledge_root();
+    if !root.join(".git").exists() {
+        return serde_json::json!({ "ok": false, "error": "knowledge core is not a git repo yet" });
+    }
+    let n = format!("-{}", limit.unwrap_or(50).min(200));
+    match run_git(
+        &["log", &n, "--pretty=format:\u{1e}%h\u{1f}%ct\u{1f}%s", "--name-only"],
+        &root,
+    ) {
+        Ok(out) => serde_json::json!({ "ok": true, "log": out }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    }
+}
+
 #[tauri::command]
 fn list_inbox_captures(owner_id: String) -> serde_json::Value {
     let base = inbox_raw_path();
@@ -5072,6 +5093,7 @@ pub fn run() {
             list_inbox_captures,
             create_inbox_capture,
             update_inbox_capture,
+            memory_git_log,
             read_inbox_attachment,
             set_network_active,
             get_network_peers,

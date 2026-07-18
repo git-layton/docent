@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { X, Pin, PinOff, FileText, Pencil, ChevronDown, ChevronRight, Trash2, RotateCcw, Archive, Bookmark, Globe } from 'lucide-react';
 import { KnowledgeDropZone } from './KnowledgeDropZone';
 import { useBrowserStore } from '../store/useBrowserStore';
+import { fetchMemoryLedger, describeFiles, type LedgerDay } from '../services/memoryLedger';
 
 interface PinnedMessage {
   chatId: string;
@@ -31,7 +32,17 @@ interface Props {
   onRestoreArchive?: (archivePath: string) => Promise<void>;
 }
 
-type Tab = 'pins' | 'notes' | 'library' | 'archive' | 'weblog';
+type Tab = 'pins' | 'notes' | 'library' | 'archive' | 'weblog' | 'ledger';
+
+/** Friendly day header for the memory ledger. */
+function ledgerDayLabel(isoDate: string): string {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(`${isoDate}T00:00:00`);
+  const diff = Math.round((today.getTime() - d.getTime()) / 86_400_000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
 
 interface FileEntry {
   name: string;
@@ -68,6 +79,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
   const [restoringPath, setRestoringPath] = useState<string | null>(null);
   const visitLog = useBrowserStore(s => s.visitLog);
   const clearVisitLog = useBrowserStore(s => s.clearVisitLog);
+  const [ledgerDays, setLedgerDays] = useState<LedgerDay[]>([]);
 
   useEffect(() => {
     if (isOpen && initialTab) setTab(initialTab);
@@ -78,6 +90,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
       if (tab === 'notes') loadMemos();
       if (tab === 'library') loadLibrary();
       if (tab === 'archive') loadArchive();
+      if (tab === 'ledger') fetchMemoryLedger(60).then(setLedgerDays).catch(() => setLedgerDays([]));
     }
   }, [isOpen, tab, agentForgePath, agentId]);
 
@@ -167,6 +180,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
     { id: 'notes',   label: 'Notes'   },
     { id: 'archive', label: 'Archive', count: archiveFiles.length || undefined },
     { id: 'weblog',  label: 'Web',     count: visitLog.length || undefined },
+    { id: 'ledger',  label: 'Ledger'  },
   ];
 
   return (
@@ -582,6 +596,38 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
                         </p>
                       </div>
                     )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* Memory ledger — the Knowledge Core's git history as a human story. Read-only:
+              this is "audit what it learned", the moat rendered visible. */}
+          {tab === 'ledger' && (
+            <div className="flex flex-col">
+              {ledgerDays.length === 0 ? (
+                <div className="px-5 py-8 text-center">
+                  <p className="text-xs text-ink-3 leading-relaxed">
+                    No memory history yet. As agents learn things, every change lands here as a
+                    git commit you can audit.
+                  </p>
+                </div>
+              ) : (
+                ledgerDays.map(day => (
+                  <div key={day.date}>
+                    <div className="px-5 pt-4 pb-1.5 text-[10px] font-black uppercase tracking-widest text-ink-3">
+                      {ledgerDayLabel(day.date)}
+                    </div>
+                    {day.entries.map(e => (
+                      <div key={e.hash} className="px-5 py-2.5 border-b border-edge">
+                        <p className="text-xs font-bold text-ink-2 leading-snug break-words">{e.subject || '(no message)'}</p>
+                        <p className="text-[10px] text-ink-3 mt-0.5">
+                          {describeFiles(e.files)}{e.files.length > 0 ? ' · ' : ''}
+                          <span className="font-mono">{e.hash}</span>
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 ))
               )}
