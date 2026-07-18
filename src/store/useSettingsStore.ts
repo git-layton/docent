@@ -71,6 +71,8 @@ interface SettingsStore {
     voiceProfile?: VoiceProfile;
     newShellEnabled?: boolean;
     glassEnabled?: boolean;
+    // Optional zip code or city name for live weather in the background scene.
+    weatherLocation?: string;
   };
 
   // Profile settings modal
@@ -192,6 +194,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     voiceProfile: DEFAULT_VOICE_PROFILE,
     newShellEnabled: true,
     glassEnabled: true,
+    weatherLocation: '',
   },
   profileSettingsTab: 'profile',
   showProfileSettings: false,

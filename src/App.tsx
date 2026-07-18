@@ -20,7 +20,7 @@ import { getContextLimit, charBudget, validateModel, buildSystemPrompt, getSyste
 import { assessContextHealth } from './services/contextHealth';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
-import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, resolveActionTargets, stripActionBlocks, type AgentAction } from './services/agentActions';
+import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, resolveActionTargets, isCardAction, renderCardActionBlocks, stripActionBlocks, type AgentAction } from './services/agentActions';
 import { parseModelBlock } from './services/modelBlocks';
 import { trustOfToolSource } from './services/trust';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
@@ -131,6 +131,16 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     invoke('set_developer_mode', { on: !!appSettings.developerMode }).catch(() => {});
     document.documentElement.dataset.glass = appSettings.glassEnabled ? 'true' : 'false';
   }, [appSettings.developerMode, appSettings.glassEnabled]);
+  // Live weather — fetch when the user sets a location (zip code or city)
+  useEffect(() => {
+    const loc = appSettings.weatherLocation?.trim();
+    if (loc) {
+      import('./store/useWeatherStore').then(({ useWeatherStore, startWeatherPolling }) => {
+        useWeatherStore.getState().fetchByZip(loc);
+        startWeatherPolling();
+      });
+    }
+  }, [appSettings.weatherLocation]);
   const userProfile = useSettingsStore(s => s.userProfile);
   const userName = useSettingsStore(s => s.userName);
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);
@@ -245,8 +255,14 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const handleAgentActions = async (text: string, chatId: string, botId: string, turnIngestedUntrusted = false) => {
     const actions = parseAgentActions(text);
     if (actions.length === 0) return;
-    const cleaned = stripActionBlocks(text);
-    if (cleaned && cleaned !== text) {
+    // Card actions (event/library/profile) don't execute — they render as the app's existing
+    // editable/confirm cards. Translate them back into the legacy fenced blocks the message
+    // renderer understands, and splice them into the displayed message in place of the stripped
+    // forge:action block, so the user still sees the card.
+    const cardBlocks = renderCardActionBlocks(actions);
+    const stripped = stripActionBlocks(text);
+    const cleaned = cardBlocks ? `${stripped}\n\n${cardBlocks}`.trim() : stripped;
+    if (cleaned !== text) {
       useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
         ...prev,
         [chatId]: (prev[chatId] ?? []).map((m: any) => (m.id === botId ? { ...m, content: cleaned } : m)),
@@ -287,7 +303,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     // Tool actions (note/task/calendar create, task complete, send, delete). Sends/deletes always need
     // approval; when the turn ingested untrusted content, EVERY write needs approval too (trust rule 2),
     // so it surfaces in the approval card rather than auto-applying.
-    const toolActions = actions.filter(x => x.tool !== 'memory' && x.tool !== 'playbook');
+    const toolActions = actions.filter(x => x.tool !== 'memory' && x.tool !== 'playbook' && !isCardAction(x));
     for (const a of toolActions.filter(x => !actionNeedsApproval(x, turnIngestedUntrusted))) {
       try { showToast(`✓ ${await executeAgentAction(a)}`); }
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }

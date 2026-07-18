@@ -1,16 +1,31 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useWeatherStore, weatherCondition, type WeatherCondition } from '../store/useWeatherStore';
 
 type TimeOfDay = 'night' | 'sunrise' | 'day' | 'sunset';
 
-// Stable random seed per mount so stars don't jump on re-render
+// Stable random seed per mount so stars/clouds don't jump on re-render
 const seededRandom = (seed: number) => {
   const x = Math.sin(seed + 1) * 10000;
   return x - Math.floor(x);
 };
 
+/** Parse an ISO time string to decimal hours (e.g. "2026-07-17T20:15" → 20.25) */
+const isoToDecimalHours = (iso: string | null): number | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.getHours() + d.getMinutes() / 60;
+};
+
 export const DynamicBackground: React.FC = () => {
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>('day');
   const [timeProgress, setTimeProgress] = useState(0);
+
+  // Weather-driven conditions
+  const weatherCode = useWeatherStore(s => s.weatherCode);
+  const sunrise = useWeatherStore(s => s.sunrise);
+  const sunset = useWeatherStore(s => s.sunset);
+  const condition: WeatherCondition = weatherCondition(weatherCode);
 
   useEffect(() => {
     const updateTime = () => {
@@ -18,25 +33,31 @@ export const DynamicBackground: React.FC = () => {
       const hours = now.getHours();
       const mins = now.getMinutes();
       const currentDecimalTime = hours + mins / 60;
-      
+
+      // Use real sunrise/sunset if available, otherwise fallback to defaults
+      const sunriseTime = isoToDecimalHours(sunrise) ?? 6;
+      const sunsetTime = isoToDecimalHours(sunset) ?? 20;
+      const sunriseEnd = sunriseTime + 1.5;   // transition window after sunrise
+      const sunsetStart = sunsetTime - 1.5;    // transition window before sunset
+
       let newTimeOfDay: TimeOfDay = 'night';
       let progress = 0;
 
-      if (currentDecimalTime >= 5 && currentDecimalTime < 8) {
+      if (currentDecimalTime >= sunriseTime && currentDecimalTime < sunriseEnd) {
         newTimeOfDay = 'sunrise';
-        progress = (currentDecimalTime - 5) / 3;
-      } else if (currentDecimalTime >= 8 && currentDecimalTime < 17) {
+        progress = (currentDecimalTime - sunriseTime) / (sunriseEnd - sunriseTime);
+      } else if (currentDecimalTime >= sunriseEnd && currentDecimalTime < sunsetStart) {
         newTimeOfDay = 'day';
-        progress = (currentDecimalTime - 8) / 9;
-      } else if (currentDecimalTime >= 17 && currentDecimalTime < 20) {
+        progress = (currentDecimalTime - sunriseEnd) / (sunsetStart - sunriseEnd);
+      } else if (currentDecimalTime >= sunsetStart && currentDecimalTime < sunsetTime) {
         newTimeOfDay = 'sunset';
-        progress = (currentDecimalTime - 17) / 3;
+        progress = (currentDecimalTime - sunsetStart) / (sunsetTime - sunsetStart);
       } else {
         newTimeOfDay = 'night';
-        if (currentDecimalTime >= 20) {
-          progress = (currentDecimalTime - 20) / 9;
+        if (currentDecimalTime >= sunsetTime) {
+          progress = (currentDecimalTime - sunsetTime) / (24 - sunsetTime + sunriseTime);
         } else {
-          progress = (currentDecimalTime + 4) / 9;
+          progress = (currentDecimalTime + 24 - sunsetTime) / (24 - sunsetTime + sunriseTime);
         }
       }
 
@@ -47,10 +68,10 @@ export const DynamicBackground: React.FC = () => {
     updateTime();
     const interval = setInterval(updateTime, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [sunrise, sunset]);
 
-  // Stable star positions (don't recalc on every render)
-  const stars = useMemo(() => 
+  // Stable star positions
+  const stars = useMemo(() =>
     [...Array(50)].map((_, i) => ({
       top: `${seededRandom(i * 3) * 60}%`,
       left: `${seededRandom(i * 3 + 1) * 100}%`,
@@ -59,8 +80,8 @@ export const DynamicBackground: React.FC = () => {
       duration: `${seededRandom(i * 5) * 4 + 2}s`,
     })), []);
 
-  // Shooting star configs — 3 pre-built, CSS staggers their appearance
-  const shootingStars = useMemo(() => 
+  // Shooting star configs
+  const shootingStars = useMemo(() =>
     [0, 1, 2].map(i => ({
       top: `${8 + seededRandom(i * 99) * 30}%`,
       left: `${seededRandom(i * 99 + 50) * 60 + 20}%`,
@@ -69,7 +90,7 @@ export const DynamicBackground: React.FC = () => {
       angle: -25 - seededRandom(i * 99 + 33) * 20,
     })), []);
 
-  // Cloud configs — 4 slow drifting clouds
+  // Cloud configs
   const clouds = useMemo(() =>
     [0, 1, 2, 3].map(i => ({
       top: `${8 + seededRandom(i * 77) * 25}%`,
@@ -79,7 +100,7 @@ export const DynamicBackground: React.FC = () => {
       delay: `${-seededRandom(i * 77 + 4) * 80}s`,
     })), []);
 
-  // Bird configs — 3 small V-shaped birds during the day
+  // Bird configs
   const birds = useMemo(() =>
     [0, 1, 2].map(i => ({
       top: `${12 + seededRandom(i * 55) * 22}%`,
@@ -89,6 +110,28 @@ export const DynamicBackground: React.FC = () => {
       flapSpeed: `${0.3 + seededRandom(i * 55 + 4) * 0.3}s`,
     })), []);
 
+  // Raindrop configs (for drizzle/rain/thunderstorm)
+  const raindrops = useMemo(() =>
+    [...Array(60)].map((_, i) => ({
+      left: `${seededRandom(i * 11) * 100}%`,
+      delay: `${seededRandom(i * 11 + 1) * 2}s`,
+      duration: `${0.4 + seededRandom(i * 11 + 2) * 0.4}s`,
+      opacity: 0.15 + seededRandom(i * 11 + 3) * 0.35,
+      width: condition === 'drizzle' ? '1px' : '1.5px',
+      height: condition === 'drizzle' ? '12px' : '20px',
+    })), [condition]);
+
+  // Snowflake configs
+  const snowflakes = useMemo(() =>
+    [...Array(40)].map((_, i) => ({
+      left: `${seededRandom(i * 13) * 100}%`,
+      delay: `${seededRandom(i * 13 + 1) * 6}s`,
+      duration: `${4 + seededRandom(i * 13 + 2) * 4}s`,
+      size: `${2 + seededRandom(i * 13 + 3) * 4}px`,
+      drift: `${-20 + seededRandom(i * 13 + 4) * 40}px`,
+      opacity: 0.4 + seededRandom(i * 13 + 5) * 0.5,
+    })), []);
+
   const skyGradients: Record<TimeOfDay, string> = {
     night: 'linear-gradient(to bottom, #060814 0%, #151a30 50%, #1c1836 100%)',
     sunrise: 'linear-gradient(to bottom, #2b3964 0%, #a46d78 50%, #f69d7b 100%)',
@@ -96,21 +139,52 @@ export const DynamicBackground: React.FC = () => {
     sunset: 'linear-gradient(to bottom, #202b54 0%, #873e5a 40%, #e06c55 80%, #f9a365 100%)',
   };
 
+  // Overcast/storm gradients overlay
+  const stormGradients: Partial<Record<WeatherCondition, Record<TimeOfDay, string>>> = {
+    rain: {
+      night: 'linear-gradient(to bottom, #050810 0%, #0d1020 50%, #121625 100%)',
+      sunrise: 'linear-gradient(to bottom, #2a3050 0%, #6e5565 50%, #9e7a6e 100%)',
+      day: 'linear-gradient(to bottom, #5a6a7e 0%, #7a8a98 60%, #8e9eaa 100%)',
+      sunset: 'linear-gradient(to bottom, #1e2540 0%, #5e3848 40%, #8e5548 80%, #b88060 100%)',
+    },
+    thunderstorm: {
+      night: 'linear-gradient(to bottom, #030508 0%, #0a0d18 50%, #0e1018 100%)',
+      sunrise: 'linear-gradient(to bottom, #222840 0%, #554550 50%, #7a6560 100%)',
+      day: 'linear-gradient(to bottom, #3a4858 0%, #556070 60%, #6a7888 100%)',
+      sunset: 'linear-gradient(to bottom, #181e35 0%, #4a2e3e 40%, #6e4540 80%, #987055 100%)',
+    },
+    cloudy: {
+      night: 'linear-gradient(to bottom, #080c18 0%, #181e30 50%, #1e2238 100%)',
+      sunrise: 'linear-gradient(to bottom, #2e3858 0%, #8a6670 50%, #d89070 100%)',
+      day: 'linear-gradient(to bottom, #6090c8 0%, #8ab0d8 60%, #a0c4e4 100%)',
+      sunset: 'linear-gradient(to bottom, #242a48 0%, #704050 40%, #c06050 80%, #e8985a 100%)',
+    },
+  };
+
+  const activeSky = stormGradients[condition]?.[timeOfDay] ?? skyGradients[timeOfDay];
   const isDark = timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
   const showClouds = timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
-  const showBirds = timeOfDay === 'day';
-  const showShootingStars = timeOfDay === 'night';
+  const showBirds = timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');
+  const showShootingStars = timeOfDay === 'night' && condition === 'clear';
+  const showRain = condition === 'rain' || condition === 'drizzle' || condition === 'thunderstorm';
+  const showSnow = condition === 'snow';
+  const showFog = condition === 'fog';
+  const showLightning = condition === 'thunderstorm';
+  // Extra clouds for overcast/rainy conditions
+  const cloudDensity = (condition === 'cloudy' || condition === 'rain' || condition === 'thunderstorm') ? 1.6 : 1;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-[-2] overflow-hidden transition-all duration-[3000ms] ease-in-out"
-      style={{ background: skyGradients[timeOfDay] }}
+      style={{ background: activeSky }}
     >
       {/* Stars */}
-      <div 
+      <div
         className="absolute inset-0 transition-opacity duration-[3000ms]"
-        style={{ 
-          opacity: timeOfDay === 'night' ? 1 : timeOfDay === 'sunrise' || timeOfDay === 'sunset' ? 0.4 : 0,
+        style={{
+          opacity: timeOfDay === 'night'
+            ? (condition === 'clear' ? 1 : condition === 'cloudy' ? 0.3 : 0.1)
+            : timeOfDay === 'sunrise' || timeOfDay === 'sunset' ? 0.4 : 0,
           background: 'transparent'
         }}
       >
@@ -130,7 +204,7 @@ export const DynamicBackground: React.FC = () => {
         ))}
       </div>
 
-      {/* Shooting Stars — rare, graceful streaks across the night sky */}
+      {/* Shooting Stars */}
       {showShootingStars && shootingStars.map((ss, i) => (
         <div
           key={`ss-${i}`}
@@ -143,28 +217,25 @@ export const DynamicBackground: React.FC = () => {
           }}
         >
           <div style={{
-            width: '80px',
-            height: '1.5px',
+            width: '80px', height: '1.5px',
             background: 'linear-gradient(to left, rgba(255,255,255,0.9), rgba(255,255,255,0.4) 30%, transparent)',
-            borderRadius: '1px',
-            boxShadow: '0 0 6px rgba(255,255,255,0.4)',
+            borderRadius: '1px', boxShadow: '0 0 6px rgba(255,255,255,0.4)',
           }} />
         </div>
       ))}
 
-      {/* Drifting Clouds — slow, wispy shapes floating across */}
+      {/* Drifting Clouds */}
       {showClouds && clouds.map((cloud, i) => (
         <div
           key={`cloud-${i}`}
           className="absolute pointer-events-none"
           style={{
             top: cloud.top,
-            transform: `scale(${cloud.scale})`,
-            opacity: timeOfDay === 'day' ? cloud.opacity : cloud.opacity * 0.5,
+            transform: `scale(${cloud.scale * cloudDensity})`,
+            opacity: timeOfDay === 'day' ? cloud.opacity * cloudDensity : cloud.opacity * 0.5,
             animation: `drift ${cloud.duration} ${cloud.delay} linear infinite`,
           }}
         >
-          {/* Cloud shape built from overlapping ellipses */}
           <div style={{ position: 'relative', width: '120px', height: '40px' }}>
             <div style={{
               position: 'absolute', borderRadius: '50%',
@@ -185,7 +256,72 @@ export const DynamicBackground: React.FC = () => {
         </div>
       ))}
 
-      {/* Birds — small V-shapes gliding across during the day */}
+      {/* Rain */}
+      {showRain && (
+        <div className="absolute inset-0 pointer-events-none">
+          {raindrops.map((drop, i) => (
+            <div
+              key={`rain-${i}`}
+              className="absolute"
+              style={{
+                left: drop.left,
+                top: '-20px',
+                width: drop.width,
+                height: drop.height,
+                borderRadius: '1px',
+                background: `linear-gradient(to bottom, transparent, rgba(180,200,220,${drop.opacity}))`,
+                animation: `rainfall ${drop.duration} ${drop.delay} linear infinite`,
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Snow */}
+      {showSnow && (
+        <div className="absolute inset-0 pointer-events-none">
+          {snowflakes.map((flake, i) => (
+            <div
+              key={`snow-${i}`}
+              className="absolute rounded-full"
+              style={{
+                left: flake.left,
+                top: '-10px',
+                width: flake.size,
+                height: flake.size,
+                background: `rgba(255,255,255,${flake.opacity})`,
+                animation: `snowfall ${flake.duration} ${flake.delay} linear infinite`,
+                ['--snow-drift' as string]: flake.drift,
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Fog */}
+      {showFog && (
+        <div className="absolute inset-0 pointer-events-none">
+          <div
+            className="absolute inset-0"
+            style={{
+              background: isDark
+                ? 'linear-gradient(to top, rgba(30,35,50,0.6) 0%, rgba(30,35,50,0.2) 50%, transparent 80%)'
+                : 'linear-gradient(to top, rgba(200,210,220,0.5) 0%, rgba(200,210,220,0.2) 50%, transparent 80%)',
+              animation: 'fogPulse 8s ease-in-out infinite alternate',
+            }}
+          />
+        </div>
+      )}
+
+      {/* Lightning flashes (thunderstorm only) */}
+      {showLightning && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ animation: 'lightning 6s infinite' }}
+        />
+      )}
+
+      {/* Birds */}
       {showBirds && birds.map((bird, i) => (
         <div
           key={`bird-${i}`}
@@ -205,44 +341,31 @@ export const DynamicBackground: React.FC = () => {
       ))}
 
       {/* Sun / Moon */}
-      <div 
+      <div
         className="absolute rounded-full transition-all duration-[3000ms]"
         style={{
-          width: '80px',
-          height: '80px',
+          width: '80px', height: '80px',
           left: `${10 + timeProgress * 80}%`,
           top: `${60 - Math.sin(timeProgress * Math.PI) * 40}%`,
           background: timeOfDay === 'night' ? '#edf2f7' : (timeOfDay === 'day' ? '#fdf8c9' : '#f9d29d'),
-          boxShadow: timeOfDay === 'night' 
+          boxShadow: timeOfDay === 'night'
             ? '0 0 40px rgba(237, 242, 247, 0.4)'
             : '0 0 60px rgba(253, 248, 201, 0.6)',
+          // Dim the sun/moon behind clouds/rain
+          opacity: (condition === 'rain' || condition === 'thunderstorm') ? 0.2
+            : condition === 'cloudy' ? 0.5
+            : condition === 'fog' ? 0.3
+            : 1,
         }}
       />
 
       {/* Minimalist Mountains */}
       <div className="absolute bottom-0 w-full h-[40vh] min-h-[300px]">
-        {/* Back mountain */}
-        <svg 
-          viewBox="0 0 1440 320" 
-          preserveAspectRatio="none" 
-          className="absolute bottom-0 w-full h-full transition-colors duration-[3000ms]"
-        >
-          <path 
-            fill={isDark ? '#141829' : '#6b92c2'} 
-            d="M0,256L60,229.3C120,203,240,149,360,154.7C480,160,600,224,720,234.7C840,245,960,203,1080,186.7C1200,171,1320,181,1380,186.7L1440,192L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z"
-          ></path>
+        <svg viewBox="0 0 1440 320" preserveAspectRatio="none" className="absolute bottom-0 w-full h-full transition-colors duration-[3000ms]">
+          <path fill={isDark ? '#141829' : '#6b92c2'} d="M0,256L60,229.3C120,203,240,149,360,154.7C480,160,600,224,720,234.7C840,245,960,203,1080,186.7C1200,171,1320,181,1380,186.7L1440,192L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z" />
         </svg>
-        
-        {/* Front mountain */}
-        <svg 
-          viewBox="0 0 1440 320" 
-          preserveAspectRatio="none" 
-          className="absolute bottom-0 w-full h-[80%] transition-colors duration-[3000ms]"
-        >
-          <path 
-            fill={isDark ? '#0b0d18' : '#4d75a6'} 
-            d="M0,160L80,181.3C160,203,320,245,480,240C640,235,800,181,960,165.3C1120,149,1280,171,1360,181.3L1440,192L1440,320L1360,320C1280,320,1120,320,960,320C800,320,640,320,480,320C320,320,160,320,80,320L0,320Z"
-          ></path>
+        <svg viewBox="0 0 1440 320" preserveAspectRatio="none" className="absolute bottom-0 w-full h-[80%] transition-colors duration-[3000ms]">
+          <path fill={isDark ? '#0b0d18' : '#4d75a6'} d="M0,160L80,181.3C160,203,320,245,480,240C640,235,800,181,960,165.3C1120,149,1280,171,1360,181.3L1440,192L1440,320L1360,320C1280,320,1120,320,960,320C800,320,640,320,480,320C320,320,160,320,80,320L0,320Z" />
         </svg>
       </div>
 
@@ -252,10 +375,10 @@ export const DynamicBackground: React.FC = () => {
           100% { transform: scale(1.2); opacity: 1; }
         }
         @keyframes shootingStar {
-          0%, 92% { opacity: 0; transform: translateX(0) rotate(inherit); }
+          0%, 92% { opacity: 0; transform: translateX(0); }
           94% { opacity: 1; }
-          98% { opacity: 0.8; transform: translateX(180px) rotate(inherit); }
-          100% { opacity: 0; transform: translateX(220px) rotate(inherit); }
+          98% { opacity: 0.8; transform: translateX(180px); }
+          100% { opacity: 0; transform: translateX(220px); }
         }
         @keyframes drift {
           0% { left: -15%; }
@@ -264,6 +387,25 @@ export const DynamicBackground: React.FC = () => {
         @keyframes flap {
           0% { transform: scaleY(1); }
           100% { transform: scaleY(0.6); }
+        }
+        @keyframes rainfall {
+          0% { transform: translateY(0); opacity: 0; }
+          10% { opacity: 1; }
+          100% { transform: translateY(100vh); opacity: 0.3; }
+        }
+        @keyframes snowfall {
+          0% { transform: translateY(0) translateX(0); opacity: 0; }
+          10% { opacity: 1; }
+          100% { transform: translateY(100vh) translateX(var(--snow-drift, 0px)); opacity: 0.2; }
+        }
+        @keyframes fogPulse {
+          0% { opacity: 0.6; }
+          100% { opacity: 0.85; }
+        }
+        @keyframes lightning {
+          0%, 88%, 92%, 96%, 100% { background: transparent; }
+          89% { background: rgba(200,210,255,0.15); }
+          93% { background: rgba(200,210,255,0.1); }
         }
       `}</style>
     </div>
