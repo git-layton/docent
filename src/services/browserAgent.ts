@@ -13,6 +13,7 @@
 //   - Form submissions are gated behind a caller-supplied confirmation callback.
 
 import { invoke } from '@tauri-apps/api/core';
+import { useReceiptStore } from './receipts';
 import { listen } from '@tauri-apps/api/event';
 import { fetchWithRetry } from './llm';
 import {
@@ -352,7 +353,25 @@ async function highlightAnswerOnPage(answer: string): Promise<void> {
 
 // ─── Orchestrator ───────────────────────────────────────────────────────────────
 
+/** Run a browsing errand and record it in the receipt ledger: one receipt per errand (not per
+ * click — that would be noise), with the visited pages in the summary and the full step-by-step
+ * transcript as the receipt's detail. The action ledger the review promised, wearing the
+ * receipts platform. */
 export async function runBrowserAgent(opts: RunBrowserAgentOptions): Promise<BrowseResult> {
+  const result = await runBrowserAgentInner(opts);
+  try {
+    const hosts = [...new Set(result.sources.map(s => hostOf(s.url)))];
+    useReceiptStore.getState().record({
+      surface: 'browser',
+      action: result.error ? 'Browse errand failed' : `Browsed ${result.sources.length} page${result.sources.length === 1 ? '' : 's'}`,
+      summary: `“${opts.task.slice(0, 140)}”${hosts.length ? ` — visited ${hosts.slice(0, 5).join(', ')}` : ''}`,
+      detail: result.transcript.slice(-20).join('\n') || undefined,
+    });
+  } catch { /* the ledger must never break the errand */ }
+  return result;
+}
+
+async function runBrowserAgentInner(opts: RunBrowserAgentOptions): Promise<BrowseResult> {
   const { task, startUrl, modelConfig, signal, onProgress } = opts;
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS;
   const confirmSubmit = opts.confirmSubmit ?? (() => false);

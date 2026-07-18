@@ -15,6 +15,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { generateTextResponse } from './llm';
 import { writeMemory } from '../lib/ipc';
+import { useReceiptStore } from './receipts';
 
 export type RoutineTrigger =
   | { kind: 'daily'; hour: number; minute: number }
@@ -190,6 +191,17 @@ async function fileToInbox(r: Routine, deps: RoutineDeps, title: string, bodyTex
       tags: ['routine'],
     },
   });
+  // Landing receipt: background work that files something should always say where it landed.
+  // No undo — captures have no delete/dismiss state yet (a Wave-3 triage decision, deliberately
+  // not invented here); the record itself is the point.
+  try {
+    useReceiptStore.getState().record({
+      surface: 'inbox',
+      action: `Filed “${title.slice(0, 80)}” into Inbox`,
+      summary: `Routine “${r.name}” filed it under ${r.ownerLabel || r.ownerId}`,
+      detail: bodyText.slice(0, 300) || undefined,
+    });
+  } catch { /* the ledger must never break the routine */ }
 }
 
 // ── digest sources — each gathers READ-ONLY data as fenced text sections ────────────────────────
