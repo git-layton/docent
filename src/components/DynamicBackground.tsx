@@ -1,10 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 
 type TimeOfDay = 'night' | 'sunrise' | 'day' | 'sunset';
 
+// Stable random seed per mount so stars don't jump on re-render
+const seededRandom = (seed: number) => {
+  const x = Math.sin(seed + 1) * 10000;
+  return x - Math.floor(x);
+};
+
 export const DynamicBackground: React.FC = () => {
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>('day');
-  const [timeProgress, setTimeProgress] = useState(0); // 0 to 1 for sun/moon position
+  const [timeProgress, setTimeProgress] = useState(0);
 
   useEffect(() => {
     const updateTime = () => {
@@ -39,11 +45,50 @@ export const DynamicBackground: React.FC = () => {
     };
 
     updateTime();
-    const interval = setInterval(updateTime, 60000); // Update every minute
+    const interval = setInterval(updateTime, 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // Gradient maps
+  // Stable star positions (don't recalc on every render)
+  const stars = useMemo(() => 
+    [...Array(50)].map((_, i) => ({
+      top: `${seededRandom(i * 3) * 60}%`,
+      left: `${seededRandom(i * 3 + 1) * 100}%`,
+      size: `${seededRandom(i * 3 + 2) * 2 + 1}px`,
+      opacity: seededRandom(i * 7) * 0.8 + 0.2,
+      duration: `${seededRandom(i * 5) * 4 + 2}s`,
+    })), []);
+
+  // Shooting star configs — 3 pre-built, CSS staggers their appearance
+  const shootingStars = useMemo(() => 
+    [0, 1, 2].map(i => ({
+      top: `${8 + seededRandom(i * 99) * 30}%`,
+      left: `${seededRandom(i * 99 + 50) * 60 + 20}%`,
+      delay: `${i * 9 + seededRandom(i * 99 + 25) * 6}s`,
+      duration: `${18 + seededRandom(i * 99 + 75) * 12}s`,
+      angle: -25 - seededRandom(i * 99 + 33) * 20,
+    })), []);
+
+  // Cloud configs — 4 slow drifting clouds
+  const clouds = useMemo(() =>
+    [0, 1, 2, 3].map(i => ({
+      top: `${8 + seededRandom(i * 77) * 25}%`,
+      scale: 0.6 + seededRandom(i * 77 + 1) * 0.8,
+      opacity: 0.25 + seededRandom(i * 77 + 2) * 0.35,
+      duration: `${80 + seededRandom(i * 77 + 3) * 100}s`,
+      delay: `${-seededRandom(i * 77 + 4) * 80}s`,
+    })), []);
+
+  // Bird configs — 3 small V-shaped birds during the day
+  const birds = useMemo(() =>
+    [0, 1, 2].map(i => ({
+      top: `${12 + seededRandom(i * 55) * 22}%`,
+      scale: 0.4 + seededRandom(i * 55 + 1) * 0.4,
+      duration: `${25 + seededRandom(i * 55 + 2) * 20}s`,
+      delay: `${seededRandom(i * 55 + 3) * 30}s`,
+      flapSpeed: `${0.3 + seededRandom(i * 55 + 4) * 0.3}s`,
+    })), []);
+
   const skyGradients: Record<TimeOfDay, string> = {
     night: 'linear-gradient(to bottom, #060814 0%, #151a30 50%, #1c1836 100%)',
     sunrise: 'linear-gradient(to bottom, #2b3964 0%, #a46d78 50%, #f69d7b 100%)',
@@ -52,6 +97,9 @@ export const DynamicBackground: React.FC = () => {
   };
 
   const isDark = timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
+  const showClouds = timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
+  const showBirds = timeOfDay === 'day';
+  const showShootingStars = timeOfDay === 'night';
 
   return (
     <div 
@@ -66,22 +114,95 @@ export const DynamicBackground: React.FC = () => {
           background: 'transparent'
         }}
       >
-        {/* Generate some static stars */}
-        {[...Array(50)].map((_, i) => (
+        {stars.map((star, i) => (
           <div
             key={i}
             className="absolute rounded-full bg-white"
             style={{
-              top: `${Math.random() * 60}%`,
-              left: `${Math.random() * 100}%`,
-              width: `${Math.random() * 2 + 1}px`,
-              height: `${Math.random() * 2 + 1}px`,
-              opacity: Math.random() * 0.8 + 0.2,
-              animation: `twinkle ${Math.random() * 4 + 2}s infinite alternate`
+              top: star.top,
+              left: star.left,
+              width: star.size,
+              height: star.size,
+              opacity: star.opacity,
+              animation: `twinkle ${star.duration} infinite alternate`
             }}
           />
         ))}
       </div>
+
+      {/* Shooting Stars — rare, graceful streaks across the night sky */}
+      {showShootingStars && shootingStars.map((ss, i) => (
+        <div
+          key={`ss-${i}`}
+          className="absolute"
+          style={{
+            top: ss.top,
+            left: ss.left,
+            transform: `rotate(${ss.angle}deg)`,
+            animation: `shootingStar ${ss.duration} ${ss.delay} infinite`,
+          }}
+        >
+          <div style={{
+            width: '80px',
+            height: '1.5px',
+            background: 'linear-gradient(to left, rgba(255,255,255,0.9), rgba(255,255,255,0.4) 30%, transparent)',
+            borderRadius: '1px',
+            boxShadow: '0 0 6px rgba(255,255,255,0.4)',
+          }} />
+        </div>
+      ))}
+
+      {/* Drifting Clouds — slow, wispy shapes floating across */}
+      {showClouds && clouds.map((cloud, i) => (
+        <div
+          key={`cloud-${i}`}
+          className="absolute pointer-events-none"
+          style={{
+            top: cloud.top,
+            transform: `scale(${cloud.scale})`,
+            opacity: timeOfDay === 'day' ? cloud.opacity : cloud.opacity * 0.5,
+            animation: `drift ${cloud.duration} ${cloud.delay} linear infinite`,
+          }}
+        >
+          {/* Cloud shape built from overlapping ellipses */}
+          <div style={{ position: 'relative', width: '120px', height: '40px' }}>
+            <div style={{
+              position: 'absolute', borderRadius: '50%',
+              background: timeOfDay === 'day' ? 'rgba(255,255,255,0.7)' : 'rgba(255,200,160,0.3)',
+              width: '60px', height: '30px', top: '10px', left: '0',
+            }} />
+            <div style={{
+              position: 'absolute', borderRadius: '50%',
+              background: timeOfDay === 'day' ? 'rgba(255,255,255,0.8)' : 'rgba(255,200,160,0.35)',
+              width: '80px', height: '35px', top: '2px', left: '20px',
+            }} />
+            <div style={{
+              position: 'absolute', borderRadius: '50%',
+              background: timeOfDay === 'day' ? 'rgba(255,255,255,0.65)' : 'rgba(255,200,160,0.25)',
+              width: '50px', height: '25px', top: '12px', left: '65px',
+            }} />
+          </div>
+        </div>
+      ))}
+
+      {/* Birds — small V-shapes gliding across during the day */}
+      {showBirds && birds.map((bird, i) => (
+        <div
+          key={`bird-${i}`}
+          className="absolute pointer-events-none"
+          style={{
+            top: bird.top,
+            animation: `drift ${bird.duration} ${bird.delay} linear infinite`,
+            transform: `scale(${bird.scale})`,
+          }}
+        >
+          <svg width="20" height="8" viewBox="0 0 20 8" fill="none"
+            style={{ animation: `flap ${bird.flapSpeed} ease-in-out infinite alternate` }}
+          >
+            <path d="M0 0 Q5 6 10 4 Q15 6 20 0" stroke="rgba(30,40,60,0.5)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          </svg>
+        </div>
+      ))}
 
       {/* Sun / Moon */}
       <div 
@@ -89,7 +210,6 @@ export const DynamicBackground: React.FC = () => {
         style={{
           width: '80px',
           height: '80px',
-          // Arc calculation: x from left to right, y peaks at middle
           left: `${10 + timeProgress * 80}%`,
           top: `${60 - Math.sin(timeProgress * Math.PI) * 40}%`,
           background: timeOfDay === 'night' ? '#edf2f7' : (timeOfDay === 'day' ? '#fdf8c9' : '#f9d29d'),
@@ -130,6 +250,20 @@ export const DynamicBackground: React.FC = () => {
         @keyframes twinkle {
           0% { transform: scale(1); opacity: 0.2; }
           100% { transform: scale(1.2); opacity: 1; }
+        }
+        @keyframes shootingStar {
+          0%, 92% { opacity: 0; transform: translateX(0) rotate(inherit); }
+          94% { opacity: 1; }
+          98% { opacity: 0.8; transform: translateX(180px) rotate(inherit); }
+          100% { opacity: 0; transform: translateX(220px) rotate(inherit); }
+        }
+        @keyframes drift {
+          0% { left: -15%; }
+          100% { left: 110%; }
+        }
+        @keyframes flap {
+          0% { transform: scaleY(1); }
+          100% { transform: scaleY(0.6); }
         }
       `}</style>
     </div>
