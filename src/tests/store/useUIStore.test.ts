@@ -104,16 +104,26 @@ describe('toast auto-dismiss', () => {
     vi.useFakeTimers()
     useUIStore.getState().showToast('Auto-dismiss me')
     expect(useUIStore.getState().toastMessage).toBe('Auto-dismiss me')
-    vi.advanceTimersByTime(4000)
+    vi.advanceTimersByTime(3000)
     expect(useUIStore.getState().toastMessage).toBeNull()
     vi.useRealTimers()
   })
 
-  it('does NOT clear toastMessage before 4000ms have elapsed', () => {
+  it('does NOT clear toastMessage before 3000ms have elapsed', () => {
     vi.useFakeTimers()
     useUIStore.getState().showToast('Still visible')
-    vi.advanceTimersByTime(3999)
+    vi.advanceTimersByTime(2999)
     expect(useUIStore.getState().toastMessage).toBe('Still visible')
+    vi.useRealTimers()
+  })
+
+  it('gives error toasts a longer 5000ms dismiss', () => {
+    vi.useFakeTimers()
+    useUIStore.getState().showToast("Couldn't send that")
+    vi.advanceTimersByTime(4999)
+    expect(useUIStore.getState().toastMessage).toBe("Couldn't send that")
+    vi.advanceTimersByTime(1)
+    expect(useUIStore.getState().toastMessage).toBeNull()
     vi.useRealTimers()
   })
 

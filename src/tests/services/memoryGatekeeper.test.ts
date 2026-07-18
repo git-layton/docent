@@ -538,10 +538,15 @@ describe('buildGatekeeperMemoryWrite', () => {
     expect(content).toContain('## Memory')
   })
 
-  it('should write to gatekeeper subdirectory for agent_memory destination', () => {
+  it('should write to the owning Space\'s gatekeeper dir for agent_memory destination (global → space-home)', () => {
     const { path } = buildBase()
-    expect(path).toContain('/workspace/memory/agent-1/gatekeeper/')
+    expect(path).toContain('/workspace/memory/spaces/space-home/gatekeeper/')
     expect(path).toMatch(/\.md$/)
+  })
+
+  it('should write under the scope Space when the decision is space-scoped', () => {
+    const { path } = buildBase({ decision: makeDecision({ scope: 'space-wedding' }) })
+    expect(path).toContain('/workspace/memory/spaces/space-wedding/gatekeeper/')
   })
 
   it('should write to library directory when destination is library', () => {
@@ -551,22 +556,25 @@ describe('buildGatekeeperMemoryWrite', () => {
     expect(path).toContain('/workspace/library/')
   })
 
-  it('should write to channel memory directory when destination is channel_memory and channelId given', () => {
-    const { path } = buildBase({
+  it('channel_memory routes into the owning Space\'s gatekeeper dir, keeping its identity in frontmatter', () => {
+    // "A space IS a chat" collapsed per-channel dirs; the channel survives as metadata.
+    const { path, content } = buildBase({
       channelId: 'ch-xyz',
       decision: makeDecision({ destination: 'channel_memory' }),
     })
-    expect(path).toContain('/workspace/memory/agent-1/channels/ch-xyz/')
+    expect(path).toContain('/workspace/memory/spaces/space-home/gatekeeper/')
+    expect(content).toContain('destination: channel_memory')
+    expect(content).toContain('channel_id: "ch-xyz"')
   })
 
-  it('should sanitize agentId to remove special characters in path', () => {
-    const { path } = buildBase({ agentId: 'Agent One!@#' })
-    // The raw special chars should not appear in the path
+  it('should sanitize agentId (now frontmatter-only — paths are Space-scoped, not agent-scoped)', () => {
+    const { path, content } = buildBase({ agentId: 'Agent One!@#' })
+    // The raw special chars must not leak into the path…
     expect(path).not.toContain('!')
     expect(path).not.toContain('@')
     expect(path).not.toContain('#')
-    // The sanitized segment should appear as part of the path
-    expect(path).toContain('agent-one')
+    // …and the agent survives, sanitized, in frontmatter.
+    expect(content).toContain('agent_id: "agent-one"')
   })
 
   it('should sanitize channelId special characters in path', () => {

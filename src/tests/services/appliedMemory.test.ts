@@ -25,7 +25,8 @@ describe('buildPlaybookRecord', () => {
   it('keys the file by the trigger slug (stable — re-capture updates in place)', () => {
     const { path, trigger } = buildPlaybookRecord(base);
     expect(trigger).toBe('weekly-report');
-    expect(path).toBe('/wk/memory/codey/playbooks/weekly-report.md');
+    // Space-scoped layout (WS-A): playbooks live under the active Space, space-home outside one.
+    expect(path).toBe('/wk/memory/spaces/space-home/playbooks/weekly-report.md');
   });
 
   it('writes playbook frontmatter, starts unverified with 0 accepts, and tags the tools', () => {

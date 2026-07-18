@@ -387,16 +387,12 @@ export function buildGatekeeperMemoryWrite(input: {
   const title = titleFromText(input.text);
   const slug = `${sanitizeSegment(title)}-${now.getTime()}`;
   const agentId = sanitizeSegment(input.agentId || 'default');
-  const chatId = input.chatId ? sanitizeSegment(input.chatId) : '';
-  const channelId = input.channelId ? sanitizeSegment(input.channelId) : chatId;
-  let basePath = input.decision.destination === 'library'
-    ? `${input.rootPath}/library`
-    : input.decision.destination === 'channel_memory'
-      ? `${input.rootPath}/memory/${agentId}/channels/${channelId || 'default'}`
-      : `${input.rootPath}/memory/${agentId}/gatekeeper`;
-      
+  // Space-scoped layout (WS-A): everything non-library lives under the owning Space —
+  // memory/spaces/<scopeId>/gatekeeper. channel_memory keeps its identity in frontmatter
+  // (destination + channel_id), not in a separate directory; "a space IS a chat" collapsed
+  // the per-channel dirs into the space's own memory.
   const scopeId = input.decision.scope === 'global' ? 'space-home' : (input.decision.scope || input.spaceId || 'space-home');
-  basePath = input.decision.destination === 'library'
+  const basePath = input.decision.destination === 'library'
     ? `${input.rootPath}/library`
     : `${input.rootPath}/memory/spaces/${scopeId}/gatekeeper`;
   const path = `${basePath}/${slug}.md`;
