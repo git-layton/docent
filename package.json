@@ -1,7 +1,7 @@
 {
   "name": "agent-forge",
   "private": true,
-  "version": "2.5.4",
+  "version": "2.5.5",
   "description": "A local-first personal AI command center for custom agents, browser context, and persistent memory.",
   "author": "git-layton",
   "type": "module",
