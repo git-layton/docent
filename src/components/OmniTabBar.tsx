@@ -293,16 +293,11 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
 // NewTabButton
 // ---------------------------------------------------------------------------
 function NewTabButton() {
-  // "+" opens the OS-style Home/start page. If the active Space already has a
-  // Home tab, focus it rather than spawning a duplicate.
+  // "+" = new tab. Home IS the new-tab page (the permanent pinned launcher): focus it — it
+  // always exists — and everything launched from it opens as a fresh tab beside it.
   const openHome = useCallback(() => {
-    const { omniTabs, activeSpaceId, setActiveTab, openTab } = useSpaceStore.getState();
-    const existing = omniTabs.find(t => t.type === 'home' && t.spaceId === (activeSpaceId ?? undefined));
-    if (existing) {
-      setActiveTab(existing.id);
-      return;
-    }
-    openTab({ type: 'home', label: 'Home' });
+    const st = useSpaceStore.getState();
+    st.setActiveTab(st.ensureHomeTab());
   }, []);
 
   return (
@@ -365,7 +360,7 @@ export function OmniTabBar(): React.JSX.Element {
   }, []);
 
   return (
-    <div className="h-10 flex items-center justify-between bg-panel/30 backdrop-blur-md border-b border-edge px-4 shrink-0 relative z-20">
+    <div className="h-10 flex items-center justify-between bg-panel border-b border-edge px-4 shrink-0 relative z-20">
       <div className="relative flex items-center pr-3 border-r border-edge mr-3">
         <button
           onClick={() => setShowSpaceMenu(!showSpaceMenu)}
@@ -425,6 +420,13 @@ export function OmniTabBar(): React.JSX.Element {
           <TabOverflowMenu tabs={overflowTabs} />
         </div>
       )}
+      {/* Where am I? The active Space, named, at the bar's right edge. */}
+      <span
+        className="shrink-0 pl-3 text-[10px] font-bold uppercase tracking-widest text-ink-3 truncate max-w-[10rem]"
+        title="Active Space"
+      >
+        {spaces.find(s => s.id === activeSpaceId)?.name ?? 'Home'}
+      </span>
     </div>
   );
 }

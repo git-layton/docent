@@ -227,7 +227,7 @@ export function ChatPanel({
         </div>
       ) : (
         <div className="shrink-0 px-4 pb-4 flex justify-center">
-          <div className="w-[min(720px,calc(100%-1rem))] bg-panel/90 backdrop-blur-xl rounded-3xl border border-edge-2 shadow-xl p-1">
+          <div className="w-[min(720px,calc(100%-1rem))] bg-panel rounded-3xl border border-edge-2 shadow-xl p-1">
             <ChatInputBar {...chatInputBarProps} />
           </div>
         </div>

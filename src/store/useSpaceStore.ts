@@ -105,6 +105,10 @@ interface SpaceStore {
   updateSpace(id: string, patch: Partial<Space>): void;
   setAgentGoal(spaceId: string, agentId: string, goal: string): void;
   setActiveSpaceId(id: string | null): void;
+  /** Guarantee the given context (a Space, or the global Home when null/omitted) has its permanent
+   *  pinned Home tab, creating or pinning it as needed. Returns the Home tab's id. Home is the
+   *  landing zone: unclosable, and always there when everything else is closed. */
+  ensureHomeTab(spaceId?: string | null): string;
   /** Read spaces/<id>/AGENTS.md into activeProjectContext, creating it from AGENTS_TEMPLATE if missing
    *  (fs_write auto-creates the dir + git-commits). Fire-and-forget; no-op outside Tauri. */
   loadProjectContext(spaceId: string | null | undefined): Promise<void>;
@@ -121,6 +125,28 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
   activeProjectContext: '',
 
   setActiveTab: (id) => set({ activeOmniTabId: id }),
+
+  ensureHomeTab: (spaceId) => {
+    const sid = (spaceId === undefined ? get().activeSpaceId : spaceId) ?? undefined;
+    const existing = get().omniTabs.find(t => t.type === 'home' && t.spaceId === sid);
+    if (existing) {
+      if (!existing.isPinned) {
+        set(s => ({ omniTabs: s.omniTabs.map(t => (t.id === existing.id ? { ...t, isPinned: true } : t)) }));
+        get().persist();
+      }
+      return existing.id;
+    }
+    const id = generateId('tab');
+    const home: OmniTab = { id, type: 'home', label: 'Home', spaceId: sid, isPinned: true };
+    set(s => ({
+      omniTabs: [home, ...s.omniTabs], // Home leads the strip
+      spaces: sid
+        ? s.spaces.map(sp => (sp.id === sid ? { ...sp, tabIds: [id, ...sp.tabIds], updatedAt: Date.now() } : sp))
+        : s.spaces,
+    }));
+    get().persist();
+    return id;
+  },
 
   openTab: (tab) => {
     const id = generateId('tab');
@@ -183,6 +209,10 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     }
 
     set({ omniTabs: remaining, activeOmniTabId: nextActiveId });
+    // Home is the landing zone: never leave the strip with nothing active.
+    if (!get().activeOmniTabId) {
+      set({ activeOmniTabId: get().ensureHomeTab(tab.spaceId ?? activeSpaceId) });
+    }
     get().persist();
   },
 
@@ -372,9 +402,11 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const { omniTabs, spaces } = get();
     const space = spaces.find(s => s.id === id);
     const spaceTabs = omniTabs.filter(t => t.spaceId === id);
-    // Entering a Space lands on its conversation (the Chat tab) if present, else its first tab.
+    // Entering a Space lands on its conversation (the Chat tab) if present, else its first tab,
+    // else its permanent Home (created on demand — every Space always has a landing zone).
     const preferred = spaceTabs.find(t => t.type === 'space-log') ?? spaceTabs[0];
-    set({ activeSpaceId: id, activeOmniTabId: preferred?.id ?? null });
+    set({ activeSpaceId: id });
+    set({ activeOmniTabId: preferred?.id ?? get().ensureHomeTab(id) });
 
     // Drive the global conversation + active agent to THIS container's thread.
     if (space) {
@@ -420,8 +452,11 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     if (isCompatible) {
       // Chat (space-log) tabs are normal closable tabs now — clear any leftover pin
       // from older persisted state so existing installs pick up the change too.
+      // Home tabs are the opposite: permanently pinned (the unclosable landing zone).
       const tabs = (omniTabs as OmniTab[]).map(t =>
-        t.type === 'space-log' && t.isPinned ? { ...t, isPinned: false } : t,
+        t.type === 'space-log' && t.isPinned ? { ...t, isPinned: false }
+        : t.type === 'home' && !t.isPinned ? { ...t, isPinned: true }
+        : t,
       );
       set({
         spaces: spaces as Space[],
@@ -429,6 +464,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
         activeOmniTabId: activeIds?.activeOmniTabId ?? null,
         activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
+      // Backfill: the active context always has its Home; land on it if nothing was active.
+      const homeId = get().ensureHomeTab(get().activeSpaceId);
+      if (!get().activeOmniTabId) set({ activeOmniTabId: homeId });
     } else {
       // [DATA-WIPE LANDMINE]
       // WARNING: First run or stale schema — reseed cleanly. v4 additionally wipes ALL conversation data

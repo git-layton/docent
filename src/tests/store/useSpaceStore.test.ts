@@ -104,10 +104,15 @@ describe('openTab', () => {
 describe('closeTab', () => {
   beforeEach(resetStore)
 
-  it('removes the tab from omniTabs', () => {
+  it('removes the tab from omniTabs (leaving only the ensured Home landing tab)', () => {
     const id = useSpaceStore.getState().openTab({ type: 'web', label: 'Tab' })
     useSpaceStore.getState().closeTab(id)
-    expect(useSpaceStore.getState().omniTabs).toHaveLength(0)
+    const tabs = useSpaceStore.getState().omniTabs
+    expect(tabs.find(t => t.id === id)).toBeUndefined()
+    // Closing the last closable tab must never leave an empty strip — Home backstops it.
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].type).toBe('home')
+    expect(tabs[0].isPinned).toBe(true)
   })
 
   it('does not close a pinned tab', () => {
@@ -126,10 +131,12 @@ describe('closeTab', () => {
     expect(useSpaceStore.getState().omniTabs).toHaveLength(1)
   })
 
-  it('sets activeOmniTabId to null when the last tab is closed', () => {
+  it('lands on the permanent Home tab when the last tab is closed', () => {
     const id = useSpaceStore.getState().openTab({ type: 'web', label: 'Only Tab' })
     useSpaceStore.getState().closeTab(id)
-    expect(useSpaceStore.getState().activeOmniTabId).toBeNull()
+    const { activeOmniTabId, omniTabs } = useSpaceStore.getState()
+    expect(activeOmniTabId).not.toBeNull()
+    expect(omniTabs.find(t => t.id === activeOmniTabId)?.type).toBe('home')
   })
 
   it('activates the previous tab when the active tab is closed', () => {

@@ -791,7 +791,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       )}
 
       {/* Nav bar */}
-      <div className="h-10 flex items-center gap-1 px-2 shrink-0 z-10 bg-panel/80 backdrop-blur-md">
+      <div className="h-10 flex items-center gap-1 px-2 shrink-0 z-10 bg-panel">
         {/* Navigation buttons */}
         <div className="flex items-center gap-0.5 mr-0.5">
           <button

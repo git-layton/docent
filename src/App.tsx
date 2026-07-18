@@ -3227,7 +3227,7 @@ const handleSendMessage = async () => {
 if (isSpotlight) {
     return (
       <div className="w-screen h-screen flex flex-col bg-transparent select-none overflow-hidden text-ink">
-        <div className="flex flex-col flex-1 rounded-l-2xl overflow-hidden min-h-0 bg-panel/95 backdrop-blur-[40px] border border-edge-2 border-r-0"
+        <div className="flex flex-col flex-1 rounded-l-2xl overflow-hidden min-h-0 bg-panel border border-edge-2 border-r-0"
           style={{
             backdropFilter: 'blur(40px) saturate(200%)',
             WebkitBackdropFilter: 'blur(40px) saturate(200%)',

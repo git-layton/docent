@@ -193,7 +193,7 @@ export function ActivityMonitorBar({
   else if (availMb < 4096) tips.push('Memory is getting tight — a smaller or faster model (like the 30B MoE) will run smoother here.');
 
   return (
-    <div className="shrink-0 border-b border-edge bg-panel-2/95 backdrop-blur-md">
+    <div className="shrink-0 border-b border-edge bg-panel-2">
       {/* Main bar */}
       <div className="h-7 px-3 lg:px-4 flex items-center gap-3 overflow-hidden">
         <div className="flex items-center gap-1.5 shrink-0">

@@ -150,7 +150,7 @@ export function DesktopViewerPanel() {
   return (
     <div className="flex-1 flex flex-col h-full bg-panel overflow-hidden relative">
       {/* Header */}
-      <div className="h-12 shrink-0 border-b border-edge bg-panel/50 backdrop-blur-xl flex items-center px-4 z-10">
+      <div className="h-12 shrink-0 border-b border-edge bg-panel flex items-center px-4 z-10">
         <div className="flex items-center gap-2">
           <Monitor className="w-4 h-4 text-accent" />
           <h2 className="text-sm font-bold text-ink">Desktop Viewer</h2>

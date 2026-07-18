@@ -54,19 +54,16 @@ interface AppEntry {
   open: (tabId?: string) => void;
 }
 
-// Opening something from Home reuses the Home tab in place (like a browser's
-// new-tab page becoming the page you navigate to) so Home tabs don't pile up.
-function launch(tabId: string | undefined, tab: Omit<OmniTab, 'id'>) {
-  const st = useSpaceStore.getState();
-  if (tabId) st.replaceTab(tabId, tab);
-  else st.openTab(tab);
+// Home is the permanent landing zone (pinned, unclosable) — launching an app opens a NEW tab
+// beside it, never consumes it. Home can't "pile up" because ensureHomeTab keeps it singular
+// per Space, so + always has a launcher to return to.
+function launch(_tabId: string | undefined, tab: Omit<OmniTab, 'id'>) {
+  useSpaceStore.getState().openTab(tab);
 }
 
-// Focus an already-open tab (chat / bookmark) and consume the Home tab we came from.
-function focusExisting(tabId: string | undefined, targetId: string) {
-  const st = useSpaceStore.getState();
-  st.setActiveTab(targetId);
-  if (tabId && tabId !== targetId) st.closeTab(tabId);
+// Focus an already-open tab (chat / bookmark); Home stays where it is.
+function focusExisting(_tabId: string | undefined, targetId: string) {
+  useSpaceStore.getState().setActiveTab(targetId);
 }
 
 // Open a Space's chat: focus its existing Chat tab, or recreate one (Chat is a normal

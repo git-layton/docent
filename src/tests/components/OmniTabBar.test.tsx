@@ -231,14 +231,15 @@ describe('OmniTabBar — new tab button', () => {
     expect(screen.queryByText('Code Canvas')).not.toBeInTheDocument()
   })
 
-  it('clicking + opens a Home tab when none exists', () => {
+  it('clicking + creates and focuses a pinned Home tab when none exists', () => {
     seedStore([])
-    const spy = vi.spyOn(useSpaceStore.getState(), 'openTab')
     render(<OmniTabBar />)
     fireEvent.click(screen.getByTitle('New tab — Home'))
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'home' }),
-    )
+    const { omniTabs, activeOmniTabId } = useSpaceStore.getState()
+    const home = omniTabs.find(t => t.type === 'home')
+    expect(home).toBeDefined()
+    expect(home?.isPinned).toBe(true)
+    expect(activeOmniTabId).toBe(home?.id)
   })
 
   it('clicking + focuses the existing Home tab instead of opening a duplicate', () => {
