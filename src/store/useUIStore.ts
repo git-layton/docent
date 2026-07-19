@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
+import { useReceiptStore } from '../services/receipts';
 
 interface UIStore {
   // Layout
@@ -42,6 +43,14 @@ interface UIStore {
    * — the old global-singleton behavior. Transient, like `canvasContent` itself.
    */
   canvasBySpace: Record<string, any>;
+  /**
+   * Draft approval: when Docent edits an EXISTING doc/code canvas, the new version stages
+   * here — never straight into `canvasContent` — until the user accepts or rejects it.
+   * `prevContent` is what accept's receipt-undo restores; `streaming` gates the review UI
+   * until generation finishes. Space-scoped exactly like the canvas itself.
+   */
+  canvasProposal: { content: string; prevContent: string; streaming: boolean } | null;
+  canvasProposalBySpace: Record<string, any>;
   canvasTab: string;
   viewMode: string;
   archiveSubView: string;
@@ -108,6 +117,11 @@ interface UIStore {
   setCanvasContent: (v: any | ((prev: any) => any)) => void;
   /** Stash the outgoing Space's canvas and load the incoming Space's — see `canvasBySpace`. */
   swapCanvasForSpace: (fromSpaceId: string | null, toSpaceId: string | null) => void;
+  setCanvasProposal: (v: UIStore['canvasProposal'] | ((prev: UIStore['canvasProposal']) => UIStore['canvasProposal'])) => void;
+  /** Apply the staged proposal to the canvas (history entry + undoable receipt) and clear it. */
+  acceptCanvasProposal: () => void;
+  /** Discard the staged proposal, leaving the canvas untouched. */
+  rejectCanvasProposal: () => void;
   setCanvasTab: (v: string) => void;
   setViewMode: (v: string) => void;
   setArchiveSubView: (v: string) => void;
@@ -158,6 +172,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   slashHighlight: 0,
   canvasContent: null,
   canvasBySpace: {},
+  canvasProposal: null,
+  canvasProposalBySpace: {},
   canvasTab: 'preview',
   viewMode: 'chat',
   archiveSubView: 'code',
@@ -224,8 +240,49 @@ export const useUIStore = create<UIStore>((set, get) => ({
       const toKey = keyOf(toSpaceId);
       if (fromKey === toKey) return {};
       const canvasBySpace = { ...s.canvasBySpace, [fromKey]: s.canvasContent };
-      return { canvasBySpace, canvasContent: canvasBySpace[toKey] ?? null };
+      // The pending proposal follows its Space too — a draft awaiting review in one room
+      // must never surface (or apply) in another.
+      const canvasProposalBySpace = { ...s.canvasProposalBySpace, [fromKey]: s.canvasProposal };
+      return {
+        canvasBySpace,
+        canvasContent: canvasBySpace[toKey] ?? null,
+        canvasProposalBySpace,
+        canvasProposal: canvasProposalBySpace[toKey] ?? null,
+      };
     }),
+
+  setCanvasProposal: (v) =>
+    set(s => ({ canvasProposal: typeof v === 'function' ? v(s.canvasProposal) : v })),
+
+  acceptCanvasProposal: () => {
+    const s = get();
+    const proposal = s.canvasProposal;
+    const canvas = s.canvasContent;
+    if (!proposal || proposal.streaming || !canvas) return;
+    const prevContent = proposal.prevContent;
+    const hist = canvas.history || [{ timestamp: Date.now(), content: canvas.content }];
+    const idx = canvas.historyIndex ?? 0;
+    const newHist = [...hist.slice(0, idx + 1), { timestamp: Date.now(), content: proposal.content }].slice(-50);
+    set({
+      canvasContent: { ...canvas, content: proposal.content, history: newHist, historyIndex: newHist.length - 1 },
+      canvasProposal: null,
+    });
+    // The receipt's undo restores exactly what the user had — the whole point of approvals.
+    useReceiptStore.getState().record(
+      {
+        surface: 'canvas',
+        action: `Applied Docent's edits to “${canvas.title ?? 'your document'}”`,
+        summary: 'You reviewed and accepted the proposed changes.',
+      },
+      async () => {
+        set(st => (st.canvasContent && st.canvasContent.id === canvas.id
+          ? { canvasContent: { ...st.canvasContent, content: prevContent } }
+          : {}));
+      },
+    );
+  },
+
+  rejectCanvasProposal: () => set({ canvasProposal: null }),
   setCanvasTab: (v) => set({ canvasTab: v }),
   setViewMode: (v) => set({ viewMode: v }),
   setArchiveSubView: (v) => set({ archiveSubView: v }),

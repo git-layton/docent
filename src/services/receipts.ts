@@ -16,7 +16,7 @@ import { generateId } from '../lib/id';
 
 export type ReceiptSurface =
   | 'notes' | 'tasks' | 'calendar' | 'messages' | 'mail' | 'music'
-  | 'playbook' | 'memory' | 'browser' | 'inbox' | 'system';
+  | 'playbook' | 'memory' | 'browser' | 'inbox' | 'canvas' | 'system';
 
 export interface Receipt {
   id: string;

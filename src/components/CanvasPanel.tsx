@@ -1,8 +1,10 @@
 import React from 'react';
 import {
-  Menu, X, FileEdit, ImageIcon, Code, ChevronLeft, ChevronRight, RefreshCw, List
+  Menu, X, FileEdit, ImageIcon, Code, ChevronLeft, ChevronRight, RefreshCw, List,
+  Check, PencilLine,
 } from 'lucide-react';
 import { WysiwygEditor } from './ui/WysiwygEditor';
+import { diffWords, diffLines, htmlToComparableText, diffStats } from '../lib/textDiff';
 import { useUIStore } from '../store/useUIStore';
 
 // SEC-CANVAS: agent-generated preview HTML runs with allow-scripts in a NULL-origin sandbox (so it
@@ -50,7 +52,9 @@ export function CanvasPanel({
   const canvasContent = useUIStore(s => s.canvasContent);
   const canvasTab = useUIStore(s => s.canvasTab);
   const savedApps = useUIStore(s => s.savedApps);
-  const { setCanvasContent, setCanvasTab, setIsSidebarOpen, setSaveAppData, setShowSaveModal } = useUIStore.getState();
+  const canvasProposal = useUIStore(s => s.canvasProposal);
+  const { setCanvasContent, setCanvasTab, setIsSidebarOpen, setSaveAppData, setShowSaveModal,
+    acceptCanvasProposal, rejectCanvasProposal } = useUIStore.getState();
   // SEC-CANVAS: previews are network-blocked by default; the user can opt a trusted preview into
   // network access so legitimately-interactive generated apps aren't silently broken.
   const [allowPreviewNetwork, setAllowPreviewNetwork] = React.useState(false);
@@ -94,7 +98,14 @@ export function CanvasPanel({
           </div>
         )}
         <div className="flex-1 bg-panel overflow-hidden relative flex flex-col text-sm leading-relaxed">
-          {canvasContent.type === 'image' ? (
+          {canvasProposal && canvasContent.type !== 'image' ? (
+            <ProposalReview
+              proposal={canvasProposal}
+              isDoc={canvasContent.type === 'doc'}
+              onAccept={acceptCanvasProposal}
+              onReject={rejectCanvasProposal}
+            />
+          ) : canvasContent.type === 'image' ? (
             <div className="flex-1 flex items-center justify-center bg-inset p-8">
                <img src={canvasContent.content} alt={canvasContent.title} className="max-w-full max-h-full object-contain rounded-lg shadow-xl" />
             </div>
@@ -146,6 +157,82 @@ export function CanvasPanel({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ProposalReview — draft approvals for the canvas. Docent never overwrites an
+// existing document: its edit arrives here as a tracked-changes diff (green
+// insertions, struck-through deletions) with one Accept / Reject decision.
+// Accepting applies the change, pushes history, and records an undoable
+// receipt; rejecting leaves the document byte-identical.
+// ---------------------------------------------------------------------------
+function ProposalReview({ proposal, isDoc, onAccept, onReject }: {
+  proposal: { content: string; prevContent: string; streaming: boolean };
+  isDoc: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const runs = React.useMemo(() => {
+    if (proposal.streaming) return [];
+    return isDoc
+      ? diffWords(htmlToComparableText(proposal.prevContent), htmlToComparableText(proposal.content))
+      : diffLines(proposal.prevContent, proposal.content);
+  }, [proposal.streaming, proposal.content, proposal.prevContent, isDoc]);
+  const stats = React.useMemo(() => diffStats(runs), [runs]);
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Review bar */}
+      <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-accent-soft/30">
+        <PencilLine className="w-4 h-4 text-accent shrink-0" />
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-bold text-ink">
+            {proposal.streaming ? 'Docent is drafting changes…' : 'Docent suggests changes'}
+          </span>
+          {!proposal.streaming && (
+            <span className="ml-2 text-[11px] text-ink-2 font-medium">
+              <span className="text-success">+{stats.added}</span> · <span className="text-danger">−{stats.removed}</span> {isDoc ? 'words' : 'lines'}
+            </span>
+          )}
+        </div>
+        {!proposal.streaming && (
+          <>
+            <button
+              onClick={onReject}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-ink-2 border border-edge-2 hover:bg-wash hover:text-ink transition-colors"
+            >
+              <X className="w-3.5 h-3.5" /> Reject
+            </button>
+            <button
+              onClick={onAccept}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-accent text-on-accent hover:bg-accent-strong transition-colors"
+            >
+              <Check className="w-3.5 h-3.5" /> Accept changes
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Diff body */}
+      <div className={`flex-1 overflow-y-auto p-5 ${isDoc ? 'text-sm leading-[1.8]' : 'font-mono text-xs leading-[1.7] whitespace-pre-wrap'}`}>
+        {proposal.streaming ? (
+          <div className={isDoc ? 'whitespace-pre-wrap opacity-60' : 'opacity-60'}>
+            {isDoc ? htmlToComparableText(proposal.content) : proposal.content}
+          </div>
+        ) : (
+          runs.map((run, i) => (
+            run.op === 'eq' ? (
+              <span key={i}>{run.text}{isDoc ? ' ' : '\n'}</span>
+            ) : run.op === 'ins' ? (
+              <span key={i} className="bg-success-soft text-success rounded px-0.5">{run.text}{isDoc ? ' ' : '\n'}</span>
+            ) : (
+              <span key={i} className="bg-danger-soft/60 text-danger line-through decoration-danger/60 rounded px-0.5">{run.text}{isDoc ? ' ' : '\n'}</span>
+            )
+          ))
+        )}
       </div>
     </div>
   );

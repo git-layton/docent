@@ -2302,6 +2302,9 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
         let currentText = '';
         let lastCanvasSync = Date.now();
+        // True when THIS generation created the canvas — its finalize writes directly
+        // (there is no prior user content to protect behind a draft approval).
+        let canvasCreatedThisRun = false;
 
         const handleChunk = (chunk: string) => {
             currentText += chunk;
@@ -2315,10 +2318,20 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
                     const lang = (match[1] || '').toLowerCase();
                     const code = match[2];
                     if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'save' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
-                        useUIStore.getState().setCanvasContent((prev: any) => {
-                            if (!prev) return { id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 };
-                            return { ...prev, content: code };
-                        });
+                        const ui = useUIStore.getState();
+                        const existing = ui.canvasContent;
+                        if (existing) {
+                          // DRAFT APPROVAL: never stream over the user's existing document — stage
+                          // the incoming version as a proposal they'll review (accept/reject).
+                          ui.setCanvasProposal(prev => ({
+                            content: code,
+                            prevContent: prev?.prevContent ?? existing.content,
+                            streaming: true,
+                          }));
+                        } else {
+                          canvasCreatedThisRun = true;
+                          ui.setCanvasContent(() => ({ id: generateId('art'), title: `Generated ${_generationMode === 'code' ? 'App' : 'Document'}`, type: _generationMode, language: lang || 'html', content: code, isStandalone: false, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 }));
+                        }
                         useUIStore.getState().setCanvasTab('preview'); lastCanvasSync = now;
                     }
                 }
@@ -2381,17 +2394,19 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
                const lang = (finalMatch[1] || '').toLowerCase();
                const code = finalMatch[2];
                if (lang !== 'task' && lang !== 'todo' && lang !== 'profile' && lang !== 'slack_post' && lang !== 'gmail_draft' && lang !== 'gus_create' && lang !== 'gcal_event') {
-                   useUIStore.getState().setCanvasContent((prev: any) => {
-                       if (!prev) return prev;
-                       const curHist = prev.history || [{ timestamp: Date.now(), content: prev.content }];
-                       const curIdx = prev.historyIndex ?? 0;
-                       if (curHist[curIdx]?.content !== code) {
-                           const newHist = curHist.slice(0, curIdx + 1); newHist.push({ timestamp: Date.now(), content: code });
-                           const capped = newHist.slice(-50);
-                           return { ...prev, content: code, history: capped, historyIndex: capped.length - 1 };
-                       }
-                       return prev;
-                   });
+                   const ui = useUIStore.getState();
+                   if (canvasCreatedThisRun) {
+                       // Fresh canvas from this very generation — finalize in place, no review.
+                       ui.setCanvasContent((prev: any) => (prev ? { ...prev, content: code, history: [{ timestamp: Date.now(), content: code }], historyIndex: 0 } : prev));
+                   } else if (ui.canvasProposal) {
+                       // DRAFT APPROVAL: generation finished — finalize the staged proposal and
+                       // hand it to the review bar. The canvas itself hasn't changed one byte.
+                       ui.setCanvasProposal(prev => (prev ? { ...prev, content: code, streaming: false } : prev));
+                   } else if (ui.canvasContent && ui.canvasContent.content !== code) {
+                       // No proposal was staged mid-stream (e.g. the block only parsed at the very
+                       // end) but the canvas pre-existed — still goes through review, not over it.
+                       ui.setCanvasProposal(() => ({ content: code, prevContent: ui.canvasContent.content, streaming: false }));
+                   }
                }
            }
         }
