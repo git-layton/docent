@@ -83,6 +83,7 @@ import { DesktopViewerPanel } from './components/DesktopViewerPanel';
 import { MessagesPanel } from './components/MessagesPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { CalendarPanel } from './components/CalendarPanel';
+import { DayPanel } from './components/DayPanel';
 import { AgentForgeCodePanel } from './components/AgentForgeCodePanel';
 import { GalleryPanel } from './components/GalleryPanel';
 import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateCard, GcalDeleteCard } from './components/EventCards';
@@ -3185,6 +3186,9 @@ const handleSendMessage = async () => {
     }
     if (tab.type === 'tool' && tab.toolId === 'calendar') {
       return <CalendarPanel onToast={showToast} />;
+    }
+    if (tab.type === 'tool' && tab.toolId === 'day') {
+      return <DayPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'inbox') {
       return <MailInboxPanel />;

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck } from 'lucide-react';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -112,6 +112,8 @@ export function TypeIcon({ tab }: { tab: OmniTab }) {
           return <StickyNote className={cls} />;
         case 'calendar':
           return <CalendarDays className={cls} />;
+        case 'day':
+          return <CalendarCheck className={cls} />;
         case 'activity':
           return <Activity className={cls} />;
         case 'gallery':
