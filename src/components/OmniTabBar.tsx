@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning } from 'lucide-react';
+import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
@@ -426,6 +427,36 @@ export function OmniTabBar(): React.JSX.Element {
           <TabOverflowMenu tabs={overflowTabs} />
         </div>
       )}
+      <WeatherEffectBadge />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WeatherEffectBadge — when live weather is visibly tinting the background (fog haze, rain,
+// snow, storm), say so: a small icon at the bar's right edge with a hover explanation, so a
+// hazy day never reads as a rendering bug. Hidden entirely in clear/cloudy conditions.
+// ---------------------------------------------------------------------------
+const WEATHER_BADGE: Record<string, { Icon: typeof CloudFog; note: string; tone: string }> = {
+  fog:          { Icon: CloudFog,       note: 'Hazy right now — live weather is adding this fog to your background', tone: 'text-warning' },
+  drizzle:      { Icon: CloudRain,      note: 'Drizzle — live weather is showing light rain on your background',     tone: 'text-ink-3' },
+  rain:         { Icon: CloudRain,      note: 'Raining — live weather is showing rain on your background',           tone: 'text-ink-3' },
+  snow:         { Icon: CloudSnow,      note: 'Snowing — live weather is showing snow on your background',           tone: 'text-ink-3' },
+  thunderstorm: { Icon: CloudLightning, note: 'Storm — live weather is showing it on your background',               tone: 'text-warning' },
+};
+
+function WeatherEffectBadge() {
+  const code = useWeatherStore(s => s.weatherCode);
+  const locationLabel = useWeatherStore(s => s.locationLabel);
+  const badge = WEATHER_BADGE[weatherCondition(code)];
+  if (!badge) return null;
+  const { Icon, note, tone } = badge;
+  return (
+    <span
+      className={`shrink-0 pl-2 ${tone}`}
+      title={`${note}${locationLabel ? ` (${locationLabel})` : ''}. Clear the weather location in Settings to turn these effects off.`}
+    >
+      <Icon className="w-3.5 h-3.5" />
+    </span>
   );
 }
