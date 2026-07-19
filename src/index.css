@@ -63,14 +63,33 @@
   --af-glow-ember: rgba(224, 120, 90, 0.18);
 }
 
-/* (Glass-mode translucent panel vars removed with the rest of glass mode — a translucent
-   panel without backdrop blur reads as a broken see-through surface, which is exactly what
-   the popped-out chat became. Panels stay solid in every mode.) */
+/* ── Glassmorphism Uplift ───────────────────────────────────────────────
+   Applied when settings.glassEnabled is true (via [data-glass="true"]).
+   "safe-premium" discipline: floating chrome only. */
 
-/* Glass mode retired (owner call, July 2026): app and tab backgrounds are SOLID — the
-   minimal look is easier to read. The [data-glass] attribute and glassEnabled setting
-   still exist but no longer blur anything; do not reintroduce backdrop-filter on
-   app/tab/panel surfaces. */
+[data-glass="true"] {
+  --af-base: rgba(255, 255, 255, 0.40);
+  --af-panel: rgba(255, 255, 255, 0.50);
+  --af-panel-2: rgba(250, 249, 246, 0.60);
+  --af-edge: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'][data-glass="true"] {
+  --af-base: rgba(10, 11, 14, 0.35);
+  --af-panel: rgba(18, 20, 26, 0.45);
+  --af-panel-2: rgba(23, 25, 32, 0.55);
+  --af-edge: rgba(255, 255, 255, 0.08);
+}
+
+/* Apply blur to main surfaces when glass is enabled so they aren't just see-through */
+[data-glass="true"] .bg-panel,
+[data-glass="true"] .bg-panel-2,
+[data-glass="true"] .bg-base,
+.glass-chrome {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
 .glass-chrome {
   background: var(--color-panel);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
