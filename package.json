@@ -1,7 +1,7 @@
 {
   "name": "docent",
   "private": true,
-  "version": "2.5.8",
+  "version": "2.6.0",
   "description": "A local-first personal AI command center for custom agents, browser context, and persistent memory.",
   "author": "git-layton",
   "type": "module",
