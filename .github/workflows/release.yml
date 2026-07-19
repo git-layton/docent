@@ -96,7 +96,7 @@ jobs:
           # Create release and upload all assets using the gh CLI
           gh release create ${VERSION} \
             --repo git-layton/docent-releases \
-            --title "Agent Forge ${VERSION}" \
+            --title "Docent ${VERSION}" \
             --notes "See the assets below to download. The app auto-updates itself on next launch." \
             "${DMG_PATH}" \
             "${TAR_PATH}" \
