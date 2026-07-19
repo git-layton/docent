@@ -2115,6 +2115,17 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         foundSources = [...foundSources, ..._relevantMemoryHits.filter((h) => !seen.has(h.path))];
       }
 
+      // Answer receipt for the on-screen panel: when the model answers WITH the open tool's
+      // content in context (Mail, Messages, Notes, Reminders, Calendar), the answer carries a
+      // "Grounded in …" chip naming exactly what it saw — tap to jump back to that panel.
+      // The receipts-on-answers moment: provenance shown, not claimed.
+      if (_toolContext?.text) {
+        foundSources = [
+          { title: _toolContext.label, kind: _toolContext.source, local: true },
+          ...foundSources,
+        ];
+      }
+
       const isImageRequest = _generationMode === 'image' || /^(generate|create|draw|make|show me) (an image|a picture|a photo|a drawing|art)/i.test(inputLower);
 
       const currentChatRecord = useChatStore.getState().chats.find((c: any) => c.id === chatId);

@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import { Globe, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { Globe, FileText, ChevronDown, ChevronUp, BadgeCheck } from 'lucide-react';
+import { useSpaceStore } from '../store/useSpaceStore';
+import type { ToolTabId } from '../types/omniTab';
 
 interface Source {
   title: string;
   url?: string;
   path?: string;
   snippet?: string;
+  /** Answer receipt: this answer was grounded in an open local panel (mail/notes/…). */
+  local?: boolean;
+  kind?: string; // useToolContextStore source id, e.g. 'mail' | 'notes' | 'messages' | 'tasks' | 'calendar'
 }
 
 interface Props {
@@ -13,16 +18,63 @@ interface Props {
   onOpenFile?: (path: string) => void;
 }
 
+/** Tool-context source id → the tool tab that shows it. */
+export const LOCAL_SOURCE_TOOL: Record<string, ToolTabId> = {
+  mail: 'inbox',
+  messages: 'messages',
+  notes: 'notes',
+  tasks: 'planner',
+  calendar: 'calendar',
+};
+
+const LOCAL_SOURCE_LABEL: Record<string, string> = {
+  mail: 'Local Mail',
+  messages: 'Messages',
+  notes: 'Apple Notes',
+  tasks: 'Reminders',
+  calendar: 'Calendar',
+};
+
+/** Focus (or reopen) the tool tab a local receipt points at. */
+function openLocalSource(kind: string | undefined) {
+  const toolId = kind ? LOCAL_SOURCE_TOOL[kind] : undefined;
+  if (!toolId) return;
+  const st = useSpaceStore.getState();
+  const existing = st.omniTabs.find(t => t.type === 'tool' && t.toolId === toolId && t.spaceId === (st.activeSpaceId ?? undefined));
+  if (existing) st.setActiveTab(existing.id);
+  else st.openTab({ type: 'tool', toolId, label: LOCAL_SOURCE_LABEL[kind!] ?? 'Tool' });
+}
+
 export function SourcesTray({ sources, onOpenFile }: Props) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
-  const webSources = sources.filter(s => s.url);
-  const fileSources = sources.filter(s => s.path && !s.url);
+  const localSources = sources.filter(s => s.local);
+  const webSources = sources.filter(s => s.url && !s.local);
+  const fileSources = sources.filter(s => s.path && !s.url && !s.local);
 
   if (sources.length === 0) return null;
 
   return (
     <div className="mt-5 pt-4 border-t border-edge flex flex-col gap-3">
+      {/* Answer receipts — the answer was grounded in something the user can reopen and check. */}
+      {localSources.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {localSources.map((src, idx) => (
+            <button
+              key={`${src.kind}-${idx}`}
+              onClick={() => openLocalSource(src.kind)}
+              title={`Open ${src.title}`}
+              className="group/rcpt flex items-center gap-2 px-2.5 py-1.5 bg-inset border border-edge rounded-xl hover:border-success hover:bg-wash transition-all max-w-[240px] shadow-sm text-left"
+            >
+              <BadgeCheck className="w-3.5 h-3.5 text-success shrink-0" />
+              <span className="text-[10px] font-bold text-ink-2 truncate">
+                Grounded in {LOCAL_SOURCE_LABEL[src.kind ?? ''] ?? 'your workspace'}
+                {src.title ? ` — ${src.title}` : ''}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       {/* Web sources */}
       {webSources.length > 0 && (
         <div className="flex flex-col gap-2">
