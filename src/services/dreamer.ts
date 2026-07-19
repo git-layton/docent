@@ -37,7 +37,7 @@ export const DreamerPlanWireSchema = z.object({ operations: z.array(DreamerOpSch
 export const DreamerPlanSchema = z.object({ operations: salvageArray(DreamerOpSchema) });
 
 export function buildDreamerSystemPrompt(): string {
-  return `You are the Dreamer — a background agent for Agent Forge that runs while the user is away.
+  return `You are the Dreamer — a background agent for Docent that runs while the user is away.
 You have three jobs: consolidate memory, synthesize durable insights, and surface proactive notices.
 
 MEMORY JOBS:

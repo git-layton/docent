@@ -46,7 +46,7 @@ async function applyUpdatesInBackground(): Promise<void> {
 
     const notes = update.body?.trim() ? `\n\n${update.body.trim()}` : '';
     const accepted = await ask(
-      `Agent Forge ${update.version} is available — you have ${update.currentVersion}.${notes}\n\n` +
+      `Docent ${update.version} is available — you have ${update.currentVersion}.${notes}\n\n` +
         'Install now? The app will restart when it finishes.',
       {
         title: 'Update available',
@@ -62,7 +62,7 @@ async function applyUpdatesInBackground(): Promise<void> {
     }
 
     console.info(`[updater] Downloading update v${update.version}...`);
-    useUIStore.getState().showToast(`⬇️ Downloading Agent Forge ${update.version}…`);
+    useUIStore.getState().showToast(`⬇️ Downloading Docent ${update.version}…`);
     await update.downloadAndInstall();
     installedVersion = update.version;
     
@@ -85,14 +85,14 @@ export async function checkForUpdates({ silent = true }: { silent?: boolean } = 
 
     if (!update) {
       if (!silent) {
-        await message("You're on the latest version.", { title: 'Agent Forge', kind: 'info' });
+        await message("You're on the latest version.", { title: 'Docent', kind: 'info' });
       }
       return;
     }
 
     const notes = update.body?.trim() ? `\n\n${update.body.trim()}` : '';
     const accepted = await ask(
-      `Agent Forge ${update.version} is available — you have ${update.currentVersion}.${notes}\n\n` +
+      `Docent ${update.version} is available — you have ${update.currentVersion}.${notes}\n\n` +
         'Install now? The app will restart when it finishes.',
       {
         title: 'Update available',
@@ -103,12 +103,12 @@ export async function checkForUpdates({ silent = true }: { silent?: boolean } = 
     );
     if (!accepted) return;
 
-    useUIStore.getState().showToast(`⬇️ Downloading Agent Forge ${update.version}…`);
+    useUIStore.getState().showToast(`⬇️ Downloading Docent ${update.version}…`);
     await update.downloadAndInstall();
     await relaunch();
   } catch (err) {
     if (!silent) {
-      await message(`Couldn't check for updates: ${String(err)}`, { title: 'Agent Forge', kind: 'error' });
+      await message(`Couldn't check for updates: ${String(err)}`, { title: 'Docent', kind: 'error' });
     }
     console.debug('[updater] check skipped:', err);
   }

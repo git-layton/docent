@@ -87,7 +87,7 @@ export function ActivityCenter() {
               
               {job.status === 'Interrupted' && (
                 <div className="mt-2 text-xs text-yellow-600 dark:text-yellow-400">
-                  Agent Forge restarted while this job was running.
+                  Docent restarted while this job was running.
                 </div>
               )}
             </div>

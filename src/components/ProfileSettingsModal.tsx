@@ -357,7 +357,7 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
       await invoke('write_memory', {
         path: `${agentForgePath}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
         content: AGENT_FORGE_GUIDE,
-        commitMessage: 'Restore Agent Forge user guide',
+        commitMessage: 'Restore Docent user guide',
         agentId: null,
         contextTokens: null,
         ramState: null,
@@ -690,7 +690,7 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                     <BookOpen className="w-4 h-4 text-secondary shrink-0" />
                     <div>
                       <p className="text-sm font-bold text-ink">User Guide</p>
-                      <p className="text-xs text-ink-3 mt-0.5">Agent Forge 2.0 help docs in your Knowledge Core</p>
+                      <p className="text-xs text-ink-3 mt-0.5">Docent 2.0 help docs in your Knowledge Core</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1242,14 +1242,14 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                         {mailProvider === 'gmail' ? (
                           <>
                             <li>Open the page below — it signs in with your real browser.</li>
-                            <li>Name it <span className="font-bold">Agent Forge</span>, then click <span className="font-bold">Create</span>.</li>
+                            <li>Name it <span className="font-bold">Docent</span>, then click <span className="font-bold">Create</span>.</li>
                             <li>Copy the 16-character password — <span className="font-bold">save it</span>, you only see it once.</li>
                             <li>Paste it into Step 2 below.</li>
                           </>
                         ) : (
                           <>
                             <li>Open the page below and sign in.</li>
-                            <li><span className="font-bold">App-Specific Passwords</span> → <span className="font-bold">+</span> → name it <span className="font-bold">Agent Forge</span>.</li>
+                            <li><span className="font-bold">App-Specific Passwords</span> → <span className="font-bold">+</span> → name it <span className="font-bold">Docent</span>.</li>
                             <li>Copy the password — <span className="font-bold">save it</span>, you only see it once.</li>
                             <li>Paste it into Step 2 below.</li>
                           </>
@@ -1327,12 +1327,12 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
 
                 <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
                   <h5 className="text-xs font-bold text-ink">macOS Privacy Settings</h5>
-                  <p className="text-tiny text-ink-3">Agent Forge reads your local message database to reply to texts. <span className="text-success-light font-bold">Nothing is uploaded or sent to the cloud.</span></p>
+                  <p className="text-tiny text-ink-3">Docent reads your local message database to reply to texts. <span className="text-success-light font-bold">Nothing is uploaded or sent to the cloud.</span></p>
                   <ol className="list-decimal pl-4 text-xs text-ink-3 space-y-2 marker:font-bold marker:text-ink-3">
                     <li>Click the button below to open macOS System Settings.</li>
-                    <li>Open <span className="font-bold">Full Disk Access</span> and switch on <span className="font-bold">Agent Forge</span>.</li>
+                    <li>Open <span className="font-bold">Full Disk Access</span> and switch on <span className="font-bold">Docent</span>.</li>
                     <li>Click <span className="font-bold">Check access</span> below to verify.</li>
-                    <li>The first time you send, macOS asks to let Agent Forge control Messages — click <span className="font-bold">OK</span>.</li>
+                    <li>The first time you send, macOS asks to let Docent control Messages — click <span className="font-bold">OK</span>.</li>
                   </ol>
                   <FullDiskAccessGrant
                     autoProbe={imessageEnabled}
@@ -1370,7 +1370,7 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                   <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
                     {calAuth === 'authorized'
                       ? <span className="flex items-center gap-1.5 text-xs font-bold text-success-light"><CheckCircle2 className="w-4 h-4 shrink-0" /> Connected to macOS Calendar — changes sync to your devices via iCloud.</span>
-                      : <span className="text-tiny text-ink-3 font-medium">Grant access so Agent Forge can read &amp; write your real calendar (it syncs to your iPhone via iCloud).</span>}
+                      : <span className="text-tiny text-ink-3 font-medium">Grant access so Docent can read &amp; write your real calendar (it syncs to your iPhone via iCloud).</span>}
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={grantCalendarAccess}
@@ -1448,7 +1448,7 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                   <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
                     {taskAuth === 'authorized'
                       ? <span className="flex items-center gap-1.5 text-xs font-bold text-success-light"><CheckCircle2 className="w-4 h-4 shrink-0" /> Connected to Reminders — changes sync to your devices via iCloud.</span>
-                      : <span className="text-tiny text-ink-3 font-medium">Grant access so Agent Forge can read &amp; write your Reminders (they sync to your iPhone via iCloud).</span>}
+                      : <span className="text-tiny text-ink-3 font-medium">Grant access so Docent can read &amp; write your Reminders (they sync to your iPhone via iCloud).</span>}
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={grantRemindersAccess}
@@ -1515,7 +1515,7 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
 
                 {notesBackend === 'applescript' && (
                   <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
-                    <span className="text-tiny text-ink-3 font-medium">First use prompts macOS to let Agent Forge control Notes (Automation). Notes sync to your iPhone via iCloud.</span>
+                    <span className="text-tiny text-ink-3 font-medium">First use prompts macOS to let Docent control Notes (Automation). Notes sync to your iPhone via iCloud.</span>
                     <button
                       onClick={verifyNotes}
                       disabled={notesStatus.state === 'working'}

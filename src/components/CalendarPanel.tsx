@@ -274,7 +274,7 @@ export function CalendarPanel({ onToast }: CalendarPanelProps) {
         <ConnectorAccessGate
           icon={CalendarDays}
           title="Connect your macOS Calendar"
-          body="Agent Forge can show and add events in your real calendar — and they sync to your iPhone via iCloud. Grant access to get started."
+          body="Docent can show and add events in your real calendar — and they sync to your iPhone via iCloud. Grant access to get started."
           buttonLabel="Grant Calendar access"
           onConnect={grantCalendarAccess}
           busy={granting}

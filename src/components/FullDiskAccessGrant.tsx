@@ -52,11 +52,11 @@ export function FullDiskAccessGrant({
         {access.state === 'ok' && <CheckCircle2 className="w-5 h-5 text-success-light shrink-0" />}
         {(access.state === 'error' || access.state === 'idle') && <ShieldCheck className="w-5 h-5 text-ink-3 shrink-0" />}
         <div className="min-w-0 flex-1 text-xs leading-relaxed">
-          {access.state === 'idle' && <span className="text-ink-2">Switch on Agent Forge above, then check access.</span>}
+          {access.state === 'idle' && <span className="text-ink-2">Switch on Docent above, then check access.</span>}
           {access.state === 'checking' && <span className="text-ink-2">Checking access…</span>}
           {access.state === 'ok' && <span className="font-bold text-success-light">Connected — {(access.count ?? 0).toLocaleString()} conversations found.</span>}
           {access.state === 'error' && (
-            <span className="text-ink-2">Not detected yet — switch on Agent Forge in Full Disk Access, then restart. <span className="text-ink-3">(macOS only applies Full Disk Access after a restart.)</span></span>
+            <span className="text-ink-2">Not detected yet — switch on Docent in Full Disk Access, then restart. <span className="text-ink-3">(macOS only applies Full Disk Access after a restart.)</span></span>
           )}
         </div>
       </div>
@@ -73,7 +73,7 @@ export function FullDiskAccessGrant({
           {access.state === 'error' && (
             <button
               onClick={() => { void relaunch(); }}
-              title="Restart Agent Forge so macOS applies the Full Disk Access you just granted"
+              title="Restart Docent so macOS applies the Full Disk Access you just granted"
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-accent text-on-accent hover:bg-accent-strong transition-all shadow-sm"
             >
               <RotateCw className="w-3.5 h-3.5" /> Restart now

@@ -11,7 +11,7 @@ export const db = {
             this.store = await load('agent_forge_db.bin', { autoSave: true, defaults: {} });
           }
         } catch (e) {
-          console.warn("[Agent Forge] Tauri Store plugin missing or failed.", e);
+          console.warn("[Docent] Tauri Store plugin missing or failed.", e);
         }
       })();
     }

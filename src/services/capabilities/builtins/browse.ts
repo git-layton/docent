@@ -58,7 +58,7 @@ export const browseCapability: Capability = {
                 startUrl,
                 modelConfig: ctx.model,
                 signal: ctx.signal,
-                confirmSubmit: (desc: string) => window.confirm(`Agent Forge wants to submit a form while browsing.\n\n${desc}\n\nAllow?`),
+                confirmSubmit: (desc: string) => window.confirm(`Docent wants to submit a form while browsing.\n\n${desc}\n\nAllow?`),
                 onProgress: (p) => {
                     const label = `🌐 Browsing · step ${p.step}/${p.maxSteps}${p.action ? ` · ${p.action}` : ''}`;
                     ctx.setStatus(label);

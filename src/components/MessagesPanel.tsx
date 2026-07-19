@@ -418,7 +418,7 @@ export function MessagesPanel() {
             <ShieldAlert className="w-8 h-8 text-ink-3" />
             <p className="text-sm font-semibold text-ink">Full Disk Access needed</p>
             <p className="text-xs text-ink-2 max-w-xs leading-relaxed">
-              To read your iMessage & SMS history, grant <span className="font-semibold">Agent Forge</span> Full Disk Access, then come back and refresh.
+              To read your iMessage & SMS history, grant <span className="font-semibold">Docent</span> Full Disk Access, then come back and refresh.
             </p>
             <button onClick={openSettings} className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity">
               Open Privacy settings

@@ -437,7 +437,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
               await invoke('write_memory', {
                 path: `${kc.path}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
                 content: AGENT_FORGE_GUIDE,
-                commitMessage: 'Add Agent Forge user guide',
+                commitMessage: 'Add Docent user guide',
                 agentId: null,
                 contextTokens: null,
                 ramState: null,
@@ -492,7 +492,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         }
       } catch (e) { console.warn('[AgentForge] Auto-detect skipped:', e); }
 
-      // Agent Forge is unusable without at least one connected model. If none is
+      // Docent is unusable without at least one connected model. If none is
       // configured — a fresh install, or a setup that never finished — open the setup
       // wizard and keep the user there until a model is connected, instead of dropping
       // them into an empty, no-model app. Onboarding is marked complete only once a
@@ -564,7 +564,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
                 if (res.filedTitle) {
                   // Slack-style signal: bubble on the Inbox tab + a native banner.
                   useUIStore.getState().bumpInboxAlerts();
-                  invoke('notify_user', { title: 'Agent Forge', body: `${res.filedTitle} — waiting in your Inbox` }).catch(() => {});
+                  invoke('notify_user', { title: 'Docent', body: `${res.filedTitle} — waiting in your Inbox` }).catch(() => {});
                 }
               } catch (e) { console.warn(`[routines] ${r.name} failed:`, e); }
               await db.set('routines', routines); // persist seenUids bookkeeping
@@ -1629,7 +1629,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     if (provider === 'native') endpoint = 'http://127.0.0.1:8080/v1';
     if (provider === 'huggingface') endpoint = 'https://api-inference.huggingface.co/v1';
     const existingKey = ss.models.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
-    ss.setEditingModel({ name: provider === 'native' ? 'Agent Forge Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
+    ss.setEditingModel({ name: provider === 'native' ? 'Docent Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
     ss.setFetchedModels([]); ss.setPendingModelSelections([]); ss.setFetchModelsError(null); ss.setModelSearchQuery('');
   };
 
@@ -3023,7 +3023,7 @@ const handleSendMessage = async () => {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-base text-ink font-sans animate-in fade-in duration-500">
         <div className="p-4 bg-accent rounded-2xl shadow-2xl mb-6 shadow-accent/20"><Bot className="w-8 h-8 text-on-accent animate-pulse" /></div>
-        <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">Agent Forge</h1>
+        <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">Docent</h1>
         <div className="flex items-center gap-2 text-ink-3 font-bold text-xs uppercase tracking-widest"><Loader2 className="w-4 h-4 animate-spin" /> Secure Storage Linking...</div>
       </div>
     );
@@ -3296,7 +3296,7 @@ if (isSpotlight) {
                    <button onClick={async () => {
                      const auth = await invoke<boolean>('screen_capture_authorized').catch(() => true);
                      if (!auth) {
-                       alert("Screen Recording permission is required. Please grant it in macOS System Settings > Privacy & Security > Screen Recording, then restart Agent Forge.");
+                       alert("Screen Recording permission is required. Please grant it in macOS System Settings > Privacy & Security > Screen Recording, then restart Docent.");
                        openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture').catch(() => {});
                      }
                      setSpotlightSource('screen'); 
@@ -3417,14 +3417,14 @@ if (isSpotlight) {
                 {screenAccessNeeded && (
                   <div className="p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed shadow-sm mt-1">
                     <div className="flex items-center gap-2 mb-1.5 font-bold text-ink">
-                      <Monitor className="w-4 h-4 text-accent shrink-0" /> Let Agent Forge see your screen
+                      <Monitor className="w-4 h-4 text-accent shrink-0" /> Let Docent see your screen
                     </div>
                     <p className="text-ink-2 mb-2">
-                      To read what's on screen, turn on <span className="font-semibold text-ink">Screen Recording</span> for Agent Forge, then relaunch.
+                      To read what's on screen, turn on <span className="font-semibold text-ink">Screen Recording</span> for Docent, then relaunch.
                     </p>
                     <ol className="text-ink-2 mb-2.5 ml-4 list-decimal space-y-0.5">
                       <li>Click <span className="font-semibold text-ink">Open Screen Recording</span> below.</li>
-                      <li>Flip the switch next to <span className="font-semibold text-ink">Agent Forge</span> on.</li>
+                      <li>Flip the switch next to <span className="font-semibold text-ink">Docent</span> on.</li>
                       <li>Click <span className="font-semibold text-ink">Relaunch</span>.</li>
                     </ol>
                     <div className="flex flex-wrap items-center gap-2 mt-2">

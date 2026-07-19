@@ -1,10 +1,10 @@
 export const AGENT_FORGE_GUIDE_RELATIVE_PATH = 'memory/agent-forge-guide.md';
 
-export const AGENT_FORGE_GUIDE = `# Agent Forge 2.0 — User Guide
+export const AGENT_FORGE_GUIDE = `# Docent 2.0 — User Guide
 
-## What is Agent Forge?
+## What is Docent?
 
-Agent Forge is a personal AI desktop app for macOS that lets you build, train, and work alongside custom AI agents. Your agents live on your device, grow smarter through a persistent Knowledge Core, and travel with you into any browser tab via Spotlight.
+Docent is a personal AI desktop app for macOS that lets you build, train, and work alongside custom AI agents. Your agents live on your device, grow smarter through a persistent Knowledge Core, and travel with you into any browser tab via Spotlight.
 
 ---
 
@@ -48,7 +48,7 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 When an agent generates code, diagrams, or documents, it appears in the Canvas panel (toggle with the split-screen icon). Save canvas content to your Library.
 
 ### 🌙 Dream Cycle
-Dream Cycle is an experimental, manual memory cleanup tool. Run it from Agent Settings when you want Agent Forge to suggest merges, updates, and archive actions for an agent's notes.
+Dream Cycle is an experimental, manual memory cleanup tool. Run it from Agent Settings when you want Docent to suggest merges, updates, and archive actions for an agent's notes.
 
 ### 🔍 Knowledge Search
 Your agent automatically searches your Knowledge Core when relevant. You can force a knowledge search for any message with ⌘⇧K.

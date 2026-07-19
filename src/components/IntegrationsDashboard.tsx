@@ -142,7 +142,7 @@ export function IntegrationsDashboard() {
         </div>
         <div>
           <h2 className="text-lg font-black text-ink tracking-tight">Connect your life</h2>
-          <p className="text-[13px] text-ink-3">Hook up your apps to unlock the true power of Agent Forge.</p>
+          <p className="text-[13px] text-ink-3">Hook up your apps to unlock the true power of Docent.</p>
         </div>
       </div>
       

@@ -370,7 +370,7 @@ export function NotesPanel() {
             <ConnectorAccessGate
               icon={StickyNote}
               title="Connect Apple Notes"
-              body="Agent Forge can read and create notes in the Apple Notes app — and they sync to your iPhone via iCloud. The first time, macOS asks to let Agent Forge control Notes."
+              body="Docent can read and create notes in the Apple Notes app — and they sync to your iPhone via iCloud. The first time, macOS asks to let Docent control Notes."
               buttonLabel="Connect Apple Notes"
               onConnect={reconnect}
               busy={loading}

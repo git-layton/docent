@@ -186,7 +186,7 @@ async function fileToInbox(r: Routine, deps: RoutineDeps, title: string, bodyTex
       note: `Routine: ${r.name}`,
       instanceId: deps.instanceId || 'agent-forge-local',
       shareId: 'routine-local',
-      deviceName: 'Agent Forge Routines',
+      deviceName: 'Docent Routines',
       urls: [],
       tags: ['routine'],
     },

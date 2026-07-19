@@ -51,7 +51,7 @@ export function MessagesSetupWizard({ onComplete }: { onComplete: (accessOk: boo
               <div className="space-y-2">
                 <h1 className="text-2xl font-black tracking-tight text-ink">Bring your Messages in</h1>
                 <p className="text-sm text-ink-2 leading-relaxed">
-                  Your iMessage &amp; SMS, right here in Agent Forge. Everything stays on your Mac — no servers, no accounts, nothing uploaded.
+                  Your iMessage &amp; SMS, right here in Docent. Everything stays on your Mac — no servers, no accounts, nothing uploaded.
                 </p>
               </div>
               <div className="w-full space-y-2.5 text-left">
@@ -92,7 +92,7 @@ export function MessagesSetupWizard({ onComplete }: { onComplete: (accessOk: boo
               <ol className="text-sm text-ink-2 leading-relaxed flex flex-col gap-2.5">
                 {[
                   <>Click <span className="font-semibold text-ink">Open Full Disk Access</span> below.</>,
-                  <>Toggle <span className="font-semibold text-ink">Agent Forge</span> on in the list.</>,
+                  <>Toggle <span className="font-semibold text-ink">Docent</span> on in the list.</>,
                   <>Come back here — it detects automatically.</>,
                 ].map((node, i) => (
                   <li key={i} className="flex items-start gap-3">
@@ -127,7 +127,7 @@ export function MessagesSetupWizard({ onComplete }: { onComplete: (accessOk: boo
               <div className="space-y-2">
                 <h1 className="text-2xl font-black tracking-tight text-ink">One more thing — sending</h1>
                 <p className="text-sm text-ink-2 leading-relaxed">
-                  The first time you send a message, macOS will ask to let Agent Forge control the Messages app. Just click <span className="font-semibold text-ink">OK</span> — that's the last permission.
+                  The first time you send a message, macOS will ask to let Docent control the Messages app. Just click <span className="font-semibold text-ink">OK</span> — that's the last permission.
                 </p>
               </div>
 

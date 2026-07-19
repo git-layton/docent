@@ -89,11 +89,11 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex flex-col items-center text-center gap-7">
       <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-xl shadow-accent/20 ring-1 ring-edge bg-panel-2 flex items-center justify-center">
-        <img src="/app-icon.png" alt="Agent Forge" className="w-full h-full object-cover" />
+        <img src="/app-icon.png" alt="Docent" className="w-full h-full object-cover" />
       </div>
       <div className="space-y-2">
         <h1 className="text-3xl font-black tracking-tight text-ink">
-          Welcome to Agent Forge
+          Welcome to Docent
         </h1>
         <p className="text-sm text-ink-2 max-w-xs mx-auto leading-relaxed">
           Your personal AI command center. Let's get the essentials set up — it takes about a minute.
@@ -253,7 +253,7 @@ const PROVIDERS = [
     getKeyButtonLabel: 'Open Anthropic Console',
     keySteps: [
       'Open the page below — it opens in your real browser and signs in to the Anthropic Console.',
-      'Click "Create Key", give it a name like "Agent Forge".',
+      'Click "Create Key", give it a name like "Docent".',
       'Copy the key it shows — it starts with "sk-ant-". You only see it once, so copy it now.',
       'Paste it into Step 2 below.',
     ],
@@ -278,7 +278,7 @@ const PROVIDERS = [
     getKeyButtonLabel: 'Open OpenAI Platform',
     keySteps: [
       'Open the page below — it opens in your real browser and signs in to the OpenAI platform.',
-      'Click "Create new secret key", give it a name like "Agent Forge".',
+      'Click "Create new secret key", give it a name like "Docent".',
       'Copy the key it shows — it starts with "sk-". You only see it once, so copy it now.',
       'Paste it into Step 2 below.',
     ],
@@ -384,7 +384,7 @@ function ModelConnectForm({
         <div className="rounded-2xl bg-inset border border-edge p-4 space-y-2">
           <span className="inline-flex items-center text-micro font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-success-soft text-success">Free · about a minute</span>
           <p className="text-xs text-ink-2 leading-relaxed">
-            An API key is just a free password from {provider.name} that lets Agent Forge talk to their AI. It takes about a minute to create and costs nothing for normal personal use. You'll paste it once, here, and it's stored securely on your Mac.
+            An API key is just a free password from {provider.name} that lets Docent talk to their AI. It takes about a minute to create and costs nothing for normal personal use. You'll paste it once, here, and it's stored securely on your Mac.
           </p>
           {provider.freeNote && (
             <p className="text-xs font-bold text-success leading-relaxed">{provider.freeNote}</p>
@@ -876,7 +876,7 @@ function StepDone({ onFinish }: { onFinish: () => void }) {
       <div className="space-y-2">
         <h1 className="text-3xl font-black tracking-tight text-ink">You're all set</h1>
         <p className="text-sm text-ink-2 max-w-xs mx-auto leading-relaxed">
-          Agent Forge is ready. You can always revisit any of these in Settings.
+          Docent is ready. You can always revisit any of these in Settings.
         </p>
       </div>
       <div className="w-full max-w-xs space-y-2">
@@ -918,7 +918,7 @@ function StepDone({ onFinish }: { onFinish: () => void }) {
       </div>
 
       <Btn onClick={onFinish} className="w-full max-w-xs">
-        Open Agent Forge <ArrowRight className="w-4 h-4" />
+        Open Docent <ArrowRight className="w-4 h-4" />
       </Btn>
     </div>
   );

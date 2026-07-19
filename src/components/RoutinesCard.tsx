@@ -80,7 +80,7 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
         )}
       </div>
       <p className="text-tiny text-ink-3 mb-3">
-        Runs while Agent Forge is open (missed schedules catch up at launch). Read-only: reports and flags land in your Inbox — nothing is ever sent without you.
+        Runs while Docent is open (missed schedules catch up at launch). Read-only: reports and flags land in your Inbox — nothing is ever sent without you.
       </p>
 
       {routines.length === 0 && !showForm && (

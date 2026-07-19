@@ -465,7 +465,7 @@ export default function SpotlightBar() {
       }
 
       const modelConfig = selectedModel ?? models[0] ?? null;
-      if (!modelConfig) throw new Error('No model configured — open Agent Forge settings first.');
+      if (!modelConfig) throw new Error('No model configured — open Docent settings first.');
 
       // Screen eyes: read whatever app is in front (Slack, Messages, Mail, anything) with on-device
       // OCR — no cloud, no API key, no vision model, works with any chat model incl. a local one.
@@ -489,7 +489,7 @@ export default function SpotlightBar() {
             // occluded). Rust emits `screen-ocr:captured` the moment the frame is grabbed, so we
             // re-show immediately while the slower OCR pass continues.
             const win = getCurrentWindow();
-            // show() WITHOUT setFocus(): focusing would activate the whole Agent Forge app and yank
+            // show() WITHOUT setFocus(): focusing would activate the whole Docent app and yank
             // the user out of whatever they were reading. The overlay floats back in quietly; the
             // hotkey re-focuses it if they want to type again.
             const reappear = () => { void win.show(); };
@@ -678,12 +678,12 @@ export default function SpotlightBar() {
     setActionState(s => ({ ...s, [key]: 'busy' }));
     try {
       const q = questionFor(msg.id);
-      const title = (q || 'From Agent Forge').slice(0, 80);
+      const title = (q || 'From Docent').slice(0, 80);
       const bodyHtml =
         `<div><b>${esc(title)}</b></div>` +
         (q ? `<div>${esc(q)}</div>` : '') +
         `<div><br></div>${esc(msg.content).replace(/\n/g, '<br>')}` +
-        `<div><br></div><div><i>Saved from Agent Forge</i></div>`;
+        `<div><br></div><div><i>Saved from Docent</i></div>`;
       await invoke('notes_create', { folder: 'Notes', title, body: bodyHtml });
       setActionState(s => ({ ...s, [key]: 'done' }));
     } catch (e) {
@@ -953,7 +953,7 @@ export default function SpotlightBar() {
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-accent mb-1">Your agent travels with you</p>
               <p className="text-[11px] text-ink-2 leading-relaxed">
-                Press <span className="text-ink font-semibold">⌘⇧F</span> from any Chrome or Safari tab to open Agent Forge with that page's context automatically attached.
+                Press <span className="text-ink font-semibold">⌘⇧F</span> from any Chrome or Safari tab to open Docent with that page's context automatically attached.
               </p>
             </div>
             <button
@@ -1239,14 +1239,14 @@ export default function SpotlightBar() {
         {screenAccessNeeded && (
           <div className="mx-3 mb-2 p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed">
             <div className="flex items-center gap-2 mb-1.5 font-bold text-ink">
-              <Monitor className="w-4 h-4 text-accent shrink-0" /> Let Agent Forge see your screen
+              <Monitor className="w-4 h-4 text-accent shrink-0" /> Let Docent see your screen
             </div>
             <p className="text-ink-2 mb-2">
-              To read what's on screen (Slack, Mail, Messages), turn on <span className="font-semibold text-ink">Screen Recording</span> for Agent Forge, then relaunch.
+              To read what's on screen (Slack, Mail, Messages), turn on <span className="font-semibold text-ink">Screen Recording</span> for Docent, then relaunch.
             </p>
             <ol className="text-ink-2 mb-2.5 ml-4 list-decimal space-y-0.5">
               <li>Click <span className="font-semibold text-ink">Open Screen Recording</span> below.</li>
-              <li>Flip the switch next to <span className="font-semibold text-ink">Agent Forge</span> on.</li>
+              <li>Flip the switch next to <span className="font-semibold text-ink">Docent</span> on.</li>
               <li>Click <span className="font-semibold text-ink">Relaunch</span>.</li>
             </ol>
             <div className="flex flex-wrap items-center gap-2">

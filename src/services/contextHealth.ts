@@ -2,7 +2,7 @@
 // Reframes the context window from a fuel gauge ("how full — red when near 100%")
 // into a health assessment ("is the window being managed well").
 //
-// Premise: conversations in Agent Forge never end (no new chats), so a full
+// Premise: conversations in Docent never end (no new chats), so a full
 // window is the NORMAL steady state, not a failure. The runtime already
 // self-manages it: oldest unpinned messages rotate out, the MEMS evaluator
 // saves what matters to persistent memory, pins keep verbatim content, and the

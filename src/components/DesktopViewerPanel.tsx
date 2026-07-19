@@ -90,9 +90,9 @@ export function DesktopViewerPanel() {
         </div>
         <h2 className="text-xl font-bold text-ink mb-2">Permissions Required</h2>
         <p className="text-sm text-ink-2 max-w-md mx-auto leading-relaxed mb-6">
-          To view and control your desktop, Agent Forge needs permissions.
+          To view and control your desktop, Docent needs permissions.
           Please open <strong>System Settings &gt; Privacy &amp; Security</strong>,
-          enable {isScreen ? 'Screen Recording' : ''}{isScreen && isAcc ? ' and ' : ''}{isAcc ? 'Accessibility' : ''} for Agent Forge, and then restart the app.
+          enable {isScreen ? 'Screen Recording' : ''}{isScreen && isAcc ? ' and ' : ''}{isAcc ? 'Accessibility' : ''} for Docent, and then restart the app.
         </p>
         <button
           onClick={() => {

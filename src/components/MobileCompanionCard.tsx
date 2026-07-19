@@ -154,7 +154,7 @@ export function MobileCompanionCard({ onOpenRelaySetup }: { onOpenRelaySetup: ()
             <QRCodeSVG value={qrPayload} size={168} marginSize={1} />
           </div>
           <div className="flex flex-col gap-2 text-center md:text-left">
-            <p className="text-sm font-bold text-ink">Scan with the Agent Forge mobile app</p>
+            <p className="text-sm font-bold text-ink">Scan with the Docent mobile app</p>
             <p className="text-xs text-ink-3 font-medium">
               Or enter manually — host <span className="font-mono font-bold text-ink-2">{hosts[0] ?? 'this Mac'}:{RELAY_PORT}</span>, code:
             </p>
