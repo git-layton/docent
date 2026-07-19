@@ -19,6 +19,7 @@ import { useReceiptStore } from './receipts';
 
 export type RoutineTrigger =
   | { kind: 'daily'; hour: number; minute: number }
+  | { kind: 'weekly'; dayOfWeek: number; hour: number; minute: number }
   | { kind: 'mailWatch'; everyMinutes?: number };
 
 export interface Routine {
@@ -26,7 +27,7 @@ export interface Routine {
   name: string;
   trigger: RoutineTrigger;
   /** mailReport is legacy shorthand for a mail-only digest; digest is the flexible form. */
-  action: 'mailReport' | 'mailFlag' | 'digest';
+  action: 'mailReport' | 'mailFlag' | 'digest' | 'messagesBacklog';
   /** For digest: which read-only sources to gather before summarizing. */
   sources?: { mail?: boolean; calendar?: boolean; notes?: boolean };
   /** For digest: the user's own instruction for what to make of the gathered data. */
@@ -53,7 +54,7 @@ export interface RoutineResult { filedTitle: string | null }
 /** A routine pre-filled from a chat message — the user confirms before it's saved. */
 export interface ProposedRoutine {
   name: string;
-  action: 'digest' | 'mailFlag';
+  action: 'digest' | 'mailFlag' | 'messagesBacklog';
   sources?: { mail?: boolean; calendar?: boolean; notes?: boolean };
   fromContains?: string;
   subjectContains?: string;
@@ -153,6 +154,16 @@ export function isDue(r: Routine, now: number): boolean {
     slot.setHours(r.trigger.hour, r.trigger.minute, 0, 0);
     let slotMs = slot.getTime();
     if (slotMs > now) slotMs -= 24 * 60 * 60 * 1000; // today's slot not reached → last due slot was yesterday's
+    return (r.lastRunAt ?? 0) < slotMs;
+  }
+  if (r.trigger.kind === 'weekly') {
+    const slot = new Date(now);
+    let diff = slot.getDay() - r.trigger.dayOfWeek;
+    if (diff < 0) diff += 7;
+    slot.setDate(slot.getDate() - diff);
+    slot.setHours(r.trigger.hour, r.trigger.minute, 0, 0);
+    let slotMs = slot.getTime();
+    if (slotMs > now) slotMs -= 7 * 24 * 60 * 60 * 1000;
     return (r.lastRunAt ?? 0) < slotMs;
   }
   const every = Math.max(1, r.trigger.everyMinutes ?? 5) * 60_000;
@@ -312,8 +323,59 @@ async function runMailFlag(r: Routine, deps: RoutineDeps): Promise<RoutineResult
   return { filedTitle: null }; // watchers stay silent when nothing matched
 }
 
+async function runMessagesBacklog(r: Routine, deps: RoutineDeps): Promise<RoutineResult> {
+  const { draftReply } = await import('./voiceRuntime');
+  
+  // imessage structs locally defined to match backend
+  type ImessageChat = { chatId: number; name: string; lastDate: number; lastFromMe: boolean; isGroup: boolean };
+  type ImessageMessage = { id: number; text: string; fromMe: boolean; senderName: string };
+
+  const chats = await invoke<ImessageChat[]>('imessage_list_chats', { limit: 40 }).catch(() => []);
+  if (!chats.length) return { filedTitle: null };
+
+  const now = Date.now();
+  const thresholdDays = 2;
+  const msThreshold = thresholdDays * 24 * 60 * 60 * 1000;
+  
+  // Filter for unanswered messages older than the threshold
+  const backlogChats = chats.filter(c => !c.lastFromMe && (now - c.lastDate) > msThreshold);
+  if (backlogChats.length === 0) return { filedTitle: null }; // nothing to nag about
+
+  const sections: string[] = [];
+  
+  for (const chat of backlogChats) {
+    const msgs = await invoke<ImessageMessage[]>('imessage_fetch_messages', { chatId: chat.chatId, limit: 14 }).catch(() => []);
+    if (!msgs.length) continue;
+    
+    const transcript = msgs.map(m => `${m.fromMe ? 'Me' : (m.senderName || chat.name)}: ${m.text}`).join('\n');
+    
+    // Draft a gentle reply using the model
+    let drafts: string[] = [];
+    try {
+      drafts = await draftReply({ surface: 'imessage', incoming: transcript, recipient: chat.name, count: 2, relKey: null });
+    } catch {
+      // ignore
+    }
+    
+    sections.push(`**${chat.name}** (waiting since ${new Date(chat.lastDate).toLocaleDateString()})`);
+    if (drafts.length > 0) {
+      sections.push(`*Draft ideas:*\n${drafts.map(d => `- "${d}"`).join('\n')}`);
+    } else {
+      sections.push(`*(No drafts could be generated)*`);
+    }
+    sections.push('');
+  }
+
+  const title = `Message Backlog — ${backlogChats.length} waiting on you`;
+  const bodyText = `Here are the messages you haven't replied to in over ${thresholdDays} days:\n\n` + sections.join('\n');
+  
+  await fileToInbox(r, deps, title, bodyText);
+  return { filedTitle: title };
+}
+
 /** Execute one due routine. Mutates r.seenUids for mailFlag; the caller persists. */
 export async function runRoutine(r: Routine, deps: RoutineDeps): Promise<RoutineResult> {
   if (r.action === 'mailFlag') return runMailFlag(r, deps);
+  if (r.action === 'messagesBacklog') return runMessagesBacklog(r, deps);
   return runDigest(r, deps);
 }

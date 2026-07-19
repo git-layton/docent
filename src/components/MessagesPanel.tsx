@@ -9,6 +9,7 @@ import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForImessage } from '../services/voice';
 import { usePanelResource } from '../lib/panelCache';
 import { buildVoiceCard, buildRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
+import { generateTextResponse } from '../services/llm';
 
 // Mirrors the Rust ImessageChat / ImessageMessage structs (serde camelCase).
 interface ImessageChat {
@@ -143,6 +144,46 @@ export function MessagesPanel() {
     useToolContextStore.getState().setToolContext({ label: selected ? `Messages: ${selected.name}` : 'Messages', text, source: 'messages' });
     return () => useToolContextStore.getState().clearToolContext();
   }, [selected, messages, chats]);
+
+  // Extract the unread incoming messages accurately by scanning backwards.
+  const unreadMessages = useMemo(() => {
+    if (!selected || selected.unread <= 0 || messages.length === 0) return [];
+    const unread = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (!messages[i].fromMe) {
+        unread.push(messages[i]);
+        if (unread.length >= selected.unread) break;
+      }
+    }
+    return unread.reverse();
+  }, [selected, messages]);
+
+  const firstUnreadId = unreadMessages.length > 0 ? unreadMessages[0].id : null;
+
+  // Background summary for threads with 3+ unread messages.
+  const { data: catchMeUpSummary, loading: catchingUp } = usePanelResource<string | null>({
+    key: (selected && unreadMessages.length >= 3) ? `imessage:catchmeup:${selected.chatId}:${unreadMessages[unreadMessages.length - 1].id}` : 'imessage:catchmeup:none',
+    fetch: async () => {
+      const models = useSettingsStore.getState().models;
+      if (models.length === 0 || !selected) return null;
+      const modelConfig = (models as any[])[0]; // grab first connected model
+      if (!modelConfig) return null;
+
+      const transcript = unreadMessages.map(m => `${m.senderName || selected.name}: ${m.text}`).join('\n');
+      const prompt = `Summarize these missed messages briefly (1-3 short sentences):\n\n${transcript}`;
+      
+      const resp = await generateTextResponse({
+        messages: [{ id: '1', role: 'user', content: prompt }],
+        modelConfig,
+        agent: { prompt: 'You are a helpful assistant summarizing missed messages concisely in the third person. Keep it very short.', tools: {}, trainingDocs: [] },
+        profile: '', tasks: [], attachedDocs: [], agentPinnedMessages: [], mode: 'text',
+        canvasContent: null, isDeepThinking: false, onChunk: null, signal: null,
+        appSettings: {}, integrations: {}, models: [],
+      });
+      return resp.trim();
+    },
+    enabled: !!selected && unreadMessages.length >= 3,
+  });
 
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -290,9 +331,21 @@ export function MessagesPanel() {
           ) : (
             messages.map((m, i) => {
               const showSender = selected.isGroup && !m.fromMe && m.handle && m.handle !== messages[i - 1]?.handle;
+              const isFirstUnread = m.id === firstUnreadId && unreadMessages.length >= 3;
               return (
-                <div key={m.id} className={clsx('flex flex-col max-w-[78%]', m.fromMe ? 'self-end items-end' : 'self-start items-start')}>
-                  {showSender && <span className="text-[11px] text-ink-3 px-1 mb-0.5">{m.senderName || senderLabel(m.handle)}</span>}
+                <div key={m.id} className="flex flex-col w-full">
+                  {isFirstUnread && (
+                    <div className="w-full my-4 px-4 py-3 bg-accent-soft text-accent rounded-xl border border-accent/20 shadow-sm self-center max-w-[85%]">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Sparkles className="w-4 h-4" />
+                        <span className="text-xs font-semibold uppercase tracking-wider">Since you last read</span>
+                        {catchingUp && <RotateCw className="w-3 h-3 animate-spin ml-1 opacity-50" />}
+                      </div>
+                      <p className="text-sm leading-relaxed">{catchMeUpSummary || (catchingUp ? 'Summarizing missed messages…' : 'No summary available.')}</p>
+                    </div>
+                  )}
+                  <div className={clsx('flex flex-col max-w-[78%]', m.fromMe ? 'self-end items-end' : 'self-start items-start')}>
+                    {showSender && <span className="text-[11px] text-ink-3 px-1 mb-0.5">{m.senderName || senderLabel(m.handle)}</span>}
                   <div
                     className={clsx(
                       'rounded-2xl px-3.5 py-2 text-sm leading-snug whitespace-pre-wrap break-words',
@@ -301,6 +354,7 @@ export function MessagesPanel() {
                     title={formatBubbleTime(m.date)}
                   >
                     {m.text || <span className="italic opacity-70 inline-flex items-center gap-1"><Paperclip className="w-3 h-3" /> Attachment</span>}
+                  </div>
                   </div>
                 </div>
               );
