@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
@@ -117,6 +117,8 @@ export function TypeIcon({ tab }: { tab: OmniTab }) {
           return <Images className={cls} />;
         case 'desktop':
           return <Monitor className={cls} />;
+        case 'settings':
+          return <Settings className={cls} />;
         default:
           return <Cpu className={cls} />;
       }
@@ -305,7 +307,7 @@ function NewTabButton() {
       type="button"
       onClick={openHome}
       className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-wash transition-colors mb-1"
-      title="New tab — Home"
+      title="New tab — Start"
     >
       <Plus className="w-3.5 h-3.5" />
     </button>
@@ -361,7 +363,7 @@ export function OmniTabBar(): React.JSX.Element {
 
   return (
     <div className="h-10 flex items-center justify-between bg-panel border-b border-edge px-4 shrink-0 relative z-20">
-      <div className="relative flex items-center pr-3 border-r border-edge mr-3">
+      <div className="relative flex items-center gap-2 pr-3 border-r border-edge mr-3">
         <button
           onClick={() => setShowSpaceMenu(!showSpaceMenu)}
           className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
@@ -369,6 +371,10 @@ export function OmniTabBar(): React.JSX.Element {
         >
           <Layers className="w-4 h-4" />
         </button>
+        {/* The active Space, named, right beside its switcher. */}
+        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-3 truncate max-w-[9rem]" title="Active Space">
+          {spaces.find(s => s.id === activeSpaceId)?.name ?? 'Personal'}
+        </span>
         {showSpaceMenu && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowSpaceMenu(false)} />
@@ -420,13 +426,6 @@ export function OmniTabBar(): React.JSX.Element {
           <TabOverflowMenu tabs={overflowTabs} />
         </div>
       )}
-      {/* Where am I? The active Space, named, at the bar's right edge. */}
-      <span
-        className="shrink-0 pl-3 text-[10px] font-bold uppercase tracking-widest text-ink-3 truncate max-w-[10rem]"
-        title="Active Space"
-      >
-        {spaces.find(s => s.id === activeSpaceId)?.name ?? 'Home'}
-      </span>
     </div>
   );
 }

@@ -137,7 +137,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       return existing.id;
     }
     const id = generateId('tab');
-    const home: OmniTab = { id, type: 'home', label: 'Home', spaceId: sid, isPinned: true };
+    const home: OmniTab = { id, type: 'home', label: 'Start', spaceId: sid, isPinned: true };
     set(s => ({
       omniTabs: [home, ...s.omniTabs], // Home leads the strip
       spaces: sid
@@ -455,7 +455,8 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       // Home tabs are the opposite: permanently pinned (the unclosable landing zone).
       const tabs = (omniTabs as OmniTab[]).map(t =>
         t.type === 'space-log' && t.isPinned ? { ...t, isPinned: false }
-        : t.type === 'home' && !t.isPinned ? { ...t, isPinned: true }
+        // Home tabs: permanently pinned, and relabeled — the landing zone is called "Start" now.
+        : t.type === 'home' ? { ...t, isPinned: true, label: 'Start' }
         : t,
       );
       set({
@@ -506,7 +507,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       const sid = st.activeSpaceId ?? 'space-home';
       let home = st.omniTabs.find(t => t.type === 'home' && t.spaceId === sid);
       if (!home) {
-        home = { id: generateId('tab'), type: 'home', label: 'Home', spaceId: sid };
+        home = { id: generateId('tab'), type: 'home', label: 'Start', spaceId: sid, isPinned: true };
         set(s => ({ omniTabs: [...s.omniTabs, home!] }));
       }
       set({ activeOmniTabId: home.id });

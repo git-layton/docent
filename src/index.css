@@ -85,34 +85,13 @@
 
 
 
-[data-glass="true"] body,
-[data-glass="true"] #root,
-[data-glass="true"] .bg-base,
-[data-glass="true"] .bg-panel,
-[data-glass="true"] .bg-panel-2 {
-  background-color: transparent !important;
-  backdrop-filter: blur(48px) saturate(1.5);
-  -webkit-backdrop-filter: blur(48px) saturate(1.5);
-}
-
-[data-glass="true"] .border-edge,
-[data-glass="true"] .border-edge-2 {
-  border-color: var(--af-edge) !important;
-}
-
+/* Glass mode retired (owner call, July 2026): app and tab backgrounds are SOLID — the
+   minimal look is easier to read. The [data-glass] attribute and glassEnabled setting
+   still exist but no longer blur anything; do not reintroduce backdrop-filter on
+   app/tab/panel surfaces. */
 .glass-chrome {
   background: var(--color-panel);
-  backdrop-filter: blur(24px) saturate(1.2);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .glass-chrome {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: var(--color-panel);
-  }
 }
 
 .cursor-glow {

@@ -15,7 +15,7 @@ export const extractSearchQuery = (input: string) => {
   const cleaned = input
     .replace(/https?:\/\/\S+/g, ' ')
     // Strip a leading politeness / framing clause so we search the SUBJECT, not the way the user
-    // phrased the ask ("Hey Alexis, can you please look up X" → "X"). The greeting strip requires a
+    // phrased the ask ("Hey Docent, can you please look up X" → "X"). The greeting strip requires a
     // trailing comma so it can never eat a real first word ("what is the weather" stays intact).
     .replace(/^\s*(hey|hi|hello|ok|okay|yo)\b[^,]*,\s*/i, ' ')
     .replace(/^\s*(can|could|would|will)\s+you\s+(please\s+)?/i, ' ')

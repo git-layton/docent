@@ -153,7 +153,7 @@ export function IntegrationsDashboard() {
           const isDenied = c.status === 'denied';
 
           return (
-            <div key={c.id} className="group flex flex-col p-4 rounded-2xl border border-edge bg-panel-2/40 hover:bg-panel backdrop-blur-xl transition-all shadow-sm">
+            <div key={c.id} className="group flex flex-col p-4 rounded-2xl border border-edge bg-panel-2 hover:bg-panel transition-all shadow-sm">
               <div className="flex items-start justify-between mb-2">
                 <div className={`p-2 rounded-xl ${c.iconBg}`}>
                   <c.icon className={`w-4 h-4 ${c.iconColor}`} />

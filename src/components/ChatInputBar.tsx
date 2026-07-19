@@ -193,7 +193,7 @@ export function ChatInputBar({
             </div>
         )}
 
-        {/* Routine proposal — Alexis noticed a recurring/watch request in the last message. */}
+        {/* Routine proposal — Docent noticed a recurring/watch request in the last message. */}
         <RoutineProposalBar />
 
         {attachedDocs.length > 0 && (

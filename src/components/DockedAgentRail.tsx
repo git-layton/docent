@@ -90,7 +90,7 @@ export function DockedAgentRail({
     <div
       ref={railRef}
       style={{ width }}
-      className="relative shrink-0 flex flex-col m-3 rounded-2xl shadow-2xl ring-1 ring-white/10 bg-panel/60 backdrop-blur-3xl overflow-hidden"
+      className="relative shrink-0 flex flex-col m-3 rounded-2xl shadow-2xl ring-1 ring-white/10 bg-panel overflow-hidden"
     >
       <div
         onMouseDown={handleResizeDrag}

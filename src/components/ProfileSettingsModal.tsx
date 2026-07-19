@@ -31,12 +31,14 @@ import { describeImage, resolveVisionRoute } from '../services/llm';
 const VISION_TEST_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 interface ProfileSettingsModalProps {
+  /** Render as a full app-tab surface (no scrim, no close X — the tab strip owns closing). */
+  embedded?: boolean;
   fetchImageModels: () => void;
   testImageEngine: () => void;
   viewImageInCanvas: (src: string) => void;
 }
 
-export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewImageInCanvas }: ProfileSettingsModalProps) {
+export function ProfileSettingsModal({ embedded = false, fetchImageModels, testImageEngine, viewImageInCanvas }: ProfileSettingsModalProps) {
   const userName = useSettingsStore(s => s.userName);
   const userProfile = useSettingsStore(s => s.userProfile);
   const userAvatar = useSettingsStore(s => s.userAvatar);
@@ -445,11 +447,15 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
   const visibleSections = q ? SECTIONS.filter(s => s.label.toLowerCase().includes(q)) : SECTIONS;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-      <div className="bg-panel w-full max-w-4xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]">
+    <div className={embedded
+      ? 'flex-1 h-full min-h-0 overflow-hidden bg-panel'
+      : 'fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 animate-in fade-in'}>
+      <div className={embedded
+        ? 'bg-panel w-full h-full p-8 text-ink flex flex-col'
+        : 'bg-panel w-full max-w-4xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]'}>
         <div className="flex justify-between items-center mb-6 shrink-0">
           <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><Settings className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Settings</h3></div>
-          <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>
+          {!embedded && <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>}
         </div>
         <div className="flex-1 min-h-0 flex gap-6">
           {/* Left rail — search + section list */}
@@ -1689,7 +1695,7 @@ export function ProfileSettingsModal({ fetchImageModels, testImageEngine, viewIm
 }
 
 // Manage the local model files on disk: see what's downloaded, switch which one
-// Alexis uses, and delete ones you don't need (to free the often many-GB files).
+// Docent uses, and delete ones you don't need (to free the often many-GB files).
 function InstalledModels() {
   const [installed, setInstalled] = useState<{ filename: string; size_mb: number }[]>([]);
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -1769,7 +1775,7 @@ function InstalledModels() {
   return (
     <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm">
       <p className="text-sm font-bold text-ink mb-1">Downloaded models</p>
-      <p className="text-xs text-ink-3 mb-4">Local models on this Mac — switch which one Alexis uses, or delete to free space.</p>
+      <p className="text-xs text-ink-3 mb-4">Local models on this Mac — switch which one Docent uses, or delete to free space.</p>
       <div className="space-y-2">
         {installed.map(f => {
           const cat = catFor(f.filename);

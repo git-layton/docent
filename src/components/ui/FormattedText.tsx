@@ -101,7 +101,7 @@ export const FormattedText = ({ text, sources, onSaveImage, onViewImage, onOpenF
                         title="Click to view full size"
                       />
                    </div>
-                   <div className="flex items-center gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity bg-panel/70 p-1.5 rounded-xl w-fit backdrop-blur-sm border border-edge">
+                   <div className="flex items-center gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity bg-panel p-1.5 rounded-xl w-fit border border-edge">
                       {onSaveImage && (
                         <button onClick={() => onSaveImage(src)} className="p-1.5 px-2.5 text-ink-2 hover:text-accent hover:bg-wash rounded-lg transition-all flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest" title="Save to Archives">
                           <Save className="w-3.5 h-3.5" /> Save

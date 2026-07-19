@@ -318,7 +318,7 @@ export function NotesPanel() {
 
         {/* Share picker */}
         {sharing && (
-          <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setSharing(false)}>
+          <div className="absolute inset-0 z-40 bg-black/40 flex items-center justify-center p-6" onClick={() => setSharing(false)}>
             <div className="bg-panel-2 w-full max-w-sm rounded-2xl border border-edge shadow-2xl p-4 flex flex-col gap-3" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-bold text-ink">Share note</span>

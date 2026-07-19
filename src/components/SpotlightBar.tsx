@@ -662,7 +662,7 @@ export default function SpotlightBar() {
       const title = (q || tab?.title || 'Saved from screen').slice(0, 80);
       const now = new Date();
       const filename = `${now.toISOString().slice(0, 10)}-${slugify(title)}-${now.getTime()}.md`;
-      const frontmatter = `---\ntitle: "${title.replace(/"/g, "'")}"\nsource: "spotlight-action"\nagent: "${selectedAgent?.name || 'Alexis'}"\ndate: "${now.toISOString()}"\ntags: [saved, spotlight]\n---\n\n`;
+      const frontmatter = `---\ntitle: "${title.replace(/"/g, "'")}"\nsource: "spotlight-action"\nagent: "${selectedAgent?.name || 'Docent'}"\ndate: "${now.toISOString()}"\ntags: [saved, spotlight]\n---\n\n`;
       const body = `${q ? `**${q}**\n\n` : ''}${msg.content}`;
       await writeMemory({ path: `${kc.path}/memory/saved/${filename}`, content: frontmatter + body, commitMessage: `save: ${title.slice(0, 60)}`, agentId: selectedAgentId || null });
       setActionState(s => ({ ...s, [key]: 'done' }));
@@ -777,7 +777,7 @@ export default function SpotlightBar() {
                 setShowScreenPreview(next);
                 if (next) fetchScreenPreview();
               }}
-              title="Preview what Alexis will see when it reads your screen"
+              title="Preview what Docent will see when it reads your screen"
               className="flex items-center gap-1.5 text-[10px] text-ink-3 px-2 py-0.5 shrink-0 select-none rounded-lg hover:bg-wash transition-all">
               <Monitor className="w-3 h-3" />
               seeing
@@ -971,7 +971,7 @@ export default function SpotlightBar() {
               <div className="p-2.5 rounded-2xl bg-accent-soft/40">
                 <Flame className="w-6 h-6 text-accent" />
               </div>
-              <p className="text-sm text-ink font-semibold">{selectedAgent?.name ?? 'Alexis'}</p>
+              <p className="text-sm text-ink font-semibold">{selectedAgent?.name ?? 'Docent'}</p>
               <p className="text-xs text-ink-3 max-w-xs leading-relaxed">
                 {screenMode
                   ? 'Ask about what you’re seeing — the screen is read on-device and never leaves your Mac.'
@@ -984,7 +984,7 @@ export default function SpotlightBar() {
               {msg.role !== 'user' && (
                 <div className="flex items-center gap-1.5 px-0.5">
                   <Flame className="w-3.5 h-3.5 text-accent" />
-                  <span className="text-[10px] font-semibold text-ink-3">{selectedAgent?.name ?? 'Alexis'}</span>
+                  <span className="text-[10px] font-semibold text-ink-3">{selectedAgent?.name ?? 'Docent'}</span>
                 </div>
               )}
               <div className={`max-w-[85%] text-sm leading-relaxed break-words select-text ${
@@ -1015,7 +1015,7 @@ export default function SpotlightBar() {
                         <div className="px-3 pb-2 border-t border-on-accent/20">
                           {card.thumb && (
                             <div className="mt-2">
-                              <img src={card.thumb} alt="The frame Alexis read" className="w-full rounded-lg border border-on-accent/25" />
+                              <img src={card.thumb} alt="The frame Docent read" className="w-full rounded-lg border border-on-accent/25" />
                               <p className="text-[9px] text-on-accent/50 mt-1 italic">the exact frame I read — notice I'm not in it · nothing left your Mac</p>
                             </div>
                           )}
@@ -1198,14 +1198,14 @@ export default function SpotlightBar() {
         {showScreenPreview && screenMode && !chatOnly && (
           <div className="mx-3 mb-2 p-3 rounded-xl bg-inset border border-edge text-xs leading-relaxed">
             <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="font-bold text-ink flex items-center gap-2"><Monitor className="w-4 h-4 text-accent shrink-0" /> What Alexis will see</span>
+              <span className="font-bold text-ink flex items-center gap-2"><Monitor className="w-4 h-4 text-accent shrink-0" /> What Docent will see</span>
               <button
                 onClick={fetchScreenPreview}
                 className={`p-1 rounded-lg text-ink-3 hover:text-ink-2 transition-all ${screenPreview.loading ? 'animate-spin' : ''}`}
                 title="Refresh preview"><RefreshCw className="w-3 h-3" /></button>
             </div>
             {screenPreview.thumb
-              ? <img src={screenPreview.thumb} alt="Preview of the display Alexis reads" className="w-full rounded-lg border border-edge-2" />
+              ? <img src={screenPreview.thumb} alt="Preview of the display Docent reads" className="w-full rounded-lg border border-edge-2" />
               : <p className="text-ink-2 py-4 text-center">{screenPreview.loading ? 'Grabbing preview…' : 'Preview unavailable — is Screen Recording granted?'}</p>}
             <p className="text-ink-3 mt-1.5 text-[10px]">
               This preview stays on your Mac — nothing is sent anywhere. During a real read this panel hides itself first, so the model sees the app underneath, not this sidebar.

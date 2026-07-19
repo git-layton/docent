@@ -95,7 +95,7 @@ describe('agentActions — strip + describe', () => {
 
 // ── Pre-approval target resolution ───────────────────────────────────────────
 import { invoke } from '@tauri-apps/api/core';
-import { resolveActionTargets } from '../../services/agentActions';
+import { resolveActionTargets, isCardAction, renderCardActionBlocks } from '../../services/agentActions';
 
 describe('resolveActionTargets — approve the real destination, not the guess', () => {
   it('stamps the resolved chat guid and display name for message.send', async () => {
@@ -132,5 +132,44 @@ describe('resolveActionTargets — approve the real destination, not the guess',
   it('passes non-send actions through unchanged', async () => {
     const a = { tool: 'task', op: 'create', title: 'T' };
     expect(await resolveActionTargets(a)).toEqual(a);
+  });
+});
+
+describe('card actions — event/library/profile route to cards, not execution', () => {
+  it('recognizes card ops and excludes connector ops', () => {
+    expect(isCardAction({ tool: 'event', op: 'create', title: 'Trip' })).toBe(true);
+    expect(isCardAction({ tool: 'library', op: 'save', content: 'x' })).toBe(true);
+    expect(isCardAction({ tool: 'profile', op: 'update', fact: 'likes tea' })).toBe(true);
+    expect(isCardAction({ tool: 'task', op: 'create', title: 'x' })).toBe(false);
+    expect(isCardAction({ tool: 'message', op: 'send', to: 'a', text: 'b' })).toBe(false);
+  });
+
+  it('renders card actions back into the legacy fenced blocks the message renderer displays', () => {
+    const out = renderCardActionBlocks([
+      { tool: 'event', op: 'create', type: 'date', title: 'Dentist', dueDate: '2026-08-01' },
+      { tool: 'library', op: 'save', title: 'Plan', content: 'the plan' },
+      { tool: 'task', op: 'create', title: 'not a card' },
+    ]);
+    expect(out).toContain('```event\n');
+    expect(out).toContain('"title":"Dentist"');
+    expect(out).toContain('```save\n');
+    expect(out).not.toContain('not a card'); // non-card ops are skipped
+    // tool/op keys are stripped from the rendered block payload (renderer keys off the fence lang)
+    expect(out).not.toContain('"op":"create"');
+  });
+
+  it('maps event update/delete to their legacy fence languages', () => {
+    expect(renderCardActionBlocks([{ tool: 'event', op: 'update', id: 'e1', dueDate: '2026-09-01' }])).toContain('```event_update\n');
+    expect(renderCardActionBlocks([{ tool: 'event', op: 'delete', id: 'e1' }])).toContain('```event_delete\n');
+    expect(renderCardActionBlocks([{ tool: 'profile', op: 'update', fact: 'likes tea' }])).toContain('```profile\n');
+  });
+});
+
+describe('parseAgentActions — card ops validate through the same grammar', () => {
+  it('accepts a valid event.create and drops an event.update missing its id', () => {
+    const good = parseAgentActions('```forge:action\n{"tool":"event","op":"create","type":"date","title":"X","dueDate":"2026-08-01"}\n```');
+    expect(good).toHaveLength(1);
+    const bad = parseAgentActions('```forge:action\n{"tool":"event","op":"update","dueDate":"2026-08-01"}\n```');
+    expect(bad).toHaveLength(0);
   });
 });

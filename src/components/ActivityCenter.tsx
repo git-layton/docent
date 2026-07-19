@@ -35,7 +35,7 @@ export function ActivityCenter() {
   if (!isActivityCenterOpen) return null;
 
   return (
-    <div className="absolute top-12 right-4 w-80 bg-white/90 dark:bg-black/90 backdrop-blur-md border border-black/10 dark:border-white/10 rounded-xl shadow-xl z-50 overflow-hidden flex flex-col max-h-[80vh]">
+    <div className="absolute top-12 right-4 w-80 bg-white dark:bg-black border border-black/10 dark:border-white/10 rounded-xl shadow-xl z-50 overflow-hidden flex flex-col max-h-[80vh]">
       <div className="flex items-center justify-between p-3 border-b border-black/5 dark:border-white/5 bg-black/5 dark:bg-white/5">
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-blue-500" />

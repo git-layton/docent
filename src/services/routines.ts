@@ -31,7 +31,7 @@ export interface Routine {
   sources?: { mail?: boolean; calendar?: boolean; notes?: boolean };
   /** For digest: the user's own instruction for what to make of the gathered data. */
   instruction?: string;
-  /** For digest: also write the briefing to the agent's memory so Alexis can REFERENCE it later
+  /** For digest: also write the briefing to the agent's memory so Docent can REFERENCE it later
    *  (the file watcher indexes knowledge_root/memory into semantic search). Inbox is the delivery
    *  surface; memory is the durable-knowledge surface — opt-in so we don't bloat memory by default. */
   saveToMemory?: boolean;

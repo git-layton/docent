@@ -5,7 +5,7 @@ import { db } from '../services/database';
 import type { Routine } from '../services/routines';
 
 /**
- * The "ask Alexis to set up a routine" confirmation. When a chat message reads as a recurring or
+ * The "ask Docent to set up a routine" confirmation. When a chat message reads as a recurring or
  * watch request (`detectRoutineIntent`), this bar offers to create it — the user always confirms
  * before anything is scheduled (propose-don't-run, same discipline as playbooks). Saved routines
  * are executed by the scheduler in App.tsx; the Planner's Routines card manages them afterward.

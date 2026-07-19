@@ -46,7 +46,7 @@ export function MarginaliaLayer({
             style={{ borderLeftColor: accent }}
             className={clsx(
               'pointer-events-auto rounded-lg border border-l-4 border-edge',
-              'bg-panel-2/95 p-3 shadow-lg backdrop-blur-sm',
+              'bg-panel-2 p-3 shadow-lg',
               'animate-[marginalia-in_180ms_ease-out]',
             )}
           >

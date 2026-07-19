@@ -105,7 +105,7 @@ export function MessageList({
     <div className="flex-1 flex flex-col relative min-h-0 overflow-hidden">
       {/* Drag and Drop Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 z-50 bg-accent-soft border-4 border-accent/40 border-dashed rounded-[2rem] m-4 flex items-center justify-center pointer-events-none backdrop-blur-[2px] transition-all">
+        <div className="absolute inset-0 z-50 bg-accent-soft border-4 border-accent/40 border-dashed rounded-[2rem] m-4 flex items-center justify-center pointer-events-none transition-all">
             <div className="bg-panel-2 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-accent font-black tracking-widest uppercase">
                 <Paperclip className="animate-bounce" /> Drop file to attach
             </div>

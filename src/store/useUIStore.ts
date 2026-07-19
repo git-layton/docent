@@ -29,7 +29,7 @@ interface UIStore {
   pinnedTools: string[];
   isDragging: boolean;
   uploadError: string;
-  /** A routine Alexis detected in a chat message, awaiting the user's confirm (see routines.ts). */
+  /** A routine Docent detected in a chat message, awaiting the user's confirm (see routines.ts). */
   proposedRoutine: import('../services/routines').ProposedRoutine | null;
   slashHighlight: number;
 

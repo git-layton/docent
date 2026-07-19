@@ -215,7 +215,7 @@ export function PlannerPanel({ onDragStart, onDragOver, onDrop }: PlannerPanelPr
 
       {/* Task Discuss Bot Selector Modal */}
       {taskToDiscuss && (
-        <div className="absolute inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+        <div className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4 animate-in fade-in">
            <div className="bg-panel-2 w-full max-w-sm rounded-2xl shadow-xl p-5 border border-edge">
               <div className="flex justify-between items-center mb-4">
                  <h3 className="text-sm font-black uppercase tracking-widest text-accent">Ask which Agent?</h3>

@@ -193,6 +193,14 @@ const APPS: AppEntry[] = [
     open: (tabId) => launch(tabId, { type: 'tool', toolId: 'activity' as ToolTabId, label: 'Activity' }),
   },
   {
+    id: 'settings',
+    label: 'Settings',
+    sub: 'Profile, models & connections',
+    icon: Settings,
+    tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
+    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'settings' as ToolTabId, label: 'Settings' }),
+  },
+  {
     id: 'knowledge-graph',
     label: 'Knowledge Graph',
     sub: 'Your connected memory',

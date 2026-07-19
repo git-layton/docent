@@ -188,7 +188,7 @@ export function DesktopViewerPanel() {
           
           {/* Expanded Selector Popup */}
           {showWindowSelector && (
-            <div className="pointer-events-auto mb-4 w-[400px] max-h-[400px] flex flex-col bg-panel/80 backdrop-blur-3xl border border-edge-2 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4">
+            <div className="pointer-events-auto mb-4 w-[400px] max-h-[400px] flex flex-col bg-panel border border-edge-2 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4">
               <div className="px-4 py-3 shrink-0 border-b border-edge flex items-center justify-between">
                 <span className="text-xs font-bold tracking-widest uppercase text-ink-3">Open Windows</span>
                 <button onClick={() => setShowWindowSelector(false)} className="text-ink-3 hover:text-ink">
@@ -216,7 +216,7 @@ export function DesktopViewerPanel() {
           )}
 
           {/* Persistent Pill Bar */}
-          <div className="pointer-events-auto flex items-center p-1.5 bg-black/60 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl transition-all hover:bg-black/80">
+          <div className="pointer-events-auto flex items-center p-1.5 bg-black/80 border border-white/10 rounded-full shadow-2xl transition-all hover:bg-black/80">
             <button 
               onClick={() => {
                 if (windows.length === 0) return;

@@ -715,7 +715,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
           <Zap className="w-6 h-6 text-accent" />
         </StepIcon>
         <div>
-          <h2 className="text-xl font-black tracking-tight text-ink">Set up Alexis, your assistant</h2>
+          <h2 className="text-xl font-black tracking-tight text-ink">Set up Docent, your assistant</h2>
           <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">Your default assistant — here to help you get whatever you need done.</p>
         </div>
       </div>
@@ -743,7 +743,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
         </div>
       )}
 
-      {/* First decision: how should Alexis be powered? Just the local-vs-cloud choice —
+      {/* First decision: how should Docent be powered? Just the local-vs-cloud choice —
           the specific model is picked on the next screen, so this stays clean. */}
       {rec && (
         <div className="space-y-3">
@@ -755,7 +755,7 @@ function StepModel({ onNext, onSkip }: { onNext: () => void; onSkip: () => void 
               </span>
             </div>
           )}
-          <p className="text-sm text-ink leading-relaxed">First — how would you like Alexis powered?</p>
+          <p className="text-sm text-ink leading-relaxed">First — how would you like Docent powered?</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
             {/* Local */}
@@ -895,14 +895,14 @@ function StepDone({ onFinish }: { onFinish: () => void }) {
       </div>
 
 
-      {/* Alexis intro */}
+      {/* Docent intro */}
       <div className="w-full max-w-xs rounded-2xl border-2 border-error/30 bg-error/5 dark:bg-error/10 p-4 text-left space-y-2">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-error flex items-center justify-center shrink-0 shadow-md shadow-error/20">
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="text-sm font-black text-ink">Meet Alexis</p>
+            <p className="text-sm font-black text-ink">Meet Docent</p>
             <p className="text-tiny text-ink-2">Your executive assistant — already waiting for you</p>
           </div>
         </div>
@@ -913,7 +913,7 @@ function StepDone({ onFinish }: { onFinish: () => void }) {
           onClick={openAlexis}
           className="text-tiny font-black uppercase tracking-widest text-error hover:underline"
         >
-          Say hi to Alexis →
+          Say hi to Docent →
         </button>
       </div>
 
@@ -963,9 +963,9 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
       const welcomeMsg = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: "Welcome, I'm Alexis. I'm here to get you started whether you want to connect your applications, start working on something, or start browsing the web. Take me with you via this hotkey (Cmd+Shift+F) or if you just want to chat we can talk. I learn about you as we go and can do quite a bit but let's discover that together.",
+        content: "Welcome, I'm Docent. I'm here to get you started whether you want to connect your applications, start working on something, or start browsing the web. Take me with you via this hotkey (Cmd+Shift+F) or if you just want to chat we can talk. I learn about you as we go and can do quite a bit but let's discover that together.",
         agentId: 'alexis',
-        agentName: 'Alexis',
+        agentName: 'Docent',
         timestamp: Date.now(),
         attachments: [],
         thoughtLog: []

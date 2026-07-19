@@ -144,6 +144,16 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const userProfile = useSettingsStore(s => s.userProfile);
   const userName = useSettingsStore(s => s.userName);
   const showProfileSettings = useSettingsStore(s => s.showProfileSettings);
+  // Settings is an app, not a modal: the flag is now a routing signal from legacy callers
+  // (openNotesSettings etc.). Open/focus the Settings tab and reset it.
+  useEffect(() => {
+    if (!showProfileSettings) return;
+    const st = useSpaceStore.getState();
+    const existing = st.omniTabs.find(t => t.type === 'tool' && t.toolId === 'settings' && t.spaceId === (st.activeSpaceId ?? undefined));
+    if (existing) st.setActiveTab(existing.id);
+    else st.openTab({ type: 'tool', toolId: 'settings', label: 'Settings' });
+    useSettingsStore.getState().setShowProfileSettings(false);
+  }, [showProfileSettings]);
   const showNewSpace = useUIStore(s => s.showNewSpace);
   const showModelWizard = useSettingsStore(s => s.showModelWizard);
   const showOnboarding = useSettingsStore(s => s.showOnboarding);
@@ -2594,7 +2604,7 @@ const handleSendMessage = async () => {
     }
 
     const userMsg = { id: generateId('msg'), role: 'user', content: _input, attachedFiles: [..._attachedDocs], isPinned: false, timestamp: Date.now() };
-    // "Ask Alexis to set up a routine" — if the message reads as a recurring/watch request, surface
+    // "Ask Docent to set up a routine" — if the message reads as a recurring/watch request, surface
     // a proposal card above the composer. Pure detection, no LLM call; the user confirms before it saves.
     useUIStore.getState().setProposedRoutine(detectRoutineIntent(_input));
     // Auto-save any attached images to the Image Library (de-duped, described in the background).
@@ -3134,6 +3144,16 @@ const handleSendMessage = async () => {
     if (tab.type === 'tool' && tab.toolId === 'knowledge-graph') {
       return <KnowledgeGraphPanel onSendPrompt={handleSendPromptFromTool} />;
     }
+    if (tab.type === 'tool' && tab.toolId === 'settings') {
+      return (
+        <ProfileSettingsModal
+          embedded
+          fetchImageModels={fetchImageModels}
+          testImageEngine={testImageEngine}
+          viewImageInCanvas={viewImageInCanvas}
+        />
+      );
+    }
     if (tab.type === 'tool' && tab.toolId === 'planner') {
       return <PlannerPanel onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />;
     }
@@ -3365,7 +3385,7 @@ if (isSpotlight) {
                       setShowScreenPreview(next);
                       if (next) fetchScreenPreview();
                     }}
-                    title="Preview what Alexis will see when it reads your screen"
+                    title="Preview what Docent will see when it reads your screen"
                     className="flex items-center gap-1.5 text-[10px] text-ink-3 px-2 py-0.5 shrink-0 select-none rounded-lg hover:bg-wash transition-all">
                     <Monitor className="w-3 h-3" />
                     seeing
@@ -3649,7 +3669,7 @@ if (isSpotlight) {
               header={
                 <div className="flex items-center gap-2 flex-1 justify-between">
                   <span className="text-xs font-semibold text-ink tracking-tight uppercase">
-                    {activeAssistant?.name || 'Alexis'}
+                    {activeAssistant?.name || 'Docent'}
                   </span>
                   <div className="flex items-center gap-1">
                     <button
@@ -3710,14 +3730,8 @@ if (isSpotlight) {
         />
       )}
 
-      {/* Global Profile/System Settings */}
-      {showProfileSettings && (
-        <ProfileSettingsModal
-          fetchImageModels={fetchImageModels}
-          testImageEngine={testImageEngine}
-          viewImageInCanvas={viewImageInCanvas}
-        />
-      )}
+      {/* Settings is an app tab now, not a modal — the routing effect near the top of App
+          turns legacy setShowProfileSettings(true) calls into opening the Settings tab. */}
 
       {/* New Space wizard — name, goal, invite agents/people */}
       {showNewSpace && <NewSpaceModal />}

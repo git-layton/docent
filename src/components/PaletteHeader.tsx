@@ -8,7 +8,7 @@ export function PaletteHeader() {
   const openGlobalSearch = () =>
     window.dispatchEvent(new CustomEvent('forge:open-cmdk', { detail: { query: chatSearchQuery } }));
 
-  // The Alexis toggle is often wired to toggle the copilot sidebar.
+  // The Docent toggle is often wired to toggle the copilot sidebar.
   // We can just flip useUIStore.getState().setCopilotOpen(!copilotOpen) 
   // but since we dispatch 'forge:toggle-copilot' in places, we'll do that or just read state.
   const toggleCopilot = () => {
@@ -16,7 +16,7 @@ export function PaletteHeader() {
   };
 
   return (
-    <div className="h-16 px-4 flex items-center justify-between border-b border-edge shrink-0 z-50 bg-panel/80 backdrop-blur-[40px]">
+    <div className="h-16 px-4 flex items-center justify-between border-b border-edge shrink-0 z-50 bg-panel">
       
       {/* 1. Left placeholder (empty since spaces moved) */}
       <div className="w-[140px] shrink-0" />
@@ -46,7 +46,7 @@ export function PaletteHeader() {
         </div>
       </div>
 
-      {/* 3. Actions & Alexis Toggle (Right) */}
+      {/* 3. Actions & Docent Toggle (Right) */}
       <div className="flex items-center gap-2">
         {/* Activity Center toggle */}
         <button
@@ -59,12 +59,12 @@ export function PaletteHeader() {
 
 
 
-        {/* Alexis Toggle */}
+        {/* Docent Toggle */}
         <button 
           onClick={toggleCopilot}
           className="flex items-center hover:bg-wash px-3 py-1.5 rounded-full transition-colors border border-edge bg-inset min-w-[90px] justify-center"
         >
-          <span className="text-sm font-semibold text-ink">Alexis</span>
+          <span className="text-sm font-semibold text-ink">Docent</span>
         </button>
       </div>
       

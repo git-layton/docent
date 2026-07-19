@@ -234,7 +234,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, onDownloa
     <button
       onClick={handleImport}
       disabled={importing}
-      className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3.5 text-[11px] font-black uppercase tracking-widest text-ink-2 bg-panel-2/40 hover:bg-panel border border-edge rounded-2xl transition-all disabled:opacity-50 shadow-sm backdrop-blur-xl"
+      className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3.5 text-[11px] font-black uppercase tracking-widest text-ink-2 bg-panel-2 hover:bg-panel border border-edge rounded-2xl transition-all disabled:opacity-50 shadow-sm"
     >
       {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
       {importing ? 'Scanning…' : 'Scan for existing models'}
@@ -336,7 +336,7 @@ export function ModelStorePanel({ ramMb, isAppleSilicon, onModelReady, onDownloa
               className={`shrink-0 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-full border transition-all ${
                 roleFilter === role
                   ? 'bg-ink text-surface border-ink shadow-md'
-                  : 'bg-panel-2/50 backdrop-blur-md text-ink-2 border-edge hover:bg-panel shadow-sm'
+                  : 'bg-panel-2 text-ink-2 border-edge hover:bg-panel shadow-sm'
               }`}
             >
               {role}
@@ -402,7 +402,7 @@ function ModelCard({ model, state, fitLabel, onDownload, onLoad, onCancel, onDel
   const status = state?.status ?? 'idle';
 
   return (
-    <div className={`border rounded-2xl p-5 transition-all shadow-sm backdrop-blur-xl ${
+    <div className={`border rounded-2xl p-5 transition-all shadow-sm ${
       status === 'ready'
         ? 'border-success/40 bg-success-soft/30'
         : 'border-edge bg-panel-2/40 hover:bg-panel'

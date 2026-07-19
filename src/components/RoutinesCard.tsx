@@ -149,7 +149,7 @@ export function RoutinesCard({ assistants }: { assistants: Array<{ id: string; n
                 className="w-full bg-panel border border-edge-2 rounded-xl px-3 py-2 text-xs outline-none focus:border-secondary resize-none" />
               <label className="flex items-center gap-2 text-tiny text-ink-2 cursor-pointer">
                 <input type="checkbox" checked={saveToMemory} onChange={e => setSaveToMemory(e.target.checked)} className="accent-current" />
-                Also save to memory so Alexis can reference this briefing later
+                Also save to memory so Docent can reference this briefing later
               </label>
             </>
           )}

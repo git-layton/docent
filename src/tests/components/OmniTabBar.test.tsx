@@ -50,7 +50,7 @@ describe('OmniTabBar — rendering', () => {
   it('renders nothing but the + button when there are no tabs', () => {
     seedStore([])
     render(<OmniTabBar />)
-    expect(screen.getByTitle('New tab — Home')).toBeInTheDocument()
+    expect(screen.getByTitle('New tab — Start')).toBeInTheDocument()
   })
 
   it('renders one pill per tab', () => {
@@ -220,13 +220,13 @@ describe('OmniTabBar — new tab button', () => {
   it('+ button is always present', () => {
     seedStore([])
     render(<OmniTabBar />)
-    expect(screen.getByTitle('New tab — Home')).toBeInTheDocument()
+    expect(screen.getByTitle('New tab — Start')).toBeInTheDocument()
   })
 
   it('does not render a tab-type dropdown (the old popover is gone)', () => {
     seedStore([])
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab — Home'))
+    fireEvent.click(screen.getByTitle('New tab — Start'))
     expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
     expect(screen.queryByText('Code Canvas')).not.toBeInTheDocument()
   })
@@ -234,7 +234,7 @@ describe('OmniTabBar — new tab button', () => {
   it('clicking + creates and focuses a pinned Home tab when none exists', () => {
     seedStore([])
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab — Home'))
+    fireEvent.click(screen.getByTitle('New tab — Start'))
     const { omniTabs, activeOmniTabId } = useSpaceStore.getState()
     const home = omniTabs.find(t => t.type === 'home')
     expect(home).toBeDefined()
@@ -253,7 +253,7 @@ describe('OmniTabBar — new tab button', () => {
     const openSpy = vi.spyOn(useSpaceStore.getState(), 'openTab')
     const activeSpy = vi.spyOn(useSpaceStore.getState(), 'setActiveTab')
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab — Home'))
+    fireEvent.click(screen.getByTitle('New tab — Start'))
     expect(activeSpy).toHaveBeenCalledWith('home-1')
     expect(openSpy).not.toHaveBeenCalled()
   })
