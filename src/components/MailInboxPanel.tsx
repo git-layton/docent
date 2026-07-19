@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Inbox, RotateCw, Mail, Settings as SettingsIcon, ArrowLeft, Reply, ReplyAll, Trash2, Send, Pencil, X, Wand2, Star, Plus } from 'lucide-react';
+import { Inbox, RotateCw, Mail, Settings as SettingsIcon, ArrowLeft, Reply, ReplyAll, Trash2, Send, Pencil, X, Wand2, Star, Plus, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -11,6 +11,11 @@ import { invalidateUnreadCache } from '../lib/mailUnread';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForEmail } from '../services/voice';
 import { usePanelResource } from '../lib/panelCache';
+import {
+  classifyAllHeuristic, buildTriagePrompt, parseTriageResponse,
+  applyModelUpgrade, planSweep, invertSweepPlan, type MailQueue,
+} from '../services/mailTriage';
+import { useReceiptStore } from '../services/receipts';
 import { buildVoiceCard, buildEmailRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
 
 interface MailHeader {
@@ -132,6 +137,10 @@ export function MailInboxPanel() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false); // "write like me" drafting in progress
 
+  const [activeQueue, setActiveQueue] = useState<MailQueue>('needs-reply');
+  const [upgrades, setUpgrades] = useState<Map<number, MailQueue>>(new Map());
+  const [isSweeping, setIsSweeping] = useState(false);
+
   // Inbox rows — state-alive across tab switches (instant reopen, silent revalidate). Keyed by
   // the account set so adding/removing an account can never paint another set's cached rows.
   const { data: rows = [], loading, error, refresh: load, mutate: mutateRows } = usePanelResource<MailRow[]>({
@@ -170,8 +179,13 @@ export function MailInboxPanel() {
     return () => clearTimeout(t);
   }, [actionError]);
 
+  const classifiedRows = useMemo(() => {
+    const base = classifyAllHeuristic(rows);
+    return applyModelUpgrade(base as any, upgrades) as (MailRow & { queue: MailQueue; modelClassified?: boolean })[];
+  }, [rows, upgrades]);
+
   const sortedRows = useMemo(() => {
-    const r = [...rows];
+    const r = [...classifiedRows];
     switch (sort) {
       case 'oldest': return r.sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0));
       case 'unread': return r.sort((a, b) => Number(a.seen) - Number(b.seen) || (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
@@ -179,14 +193,44 @@ export function MailInboxPanel() {
       case 'sender': return r.sort((a, b) => (a.fromName || a.fromEmail).localeCompare(b.fromName || b.fromEmail));
       default: return r.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
     }
-  }, [rows, sort]);
+  }, [classifiedRows, sort]);
 
   const displayRows = useMemo(() => {
-    let r = sortedRows;
+    let r = sortedRows.filter(x => x.queue === activeQueue);
     if (starredOnly) r = r.filter(x => x.flagged);
     if (activeFilter && filterKeys) r = r.filter(x => filterKeys.has(rowKey(x)));
     return r;
-  }, [sortedRows, starredOnly, activeFilter, filterKeys]);
+  }, [sortedRows, activeQueue, starredOnly, activeFilter, filterKeys]);
+
+  // Background LLM classification pass
+  useEffect(() => {
+    if (rows.length === 0 || models.length === 0) return;
+    const modelConfig = (models as any[]).find(m => m.id === selectedModelId) ?? (models as any[])[0];
+    if (!modelConfig) return;
+
+    // Only classify ones we haven't upgraded yet
+    const toClassify = rows.filter(r => !upgrades.has(r.uid)).slice(0, 20); // batch size 20
+    if (toClassify.length === 0) return;
+
+    const prompt = buildTriagePrompt(toClassify);
+    generateTextResponse({
+      messages: [{ id: `mailtriage-${Date.now()}`, role: 'user', content: prompt }],
+      modelConfig,
+      agent: { prompt: 'You output only strict JSON as requested.', tools: {}, trainingDocs: [] },
+      profile: '', tasks: [], attachedDocs: [], agentPinnedMessages: [], mode: 'text',
+      canvasContent: null, isDeepThinking: false, onChunk: null, signal: null,
+      appSettings: {}, integrations: {}, models: [],
+    }).then(resp => {
+      const parsed = parseTriageResponse(resp, toClassify.map(r => r.uid));
+      if (parsed) {
+        setUpgrades(prev => {
+          const next = new Map(prev);
+          for (const [uid, q] of parsed.entries()) next.set(uid, q);
+          return next;
+        });
+      }
+    }).catch(console.error);
+  }, [rows, models, selectedModelId, upgrades]);
 
   // Core matcher: ask the model which loaded messages fit a description. Includes date and
   // read/star state so filters like "unread newsletters from this week" actually work.
@@ -590,6 +634,40 @@ export function MailInboxPanel() {
         <div className="flex-1" />
         {accounts.length > 0 && (
           <>
+            <button
+              onClick={async () => {
+                setIsSweeping(true);
+                const plan = planSweep(classifiedRows as any);
+                if (plan.archive.length === 0 && plan.flag.length === 0 && plan.draft.length === 0) {
+                  useUIStore.getState().showToast("Inbox already clean!");
+                  setIsSweeping(false);
+                  return;
+                }
+                useUIStore.getState().showToast(plan.summary);
+                for (const h of plan.archive) {
+                  await invoke('mail_archive', { provider: (h as any).provider, email: h.account, uid: h.uid }).catch(console.error);
+                }
+                for (const h of plan.flag) {
+                  await invoke('mail_set_flagged', { provider: (h as any).provider, email: h.account, uid: h.uid, flagged: true }).catch(console.error);
+                }
+                const inv = invertSweepPlan(plan);
+                console.log('Sweep inverse plan:', inv);
+                useReceiptStore.getState().record({
+                  surface: 'mail',
+                  action: 'Swept Inbox',
+                  summary: plan.summary,
+                }, async () => {
+                  useUIStore.getState().showToast("Undo not fully implemented (requires IMAP un-archive).");
+                });
+                load();
+                setIsSweeping(false);
+              }}
+              disabled={isSweeping || loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent-soft text-accent hover:bg-accent hover:text-on-accent transition-colors disabled:opacity-40"
+              title="Sweep Inbox"
+            >
+              <Sparkles className={clsx("w-3.5 h-3.5", isSweeping && "animate-spin")} /> Sweep
+            </button>
             <button onClick={startCompose} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity" title="Compose">
               <Pencil className="w-3.5 h-3.5" /> Compose
             </button>
@@ -613,6 +691,25 @@ export function MailInboxPanel() {
           <RotateCw className={clsx('w-3.5 h-3.5', loading && 'animate-spin')} />
         </button>
       </div>
+
+      {accounts.length > 0 && (
+        <div className="flex px-2 pt-2 border-b border-edge shrink-0 gap-1 overflow-x-auto">
+          {(['needs-reply', 'newsletter', 'receipt', 'other'] as MailQueue[]).map(q => (
+            <button
+              key={q}
+              onClick={() => setActiveQueue(q)}
+              className={clsx(
+                "px-3 py-2 text-xs font-medium rounded-t-lg transition-colors border-b-2",
+                activeQueue === q 
+                  ? "border-accent text-accent bg-accent-soft/30" 
+                  : "border-transparent text-ink-3 hover:text-ink hover:bg-wash"
+              )}
+            >
+              {q === 'needs-reply' ? 'Needs Reply' : q === 'newsletter' ? 'Newsletters' : q === 'receipt' ? 'Receipts' : 'Everything Else'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {accounts.length > 0 && (
         <div className="border-b border-edge shrink-0">

@@ -622,6 +622,38 @@ pub async fn mail_delete(provider: String, email: String, uid: u32) -> Result<()
     .map_err(|e| format!("mail task failed: {e}"))?
 }
 
+/// Archive a message — move it to the provider's Archive folder.
+#[tauri::command]
+pub async fn mail_archive(provider: String, email: String, uid: u32) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let password = mail_password(&email)?;
+        let (host, port) = imap_endpoint(&provider)?;
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS init failed: {e}"))?;
+        let client = imap::connect((host, port), host, &tls)
+            .map_err(|e| format!("could not reach {host}:{port}: {e}"))?;
+        let mut session = client
+            .login(&email, &password)
+            .map_err(|(e, _c)| format!("login rejected: {e}"))?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("could not open INBOX: {e}"))?;
+        let archive = match provider.to_ascii_lowercase().as_str() {
+            "gmail" | "google" => "[Gmail]/All Mail",
+            _ => "Archive", // iCloud and others
+        };
+        let uid_s = uid.to_string();
+        if session.uid_mv(&uid_s, archive).is_err() {
+            return Err(format!("could not move message {} to archive folder '{}'", uid, archive));
+        }
+        let _ = session.logout();
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("mail task failed: {e}"))?
+}
+
 /// SMTP endpoint: (host, use_starttls). Gmail uses implicit TLS on 465; iCloud uses STARTTLS on 587.
 fn smtp_endpoint(provider: &str) -> Result<(&'static str, bool), String> {
     match provider.to_ascii_lowercase().as_str() {

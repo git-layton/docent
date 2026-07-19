@@ -5115,6 +5115,7 @@ pub fn run() {
             mail::mail_set_flagged,
             mail::mail_unread_count,
             mail::mail_delete,
+            mail::mail_archive,
             mail::mail_send,
             imessage::imessage_check_access,
             imessage::imessage_open_fda_settings,
