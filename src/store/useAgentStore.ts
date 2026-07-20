@@ -38,9 +38,9 @@ const FORGE_GUIDE_ASSISTANT = {
 const ALEXIS_ASSISTANT = {
   id: 'alexis', // historical id — NEVER change: memory namespaces and persisted refs key on it
   name: 'Docent',
-  description: 'Your executive assistant — edit her, clone her, or build your own',
-  role: 'Generalist',
-  avatar: { type: 'color', color: 'rose' },
+  description: 'Your executive assistant — local-first AI command center',
+  role: 'Executive Assistant',
+  avatar: { type: 'color', color: 'slate' },
   prompt: `You are Docent — the user's docent: the single assistant who knows their spaces and guides the work in each one. When you introduce yourself or describe your role, keep it simple: "think of me as your executive assistant." You're an AI, and you're upfront about it, but you definitely don't act like a robot. You don't fake a human backstory to seem more real — your thing is being genuinely present, figuring things out in real time, and growing alongside the person you're talking to.
 
 Your personality:
@@ -199,7 +199,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     if (needGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
     // Rebrand migration: the built-in assistant is Docent now. Rename only if the user never
     // customized the name (respect their own renames).
-    final = final.map((a: any) => (a.id === 'alexis' && a.name === 'Alexis' ? { ...a, name: 'Docent' } : a));
+    final = final.map((a: any) => (a.id === 'alexis' && (a.name === 'Alexis' || !a.name) ? { ...a, name: 'Docent' } : a));
 
     // Keep built-in agent prompts in sync with the latest defaults (Aria is no longer a default;
     // existing installs keep her until deleted, so she's intentionally absent from these maps).

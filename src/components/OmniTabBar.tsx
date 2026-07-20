@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown } from 'lucide-react';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -369,15 +369,15 @@ export function OmniTabBar(): React.JSX.Element {
       <div className="relative flex items-center gap-2 pr-3 border-r border-edge mr-3">
         <button
           onClick={() => setShowSpaceMenu(!showSpaceMenu)}
-          className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
           title="Switch Space"
         >
-          <Layers className="w-4 h-4" />
+          <Layers className="w-4 h-4 shrink-0" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-ink-3 truncate max-w-[9rem]">
+            {spaces.find(s => s.id === activeSpaceId)?.name ?? 'Personal'}
+          </span>
+          <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
         </button>
-        {/* The active Space, named, right beside its switcher. */}
-        <span className="text-[10px] font-bold uppercase tracking-widest text-ink-3 truncate max-w-[9rem]" title="Active Space">
-          {spaces.find(s => s.id === activeSpaceId)?.name ?? 'Personal'}
-        </span>
         {showSpaceMenu && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowSpaceMenu(false)} />

@@ -1,4 +1,4 @@
-import { Bot, Globe, Database, CalendarDays, MessageSquare, Mail, FolderOpen, Layers, CalendarClock } from 'lucide-react';
+import { Bot, Globe, Database, CalendarDays, MessageSquare, Mail, FolderOpen, Layers, CalendarClock, Glasses } from 'lucide-react';
 
 export const AVAILABLE_TOOLS = [
   { id: 'web_search', name: 'Web Search', icon: Globe, desc: 'Allow agent to search the live internet.' },
@@ -32,6 +32,13 @@ export const BOT_COLORS = [
 ];
 
 export const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
+  if (agent?.id === 'alexis' || agent?.name === 'Docent' || agent?.name === 'Alexis') {
+    return (
+      <div className={`${containerClass} bg-ink text-panel flex items-center justify-center shrink-0`}>
+        <Glasses className={sizeClass} />
+      </div>
+    );
+  }
   if (agent?.avatar?.type === 'image' && agent?.avatar?.value) {
     return <img src={agent.avatar.value} alt={agent.name} className={`${containerClass} p-0 object-cover`} style={{ width: '2.25rem', height: '2.25rem' }} />;
   }
