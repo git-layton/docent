@@ -4486,6 +4486,10 @@ async fn browser_download_url(
     } else {
         safe_name.trim().to_string()
     };
+    let lower = name.to_lowercase();
+    if lower.ends_with(".exe") || lower.ends_with(".dmg") || lower.ends_with(".pkg") || lower.ends_with(".app") || lower.ends_with(".sh") || lower.ends_with(".command") || lower.ends_with(".bat") || lower.ends_with(".vbs") || lower.ends_with(".scr") || lower.ends_with(".jar") {
+        return Err("Downloading executable file types directly via in-app browser is blocked for security.".to_string());
+    }
     let dest = downloads.join(&name);
     std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
     Ok(dest.to_string_lossy().to_string())
