@@ -13,6 +13,10 @@
   <key>NSCalendarsUsageDescription</key>
   <string>Agent Forge shows and manages your calendar events on your behalf.</string>
   <key>NSRemindersUsageDescription</key>
-  <string>Agent Forge shows and manages your reminders and to-dos on your behalf.</string>
+  <string>Docent shows and manages your reminders and to-dos on your behalf.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>Docent uses Bluetooth for security keys and Passkey authentication.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>Docent uses Bluetooth for security keys and Passkey authentication.</string>
 </dict>
 </plist>
