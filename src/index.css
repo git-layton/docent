@@ -81,13 +81,13 @@
   --af-edge: rgba(255, 255, 255, 0.08);
 }
 
-/* Apply blur to main surfaces when glass is enabled so they aren't just see-through */
+/* No blur applied to main surfaces per user request; translucent only */
 [data-glass="true"] .bg-panel,
 [data-glass="true"] .bg-panel-2,
 [data-glass="true"] .bg-base,
 .glass-chrome {
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .glass-chrome {

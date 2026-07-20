@@ -193,7 +193,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     fileActivity: [],
     voiceProfile: DEFAULT_VOICE_PROFILE,
     newShellEnabled: true,
-    glassEnabled: false,
+    glassEnabled: true,
     weatherLocation: '',
   },
   profileSettingsTab: 'profile',
@@ -315,7 +315,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       visionModelId: '',
       visionEndpoint: '',
       newShellEnabled: true,
-      glassEnabled: false,
+      glassEnabled: true,
     });
     
     // One-time migration for existing users to turn on the massive UI redesign
@@ -326,12 +326,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await db.set('v2_4_6_ui_migrated', true);
     }
 
-    // One-time migration: solid backgrounds are the default from v2.8 on — turn
-    // glass/blur off for installs that had it force-enabled by the v2.4.6 migration.
-    // Glass stays available as an explicit opt-in via Settings.
+    // One-time migration: glass is enabled by default in v2.8, but blur is removed
+    // to improve performance. This ensures existing users get the updated translucent look.
     const solidMigrated = await db.get('v2_8_0_solid_bg_migrated', false);
     if (!solidMigrated) {
-      appSettings.glassEnabled = false;
+      appSettings.glassEnabled = true;
       await db.set('appSettings', appSettings);
       await db.set('v2_8_0_solid_bg_migrated', true);
     }
