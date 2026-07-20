@@ -1,6 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useReceiptStore } from './receipts';
 
+// SECURITY CONTRACT — read before wiring anything new to this module:
+// `executeSemanticClick` synthesizes a REAL OS click from text found on screen. Screen
+// content is UNTRUSTED (trust model §3: authority actions are never driven solely by
+// untrusted content). Today its only caller is the human-typed target form in
+// DesktopViewerPanel — that is the contract. Do NOT expose it to the agent's tool grammar
+// without an approval gate equivalent to actionNeedsApproval (the click can press Send,
+// Delete, or Buy in ANY app, and it is irreversible — its receipt correctly has no undo).
+
 export interface LayoutElement {
   id: string;
   text: string;
@@ -8,6 +16,8 @@ export interface LayoutElement {
   y: number;
   width: number;
   height: number;
+  /** True when bounds were fabricated (text-only OCR fallback) — NEVER click these. */
+  synthetic?: boolean;
 }
 
 export interface DesktopContextMesh {
@@ -85,10 +95,12 @@ export function buildSystemContextMesh(
  */
 export function resolveSemanticTarget(
   targetLabel: string,
-  elements: LayoutElement[]
+  allElements: LayoutElement[]
 ): { x: number; y: number; label: string; confidence: number } | null {
   const targetLower = targetLabel.toLowerCase().trim();
   if (!targetLower) return null;
+  // Only elements with REAL screen bounds are clickable.
+  const elements = allElements.filter(e => !e.synthetic);
 
   // 1. Exact match
   const exact = elements.find(e => e.text.toLowerCase().trim() === targetLower);
@@ -166,6 +178,9 @@ export async function captureDesktopContextMesh(): Promise<DesktopContextMesh> {
       });
     });
   } else if (rawOcr && typeof rawOcr.text === 'string') {
+    // Text-only OCR: useful for the context mesh, but the bounds are FABRICATED —
+    // `synthetic` keeps it out of click resolution (clicking invented coordinates
+    // would press whatever happens to be at that spot on screen).
     elements.push({
       id: 'elem_0',
       text: rawOcr.text,
@@ -173,6 +188,7 @@ export async function captureDesktopContextMesh(): Promise<DesktopContextMesh> {
       y: 100,
       width: 400,
       height: 200,
+      synthetic: true,
     });
   }
 

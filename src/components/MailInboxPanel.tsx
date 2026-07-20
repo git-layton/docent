@@ -13,7 +13,7 @@ import { normalizeVoiceProfile, relKeyForEmail } from '../services/voice';
 import { usePanelResource } from '../lib/panelCache';
 import {
   classifyAllHeuristic, buildTriagePrompt, parseTriageResponse,
-  applyModelUpgrade, planSweep, invertSweepPlan, type MailQueue,
+  applyModelUpgrade, planSweep, type MailQueue,
 } from '../services/mailTriage';
 import { useReceiptStore } from '../services/receipts';
 import { buildVoiceCard, buildEmailRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
@@ -650,14 +650,14 @@ export function MailInboxPanel() {
                 for (const h of plan.flag) {
                   await invoke('mail_set_flagged', { provider: (h as any).provider, email: h.account, uid: h.uid, flagged: true }).catch(console.error);
                 }
-                const inv = invertSweepPlan(plan);
-                console.log('Sweep inverse plan:', inv);
+                // RECEIPTS NEVER LIE: no undo handler is registered because un-archive isn't
+                // implemented (IMAP MOVE back shifts UIDs — see invertSweepPlan's inverse for
+                // when it is). A fake handler would render a working-looking Undo button that
+                // reverses nothing. The receipt records where the mail went instead.
                 useReceiptStore.getState().record({
                   surface: 'mail',
                   action: 'Swept Inbox',
-                  summary: plan.summary,
-                }, async () => {
-                  useUIStore.getState().showToast("Undo not fully implemented (requires IMAP un-archive).");
+                  summary: `${plan.summary} Archived mail is in your Archive folder.`,
                 });
                 load();
                 setIsSweeping(false);
