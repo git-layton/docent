@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
-import { Monitor, AlertTriangle, Settings, X, ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
+import { Monitor, AlertTriangle, Settings, X, ChevronLeft, ChevronRight, LayoutTemplate, Eye, RotateCw } from 'lucide-react';
+import { captureDesktopContextMesh, executeSemanticClick } from '../services/desktopVision';
+import { useUIStore } from '../store/useUIStore';
 
 interface WindowInfo {
   id: number;
@@ -16,6 +18,10 @@ export function DesktopViewerPanel() {
   const [showWindowSelector, setShowWindowSelector] = useState(false);
   const [windows, setWindows] = useState<WindowInfo[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<number | null>(null);
+  const [showMesh, setShowMesh] = useState(false);
+  const [meshText, setMeshText] = useState('');
+  const [semanticInput, setSemanticInput] = useState('');
+  const [clicking, setClicking] = useState(false);
   const selectedWindowIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -254,6 +260,62 @@ export function DesktopViewerPanel() {
             </button>
           </div>
         </div>
+
+        {/* System Mesh Overlay Drawer Button */}
+        <div className="absolute top-4 right-4 z-20 flex gap-2">
+          <button
+            onClick={async () => {
+              const meshData = await captureDesktopContextMesh();
+              setShowMesh(prev => !prev);
+              setMeshText(meshData.markdownMesh);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/80 border border-white/10 text-white text-xs font-bold shadow-xl hover:bg-black transition-all"
+          >
+            <Eye className="w-3.5 h-3.5 text-accent" />
+            {showMesh ? 'Hide Context Mesh' : 'System Context Mesh'}
+          </button>
+        </div>
+
+        {/* System Context Mesh Drawer */}
+        {showMesh && (
+          <div className="absolute top-14 right-4 z-30 w-96 max-h-[500px] bg-panel-2 border border-edge rounded-2xl shadow-2xl overflow-hidden flex flex-col p-3 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center justify-between border-b border-edge pb-2 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-ink">Spatial Perception Mesh</span>
+              <button onClick={() => setShowMesh(false)} className="text-ink-3 hover:text-ink"><X className="w-3.5 h-3.5" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto font-mono text-[10px] text-ink-2 bg-inset p-2.5 rounded-xl whitespace-pre-wrap leading-relaxed">
+              {meshText || 'Capturing mesh…'}
+            </div>
+            {/* Quick Semantic Target Click Bar */}
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                if (!semanticInput.trim()) return;
+                setClicking(true);
+                const res = await executeSemanticClick(semanticInput.trim());
+                useUIStore.getState().showToast(res.message);
+                setClicking(false);
+                setSemanticInput('');
+              }}
+              className="mt-2.5 flex items-center gap-1.5"
+            >
+              <input
+                type="text"
+                value={semanticInput}
+                onChange={e => setSemanticInput(e.target.value)}
+                placeholder="Target label (e.g. Save, Code)…"
+                className="flex-1 bg-inset border border-edge rounded-lg px-2.5 py-1 text-xs outline-none text-ink"
+              />
+              <button
+                type="submit"
+                disabled={clicking || !semanticInput.trim()}
+                className="px-3 py-1 rounded-lg bg-accent text-on-accent text-xs font-bold disabled:opacity-40 transition-all shrink-0"
+              >
+                {clicking ? <RotateCw className="w-3 h-3 animate-spin" /> : 'Click'}
+              </button>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );
