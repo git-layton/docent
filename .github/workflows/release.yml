@@ -93,12 +93,34 @@ jobs:
           }
           EOF
 
-          # Create release and upload all assets using the gh CLI
-          gh release create ${VERSION} \
-            --repo git-layton/docent-releases \
-            --title "Docent ${VERSION}" \
-            --notes "See the assets below to download. The app auto-updates itself on next launch." \
-            "${DMG_PATH}" \
-            "${TAR_PATH}" \
-            "${SIG_PATH}" \
-            latest.json
+          # Create release and upload all assets using the gh CLI.
+          #
+          # `--latest` is load-bearing. The updater endpoint is
+          # /releases/latest/download/latest.json, and GitHub resolves "latest" by release CREATION
+          # DATE, not by version order. v2.7.1 was published five minutes after v2.8.0 and therefore
+          # captured the pointer: every installed copy was served 2.7.1 and 2.8.0 was invisible to
+          # the updater. Pin it explicitly so an out-of-order publish can never repoint the feed.
+          #
+          # Re-running a tag must also not fail after a nine-minute build: `gh release create` is not
+          # idempotent, so create when absent and re-upload over the existing assets when present.
+          if gh release view "${VERSION}" --repo git-layton/docent-releases >/dev/null 2>&1; then
+            echo "Release ${VERSION} exists — replacing its assets."
+            gh release upload "${VERSION}" \
+              --repo git-layton/docent-releases \
+              --clobber \
+              "${DMG_PATH}" \
+              "${TAR_PATH}" \
+              "${SIG_PATH}" \
+              latest.json
+            gh release edit "${VERSION}" --repo git-layton/docent-releases --latest
+          else
+            gh release create "${VERSION}" \
+              --repo git-layton/docent-releases \
+              --title "Docent ${VERSION}" \
+              --notes "See the assets below to download. The app auto-updates itself on next launch." \
+              --latest \
+              "${DMG_PATH}" \
+              "${TAR_PATH}" \
+              "${SIG_PATH}" \
+              latest.json
+          fi
