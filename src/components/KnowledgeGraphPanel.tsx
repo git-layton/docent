@@ -36,8 +36,10 @@ class GraphErrorBoundary extends Component<{ children: ReactNode }, { error: Err
     return this.props.children;
   }
 }
-import { X, Search, RefreshCw, Trash2, Telescope } from 'lucide-react';
+import { X, Search, RefreshCw, Trash2, Telescope, LayoutList, Share2 as GraphIcon, ArrowRight } from 'lucide-react';
+import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
+import { EntityDossierPage } from './EntityDossierPage';
 
 type NodeType = 'page' | 'file' | 'note' | 'entity' | 'person' | 'concept' | 'technology' | string;
 
@@ -101,6 +103,8 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [activeEntityNode, setActiveEntityNode] = useState<GraphNode | null>(null);
+  const [mode, setMode] = useState<'directory' | 'graph'>('directory');
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -294,13 +298,49 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
     [highlightIds]
   );
 
+  // If an entity dossier is open, render EntityDossierPage
+  if (activeEntityNode) {
+    return (
+      <EntityDossierPage
+        node={activeEntityNode}
+        allNodes={graphData.nodes}
+        allEdges={graphData.edges}
+        onBack={() => setActiveEntityNode(null)}
+        onSelectNode={node => setActiveEntityNode(node)}
+        onSendPrompt={onSendPrompt}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-panel overflow-hidden">
-      {/* Toolbar */}
+      {/* Top control bar */}
       <div className="shrink-0 px-4 py-2.5 border-b border-edge flex items-center gap-3 flex-wrap">
         <span className="text-xs font-black uppercase tracking-widest text-ink shrink-0">
-          Knowledge Graph
+          Knowledge Base
         </span>
+
+        {/* Directory / Graph View mode switcher */}
+        <div className="flex p-0.5 rounded-lg bg-inset border border-edge shrink-0">
+          <button
+            onClick={() => setMode('directory')}
+            className={clsx(
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all',
+              mode === 'directory' ? 'bg-panel text-accent shadow-sm' : 'text-ink-3 hover:text-ink-2',
+            )}
+          >
+            <LayoutList className="w-3 h-3" /> Directory
+          </button>
+          <button
+            onClick={() => setMode('graph')}
+            className={clsx(
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all',
+              mode === 'graph' ? 'bg-panel text-accent shadow-sm' : 'text-ink-3 hover:text-ink-2',
+            )}
+          >
+            <GraphIcon className="w-3 h-3" /> Graph
+          </button>
+        </div>
 
         <div className="relative flex-1 min-w-32 max-w-56">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-3" />
@@ -342,8 +382,58 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
         </button>
       </div>
 
-      {/* Graph + Sidebar */}
-      <div className="flex flex-1 overflow-hidden relative">
+      {/* Main content: Directory vs Graph */}
+      {mode === 'directory' ? (
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest">
+              Loading Directory…
+            </div>
+          ) : filteredNodes.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest text-center px-6">
+              No entities found matching search/filter.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredNodes.map(node => {
+                const degrees = degreeMap.get(node.id) ?? 0;
+                return (
+                  <button
+                    key={node.id}
+                    onClick={() => setActiveEntityNode(node)}
+                    className="flex items-start gap-3 p-3.5 rounded-xl border border-edge bg-panel-2 hover:bg-wash hover:border-accent/40 transition-all text-left group"
+                  >
+                    <div
+                      className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-xs font-black text-white shadow-sm"
+                      style={{ background: nodeColor(node.node_type) }}
+                    >
+                      {node.label.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-ink truncate group-hover:text-accent transition-colors">
+                          {node.label}
+                        </span>
+                        <ArrowRight className="w-3 h-3 text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity ml-auto shrink-0" />
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-inset text-ink-3">
+                          {node.node_type}
+                        </span>
+                        <span className="text-[10px] text-ink-3">
+                          {degrees} connection{degrees === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Graph + Sidebar */
+        <div className="flex flex-1 overflow-hidden relative">
         <div ref={containerRef} className="flex-1 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest">
@@ -485,6 +575,7 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
