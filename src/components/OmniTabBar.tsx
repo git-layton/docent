@@ -140,48 +140,46 @@ interface TabPillProps {
 }
 
 function TabPill({ tab, isActive, isSplit }: TabPillProps) {
-  // Activity bubble: unread iMessage count on the Messages tab.
   const unread = useMessagesStore(s => s.unread);
   const showUnread = tab.type === 'tool' && tab.toolId === 'messages' && unread > 0;
-  // Activity bubble: new background-work results (routines) on the Inbox tab — same Slack-style
-  // signal as Messages, cleared when the Inbox is opened.
   const inboxAlerts = useUIStore(s => s.inboxAlerts);
   const showInboxAlerts = tab.type === 'tool' && tab.toolId === 'inbox' && inboxAlerts > 0;
 
-  // Pointer-based reorder. WKWebView (Tauri's macOS webview) doesn't reliably fire HTML5
-  // drag-and-drop events, so we drive reordering with pointer events instead: drag a tab over
-  // another and they swap live (by their position in the global omniTabs array); the new order
-  // persists on release. `didDrag` swallows the click-to-activate that fires on pointer-up.
+  const isHome = tab.type === 'home';
   const didDrag = useRef(false);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (tab.isPinned || e.button !== 0) return;
-      // Don't start a reorder from the star/split/close controls (they're role="button" spans).
       if ((e.target as HTMLElement).closest('[role="button"]')) return;
 
       const startX = e.clientX;
-      didDrag.current = false;
+      let moved = false;
 
-      const onMove = (ev: PointerEvent) => {
-        if (!didDrag.current && Math.abs(ev.clientX - startX) < 5) return;
-        didDrag.current = true;
-        const overEl = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)
-          ?.closest('[data-tab-id]') as HTMLElement | null;
-        const overId = overEl?.getAttribute('data-tab-id');
-        if (!overId || overId === tab.id) return;
+      const onPointerMove = (me: PointerEvent) => {
+        if (!moved && Math.abs(me.clientX - startX) > 6) {
+          moved = true;
+          didDrag.current = true;
+        }
+        if (!moved) return;
+
         const tabs = useSpaceStore.getState().omniTabs;
         const from = tabs.findIndex(t => t.id === tab.id);
-        const to = tabs.findIndex(t => t.id === overId);
+        const elUnder = document.elementFromPoint(me.clientX, me.clientY)?.closest<HTMLElement>('[data-tab-id]');
+        const targetId = elUnder?.getAttribute('data-tab-id');
+        const to = targetId ? tabs.findIndex(t => t.id === targetId) : -1;
+
         if (from !== -1 && to !== -1 && from !== to) useSpaceStore.getState().moveTab(from, to);
       };
-      const onUp = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
+
+      const onPointerUp = () => {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
         if (didDrag.current) useSpaceStore.getState().persist();
       };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
+
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
     },
     [tab.id, tab.isPinned],
   );
@@ -193,21 +191,22 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
       data-tab-id={tab.id}
       onPointerDown={handlePointerDown}
       onClick={() => {
-        // Swallow the click that follows a drag-reorder; otherwise activate the tab.
         if (didDrag.current) { didDrag.current = false; return; }
         useSpaceStore.getState().setActiveTab(tab.id);
       }}
       className={clsx(
-        // Chrome-style sizing: each tab prefers ~168px but will shrink down to a
-        // favicon-only sliver (min-w) as more tabs crowd in; past that the strip scrolls.
-        'group h-8 rounded-t-lg px-3 text-[11px] font-medium grow-0 shrink basis-[168px] max-w-[220px] min-w-[44px] flex items-center gap-1.5 overflow-hidden transition-colors',
+        'group h-8 rounded-t-lg text-[11px] font-medium grow-0 shrink flex items-center gap-1.5 overflow-hidden transition-all',
+        isHome
+          ? 'px-2.5 min-w-[36px] basis-[36px] max-w-[36px] justify-center'
+          : 'px-3 basis-[168px] max-w-[220px] min-w-[44px]',
         isActive
           ? 'bg-panel border border-b-0 border-edge-2 text-ink shadow-[inset_0_2px_0_0_var(--af-accent)]'
           : 'text-ink-3 hover:text-ink-2 hover:bg-wash',
       )}
+      title={isHome ? 'Start Page' : tab.label}
     >
       <TypeIcon tab={tab} />
-      <span className="truncate flex-1 min-w-0">{tab.label}</span>
+      {!isHome && <span className="truncate flex-1 min-w-0">{tab.label}</span>}
       {showInboxAlerts && (
         <span
           className="shrink-0 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-on-accent text-[9px] font-bold flex items-center justify-center leading-none"
@@ -269,8 +268,8 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
           <SplitSquareHorizontal className="w-3 h-3" />
         </span>
       )}
-      {/* The agent Chat (space-log) is the home base — it can't be closed. */}
-      {!tab.isPinned && tab.type !== 'space-log' && (
+      {/* The agent Chat (space-log) & Home tab can't be closed. */}
+      {!tab.isPinned && !isHome && tab.type !== 'space-log' && (
         <span
           role="button"
           tabIndex={-1}
@@ -298,22 +297,75 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
 // NewTabButton
 // ---------------------------------------------------------------------------
 function NewTabButton() {
-  // "+" = new tab. Home IS the new-tab page (the permanent pinned launcher): focus it — it
-  // always exists — and everything launched from it opens as a fresh tab beside it.
-  const openHome = useCallback(() => {
-    const st = useSpaceStore.getState();
-    st.setActiveTab(st.ensureHomeTab());
-  }, []);
+  const [open, setOpen] = useState(false);
+
+  const handleOpenOption = (action: () => void) => {
+    action();
+    setOpen(false);
+  };
 
   return (
-    <button
-      type="button"
-      onClick={openHome}
-      className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-wash transition-colors mb-1"
-      title="New tab — Start"
-    >
-      <Plus className="w-3.5 h-3.5" />
-    </button>
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-wash transition-colors mb-1"
+        title="New tab options"
+      >
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 w-56 z-50 overflow-hidden rounded-xl border border-edge bg-panel-2 p-1.5 shadow-xl space-y-0.5">
+            <button
+              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'web', url: 'https://google.com', label: 'Web' }))}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
+            >
+              <Globe className="w-3.5 h-3.5 text-accent" /> Search Web
+            </button>
+            <button
+              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'space-log', label: 'Chat' }))}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-accent" /> Chat
+            </button>
+            <button
+              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'knowledge-graph', label: 'Knowledge' }))}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
+            >
+              <Share2 className="w-3.5 h-3.5 text-accent" /> Search Knowledge Base
+            </button>
+            <button
+              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'day', label: 'Day' }))}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
+            >
+              <CalendarCheck className="w-3.5 h-3.5 text-accent" /> Day / Planner
+            </button>
+            <button
+              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'notes', label: 'Notes' }))}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
+            >
+              <StickyNote className="w-3.5 h-3.5 text-accent" /> Notes
+            </button>
+            <button
+              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'inbox', label: 'Inbox' }))}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
+            >
+              <Mail className="w-3.5 h-3.5 text-accent" /> Inbox
+            </button>
+            <div className="border-t border-edge my-1" />
+            <button
+              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'home', label: 'Start' }))}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink-2 hover:bg-wash transition-colors text-left"
+            >
+              <Home className="w-3.5 h-3.5 text-ink-3" /> Start Page
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
