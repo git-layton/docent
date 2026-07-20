@@ -132,7 +132,7 @@ export function ChatPanel({
   };
 
   return (
-    <div className="flex flex-col h-full bg-base min-h-0">
+    <div className="flex flex-col h-full bg-white/10 min-h-0">
       {/* Header (suppressed for the Team rail — it brings its own slim header) */}
       {!hideHeader && (
         <div className="flex items-center">
@@ -227,7 +227,7 @@ export function ChatPanel({
         </div>
       ) : (
         <div className="shrink-0 px-4 pb-4 flex justify-center">
-          <div className="w-[min(720px,calc(100%-1rem))] bg-panel rounded-3xl border border-edge-2 shadow-xl p-1">
+          <div className="w-[min(720px,calc(100%-1rem))] bg-white/10 dark:bg-black/10 backdrop-blur-3xl rounded-3xl border border-edge-2 shadow-xl p-1">
             <ChatInputBar {...chatInputBarProps} />
           </div>
         </div>

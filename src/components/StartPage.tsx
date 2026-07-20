@@ -20,13 +20,14 @@ import {
   StickyNote,
   FolderGit2,
   Monitor,
+  TriangleAlert,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
-
 import { useAgentStore } from '../store/useAgentStore';
+import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
 import { useMessagesStore } from '../store/useMessagesStore';
@@ -279,7 +280,7 @@ function Tile({
       type="button"
       onClick={onClick}
       className={clsx(
-        'group flex items-center gap-3 rounded-2xl border border-edge bg-panel-2 px-3.5 py-3 text-left',
+        'group flex items-center gap-3 rounded-2xl border border-edge/50 bg-white/10 dark:bg-black/10 backdrop-blur-xl px-3.5 py-3 text-left',
         'shadow-sm transition-all duration-150',
         'hover:-translate-y-0.5 hover:border-edge-2',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
@@ -334,6 +335,12 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const [unread, setUnread] = useState<number | null>(null);
   const mailAccounts = ((integrations as any)?.mailAccounts ?? []) as Array<{ id: string; provider: string; email: string }>;
   const mailKey = mailAccounts.map(a => a.email).join(',');
+
+  const weatherCode = useWeatherStore((s) => s.weatherCode);
+  const temperature = useWeatherStore((s) => s.temperature);
+  const currentCondition = weatherCondition(weatherCode);
+  const isSevereWeather = weatherCode !== null && weatherCode >= 95;
+
   useEffect(() => {
     let alive = true;
     if (mailAccounts.length === 0) { setUnread(null); return; }
@@ -512,7 +519,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   };
 
   return (
-    <div className="relative h-full w-full overflow-y-auto bg-panel no-scrollbar">
+    <div className="relative h-full w-full overflow-y-auto bg-white/10 no-scrollbar">
       {/* Global settings — profile, models, integrations live here (per-chat settings stay in chat). */}
       <button
         type="button"
@@ -537,6 +544,23 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
                 <TodIcon className="h-3.5 w-3.5" />
               </span>
               {dateStr} · <span className="tabular-nums">{clock}{meridiem ? ` ${meridiem.toLowerCase()}` : ''}</span>
+              {weatherCode !== null && (
+                <button
+                  onClick={() => launch(tabId, { type: 'web', url: `https://duckduckgo.com/?q=${encodeURIComponent('local weather warning')}`, label: 'Local Weather Warning' })}
+                  className={clsx(
+                    "flex items-center gap-1.5 ml-2 px-2 py-1 rounded-md transition-colors cursor-pointer",
+                    isSevereWeather 
+                      ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" 
+                      : "bg-ink-3/10 text-ink-3 hover:bg-ink-3/20 hover:text-ink-2"
+                  )}
+                  title={isSevereWeather ? "Severe weather detected — click to search" : "Current weather"}
+                >
+                  {isSevereWeather ? <TriangleAlert className="w-3.5 h-3.5" /> : null}
+                  <span className="font-bold tracking-tight uppercase text-[10px]">
+                    {isSevereWeather ? "SEVERE WEATHER WARNING" : `${currentCondition.charAt(0).toUpperCase() + currentCondition.slice(1)} ${temperature !== null && temperature !== undefined ? `· ${Math.round(temperature)}°` : ''}`}
+                  </span>
+                </button>
+              )}
             </p>
           </div>
 

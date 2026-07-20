@@ -1,7 +1,7 @@
 import './index.css';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { relaunch } from "@tauri-apps/plugin-process";
-import { X, Bot, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search, Info } from 'lucide-react';
+import { X, Bot, Glasses, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search, Info } from 'lucide-react';
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
@@ -2777,7 +2777,7 @@ const handleSendMessage = async () => {
   const renderMessageWithWidgets = useCallback((msg: any) => {
     const { content: rawText, isStreaming, isToolCall, attachedFiles, sources } = msg;
     if (isToolCall) return <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-ink-3 animate-pulse"><Workflow className="w-3.5 h-3.5" /> {rawText}</div>;
-    if (isStreaming && !rawText) return <TypingIndicator />;
+    if (isStreaming && !rawText) return <TypingIndicator inline />;
     
     const elements = [];
     if (attachedFiles?.length > 0) elements.push(<div key="files" className="flex flex-wrap gap-2 mb-3">{attachedFiles.map((f: any, i: number) => f.isImage ? <img key={i} src={f.content} alt={f.name} className="h-32 object-cover rounded-xl shadow-sm border border-edge" /> : <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-on-accent/15 rounded-xl border border-on-accent/30 text-[10px] font-bold text-on-accent shadow-sm"><FileText className="w-3.5 h-3.5" />{f.name}</div>)}</div>);
@@ -3308,7 +3308,7 @@ const handleSendMessage = async () => {
 
 if (isSpotlight) {
     return (
-      <div className="w-screen h-screen flex flex-col bg-transparent select-none overflow-hidden text-ink">
+      <div className="w-screen h-screen flex flex-col bg-white/10 select-none overflow-hidden text-ink">
         <div className="flex flex-col flex-1 rounded-l-2xl overflow-hidden min-h-0 bg-panel border border-edge-2 border-r-0"
           style={{
             backdropFilter: 'blur(40px) saturate(200%)',
@@ -3553,7 +3553,7 @@ if (isSpotlight) {
       )}
 
       {showMemmoPanel && memmoPanelTab === 'inbox' && (
-        <div className="fixed inset-0 z-40 bg-transparent" onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} />
+        <div className="fixed inset-0 z-40 bg-white/10" onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} />
       )}
       {/* Inbox panel — shown instead of MemmoPanel when inbox tab active */}
       <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-panel border-l border-edge shadow-2xl flex flex-col transition-transform duration-300 overflow-y-auto ${
@@ -3626,7 +3626,7 @@ if (isSpotlight) {
       )}
 
       {toastMessage && (
-        <div className="fixed top-6 right-6 z-[300] bg-black/70 backdrop-blur-3xl border border-white/10 px-4 py-3 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-right-8 fade-in duration-300 max-w-sm pointer-events-auto">
+        <div className="fixed top-6 right-6 z-[300] bg-black/70 backdrop-blur-xl border border-white/10 px-4 py-3 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-right-8 fade-in duration-300 max-w-sm pointer-events-auto">
            <div className="shrink-0 mt-0.5">
              {(toastMessage.toLowerCase().includes('fail') || toastMessage.toLowerCase().includes('error') || toastMessage.toLowerCase().includes("couldn't")) ? (
                <AlertTriangle className="w-5 h-5 text-danger" />
@@ -3667,15 +3667,26 @@ if (isSpotlight) {
       {!appSettings.newShellEnabled && <AppSidebar />}
 
       {/* ── Center column: tab bar + viewport ── */}
-      <div className="flex-1 flex flex-col overflow-hidden relative min-w-0">
-        <OmniTabBar />
+      <div className="flex-1 flex flex-col overflow-hidden relative min-w-0 bg-white/10">
+        <OmniTabBar copilotOpen={copilotOpen} onToggleCopilot={toggleCopilot} />
 
-        <div ref={splitContainerRef} className="flex-1 flex overflow-hidden min-h-0">
+        <div ref={splitContainerRef} className="flex-1 flex overflow-hidden min-h-0 gap-2 p-2">
           {/* PRIMARY pane — the active tab, full width unless split */}
           <div
-            className="relative overflow-hidden min-w-0 flex flex-col"
+            className={`relative overflow-hidden min-w-0 flex flex-col bg-white/10 dark:bg-black/10 rounded-xl border border-edge/50 shadow-lg ${(!activeOmniTab || activeOmniTab.type === 'home' || activeOmniTab.type === 'space-log') ? '' : 'backdrop-blur-xl'}`}
             style={{ flex: splitTab ? `0 0 ${splitRatio * 100}%` : '1 1 100%' }}
           >
+            {activeOmniTab && activeOmniTab.type !== 'home' && activeOmniTab.type !== 'space-log' && (
+              <button
+                onClick={() => useSpaceStore.getState().closeTab(activeOmniTabId)}
+                className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
+                title="Close"
+              >
+                <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
+                  <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
+                </div>
+              </button>
+            )}
             {renderTabContent(activeOmniTab)}
           </div>
 
@@ -3684,17 +3695,21 @@ if (isSpotlight) {
             <>
               <div
                 onMouseDown={handleSplitDrag}
-                className="w-1 shrink-0 cursor-col-resize bg-edge-2 hover:bg-accent transition-colors"
+                className="w-1 shrink-0 cursor-col-resize bg-edge-2 hover:bg-accent transition-colors rounded-full"
                 title="Drag to resize"
               />
-              <div className="relative overflow-hidden min-w-0 flex flex-col flex-1">
-                <button
-                  onClick={() => useUIStore.getState().setSplitTabId(null)}
-                  className="absolute top-2 right-2 z-[60] p-1 rounded-md bg-panel/80 text-ink-3 hover:text-ink hover:bg-inset transition-colors"
-                  title="Close split"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+              <div className={`relative overflow-hidden min-w-0 flex flex-col flex-1 bg-white/10 dark:bg-black/10 rounded-xl border border-edge/50 shadow-lg ${(!splitTab || splitTab.type === 'home' || splitTab.type === 'space-log') ? '' : 'backdrop-blur-xl'}`}>
+                {splitTab.type !== 'home' && splitTab.type !== 'space-log' && (
+                  <button
+                    onClick={() => useUIStore.getState().setSplitTabId(null)}
+                    className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
+                    title="Close split"
+                  >
+                    <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
+                      <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
+                    </div>
+                  </button>
+                )}
                 {renderTabContent(splitTab)}
               </div>
             </>
@@ -3709,13 +3724,14 @@ if (isSpotlight) {
             <DockedAgentRail
               open={copilotOpen}
               onToggle={toggleCopilot}
-              icon={Bot}
+              icon={Glasses}
               collapsedTitle="Show agent"
               hideTitle="Hide agent"
               header={
                 <div className="flex items-center gap-2 flex-1 justify-between">
-                  <span className="text-xs font-semibold text-ink tracking-tight uppercase">
-                    {activeAssistant?.name || 'Docent'}
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-ink tracking-tight uppercase">
+                    <Glasses className="w-3.5 h-3.5" />
+                    Chat with {activeAssistant?.name || 'Docent'}
                   </span>
                   <div className="flex items-center gap-1">
                     <button
@@ -3802,18 +3818,18 @@ if (isSpotlight) {
       )}
 
       {/* Onboarding wizard */}
-      {showOnboarding && (
+      {/* showOnboarding && (
         <OnboardingWizard onClose={() => {
           const ss = useSettingsStore.getState();
           ss.setShowOnboarding(false);
           ss.setOnboardingInitialStep(1);
         }} initialStep={onboardingInitialStep} />
-      )}
+      ) */}
 
       {/* Lock screen for background downloads (if onboarding is skipped/dismissed) */}
-      {!showOnboarding && models.length === 0 && (
+      {/* !showOnboarding && models.length === 0 && (
         <LockedSetupScreen />
-      )}
+      ) */}
 
       {/* Agent action approval — sends/deletes the agent wants to run (local writes auto-applied) */}
       {pendingActions.length > 0 && (

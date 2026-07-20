@@ -128,63 +128,57 @@
 
 :root,
 [data-accent='lavender'] {
-  --af-accent: #534ab7;
-  --af-accent-strong: #3c3489;
-  --af-accent-soft: #eeedfe;
-  --af-accent-soft-ink: #3c3489;
-  --af-on-accent: #eeedfe;
+  --af-accent: #6b4ce6; --af-accent-strong: #4f33b3;
+  --af-accent-soft: #f0ecff; --af-accent-soft-ink: #4f33b3; --af-on-accent: #f0ecff;
 }
 [data-theme='dark'][data-accent='lavender'], [data-theme='dark']:not([data-accent]) {
-  --af-accent: #7f77dd;
-  --af-accent-strong: #afa9ec;
-  --af-accent-soft: #26215c;
-  --af-accent-soft-ink: #cecbf6;
-  --af-on-accent: #16133a;
+  --af-accent: #8e73ff; --af-accent-strong: #bca8ff;
+  --af-accent-soft: #271c57; --af-accent-soft-ink: #d8cdff; --af-on-accent: #19123b;
 }
 
 [data-accent='jade'] {
-  --af-accent: #0f6e56; --af-accent-strong: #085041;
-  --af-accent-soft: #e1f5ee; --af-accent-soft-ink: #085041; --af-on-accent: #e1f5ee;
+  --af-accent: #059669; --af-accent-strong: #047857;
+  --af-accent-soft: #ecfdf5; --af-accent-soft-ink: #047857; --af-on-accent: #ecfdf5;
 }
 [data-theme='dark'][data-accent='jade'] {
-  --af-accent: #5dcaa5; --af-accent-strong: #9fe1cb;
-  --af-accent-soft: #04342c; --af-accent-soft-ink: #9fe1cb; --af-on-accent: #04241c;
+  --af-accent: #10b981; --af-accent-strong: #6ee7b7;
+  --af-accent-soft: #064e3b; --af-accent-soft-ink: #a7f3d0; --af-on-accent: #022c22;
 }
 
 [data-accent='coral'] {
-  --af-accent: #d85a30; --af-accent-strong: #993c1d;
-  --af-accent-soft: #faece7; --af-accent-soft-ink: #712b13; --af-on-accent: #faece7;
+  --af-accent: #ff5722; --af-accent-strong: #e64a19;
+  --af-accent-soft: #ffede6; --af-accent-soft-ink: #e64a19; --af-on-accent: #ffede6;
 }
 [data-theme='dark'][data-accent='coral'] {
-  --af-accent: #f0997b; --af-accent-strong: #f5c4b3;
-  --af-accent-soft: #4a1b0c; --af-accent-soft-ink: #f5c4b3; --af-on-accent: #2e1006;
+  --af-accent: #ff7043; --af-accent-strong: #ffab91;
+  --af-accent-soft: #591b07; --af-accent-soft-ink: #ffccbc; --af-on-accent: #2e0e03;
 }
 
 [data-accent='blue'] {
-  --af-accent: #185fa5; --af-accent-strong: #0c447c;
-  --af-accent-soft: #e6f1fb; --af-accent-soft-ink: #0c447c; --af-on-accent: #e6f1fb;
+  --af-accent: #0070f3; --af-accent-strong: #0051a8;
+  --af-accent-soft: #e5f0ff; --af-accent-soft-ink: #0051a8; --af-on-accent: #e5f0ff;
 }
 [data-theme='dark'][data-accent='blue'] {
-  --af-accent: #85b7eb; --af-accent-strong: #b5d4f4;
-  --af-accent-soft: #042c53; --af-accent-soft-ink: #b5d4f4; --af-on-accent: #021c36;
+  --af-accent: #3291ff; --af-accent-strong: #79b8ff;
+  --af-accent-soft: #002554; --af-accent-soft-ink: #a5d3ff; --af-on-accent: #00122e;
 }
 
 [data-accent='pink'] {
-  --af-accent: #993556; --af-accent-strong: #72243e;
-  --af-accent-soft: #fbeaf0; --af-accent-soft-ink: #72243e; --af-on-accent: #fbeaf0;
+  --af-accent: #e81cff; --af-accent-strong: #ba16cc;
+  --af-accent-soft: #fde8ff; --af-accent-soft-ink: #ba16cc; --af-on-accent: #fde8ff;
 }
 [data-theme='dark'][data-accent='pink'] {
-  --af-accent: #ed93b1; --af-accent-strong: #f4c0d1;
-  --af-accent-soft: #4b1528; --af-accent-soft-ink: #f4c0d1; --af-on-accent: #310c19;
+  --af-accent: #f871ff; --af-accent-strong: #fbb3ff;
+  --af-accent-soft: #590963; --af-accent-soft-ink: #fdd4ff; --af-on-accent: #2c0431;
 }
 
 [data-accent='amber'] {
-  --af-accent: #854f0b; --af-accent-strong: #633806;
-  --af-accent-soft: #faeeda; --af-accent-soft-ink: #633806; --af-on-accent: #faeeda;
+  --af-accent: #f59e0b; --af-accent-strong: #d97706;
+  --af-accent-soft: #fffbeb; --af-accent-soft-ink: #d97706; --af-on-accent: #fffbeb;
 }
 [data-theme='dark'][data-accent='amber'] {
-  --af-accent: #ef9f27; --af-accent-strong: #fac775;
-  --af-accent-soft: #412402; --af-accent-soft-ink: #fac775; --af-on-accent: #2a1700;
+  --af-accent: #fbbf24; --af-accent-strong: #fde68a;
+  --af-accent-soft: #593600; --af-accent-soft-ink: #fef3c7; --af-on-accent: #2e1c00;
 }
 
 /* Legacy aliases kept so older code & App.css keep working */

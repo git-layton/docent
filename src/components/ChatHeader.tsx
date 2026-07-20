@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Settings,
   BookOpen,
-  Hash, FileText, Zap, Bookmark, Info
+  Hash, FileText, Zap, Bookmark, Info, Globe
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { useChatStore } from '../store/useChatStore';
@@ -103,7 +103,7 @@ export function ChatHeader({
 
   return (
     <>
-      <header className="h-12 shrink-0 flex items-center justify-between px-3 lg:px-4 border-b border-edge bg-panel z-10">
+      <header className="h-12 shrink-0 flex items-center justify-between px-3 lg:px-4 border-b border-edge/50 bg-white/10 z-10">
         <div className="flex items-center gap-3 relative" ref={dropdownRef}>
           <div className="relative" ref={contextPeekRef}>
             {/* The name trigger acts as a button only in 1:1 DMs (toggles the context peek).
@@ -134,6 +134,12 @@ export function ChatHeader({
                   is here
                 </span>
               )}
+              {!showPlanner && !isChannel && activeAssistant && (
+                <button className="hidden sm:flex items-center gap-1.5 text-[10px] font-medium text-ink-3 hover:text-ink transition-colors px-1.5 py-0.5 rounded-full hover:bg-wash">
+                  <Globe className="w-3 h-3" />
+                  also viewing all public tabs
+                </button>
+              )}
               {isChannel && !showPlanner && (
                 <button
                   onClick={e => { e.stopPropagation(); editSpace(); }}
@@ -153,7 +159,7 @@ export function ChatHeader({
             </div>
 
             {showContextPeek && !showPlanner && !isChannel && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-panel-2 border border-edge rounded-2xl shadow-2xl z-50 p-4 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white/10 dark:bg-black/10 backdrop-blur-xl border border-edge/50 rounded-2xl shadow-2xl z-50 p-4 animate-in fade-in slide-in-from-top-2 duration-150">
                 {/* Agent identity */}
                 <div className="flex items-start gap-3 mb-3 pb-3 border-b border-edge">
                   <div>

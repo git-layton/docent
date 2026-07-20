@@ -48,6 +48,23 @@ export function weatherCondition(code: number | null): WeatherCondition {
   return 'thunderstorm';
 }
 
+export function weatherSeverity(code: number | null): number {
+  if (code === null) return 0;
+  // Clouds: 1=partly (0.3), 2=mostly (0.6), 3=overcast (1.0)
+  if (code >= 1 && code <= 3) return code / 3.0;
+  // Fog: 45=fog (0.5), 48=depositing rime fog (1.0)
+  if (code === 45) return 0.5;
+  if (code === 48) return 1.0;
+  // Rain/Drizzle: x1=light (0.3), x3=moderate (0.6), x5/x7=heavy (1.0)
+  if ([51, 61, 71, 80].includes(code)) return 0.3;
+  if ([53, 63, 73, 81].includes(code)) return 0.6;
+  if ([55, 57, 65, 67, 75, 77, 82].includes(code)) return 1.0;
+  // Thunderstorm: 95=slight (0.5), 96/99=heavy (1.0)
+  if (code === 95) return 0.5;
+  if (code > 95) return 1.0;
+  return 0.5; // fallback
+}
+
 const INITIAL: WeatherState = {
   latitude: null,
   longitude: null,

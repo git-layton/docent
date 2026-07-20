@@ -183,7 +183,7 @@ export function ChatInputBar({
     .filter(Boolean).join(',');
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-panel pt-6 pb-3 px-3 lg:px-4 z-10">
+    <div className="absolute bottom-0 left-0 right-0 bg-white/10 dark:bg-black/5 backdrop-blur-xl border-t border-edge/50 shadow-[0_-8px_32px_rgba(0,0,0,0.1)] pt-4 pb-3 px-3 lg:px-4 z-10">
       <div className="max-w-3xl mx-auto">
 
         {/* Error Display */}
@@ -284,7 +284,7 @@ export function ChatInputBar({
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) onSend(); }
             }}
             placeholder={models.length === 0 ? 'Connect a model to start chatting →' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
-            className="w-full bg-transparent p-3 min-h-[52px] max-h-40 resize-none outline-none text-ink placeholder-ink-3 text-sm font-medium custom-scrollbar" rows={1} disabled={(llamaServerPid !== null && llamaPaused) || models.length === 0} />
+            className="w-full bg-white/10 p-3 min-h-[52px] max-h-40 resize-none outline-none text-ink placeholder-ink-3 text-sm font-medium custom-scrollbar" rows={1} disabled={(llamaServerPid !== null && llamaPaused) || models.length === 0} />
         </div>
 
         {/* Mode bar + model selector + actions — single row */}
@@ -309,7 +309,7 @@ export function ChatInputBar({
           <div className="relative" ref={toolPopoverRef}>
             <button onClick={() => setShowToolPopover(v => !v)} className={`p-1.5 rounded-full transition-all ${showToolPopover ? 'bg-wash text-ink-2' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Add tools"><Plus className="w-3 h-3" /></button>
             {showToolPopover && (
-              <div className="absolute bottom-full left-0 mb-2 w-52 bg-panel-2 border border-edge rounded-2xl shadow-2xl z-[100] p-1.5 animate-in slide-in-from-bottom-2 duration-150">
+              <div className="absolute bottom-full left-0 mb-2 w-52 bg-white/10 dark:bg-black/10 backdrop-blur-xl border border-edge/50 rounded-2xl shadow-2xl z-[100] p-1.5 animate-in slide-in-from-bottom-2 duration-150">
                 <div className="px-2 py-1 text-[9px] font-medium text-ink-3 uppercase tracking-wider">Pin tools to toolbar</div>
                 <div className="space-y-0.5">
                   {AVAILABLE_TOOLS.map(tool => {
@@ -346,7 +346,7 @@ export function ChatInputBar({
                 <ChevronDown className="w-3 h-3 text-accent/50 shrink-0" />
               </button>
               {isModelDropdownOpen && (
-                <div className="absolute bottom-full right-0 mb-2 w-64 bg-panel-2 border border-edge rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+                <div className="absolute bottom-full right-0 mb-2 w-64 bg-white/10 dark:bg-black/10 backdrop-blur-xl border border-edge/50 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
                   <div className="p-1.5 space-y-1">
                     {(() => {
                       const localModels = models.filter(m => m.isLocal);

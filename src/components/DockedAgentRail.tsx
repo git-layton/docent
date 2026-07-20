@@ -1,6 +1,7 @@
 import { X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { db } from '../services/database';
+import { useSpaceStore } from '../store/useSpaceStore';
 
 // One shared chrome for every docked agent rail so they look + behave identically wherever they appear:
 // the co-pilot rail beside Notes/Browser/Canvas (App.tsx) and the Team group-chat rail in Code
@@ -45,6 +46,11 @@ export function DockedAgentRail({
   const widthRef = useRef(RAIL_DEFAULT);
   const [width, setWidth] = useState(RAIL_DEFAULT);
 
+  const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
+  const allTabs = useSpaceStore(s => s.omniTabs);
+  const activeTab = allTabs.find(t => t.id === activeOmniTabId);
+  const isStartActive = !activeTab || activeTab.type === 'home' || activeTab.type === 'space-log';
+
   useEffect(() => {
     db.get(RAIL_WIDTH_KEY, RAIL_DEFAULT)
       .then((v: any) => {
@@ -76,21 +82,13 @@ export function DockedAgentRail({
   };
 
   if (!open) {
-    return (
-      <button
-        onClick={() => onToggle(true)}
-        className="shrink-0 w-9 flex flex-col items-center pt-3 border-l border-edge bg-panel text-ink-3 hover:text-ink hover:bg-wash transition-colors"
-        title={collapsedTitle}
-      >
-        <Icon className="w-4 h-4" />
-      </button>
-    );
+    return null;
   }
   return (
     <div
       ref={railRef}
       style={{ width }}
-      className="relative shrink-0 flex flex-col m-3 rounded-2xl shadow-2xl ring-1 ring-white/10 bg-panel overflow-hidden"
+      className="relative shrink-0 flex flex-col rounded-xl border border-edge/50 shadow-lg bg-white/10 dark:bg-black/10 overflow-hidden backdrop-blur-xl"
     >
       <div
         onMouseDown={handleResizeDrag}

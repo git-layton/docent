@@ -756,32 +756,7 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                 </div>
               </div>
 
-              {/* Theme mode */}
-              <div>
-                <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Theme</label>
-                <div className="inline-flex rounded-full border border-edge-2 p-1 gap-1">
-                  {([
-                    { id: 'light', label: 'Light', icon: Sun },
-                    { id: 'dark', label: 'Dark', icon: Moon },
-                    { id: 'system', label: 'System', icon: Monitor },
-                  ] as const).map(({ id, label, icon: Icon }) => (
-                    <button
-                      key={id}
-                      onClick={() => setTheme(id)}
-                      className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-                        theme === id
-                          ? 'bg-accent text-on-accent'
-                          : 'text-ink-3 hover:bg-wash'
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" /> {label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-tiny text-ink-3 mt-1.5 font-medium">System follows your OS light/dark preference.</p>
-              </div>
 
-              {/* Accent color */}
               <div>
                 <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Accent Color</label>
                 <div className="flex gap-3 flex-wrap">

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useWeatherStore, weatherCondition, type WeatherCondition } from '../store/useWeatherStore';
+import { useWeatherStore, weatherCondition, weatherSeverity, type WeatherCondition } from '../store/useWeatherStore';
 
 type TimeOfDay = 'night' | 'sunrise' | 'day' | 'sunset';
 
@@ -26,6 +26,7 @@ export const DynamicBackground: React.FC = () => {
   const sunrise = useWeatherStore(s => s.sunrise);
   const sunset = useWeatherStore(s => s.sunset);
   const condition: WeatherCondition = weatherCondition(weatherCode);
+  const severity = weatherSeverity(weatherCode);
 
   useEffect(() => {
     const updateTime = () => {
@@ -92,13 +93,13 @@ export const DynamicBackground: React.FC = () => {
 
   // Cloud configs
   const clouds = useMemo(() =>
-    [0, 1, 2, 3].map(i => ({
+    [...Array(Math.floor(2 + 6 * severity))].map((_, i) => ({
       top: `${8 + seededRandom(i * 77) * 25}%`,
       scale: 0.6 + seededRandom(i * 77 + 1) * 0.8,
       opacity: 0.25 + seededRandom(i * 77 + 2) * 0.35,
       duration: `${80 + seededRandom(i * 77 + 3) * 100}s`,
       delay: `${-seededRandom(i * 77 + 4) * 80}s`,
-    })), []);
+    })), [severity]);
 
   // Bird configs
   const birds = useMemo(() =>
@@ -112,7 +113,7 @@ export const DynamicBackground: React.FC = () => {
 
   // Raindrop configs (for drizzle/rain/thunderstorm)
   const raindrops = useMemo(() =>
-    [...Array(60)].map((_, i) => ({
+    [...Array(Math.floor(20 + 100 * severity))].map((_, i) => ({
       left: `${seededRandom(i * 11) * 100}%`,
       delay: `${seededRandom(i * 11 + 1) * 2}s`,
       duration: `${0.4 + seededRandom(i * 11 + 2) * 0.4}s`,
@@ -123,14 +124,14 @@ export const DynamicBackground: React.FC = () => {
 
   // Snowflake configs
   const snowflakes = useMemo(() =>
-    [...Array(40)].map((_, i) => ({
+    [...Array(Math.floor(10 + 60 * severity))].map((_, i) => ({
       left: `${seededRandom(i * 13) * 100}%`,
       delay: `${seededRandom(i * 13 + 1) * 6}s`,
       duration: `${4 + seededRandom(i * 13 + 2) * 4}s`,
       size: `${2 + seededRandom(i * 13 + 3) * 4}px`,
       drift: `${-20 + seededRandom(i * 13 + 4) * 40}px`,
       opacity: 0.4 + seededRandom(i * 13 + 5) * 0.5,
-    })), []);
+    })), [severity]);
 
   const skyGradients: Record<TimeOfDay, string> = {
     night: 'linear-gradient(to bottom, #060814 0%, #151a30 50%, #1c1836 100%)',
@@ -305,8 +306,8 @@ export const DynamicBackground: React.FC = () => {
             className="absolute inset-0"
             style={{
               background: isDark
-                ? 'linear-gradient(to top, rgba(30,35,50,0.6) 0%, rgba(30,35,50,0.2) 50%, transparent 80%)'
-                : 'linear-gradient(to top, rgba(200,210,220,0.5) 0%, rgba(200,210,220,0.2) 50%, transparent 80%)',
+                ? `linear-gradient(to top, rgba(30,35,50,${0.2 + 0.4 * severity}) 0%, rgba(30,35,50,${0.1 + 0.1 * severity}) 50%, transparent 80%)`
+                : `linear-gradient(to top, rgba(200,210,220,${0.2 + 0.3 * severity}) 0%, rgba(200,210,220,${0.1 + 0.1 * severity}) 50%, transparent 80%)`,
               animation: 'fogPulse 8s ease-in-out infinite alternate',
             }}
           />

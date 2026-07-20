@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, Glasses } from 'lucide-react';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -340,7 +340,11 @@ function NewTabButton() {
 // ---------------------------------------------------------------------------
 // OmniTabBar — public export
 // ---------------------------------------------------------------------------
-export function OmniTabBar(): React.JSX.Element {
+interface OmniTabBarProps {
+  copilotOpen?: boolean;
+  onToggleCopilot?: (v: boolean) => void;
+}
+export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): React.JSX.Element {
   const allTabs = useSpaceStore(s => s.omniTabs);
   const spaces = useSpaceStore(s => s.spaces);
   const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
@@ -384,8 +388,11 @@ export function OmniTabBar(): React.JSX.Element {
     if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) el.scrollLeft += e.deltaY;
   }, []);
 
+  const activeTab = allTabs.find(t => t.id === activeOmniTabId);
+  const isStartActive = !activeTab || activeTab.type === 'home' || activeTab.type === 'space-log';
+
   return (
-    <div className="h-10 flex items-center justify-between bg-panel border-b border-edge px-4 shrink-0 relative z-20">
+    <div className={`h-10 flex items-center justify-between bg-white/10 dark:bg-black/10 ${!isStartActive ? 'backdrop-blur-xl' : ''} border-b border-edge/50 px-4 shrink-0 relative z-20`}>
       <div className="relative flex items-center gap-2 pr-3 border-r border-edge mr-3">
         <button
           onClick={() => setShowSpaceMenu(!showSpaceMenu)}
@@ -449,7 +456,21 @@ export function OmniTabBar(): React.JSX.Element {
           <TabOverflowMenu tabs={overflowTabs} />
         </div>
       )}
-      <WeatherEffectBadge />
+      
+      <div className="flex items-center gap-2 pl-3 ml-auto">
+        <WeatherEffectBadge />
+        
+        {onToggleCopilot && (
+          <button
+            onClick={() => onToggleCopilot(!copilotOpen)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors border shadow-sm ${copilotOpen ? 'bg-accent border-accent text-on-accent' : 'bg-inset border-edge text-ink hover:bg-wash'}`}
+            title="Toggle Docent Copilot"
+          >
+            <Glasses className="w-4 h-4" />
+            <span className="text-xs font-semibold">Docent</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
