@@ -97,6 +97,8 @@ interface BatchNode {
   label: string;
   sourceUrl?: string;
   sourcePath?: string;
+  /** JSON object merged into the node's existing metadata (backend patches, never clobbers). */
+  metadataJson?: string;
 }
 
 interface BatchEdge {
@@ -104,6 +106,7 @@ interface BatchEdge {
   targetId: string;
   relation: string;
   weight?: number;
+  metadataJson?: string;
 }
 
 // One transactional write for a whole extraction (nodes then edges) instead of dozens of separate
@@ -118,7 +121,7 @@ export async function upsertGraphBatch(nodes: BatchNode[], edges: BatchEdge[]): 
         label: n.label,
         sourceUrl: n.sourceUrl ?? null,
         sourcePath: n.sourcePath ?? null,
-        metadataJson: '{}',
+        metadataJson: n.metadataJson ?? '{}',
       })),
       edges: edges.map(e => ({
         id: `${e.sourceId}-${e.relation}-${e.targetId}`,
@@ -126,7 +129,7 @@ export async function upsertGraphBatch(nodes: BatchNode[], edges: BatchEdge[]): 
         targetId: e.targetId,
         relation: e.relation,
         weight: e.weight ?? 1.0,
-        metadataJson: '{}',
+        metadataJson: e.metadataJson ?? '{}',
       })),
     });
     return true;

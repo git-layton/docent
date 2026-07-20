@@ -3,6 +3,7 @@ import { ArrowLeft, Share2, Sparkles, Pencil, Check, X, RotateCw } from 'lucide-
 import { invoke } from '@tauri-apps/api/core';
 import { usePanelResource } from '../lib/panelCache';
 import { useUIStore } from '../store/useUIStore';
+import { useAgentStore } from '../store/useAgentStore';
 
 const ForceGraph2D: any = lazy(() => import('react-force-graph-2d') as any);
 
@@ -12,6 +13,8 @@ export interface GraphNode {
   node_type: string;
   source_url?: string;
   source_path?: string;
+  /** Raw JSON from graph_nodes.metadata_json — carries dossier_path, aliases, curated. */
+  metadata_json?: string;
 }
 
 export interface GraphEdge {
@@ -57,10 +60,27 @@ export function EntityDossierPage({
   const [dossierText, setDossierText] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Compute dossier path e.g. "people/taylor.md" or "entities/project-x.md"
-  const slug = node.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'entity';
-  const folder = node.node_type.toLowerCase() === 'person' ? 'people' : 'entities';
-  const dossierPath = `${folder}/${slug}.md`;
+  const activeAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? 'alexis');
+
+  // Dossier path e.g. "people/taylor.md" — prefer the path pinned on the node, else derive it from
+  // the label. Saving pins it (see saveDossier), so renaming an entity later can't orphan the file
+  // that was already written under the old label. The stored value is validated rather than
+  // trusted: metadata_json is writable by the LLM extractor, so a malformed or traversing path
+  // there must never reach the filesystem.
+  const dossierPath = useMemo(() => {
+    let stored = '';
+    try {
+      const meta = JSON.parse(node.metadata_json || '{}');
+      const p = typeof meta?.dossier_path === 'string' ? meta.dossier_path.trim() : '';
+      if (/^(people|entities)\/[A-Za-z0-9._-]+\.md$/.test(p) && !p.includes('..')) stored = p;
+    } catch {
+      stored = '';
+    }
+    if (stored) return stored;
+    const slug = node.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'entity';
+    const folder = node.node_type.toLowerCase() === 'person' ? 'people' : 'entities';
+    return `${folder}/${slug}.md`;
+  }, [node.metadata_json, node.label, node.node_type]);
 
   // Read existing dossier file
   const { data: loadedContent, refresh: reloadDossier, loading: dossierLoading } = usePanelResource<string>({
@@ -139,8 +159,14 @@ export function EntityDossierPage({
         path: dossierPath,
         content: dossierText,
         commitMessage: `dossier: update ${node.label}`,
-        agentId: 'alexis',
+        agentId: activeAgentId,
       });
+      // Pin the path on the node so it survives a later rename (best-effort: the dossier itself is
+      // already written, so a metadata failure must not read as a failed save).
+      await invoke('update_graph_node', {
+        id: node.id,
+        metadataPatch: JSON.stringify({ dossier_path: dossierPath }),
+      }).catch(err => console.warn('[dossier] could not pin dossier_path:', err));
       useUIStore.getState().showToast(`Saved dossier for ${node.label} ✓`);
       setIsEditing(false);
       reloadDossier();

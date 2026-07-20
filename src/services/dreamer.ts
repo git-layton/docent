@@ -128,6 +128,7 @@ Rules:
 - Never include a source file's path as the target_path of its own merge
 - For insights: cite at least 2 source_paths drawn from the file list; never fabricate a pattern that the files don't support
 - For playbook_refine: target_path must be an existing /playbooks/ file from the list; return at least 2 steps; only refine when it's a clear improvement
+- Files shown under READ-ONLY REFERENCE are the user's curated dossiers: never use one as a merge or prune source_path, and never as a merge/update target_path. You may cite them in insight source_paths.
 - For notices: use MEMS triggers listed above as the bar. Do not invent or generalise — only surface a notice when a specific file or pattern clearly qualifies.
 - Return { "operations": [] } if nothing needs doing
 - Do NOT output any text outside the JSON object`;
@@ -138,7 +139,7 @@ export function buildDreamerUserMessage(
   agentName: string,
   agentId: string,
   maxChars = 80_000,
-  context?: { currentDate?: string },
+  context?: { currentDate?: string; referenceFiles?: { path: string; name: string; content: string }[] },
 ): string {
   const inventory = memoryFiles
     .map(f => `- ${f.path} (${Math.round(f.content.length / 4)} tokens)`)
@@ -163,6 +164,23 @@ export function buildDreamerUserMessage(
 
   const dateLine = context?.currentDate ? `\nCurrent date: ${context.currentDate}` : '';
 
+  // Entity dossiers are the user's own curated notes. They share the context budget so the dreamer
+  // can reason about (and cite) them, but they are rendered in a separate READ-ONLY section — the
+  // caller keeps them out of the mutable path set, so no merge/prune/update can ever target one.
+  const referenceFiles = context?.referenceFiles ?? [];
+  const includedRefs: typeof referenceFiles = [];
+  for (const f of referenceFiles) {
+    if (totalChars + f.content.length > maxChars) break;
+    includedRefs.push(f);
+    totalChars += f.content.length;
+  }
+  const referenceSection = includedRefs.length
+    ? `\n\nREAD-ONLY REFERENCE — entity dossiers (${includedRefs.length}). These are the user's curated
+knowledge. Use them for context and you may cite them in insight source_paths, but they are NEVER
+valid as a merge source_path, a merge/update target_path, or a prune source_path:
+${includedRefs.map(f => `=== DOSSIER: ${f.path} ===\n${f.content}`).join('\n\n')}`
+    : '';
+
   return `Analyze the memory files for agent "${agentName}" (id: ${agentId}).${dateLine}
 Review for consolidation opportunities, durable cross-file insights worth remembering, AND anything worth surfacing as a notice.
 
@@ -170,7 +188,7 @@ File inventory (${memoryFiles.length} files):
 ${inventory}${truncationNote}
 
 File contents:
-${fileContext}
+${fileContext}${referenceSection}
 
 Respond with ONLY the JSON operations plan.`;
 }

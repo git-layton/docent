@@ -894,7 +894,13 @@ fn search_knowledge(
 
     let mut results: Vec<serde_json::Value> = Vec::new();
 
-    let mut dirs_to_search: Vec<std::path::PathBuf> = vec![root.join("library")];
+    // Entity dossiers (people/, entities/) are global curated knowledge — always in scope
+    // regardless of agent/space filtering, otherwise a dossier the user wrote is unfindable.
+    let mut dirs_to_search: Vec<std::path::PathBuf> = vec![
+        root.join("library"),
+        root.join("people"),
+        root.join("entities"),
+    ];
     if let Some(ref sid) = space_id {
         if !is_safe_agent_id(sid) {
             return serde_json::json!({ "results": [], "error": "Invalid space id" });
@@ -1608,17 +1614,21 @@ fn search_knowledge_semantic(
 
     let root = knowledge_root();
     let library_prefix = root.join("library").to_string_lossy().to_string();
+    // Dossiers are indexed (the sync walker covers the whole root) but were filtered out here at
+    // query time — include them so curated entity knowledge is actually retrievable.
+    let people_prefix = root.join("people").to_string_lossy().to_string();
+    let entities_prefix = root.join("entities").to_string_lossy().to_string();
 
     let rows: Vec<(String, String, Vec<u8>, i64, f64)> = {
         if let Some(ref sid) = space_id {
             let space_prefix = root.join("memory").join("spaces").join(sid).to_string_lossy().to_string();
             let global_prefix = root.join("memory").join("spaces").join("space-home").to_string_lossy().to_string();
             let mut stmt = match conn.prepare(
-                "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2 OR file_path LIKE ?3"
+                "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2 OR file_path LIKE ?3 OR file_path LIKE ?4 OR file_path LIKE ?5"
             ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id.clone(), space_id.clone(), Some(max_results), Some(snippet_chars)) };
-            
+
             stmt.query_map(
-                rusqlite::params![format!("{}%", space_prefix), format!("{}%", global_prefix), format!("{}%", library_prefix)],
+                rusqlite::params![format!("{}%", space_prefix), format!("{}%", global_prefix), format!("{}%", library_prefix), format!("{}%", people_prefix), format!("{}%", entities_prefix)],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             ).map(|it| it.flatten().collect()).unwrap_or_default()
         } else {
@@ -1627,11 +1637,11 @@ fn search_knowledge_semantic(
                 .map(|id| root.join("memory").join(id).to_string_lossy().to_string())
                 .unwrap_or_else(|| root.join("memory").to_string_lossy().to_string());
             let mut stmt = match conn.prepare(
-                "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2"
+                "SELECT file_path, content, vector, last_modified, importance FROM brain_vectors WHERE file_path LIKE ?1 OR file_path LIKE ?2 OR file_path LIKE ?3 OR file_path LIKE ?4"
             ) { Ok(s) => s, Err(_) => return search_knowledge(query, None, agent_id.clone(), space_id.clone(), Some(max_results), Some(snippet_chars)) };
 
             stmt.query_map(
-                rusqlite::params![format!("{}%", memory_prefix), format!("{}%", library_prefix)],
+                rusqlite::params![format!("{}%", memory_prefix), format!("{}%", library_prefix), format!("{}%", people_prefix), format!("{}%", entities_prefix)],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             ).map(|it| it.flatten().collect()).unwrap_or_default()
         }
@@ -2079,6 +2089,23 @@ fn list_agent_memory_files(agent_id: String, space_id: Option<String>) -> serde_
         let dir = knowledge_root().join("memory").join(agent_id);
         collect_knowledge_files(&dir, &mut files, true);
     }
+    files.sort_by(|a, b| {
+        b["name"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(a["name"].as_str().unwrap_or(""))
+    });
+    serde_json::json!({ "files": files })
+}
+
+/// Entity dossiers (people/ + entities/) — global curated notes about people and things. Listed
+/// separately from agent memory so the dream cycle can include them in its working set.
+#[tauri::command]
+fn list_dossier_files() -> serde_json::Value {
+    let root = knowledge_root();
+    let mut files = Vec::new();
+    collect_knowledge_files(&root.join("people"), &mut files, false);
+    collect_knowledge_files(&root.join("entities"), &mut files, false);
     files.sort_by(|a, b| {
         b["name"]
             .as_str()
@@ -4585,20 +4612,30 @@ fn upsert_graph_node(
 ) -> Result<(), String> {
     let conn = open_graph_db()?;
     let now = now_secs();
-    conn.execute(
-        "INSERT INTO graph_nodes (id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
-         ON CONFLICT(id) DO UPDATE SET
-             node_type     = excluded.node_type,
-             label         = excluded.label,
-             source_url    = excluded.source_url,
-             source_path   = excluded.source_path,
-             metadata_json = excluded.metadata_json,
-             updated_at    = excluded.updated_at",
+    conn.execute(GRAPH_NODE_UPSERT_SQL,
         rusqlite::params![id, node_type, label, source_url, source_path, metadata_json, now],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// Shared node-upsert semantics (single + batch paths):
+/// - a node the user marked curated (metadata.curated = true) keeps its label and type — the
+///   LLM extractor re-observing an entity must never overwrite a human correction;
+/// - source_url/source_path only fill in, never null out;
+/// - metadata merges via json_patch (a '{}' write from the extractor keeps existing keys like
+///   aliases/dossier_path/curated instead of clobbering them; explicit null deletes a key).
+const GRAPH_NODE_UPSERT_SQL: &str =
+    "INSERT INTO graph_nodes (id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+     ON CONFLICT(id) DO UPDATE SET
+         node_type     = CASE WHEN json_extract(graph_nodes.metadata_json, '$.curated')
+                              THEN graph_nodes.node_type ELSE excluded.node_type END,
+         label         = CASE WHEN json_extract(graph_nodes.metadata_json, '$.curated')
+                              THEN graph_nodes.label ELSE excluded.label END,
+         source_url    = COALESCE(excluded.source_url, graph_nodes.source_url),
+         source_path   = COALESCE(excluded.source_path, graph_nodes.source_path),
+         metadata_json = json_patch(graph_nodes.metadata_json, excluded.metadata_json),
+         updated_at    = excluded.updated_at";
 
 #[tauri::command]
 fn upsert_graph_edge(
@@ -4835,6 +4872,149 @@ fn delete_graph_node(id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Curation: edit a node in place. Only the provided fields change; metadata_patch is RFC-7396
+/// style — keys merge over the existing metadata, an explicit null deletes a key (so
+/// `{"curated": null}` un-pins a node).
+#[tauri::command]
+fn update_graph_node(
+    id: String,
+    label: Option<String>,
+    node_type: Option<String>,
+    metadata_patch: Option<String>,
+) -> Result<(), String> {
+    if let Some(ref patch) = metadata_patch {
+        serde_json::from_str::<serde_json::Value>(patch)
+            .map_err(|e| format!("Invalid metadata patch: {e}"))?;
+    }
+    if let Some(ref l) = label {
+        if l.trim().is_empty() {
+            return Err("Label cannot be empty".to_string());
+        }
+    }
+    let conn = open_graph_db()?;
+    let changed = conn
+        .execute(
+            "UPDATE graph_nodes SET
+                label         = COALESCE(?2, label),
+                node_type     = COALESCE(?3, node_type),
+                metadata_json = CASE WHEN ?4 IS NULL THEN metadata_json
+                                     ELSE json_patch(metadata_json, ?4) END,
+                updated_at    = ?5
+             WHERE id = ?1",
+            rusqlite::params![id, label, node_type, metadata_patch, now_secs()],
+        )
+        .map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err(format!("Node not found: {id}"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_graph_edge(id: String) -> Result<(), String> {
+    let conn = open_graph_db()?;
+    conn.execute("DELETE FROM graph_edges WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Curation: fold duplicate nodes into one. Every edge of each absorbed node is re-pointed at the
+/// survivor (self-loops and duplicate triples dropped), absorbed labels + their aliases are
+/// recorded in the survivor's metadata.aliases (the extractor's dedup memory), and the absorbed
+/// nodes are deleted — all in one transaction.
+#[tauri::command]
+fn merge_graph_nodes(survivor_id: String, absorbed_ids: Vec<String>) -> Result<(), String> {
+    let mut conn = open_graph_db()?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let (survivor_label, survivor_meta): (String, String) = tx
+        .query_row(
+            "SELECT label, metadata_json FROM graph_nodes WHERE id = ?1",
+            rusqlite::params![survivor_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| format!("Survivor node not found: {survivor_id}"))?;
+
+    let mut meta: serde_json::Value =
+        serde_json::from_str(&survivor_meta).unwrap_or_else(|_| serde_json::json!({}));
+    let mut aliases: Vec<String> = meta
+        .get("aliases")
+        .and_then(|a| a.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let mut seen: std::collections::HashSet<String> = aliases
+        .iter()
+        .map(|a| a.to_lowercase())
+        .chain(std::iter::once(survivor_label.to_lowercase()))
+        .collect();
+
+    for aid in &absorbed_ids {
+        if aid == &survivor_id {
+            continue;
+        }
+        let Ok((label, meta_json)) = tx.query_row(
+            "SELECT label, metadata_json FROM graph_nodes WHERE id = ?1",
+            rusqlite::params![aid],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        ) else {
+            continue;
+        };
+        let absorbed_meta: serde_json::Value =
+            serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
+        let absorbed_aliases = absorbed_meta
+            .get("aliases")
+            .and_then(|a| a.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+            .unwrap_or_default();
+        for candidate in std::iter::once(label).chain(absorbed_aliases) {
+            if seen.insert(candidate.to_lowercase()) {
+                aliases.push(candidate);
+            }
+        }
+
+        tx.execute(
+            "UPDATE graph_edges SET source_id = ?1 WHERE source_id = ?2",
+            rusqlite::params![survivor_id, aid],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute(
+            "UPDATE graph_edges SET target_id = ?1 WHERE target_id = ?2",
+            rusqlite::params![survivor_id, aid],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute(
+            "DELETE FROM graph_nodes WHERE id = ?1",
+            rusqlite::params![aid],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Re-pointing can create self-loops and duplicate (source, relation, target) triples — drop
+    // both, keeping the oldest row of each triple.
+    tx.execute(
+        "DELETE FROM graph_edges WHERE source_id = target_id AND (source_id = ?1)",
+        rusqlite::params![survivor_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "DELETE FROM graph_edges WHERE (source_id = ?1 OR target_id = ?1) AND rowid NOT IN (
+             SELECT MIN(rowid) FROM graph_edges GROUP BY source_id, relation, target_id
+         )",
+        rusqlite::params![survivor_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    meta["aliases"] = serde_json::json!(aliases);
+    tx.execute(
+        "UPDATE graph_nodes SET metadata_json = ?2, updated_at = ?3 WHERE id = ?1",
+        rusqlite::params![survivor_id, meta.to_string(), now_secs()],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // Batched, transactional graph write. Extraction produces many entities + edges at once; doing them
 // as one connection + one transaction (nodes before edges, so the edge FKs resolve) replaces dozens
 // of separate `upsert_graph_*` IPC round-trips — each of which otherwise opens its own SQLite
@@ -4877,15 +5057,7 @@ fn upsert_graph_batch(
         // Ignore a single malformed row rather than sinking the whole batch. A constraint error
         // leaves the transaction usable for the remaining statements.
         let _ = tx.execute(
-            "INSERT INTO graph_nodes (id, node_type, label, source_url, source_path, metadata_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
-             ON CONFLICT(id) DO UPDATE SET
-                 node_type     = excluded.node_type,
-                 label         = excluded.label,
-                 source_url    = excluded.source_url,
-                 source_path   = excluded.source_path,
-                 metadata_json = excluded.metadata_json,
-                 updated_at    = excluded.updated_at",
+            GRAPH_NODE_UPSERT_SQL,
             rusqlite::params![
                 n.id, n.node_type, n.label, n.source_url, n.source_path,
                 n.metadata_json.clone().unwrap_or_else(|| "{}".to_string()), now
@@ -5052,6 +5224,7 @@ pub fn run() {
             list_agent_memory_files,
             migrate_memory_to_global,
             list_library_files,
+            list_dossier_files,
             read_knowledge_file,
             fs_list,
             fs_read,
@@ -5174,6 +5347,9 @@ pub fn run() {
             get_graph_full,
             get_graph_stats,
             delete_graph_node,
+            update_graph_node,
+            delete_graph_edge,
+            merge_graph_nodes,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application")

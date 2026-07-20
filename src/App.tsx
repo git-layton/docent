@@ -1749,6 +1749,18 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         if (read.ok && read.content.trim()) memoryFiles.push({ path: file.path, name: file.name, content: read.content });
       }
 
+      // Entity dossiers (people/, entities/) were dark matter: written to disk but invisible to the
+      // dream cycle, so a dossier the user wrote was never consolidated against. They join the
+      // dreamer's working set as REFERENCE ONLY — see knownPaths below, which stays memory-only so
+      // no merge/prune/update op can rewrite or archive the user's curated knowledge.
+      const dossierFiles: { path: string; name: string; content: string }[] = [];
+      const listedDossiers = await invoke<{ files: Array<{ path: string; name: string }> }>('list_dossier_files')
+        .catch(() => ({ files: [] as Array<{ path: string; name: string }> }));
+      for (const file of listedDossiers.files ?? []) {
+        const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path: file.path }).catch(() => ({ ok: false, content: '' }));
+        if (read.ok && read.content.trim()) dossierFiles.push({ path: file.path, name: file.name, content: read.content });
+      }
+
       if (memoryFiles.length < 2) {
         useUIStore.getState().showToast('🌙 Dream Cycle: Not enough files to consolidate yet.');
         return;
@@ -1759,7 +1771,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
       // Call the Dreamer LLM
       const systemPrompt = buildDreamerSystemPrompt();
-      const userMessage = buildDreamerUserMessage(memoryFiles, activeAgent.name, activeAgent.id, maxChars, { currentDate: new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) });
+      const userMessage = buildDreamerUserMessage(memoryFiles, activeAgent.name, activeAgent.id, maxChars, { currentDate: new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), referenceFiles: dossierFiles });
 
       // Grammar-enforced where the provider supports it, schema-validated always; each op is
       // salvaged individually so one malformed op never sinks the valid ones beside it.
@@ -1776,8 +1788,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         return;
       }
 
-      // Validate paths — only operate on files we actually read
+      // Validate paths — only operate on files we actually read. Dossier paths are deliberately
+      // absent from knownPaths: they are reference-only, so no merge/prune/update can rewrite or
+      // archive the user's curated knowledge. citablePaths is the wider set an insight may cite,
+      // since citing a source reads it and never mutates it.
       const knownPaths = new Set(memoryFiles.map(f => f.path));
+      const citablePaths = new Set([...knownPaths, ...dossierFiles.map(f => f.path)]);
 
       const dreamItems: DreamItem[] = [];
       let totalTokensSaved = 0;
@@ -1849,7 +1865,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
             // Reflection: persist a synthesized cross-file generalization BACK into memory so it's
             // retrievable in future turns (Tier 1 digest + Tier 2 search), not just shown once. Insights
             // are additive — sources are kept, not archived.
-            const validSources = (op.source_paths ?? []).filter((p: string) => knownPaths.has(p));
+            const validSources = (op.source_paths ?? []).filter((p: string) => citablePaths.has(p));
             if (validSources.length < 2 || !op.insight?.trim() || !op.title?.trim()) continue;
             // Collapse newlines so an LLM title can't inject extra YAML keys or break the quoted scalar.
             const insightTitle = String(op.title).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
