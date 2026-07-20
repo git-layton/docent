@@ -13,7 +13,7 @@ interface GatekeeperDecisionLike {
   tags?: string[];
 }
 
-export type CaptureStatus = 'received' | 'processing' | 'needs_review' | 'saved' | 'failed';
+export type CaptureStatus = 'received' | 'processing' | 'needs_review' | 'saved' | 'failed' | 'dismissed';
 export type CaptureKind = 'text' | 'url' | 'image' | 'audio' | 'file' | 'mixed';
 
 export interface CaptureAttachment {

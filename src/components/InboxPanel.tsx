@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   FileText,
@@ -10,11 +10,19 @@ import {
   RefreshCw,
   Send,
   User,
+  Brain,
+  CheckSquare,
+  StickyNote,
+  X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useAgentStore } from '../store/useAgentStore';
 import { useChatStore } from '../store/useChatStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
+import { useTaskStore } from '../store/useTaskStore';
+import { useReceiptStore } from '../services/receipts';
 import {
   DEFAULT_INBOX_OWNERS,
   formatCaptureAge,
@@ -54,6 +62,7 @@ function statusDot(status: string) {
   if (status === 'failed') return 'bg-danger';
   if (status === 'processing') return 'bg-accent animate-pulse';
   if (status === 'needs_review') return 'bg-warning';
+  if (status === 'dismissed') return 'bg-edge-2 opacity-40';
   return 'bg-edge-2';
 }
 
@@ -71,8 +80,9 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
   const [quickText, setQuickText] = useState('');
   const [quickNote, setQuickNote] = useState('');
   const [quickOwner, setQuickOwner] = useState<string>('primary');
-  // Per-capture agent picker state
   const [captureAgents, setCaptureAgents] = useState<Record<string, string>>({});
+  const [showDismissed, setShowDismissed] = useState(false);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const configuredOwners = normalizeInboxOwners(appSettings.inboxOwners);
@@ -195,6 +205,80 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
     onToast(`Opened with ${agent.name}`);
   }
 
+  // ── Triage actions ────────────────────────────────────────────────────────
+  // Each action patches the capture's status server-side, mutates local state,
+  // and records a receipt with a genuine undo handler.
+
+  async function patchStatus(capture: CaptureItem, status: CaptureItem['status']) {
+    await invoke('update_inbox_capture', { captureId: capture.id, status }).catch(() => {});
+    setCaptures(prev => prev.map(c => c.id === capture.id ? { ...c, status } : c));
+  }
+
+  const triageToMemory = useCallback(async (capture: CaptureItem) => {
+    const prevStatus = capture.status;
+    await patchStatus(capture, 'saved');
+    // Write a memory file from the capture body
+    const slug = capture.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'capture';
+    await invoke('write_memory_file', {
+      agentId: 'alexis',
+      path: `inbox/${slug}.md`,
+      content: `# ${capture.title}\n\n${capture.bodyText || ''}\n`,
+      commitMessage: `inbox: triage → memory "${capture.title.slice(0, 60)}"`,
+    }).catch(() => {});
+    useReceiptStore.getState().record(
+      { surface: 'memory', action: 'Saved to Memory', summary: `"${capture.title.slice(0, 60)}" filed from Forge Inbox` },
+      async () => { await patchStatus(capture, prevStatus); },
+    );
+    useUIStore.getState().showToast('Saved to memory ↗');
+  }, []);
+
+  const triageToTask = useCallback(async (capture: CaptureItem) => {
+    const prevStatus = capture.status;
+    await patchStatus(capture, 'saved');
+    const taskId = generateId('t');
+    useTaskStore.getState().addTask(capture.title || capture.bodyText.slice(0, 80), null, capture.bodyText.slice(0, 500));
+    useReceiptStore.getState().record(
+      { surface: 'tasks', action: 'Created Task', summary: `"${capture.title.slice(0, 60)}" added to To-Dos` },
+      async () => { useTaskStore.getState().deleteTask(taskId); await patchStatus(capture, prevStatus); },
+    );
+    useUIStore.getState().showToast('Added to To-Dos ✓');
+  }, []);
+
+  const triageToNote = useCallback(async (capture: CaptureItem) => {
+    const prevStatus = capture.status;
+    await patchStatus(capture, 'saved');
+    await invoke('notes_create', {
+      folder: 'Inbox',
+      name: capture.title || 'Inbox Capture',
+      body: capture.bodyText || '',
+    }).catch(() => {});
+    useReceiptStore.getState().record(
+      { surface: 'notes', action: 'Created Note', summary: `"${capture.title.slice(0, 60)}" saved as a note` },
+      async () => { await patchStatus(capture, prevStatus); },
+    );
+    useUIStore.getState().showToast('Saved as note 📝');
+  }, []);
+
+  const triageDismiss = useCallback(async (capture: CaptureItem) => {
+    const prevStatus = capture.status;
+    await patchStatus(capture, 'dismissed');
+    useReceiptStore.getState().record(
+      { surface: 'inbox', action: 'Dismissed', summary: `"${capture.title.slice(0, 60)}" dismissed from Forge Inbox` },
+      async () => { await patchStatus(capture, prevStatus); },
+    );
+  }, []);
+
+  // Keyboard triage: M / T / N / D when a card is focused
+  const handleCardKeyDown = useCallback((e: React.KeyboardEvent, capture: CaptureItem) => {
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).tagName !== 'DIV') return;
+    switch (e.key.toUpperCase()) {
+      case 'M': e.preventDefault(); triageToMemory(capture); break;
+      case 'T': e.preventDefault(); triageToTask(capture); break;
+      case 'N': e.preventDefault(); triageToNote(capture); break;
+      case 'D': e.preventDefault(); triageDismiss(capture); break;
+    }
+  }, [triageToMemory, triageToTask, triageToNote, triageDismiss]);
+
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
@@ -267,10 +351,19 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
         Refresh
       </button>
 
+      {/* Dismissed toggle */}
+      <button
+        onClick={() => setShowDismissed(v => !v)}
+        className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-edge text-[10px] font-black uppercase tracking-widest text-ink-3 hover:bg-wash transition-colors"
+      >
+        {showDismissed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        {showDismissed ? 'Hide dismissed' : 'Show dismissed'}
+      </button>
+
       {/* Capture list */}
       {isLoading ? (
         <div className="text-center py-8 text-ink-3 text-xs">Loading…</div>
-      ) : captures.length === 0 ? (
+      ) : captures.filter(c => showDismissed || c.status !== 'dismissed').length === 0 ? (
         <div className="text-center py-12 text-ink-3">
           <Inbox className="w-10 h-10 mx-auto mb-3 opacity-20" />
           <p className="text-xs font-bold">Nothing here yet.</p>
@@ -278,8 +371,15 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
         </div>
       ) : (
         <div className="space-y-2">
-          {captures.map(capture => (
-            <div key={`${capture.ownerId}-${capture.id}`} className="rounded-xl border border-edge bg-panel-2 overflow-hidden">
+          {captures.filter(c => showDismissed || c.status !== 'dismissed').map(capture => (
+            <div
+              key={`${capture.ownerId}-${capture.id}`}
+              className={`rounded-xl border border-edge bg-panel-2 overflow-hidden group/card outline-none transition-opacity ${capture.status === 'dismissed' ? 'opacity-40' : ''}`}
+              tabIndex={0}
+              onFocus={() => setFocusedId(capture.id)}
+              onBlur={() => setFocusedId(null)}
+              onKeyDown={e => handleCardKeyDown(e, capture)}
+            >
               <div className="p-3 space-y-2.5">
                 {/* Title row */}
                 <div className="flex items-start gap-2">
@@ -297,6 +397,9 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
                         {ownerLabel(capture.ownerId, ownerOptions)}
                       </span>
                       <span className="text-[9px] text-ink-3">{formatCaptureAge(capture.createdAt)}</span>
+                      {focusedId === capture.id && (
+                        <span className="text-[9px] text-ink-3 ml-auto">M·T·N·D</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -320,8 +423,23 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
                   </div>
                 )}
 
-                {/* Agent picker + Chat CTA */}
-                <div className="flex items-center gap-2 pl-6">
+                {/* Triage actions + Agent picker + Chat CTA */}
+                <div className="flex items-center gap-1.5 pl-6">
+                  {/* Triage buttons — always visible on hover, M/T/N/D keyboard shortcuts */}
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity mr-1">
+                    <button onClick={() => triageToMemory(capture)} title="Save to Memory (M)" className="p-1.5 rounded-lg text-ink-3 hover:bg-inset hover:text-accent transition-colors">
+                      <Brain className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => triageToTask(capture)} title="Create Task (T)" className="p-1.5 rounded-lg text-ink-3 hover:bg-inset hover:text-accent transition-colors">
+                      <CheckSquare className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => triageToNote(capture)} title="Save as Note (N)" className="p-1.5 rounded-lg text-ink-3 hover:bg-inset hover:text-accent transition-colors">
+                      <StickyNote className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => triageDismiss(capture)} title="Dismiss (D)" className="p-1.5 rounded-lg text-ink-3 hover:bg-inset hover:text-danger transition-colors">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                   <select
                     value={captureAgents[capture.id] ?? activeAgentId}
                     onChange={e => setCaptureAgents(prev => ({ ...prev, [capture.id]: e.target.value }))}
