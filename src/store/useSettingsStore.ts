@@ -193,7 +193,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     fileActivity: [],
     voiceProfile: DEFAULT_VOICE_PROFILE,
     newShellEnabled: true,
-    glassEnabled: true,
+    glassEnabled: false,
     weatherLocation: '',
   },
   profileSettingsTab: 'profile',
@@ -315,16 +315,25 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       visionModelId: '',
       visionEndpoint: '',
       newShellEnabled: true,
-      glassEnabled: true,
+      glassEnabled: false,
     });
     
     // One-time migration for existing users to turn on the massive UI redesign
     const uiMigrated = await db.get('v2_4_6_ui_migrated', false);
     if (!uiMigrated) {
       appSettings.newShellEnabled = true;
-      appSettings.glassEnabled = true;
       await db.set('appSettings', appSettings);
       await db.set('v2_4_6_ui_migrated', true);
+    }
+
+    // One-time migration: solid backgrounds are the default from v2.8 on — turn
+    // glass/blur off for installs that had it force-enabled by the v2.4.6 migration.
+    // Glass stays available as an explicit opt-in via Settings.
+    const solidMigrated = await db.get('v2_8_0_solid_bg_migrated', false);
+    if (!solidMigrated) {
+      appSettings.glassEnabled = false;
+      await db.set('appSettings', appSettings);
+      await db.set('v2_8_0_solid_bg_migrated', true);
     }
 
     // Migrate legacy single googleWorkspace → googleWorkspaces array
