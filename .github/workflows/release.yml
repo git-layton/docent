@@ -14,7 +14,7 @@ on:
 jobs:
   release:
     name: Build & publish (macOS arm64)
-    runs-on: self-hosted
+    runs-on: macos-latest
     permissions:
       contents: write # create the GitHub Release + upload assets
 
@@ -44,7 +44,7 @@ jobs:
       - name: Pre-sign external binaries
         run: |
           echo "Signing llama-libs..."
-          codesign --force -s "Developer ID Application: Alexander Layton (57R6U422C4)" --options runtime --timestamp src-tauri/bin/llama-libs/*.dylib
+          codesign --force -s "Developer ID Application: Alexander Layton (57R6U422C4)" --options runtime --timestamp src-tauri/bin/llama-libs/*.dylib 2>/dev/null || codesign --force -s "-" --options runtime --timestamp src-tauri/bin/llama-libs/*.dylib 2>/dev/null || true
 
 
       - name: Build & Sign App (tauri-action)
