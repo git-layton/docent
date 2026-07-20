@@ -54,9 +54,9 @@ interface AppEntry {
   open: (tabId?: string) => void;
 }
 
-// Home is the permanent landing zone (pinned, unclosable) — launching an app opens a NEW tab
-// beside it, never consumes it. Home can't "pile up" because ensureHomeTab keeps it singular
-// per Space, so + always has a launcher to return to.
+// Start is what a new tab renders — an ordinary tab, not a pinned fixture. Launching an app opens
+// a NEW tab beside it rather than consuming it, so the launcher you came from stays put until you
+// close it yourself.
 function launch(_tabId: string | undefined, tab: Omit<OmniTab, 'id'>) {
   useSpaceStore.getState().openTab(tab);
 }

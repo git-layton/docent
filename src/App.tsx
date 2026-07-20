@@ -3556,7 +3556,7 @@ if (isSpotlight) {
         <div className="fixed inset-0 z-40 bg-transparent" onClick={() => useMemoryStore.getState().setShowMemmoPanel(false)} />
       )}
       {/* Inbox panel — shown instead of MemmoPanel when inbox tab active */}
-      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-panel-2 border-l border-edge shadow-2xl flex flex-col transition-transform duration-300 overflow-y-auto ${
+      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-panel border-l border-edge shadow-2xl flex flex-col transition-transform duration-300 overflow-y-auto ${
         showMemmoPanel && memmoPanelTab === 'inbox' ? 'translate-x-0' : 'translate-x-full'
       }`}>
         <div className="flex items-center justify-between px-4 py-4 border-b border-edge shrink-0">

@@ -109,20 +109,32 @@ describe('closeTab', () => {
     useSpaceStore.getState().closeTab(id)
     const tabs = useSpaceStore.getState().omniTabs
     expect(tabs.find(t => t.id === id)).toBeUndefined()
-    // Closing the last closable tab must never leave an empty strip — Home backstops it.
+    // Closing the last tab must never leave an empty strip — a Start tab backstops it. Start is an
+    // ordinary unpinned tab now (it is just what a new tab renders), not a permanent fixture.
     expect(tabs).toHaveLength(1)
     expect(tabs[0].type).toBe('home')
-    expect(tabs[0].isPinned).toBe(true)
+    expect(tabs[0].isPinned).toBe(false)
   })
 
-  it('does not close a pinned tab', () => {
+  it('closes a pinned tab — pinning is a layout preference, not a lock', () => {
     useSpaceStore.setState({
-      omniTabs: [{ id: 'tab-pinned', type: 'space-log', label: 'Log', isPinned: true }],
+      omniTabs: [{ id: 'tab-pinned', type: 'doc', label: 'Doc', isPinned: true }],
       activeOmniTabId: 'tab-pinned',
     })
     useSpaceStore.getState().closeTab('tab-pinned')
-    expect(useSpaceStore.getState().omniTabs).toHaveLength(1)
-    expect(useSpaceStore.getState().activeOmniTabId).toBe('tab-pinned')
+    const tabs = useSpaceStore.getState().omniTabs
+    expect(tabs.find(t => t.id === 'tab-pinned')).toBeUndefined()
+    // ...and the strip still backfills rather than going empty.
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].type).toBe('home')
+  })
+
+  it('setTabPinned toggles a tab between pinned and unpinned', () => {
+    const id = useSpaceStore.getState().openTab({ type: 'web', label: 'Tab' })
+    useSpaceStore.getState().setTabPinned(id, true)
+    expect(useSpaceStore.getState().omniTabs.find(t => t.id === id)?.isPinned).toBe(true)
+    useSpaceStore.getState().setTabPinned(id, false)
+    expect(useSpaceStore.getState().omniTabs.find(t => t.id === id)?.isPinned).toBe(false)
   })
 
   it('does nothing when closing a non-existent id', () => {

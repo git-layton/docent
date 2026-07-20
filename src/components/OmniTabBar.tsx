@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff } from 'lucide-react';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -145,7 +145,6 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
   const inboxAlerts = useUIStore(s => s.inboxAlerts);
   const showInboxAlerts = tab.type === 'tool' && tab.toolId === 'inbox' && inboxAlerts > 0;
 
-  const isHome = tab.type === 'home';
   const didDrag = useRef(false);
 
   const handlePointerDown = useCallback(
@@ -196,17 +195,20 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
       }}
       className={clsx(
         'group h-8 rounded-t-lg text-[11px] font-medium grow-0 shrink flex items-center gap-1.5 overflow-hidden transition-all',
-        isHome
-          ? 'px-2.5 min-w-[36px] basis-[36px] max-w-[36px] justify-center'
+        // A pinned tab collapses to an icon chip — the browser convention, and it reads as
+        // deliberate rather than as a normal tab with its close button mysteriously missing. It
+        // widens on hover to reveal unpin + close, so pinning is never a one-way door.
+        tab.isPinned
+          ? 'px-2 basis-[44px] max-w-[44px] min-w-[44px] hover:basis-[116px] hover:max-w-[116px]'
           : 'px-3 basis-[168px] max-w-[220px] min-w-[44px]',
         isActive
           ? 'bg-panel border border-b-0 border-edge-2 text-ink shadow-[inset_0_2px_0_0_var(--af-accent)]'
           : 'text-ink-3 hover:text-ink-2 hover:bg-wash',
       )}
-      title={isHome ? 'Start Page' : tab.label}
+      title={tab.isPinned ? `${tab.label} — pinned` : tab.label}
     >
       <TypeIcon tab={tab} />
-      {!isHome && <span className="truncate flex-1 min-w-0">{tab.label}</span>}
+      {!tab.isPinned && <span className="truncate flex-1 min-w-0">{tab.label}</span>}
       {showInboxAlerts && (
         <span
           className="shrink-0 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-on-accent text-[9px] font-bold flex items-center justify-center leading-none"
@@ -223,7 +225,8 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
           {unread > 99 ? '99+' : unread}
         </span>
       )}
-      {/* Star — pins this tab into the sidebar FAVORITES section */}
+      {/* Star — pins this tab into the sidebar FAVORITES section. Favorites stay independent of
+          pinning, so this shows on pinned chips too (the hover expansion leaves room). */}
       <span
         role="button"
         tabIndex={-1}
@@ -248,7 +251,7 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
         <Star className={clsx('w-3 h-3', tab.isFavorite && 'fill-current')} />
       </span>
       {/* Split — show this tab beside the active one */}
-      {!isActive && (
+      {!isActive && !tab.isPinned && (
         <span
           role="button"
           tabIndex={-1}
@@ -268,8 +271,29 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
           <SplitSquareHorizontal className="w-3 h-3" />
         </span>
       )}
-      {/* The agent Chat (space-log) & Home tab can't be closed. */}
-      {!tab.isPinned && !isHome && tab.type !== 'space-log' && (
+      {/* Unpin — a plain left click, so a pinned tab is never a dead end. */}
+      {tab.isPinned && (
+        <span
+          role="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            useSpaceStore.getState().setTabPinned(tab.id, false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.stopPropagation();
+              useSpaceStore.getState().setTabPinned(tab.id, false);
+            }
+          }}
+          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
+          title="Unpin tab"
+        >
+          <PinOff className="w-3 h-3" />
+        </span>
+      )}
+      {/* Close. Pinned tabs close too; only the Space's own Chat is permanent. */}
+      {tab.type !== 'space-log' && (
         <span
           role="button"
           tabIndex={-1}

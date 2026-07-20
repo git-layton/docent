@@ -105,10 +105,14 @@ interface SpaceStore {
   updateSpace(id: string, patch: Partial<Space>): void;
   setAgentGoal(spaceId: string, agentId: string, goal: string): void;
   setActiveSpaceId(id: string | null): void;
-  /** Guarantee the given context (a Space, or the global Home when null/omitted) has its permanent
-   *  pinned Home tab, creating or pinning it as needed. Returns the Home tab's id. Home is the
-   *  landing zone: unclosable, and always there when everything else is closed. */
+  /** Guarantee the given context (a Space, or the global Home when null/omitted) has a Start tab to
+   *  land on, creating an ordinary one if none exists. Returns its id.
+   *
+   *  Start is NOT a permanent pinned fixture — it is just what a new tab shows, the browser model.
+   *  This exists only so closing the last tab (or switching Spaces) never leaves a blank strip. */
   ensureHomeTab(spaceId?: string | null): string;
+  /** Pin or unpin a tab. Pinning is purely the user's choice now; nothing pins itself. */
+  setTabPinned(id: string, pinned: boolean): void;
   /** Read spaces/<id>/AGENTS.md into activeProjectContext, creating it from AGENTS_TEMPLATE if missing
    *  (fs_write auto-creates the dir + git-commits). Fire-and-forget; no-op outside Tauri. */
   loadProjectContext(spaceId: string | null | undefined): Promise<void>;
@@ -129,23 +133,24 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
   ensureHomeTab: (spaceId) => {
     const sid = (spaceId === undefined ? get().activeSpaceId : spaceId) ?? undefined;
     const existing = get().omniTabs.find(t => t.type === 'home' && t.spaceId === sid);
-    if (existing) {
-      if (!existing.isPinned) {
-        set(s => ({ omniTabs: s.omniTabs.map(t => (t.id === existing.id ? { ...t, isPinned: true } : t)) }));
-        get().persist();
-      }
-      return existing.id;
-    }
+    if (existing) return existing.id;
     const id = generateId('tab');
-    const home: OmniTab = { id, type: 'home', label: 'Start', spaceId: sid, isPinned: true };
+    // An ordinary tab: unpinned, closable, appended like any other. Nothing special about Start
+    // beyond what it renders.
+    const home: OmniTab = { id, type: 'home', label: 'Start', spaceId: sid, isPinned: false };
     set(s => ({
-      omniTabs: [home, ...s.omniTabs], // Home leads the strip
+      omniTabs: [...s.omniTabs, home],
       spaces: sid
-        ? s.spaces.map(sp => (sp.id === sid ? { ...sp, tabIds: [id, ...sp.tabIds], updatedAt: Date.now() } : sp))
+        ? s.spaces.map(sp => (sp.id === sid ? { ...sp, tabIds: [...sp.tabIds, id], updatedAt: Date.now() } : sp))
         : s.spaces,
     }));
     get().persist();
     return id;
+  },
+
+  setTabPinned: (id, pinned) => {
+    set(s => ({ omniTabs: s.omniTabs.map(t => (t.id === id ? { ...t, isPinned: pinned } : t)) }));
+    get().persist();
   },
 
   openTab: (tab) => {
@@ -190,7 +195,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
   closeTab: (id) => {
     const { omniTabs, activeOmniTabId, activeSpaceId } = get();
     const tab = omniTabs.find(t => t.id === id);
-    if (!tab || tab.isPinned) return;
+    // Pinned tabs close too — pinning is a layout preference, not a lock. The strip can't be left
+    // empty regardless: the backfill at the end of this action lands on a Start tab.
+    if (!tab) return;
 
     const remaining = omniTabs.filter(t => t.id !== id);
     let nextActiveId = activeOmniTabId;
@@ -450,14 +457,14 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const isCompatible = version === STORE_VERSION && spaces !== null && omniTabs !== null;
 
     if (isCompatible) {
-      // Chat (space-log) tabs are normal closable tabs now — clear any leftover pin
-      // from older persisted state so existing installs pick up the change too.
-      // Home tabs are the opposite: permanently pinned (the unclosable landing zone).
+      // Chat (space-log) and Start (home) tabs are both ordinary closable tabs now. Older installs
+      // persisted them pinned, so clear that here — a non-destructive migration: the tabs the user
+      // had open are preserved, they just stop being unclosable fixtures. Start is no longer a
+      // permanent tab at all; it is simply what a new tab renders.
       const tabs = (omniTabs as OmniTab[]).map(t =>
-        t.type === 'space-log' && t.isPinned ? { ...t, isPinned: false }
-        // Home tabs: permanently pinned, and relabeled — the landing zone is called "Start" now.
-        : t.type === 'home' ? { ...t, isPinned: true, label: 'Start' }
-        : t,
+        (t.type === 'space-log' || t.type === 'home') && t.isPinned
+          ? { ...t, isPinned: false, ...(t.type === 'home' ? { label: 'Start' } : {}) }
+          : t,
       );
       set({
         spaces: spaces as Space[],
@@ -502,16 +509,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     // Land on the HOME screen (the StartPage overview of apps + agents) on launch — not straight into a
     // conversation. Your space's chat is one click away (its Chat tab). Ensure a Home tab exists, then
     // make it active.
-    {
-      const st = get();
-      const sid = st.activeSpaceId ?? 'space-home';
-      let home = st.omniTabs.find(t => t.type === 'home' && t.spaceId === sid);
-      if (!home) {
-        home = { id: generateId('tab'), type: 'home', label: 'Start', spaceId: sid, isPinned: true };
-        set(s => ({ omniTabs: [...s.omniTabs, home!] }));
-      }
-      set({ activeOmniTabId: home.id });
-    }
+    set({ activeOmniTabId: get().ensureHomeTab(get().activeSpaceId ?? 'space-home') });
 
     // Reconcile the active conversation with the active container's own thread,
     // so the chat panel never shows a leftover DM when a Space is active.

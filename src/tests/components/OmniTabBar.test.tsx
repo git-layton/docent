@@ -161,10 +161,25 @@ describe('OmniTabBar — favorite star', () => {
 // ---------------------------------------------------------------------------
 
 describe('OmniTabBar — pinned tab protection', () => {
-  it('pinned tab has no close button', () => {
-    seedStore([makeTab({ id: 'pinned', label: 'Pinned', isPinned: true })], 'pinned')
+  it('pinned tab still offers close and unpin — pinning is never a dead end', () => {
+    seedStore([makeTab({ id: 'pinned', label: 'Pinned', type: 'doc', isPinned: true })], 'pinned')
     render(<OmniTabBar />)
-    expect(screen.queryByTitle('Close tab')).not.toBeInTheDocument()
+    expect(screen.getByTitle('Close tab')).toBeInTheDocument()
+    expect(screen.getByTitle('Unpin tab')).toBeInTheDocument()
+  })
+
+  it('unpin click calls setTabPinned(id, false)', () => {
+    seedStore([makeTab({ id: 'pinned', label: 'Pinned', type: 'doc', isPinned: true })], 'pinned')
+    const spy = vi.spyOn(useSpaceStore.getState(), 'setTabPinned')
+    render(<OmniTabBar />)
+    fireEvent.click(screen.getByTitle('Unpin tab'))
+    expect(spy).toHaveBeenCalledWith('pinned', false)
+  })
+
+  it('an unpinned tab shows no unpin control', () => {
+    seedStore([makeTab({ id: 'free', label: 'Free', type: 'doc', isPinned: false })], 'free')
+    render(<OmniTabBar />)
+    expect(screen.queryByTitle('Unpin tab')).not.toBeInTheDocument()
   })
 
   it('the agent Chat (space-log) tab has no close button — it is the home base', () => {
@@ -179,14 +194,14 @@ describe('OmniTabBar — pinned tab protection', () => {
     expect(screen.getByTitle('Close tab')).toBeInTheDocument()
   })
 
-  it('multiple tabs: only non-pinned, non-chat ones show close buttons', () => {
+  it('multiple tabs: every non-chat tab shows a close button, pinned included', () => {
     seedStore([
       makeTab({ id: 'p', label: 'Pinned',    type: 'doc', isPinned: true }),
       makeTab({ id: 'a', label: 'Free A',    type: 'doc', isPinned: false }),
       makeTab({ id: 'b', label: 'Free B',    type: 'doc', isPinned: false }),
     ], 'p')
     render(<OmniTabBar />)
-    expect(screen.getAllByTitle('Close tab')).toHaveLength(2)
+    expect(screen.getAllByTitle('Close tab')).toHaveLength(3)
   })
 
   it('close button click calls closeTab with the correct id', () => {
@@ -299,7 +314,8 @@ describe('OmniTabBar — pointer reorder', () => {
     seedStore([makeTab({ id: 'p', label: 'Pinned', isPinned: true })], 'p')
     const spy = vi.spyOn(useSpaceStore.getState(), 'moveTab')
     render(<OmniTabBar />)
-    const btn = screen.getByText('Pinned').closest('button')!
+    // Pinned tabs render as icon chips with no visible label, so select by the pill's title.
+    const btn = screen.getByTitle('Pinned — pinned').closest('button')!
     fireEvent.pointerDown(btn, { button: 0, clientX: 0, clientY: 0 })
     window.dispatchEvent(new MouseEvent('pointermove', { clientX: 50, clientY: 0 }))
     expect(spy).not.toHaveBeenCalled()

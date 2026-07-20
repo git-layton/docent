@@ -194,7 +194,7 @@ export function MemmoPanel({ isOpen, onClose, pinnedMessages, onUnpin, onCompose
       )}
 
       {/* Panel */}
-      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-panel-2 border-l border-edge shadow-2xl flex flex-col transition-transform duration-300 ${
+      <div className={`fixed top-0 right-0 h-full w-80 z-50 bg-panel border-l border-edge shadow-2xl flex flex-col transition-transform duration-300 ${
         isOpen ? 'translate-x-0' : 'translate-x-full'
       }`}>
         {/* Header */}
