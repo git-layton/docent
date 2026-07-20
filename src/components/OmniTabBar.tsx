@@ -297,75 +297,19 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
 // NewTabButton
 // ---------------------------------------------------------------------------
 function NewTabButton() {
-  const [open, setOpen] = useState(false);
-
-  const handleOpenOption = (action: () => void) => {
-    action();
-    setOpen(false);
-  };
+  const handleNewTab = useCallback(() => {
+    useSpaceStore.getState().openTab({ type: 'home', label: 'Start' });
+  }, []);
 
   return (
-    <div className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-wash transition-colors mb-1"
-        title="New tab options"
-      >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full left-0 mt-1 w-56 z-50 overflow-hidden rounded-xl border border-edge bg-panel-2 p-1.5 shadow-xl space-y-0.5">
-            <button
-              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'web', url: 'https://google.com', label: 'Web' }))}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
-            >
-              <Globe className="w-3.5 h-3.5 text-accent" /> Search Web
-            </button>
-            <button
-              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'space-log', label: 'Chat' }))}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-accent" /> Chat
-            </button>
-            <button
-              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'knowledge-graph', label: 'Knowledge' }))}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
-            >
-              <Share2 className="w-3.5 h-3.5 text-accent" /> Search Knowledge Base
-            </button>
-            <button
-              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'day', label: 'Day' }))}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
-            >
-              <CalendarCheck className="w-3.5 h-3.5 text-accent" /> Day / Planner
-            </button>
-            <button
-              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'notes', label: 'Notes' }))}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
-            >
-              <StickyNote className="w-3.5 h-3.5 text-accent" /> Notes
-            </button>
-            <button
-              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'tool', toolId: 'inbox', label: 'Inbox' }))}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink hover:bg-wash transition-colors text-left"
-            >
-              <Mail className="w-3.5 h-3.5 text-accent" /> Inbox
-            </button>
-            <div className="border-t border-edge my-1" />
-            <button
-              onClick={() => handleOpenOption(() => useSpaceStore.getState().openTab({ type: 'home', label: 'Start' }))}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink-2 hover:bg-wash transition-colors text-left"
-            >
-              <Home className="w-3.5 h-3.5 text-ink-3" /> Start Page
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={handleNewTab}
+      className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-wash transition-colors mb-1"
+      title="New tab"
+    >
+      <Plus className="w-3.5 h-3.5" />
+    </button>
   );
 }
 
