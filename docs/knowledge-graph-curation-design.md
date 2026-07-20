@@ -1,6 +1,6 @@
 # Knowledge Graph Curation — Deep Review & Design
 
-Status: **proposed** · Date: 2026-07-19
+Status: **in progress** — Phase 0 shipped, Phase 1 backend shipped (see §4) · Date: 2026-07-19
 Scope: a deep review of the knowledge graph + notes system, and a design for making it
 **editable**, giving notes **structure**, encoding **librarian best practices** as a curation
 charter, and putting the **dream cycle to work** as the librarian.
@@ -185,8 +185,17 @@ work pays rent: curated nodes produce better recall.
 
 ## 4. Sequencing
 
-1. **Phase 0 (fixes)**: F8 bugs + Track A (index dossiers, thread agent id). Small, ship first.
+1. ~~**Phase 0 (fixes)**: F8 bugs + Track A (index dossiers, thread agent id). Small, ship first.~~
+   **SHIPPED 2026-07-20** (`1f98fec`). Dossiers are indexed by both search paths and reach the
+   dream cycle via `list_dossier_files`. One deviation from §D worth knowing: dossiers enter the
+   dreamer as **read-only reference** — cited by `insight`, never targetable by `merge`/`prune`/
+   `update`. The existing ops guard only on "is this a file I read", so including dossiers in that
+   set would have let a dream archive a user-written dossier. Making them mutable is Phase 3's job,
+   with the `dossier_write`/`dossier_restructure` guardrails.
 2. **Phase 1 (editable)**: Track B verbs + sidebar UI. Independent of LLM work.
+   **Backend shipped** in the same commit (`update_graph_node`, `delete_graph_edge`,
+   `merge_graph_nodes`, plus curated-node preservation in `GRAPH_NODE_UPSERT_SQL`). **The sidebar
+   UI is the remaining work** — nothing in the frontend calls these verbs yet.
 3. **Phase 2 (charter + digest)**: charter file, curation digest SQL, extractor alias-dedup.
 4. **Phase 3 (dreaming librarian)**: new ops, wire-schema enums, undo log.
 5. **Phase 4 (read path)**: entity-triggered context injection.
