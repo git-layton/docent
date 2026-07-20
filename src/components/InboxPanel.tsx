@@ -285,7 +285,7 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
       <div className="rounded-xl border border-accent/20 bg-accent-soft/40 p-3">
         <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-accent">
           <Inbox className="w-4 h-4" />
-          Forge Inbox
+          Docent Inbox
         </div>
         <p className="text-[10px] text-ink-2 mt-1 leading-relaxed">
           Drop anything here. Open it with an agent when you're ready to talk about it.
