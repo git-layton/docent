@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   distillCandidate,
   observeCompletion,
-  shouldPromote,
-  promote,
+  shouldPropose,
   isStale,
   composeSkillContext,
   DEFAULT_SKILL_POLICY,
@@ -86,34 +85,28 @@ describe('observeCompletion', () => {
   });
 });
 
-describe('promotion trust gate', () => {
+describe('proposal — recurrence surfaces a candidate but never verifies it (SEC-PLAYBOOKVERIFY)', () => {
   const base = (over: Partial<LearnedSkill>): LearnedSkill => ({
     title: 'T', trigger: 't', steps: [{ intent: 's' }], verified: false, accept: 0, seen: 0, ...over,
   });
 
-  it('does not suggest a candidate until it has recurred enough', () => {
-    expect(shouldPromote(base({ seen: DEFAULT_SKILL_POLICY.promoteAfterSeen - 1 }))).toBe(false);
-    expect(shouldPromote(base({ seen: DEFAULT_SKILL_POLICY.promoteAfterSeen }))).toBe(true);
+  it('does not propose a candidate until it has recurred enough', () => {
+    expect(shouldPropose(base({ seen: DEFAULT_SKILL_POLICY.proposeAfterSeen - 1 }))).toBe(false);
+    expect(shouldPropose(base({ seen: DEFAULT_SKILL_POLICY.proposeAfterSeen }))).toBe(true);
   });
 
-  it('promotes immediately on explicit user approval', () => {
-    expect(shouldPromote(base({ seen: 0, accept: 1 }))).toBe(true);
+  it('never proposes an already-trusted skill', () => {
+    expect(shouldPropose(base({ seen: 99, verified: true }))).toBe(false);
   });
 
-  it('promote() flips verified only when earned, and is idempotent', () => {
-    const earned = promote(base({ seen: 3 }));
-    expect(earned.verified).toBe(true);
-    expect(promote(earned)).toEqual(earned); // idempotent once verified
-    expect(promote(base({ seen: 1 })).verified).toBe(false);
-  });
-
-  it('repeated observation eventually promotes a candidate on its own', () => {
+  it('recurrence alone NEVER sets verified — trust stays an explicit user action', () => {
     let skill = distillCandidate('recurring chore', actions(2))!; // seen 1
-    for (let i = 0; i < 5 && !skill.verified; i++) {
-      skill = promote(observeCompletion(skill, distillCandidate('recurring chore', actions(2))!));
+    for (let i = 0; i < 6; i++) {
+      skill = observeCompletion(skill, distillCandidate('recurring chore', actions(2))!);
     }
-    expect(skill.verified).toBe(true);
-    expect(skill.seen).toBeGreaterThanOrEqual(DEFAULT_SKILL_POLICY.promoteAfterSeen);
+    expect(skill.seen).toBeGreaterThanOrEqual(DEFAULT_SKILL_POLICY.proposeAfterSeen);
+    expect(shouldPropose(skill)).toBe(true); // Docent will OFFER it for the user to trust…
+    expect(skill.verified).toBe(false);      // …but it is not suggestable until the user says so
   });
 });
 

@@ -213,6 +213,25 @@ export const reinforcePlaybook = async (
 };
 
 /**
+ * Read + parse a single playbook by its trigger (the store is trigger-keyed, one file per procedure).
+ * Returns null when it doesn't exist yet or outside Tauri. Used by organic capture to fold a fresh
+ * observation into the existing record without listing every playbook on the turn's hot path.
+ */
+export const readPlaybookByTrigger = async (rootPath: string, trigger: string): Promise<Playbook | null> => {
+  if (!rootPath || !isTauri()) return null;
+  const slug = playbookTriggerSlug(trigger);
+  const spaceId = useSpaceStore.getState().activeSpaceId || 'space-home';
+  const path = `${rootPath}/memory/spaces/${spaceId}/playbooks/${slug}.md`;
+  try {
+    const read = await invoke<{ ok: boolean; content: string }>('read_knowledge_file', { path }).catch(() => ({ ok: false, content: '' }));
+    if (!read?.ok) return null;
+    return parsePlaybook(read.content);
+  } catch {
+    return null;
+  }
+};
+
+/**
  * PURE — format verified playbooks into a system-prompt block. The agent OFFERS to run one and then
  * carries it out via its NORMAL tool actions, one at a time (each individually approved) — there is no
  * auto-run and no special executor. Returns '' when there are none.

@@ -16,8 +16,7 @@
 // POLICY is unit-tested in isolation. Disk/store wiring lives at the call site — see
 // `docs/organic-skills.md` for the intended integration seam.
 
-import type { Playbook, PlaybookStep } from './appliedMemory';
-import { playbookTriggerSlug, formatProceduresBlock } from './appliedMemory';
+import { playbookTriggerSlug, formatProceduresBlock, type Playbook, type PlaybookStep } from './appliedMemory';
 import { skillPromptForSurface, type SurfaceContext } from '../data/skills';
 
 // A skill Docent has watched itself perform. A Playbook plus the organic-learning counters that decide
@@ -34,19 +33,19 @@ export interface CompletedAction {
   intent: string; // one-line natural-language description of what the step did
 }
 
-// How readily skills form, promote, and fade. Deliberately conservative: a skill must recur before it's
-// ever suggested, so the agent never pitches a one-off as a proven, repeatable procedure.
+// How readily skills form, are proposed, and fade. Deliberately conservative: a task must recur before
+// Docent even proposes remembering it, and — per the SEC-PLAYBOOKVERIFY invariant (App.tsx) — becoming
+// *suggestable* (`verified`) is ALWAYS an explicit user action, never something this engine does. So a
+// prompt-injected or hallucinated pattern can accrue observations but can never turn itself into an offer.
 export interface SkillLearningPolicy {
-  minSteps: number;           // a task needs at least this many distinct steps to be worth remembering
-  promoteAfterSeen: number;   // auto-promote to suggestable once observed this many times…
-  promoteAfterAccept: number; // …or once the user has approved running it this many times
-  decayAfterDays: number;     // an un-promoted candidate untouched this long is forgotten
+  minSteps: number;         // a task needs at least this many distinct steps to be worth remembering
+  proposeAfterSeen: number; // surface a candidate for the user to trust once it has recurred this often
+  decayAfterDays: number;   // an untrusted candidate untouched this long is forgotten
 }
 
 export const DEFAULT_SKILL_POLICY: SkillLearningPolicy = {
   minSteps: 2,
-  promoteAfterSeen: 3,
-  promoteAfterAccept: 1,
+  proposeAfterSeen: 3,
   decayAfterDays: 30,
 };
 
@@ -134,23 +133,19 @@ export function observeCompletion(
 }
 
 /**
- * Whether a candidate has earned suggestability: it recurred enough on its own (`seen`), or the user
- * explicitly approved running it (`accept`). Already-verified skills stay verified. This IS the trust
- * gate — nothing a candidate does before this returns true will ever surface it to the user.
+ * Whether a candidate has recurred often enough that Docent should PROPOSE it — surface it prominently
+ * in the Playbooks UI so the user can trust it with one tap. This is NOT promotion: per
+ * SEC-PLAYBOOKVERIFY, only an explicit user action sets `verified`. A candidate that is already trusted,
+ * or hasn't recurred enough, is not proposed. Nothing here ever makes a skill suggestable on its own.
  */
-export function shouldPromote(skill: LearnedSkill, policy: SkillLearningPolicy = DEFAULT_SKILL_POLICY): boolean {
-  if (skill.verified) return true;
-  return (skill.seen ?? 0) >= policy.promoteAfterSeen || (skill.accept ?? 0) >= policy.promoteAfterAccept;
-}
-
-/** Apply promotion (pure): flip `verified` on once the skill qualifies, otherwise return it unchanged. */
-export function promote(skill: LearnedSkill, policy: SkillLearningPolicy = DEFAULT_SKILL_POLICY): LearnedSkill {
-  return !skill.verified && shouldPromote(skill, policy) ? { ...skill, verified: true } : skill;
+export function shouldPropose(skill: LearnedSkill, policy: SkillLearningPolicy = DEFAULT_SKILL_POLICY): boolean {
+  if (skill.verified) return false;
+  return (skill.seen ?? 0) >= policy.proposeAfterSeen;
 }
 
 /**
- * An un-promoted candidate that hasn't recurred within the decay window is forgotten, so speculative
- * one-offs don't accumulate forever. Verified skills never decay here — they've already proven useful.
+ * An untrusted candidate that hasn't recurred within the decay window is forgotten, so speculative
+ * one-offs don't accumulate forever. Trusted (verified) skills never decay here — the user blessed them.
  */
 export function isStale(
   skill: LearnedSkill,
@@ -170,9 +165,9 @@ export function isStale(
  * skills frame HOW to work here; learned skills offer WHAT worked before. Kept as two blocks so each
  * reads clearly, and unverified candidates are filtered out so only earned skills are ever suggested.
  */
-export function composeSkillContext(surface: SurfaceContext, learned: LearnedSkill[] = []): string {
+export function composeSkillContext(surface: SurfaceContext, learned: Playbook[] = []): string {
   const surfaceBlock = skillPromptForSurface(surface);
-  const earned = learned.filter((s) => s.verified);
-  const learnedBlock = formatProceduresBlock(earned);
+  const trusted = (learned ?? []).filter((s) => s.verified);
+  const learnedBlock = formatProceduresBlock(trusted);
   return [surfaceBlock, learnedBlock].filter(Boolean).join('\n\n');
 }
