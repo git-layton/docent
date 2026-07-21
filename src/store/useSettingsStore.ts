@@ -73,6 +73,8 @@ interface SettingsStore {
     glassEnabled?: boolean;
     // Optional zip code or city name for live weather in the background scene.
     weatherLocation?: string;
+    // Toggle for ambient weather effects (fog/rain/snow)
+    ambientWeatherEnabled?: boolean;
   };
 
   // Profile settings modal

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Sparkles, X, Loader2, RotateCcw } from 'lucide-react';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 export interface DreamItem {
   id: string;
@@ -62,6 +63,16 @@ function formatTimestamp(iso: string): string {
 
 export function DreamDigestModal({ log, onClose, onUndo }: Props) {
   const [undoingId, setUndoingId] = useState<string | null>(null);
+  const [justEnabled, setJustEnabled] = useState(false);
+  const autoEnabled = useSettingsStore(s => s.appSettings?.dreamAutoEnabled) === true;
+  const setAppSettings = useSettingsStore(s => s.setAppSettings);
+
+  function enableDailyDreams() {
+    setAppSettings((prev: any) => ({ ...prev, dreamAutoEnabled: true }));
+    // Opting in shouldn't ride on the 1.5s debounced autosave — flush it now.
+    void useSettingsStore.getState().persist();
+    setJustEnabled(true);
+  }
 
   async function handleUndo(id: string) {
     setUndoingId(id);
@@ -198,7 +209,33 @@ export function DreamDigestModal({ log, onClose, onUndo }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-edge shrink-0">
+        <div className="p-4 border-t border-edge shrink-0 space-y-3">
+          {/* The digest is the only place the user has seen proof of what a dream does,
+              so it's where the daily opt-in is worth offering. */}
+          {(!autoEnabled || justEnabled) && (
+            <div className="flex items-center gap-3 p-3 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+                  Like what it did? Docent can dream once a day on its own.
+                </p>
+                <p className="text-[10px] text-indigo-700 dark:text-indigo-400 mt-0.5 leading-relaxed">
+                  Runs while Docent is open. You'll always get a digest, and every change stays undoable.
+                </p>
+              </div>
+              {justEnabled ? (
+                <span className="shrink-0 text-[10px] font-bold text-success bg-success-soft px-2.5 py-1.5 rounded-lg border border-success/30">
+                  Daily dreams on ✓
+                </span>
+              ) : (
+                <button
+                  onClick={enableDailyDreams}
+                  className="shrink-0 text-[10px] font-bold text-on-accent bg-accent hover:opacity-90 px-3 py-1.5 rounded-lg transition-all"
+                >
+                  Enable daily dreams
+                </button>
+              )}
+            </div>
+          )}
           <p className="text-[10px] text-ink-3 text-center">
             Archived files are kept for 7 days before permanent deletion.
             View them in the <span className="font-semibold">Archive</span> tab of the Knowledge Tray.

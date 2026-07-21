@@ -10,10 +10,14 @@ export interface AccentOption {
 export const ACCENT_OPTIONS: AccentOption[] = [
   { id: 'lavender', label: 'Lavender', swatch: '#7F77DD' },
   { id: 'jade', label: 'Jade', swatch: '#1D9E75' },
+  { id: 'emerald', label: 'Emerald', swatch: '#10b981' },
+  { id: 'cyan', label: 'Cyan', swatch: '#06b6d4' },
   { id: 'coral', label: 'Coral', swatch: '#D85A30' },
-  { id: 'blue', label: 'Blue', swatch: '#378ADD' },
-  { id: 'pink', label: 'Pink', swatch: '#D4537E' },
   { id: 'amber', label: 'Amber', swatch: '#EF9F27' },
+  { id: 'pink', label: 'Pink', swatch: '#D4537E' },
+  { id: 'rose', label: 'Rose', swatch: '#f43f5e' },
+  { id: 'violet', label: 'Violet', swatch: '#8b5cf6' },
+  { id: 'blue', label: 'Blue', swatch: '#378ADD' },
 ];
 
 export const DEFAULT_ACCENT = 'lavender';

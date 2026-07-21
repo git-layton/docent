@@ -1597,6 +1597,24 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                 >{appSettings?.showContextWindowLine ? 'On' : 'Off'}</button>
               </div>
 
+              {/* Daily Dream Cycle — the only control for dreamAutoEnabled; the Integrations
+                  "Dream Cycle" card deep-links here. Off by default: memory is never rewritten
+                  unattended until the user has seen a digest and opted in. */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-wash rounded-xl shadow-sm border border-edge-2"><Moon className="w-5 h-5 text-ink-3" /></div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest ">Daily Dream Cycle</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Once a day, Docent consolidates this assistant's memory, saves what it learned, and flags loose ends. Only runs while Docent is open.</span>
+                    <span className="text-tiny text-ink-3 mt-0.5">Off by default — every change is undoable from the digest.</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAppSettings((prev: any) => ({ ...prev, dreamAutoEnabled: !prev.dreamAutoEnabled }))}
+                  className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${appSettings?.dreamAutoEnabled ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-wash text-ink-3 hover:bg-inset'}`}
+                >{appSettings?.dreamAutoEnabled ? 'On' : 'Off'}</button>
+              </div>
+
               {/* Local Planner */}
               <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -1629,6 +1647,16 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                   </div>
                   <button onClick={() => setAppSettings((prev: any) => ({ ...prev, glassEnabled: !prev.glassEnabled }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.glassEnabled ? 'bg-primary' : 'bg-inset'}`}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.glassEnabled ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 border-t border-edge pt-5">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest">Ambient Weather</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Enable dynamic weather effects (clouds, rain, snow) in the background.</span>
+                  </div>
+                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, ambientWeatherEnabled: prev.ambientWeatherEnabled === false ? true : false }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.ambientWeatherEnabled !== false ? 'bg-primary' : 'bg-inset'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.ambientWeatherEnabled !== false ? 'right-0.5' : 'left-0.5'}`} />
                   </button>
                 </div>
 

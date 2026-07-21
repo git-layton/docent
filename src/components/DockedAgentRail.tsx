@@ -1,4 +1,4 @@
-import { X, type LucideIcon } from 'lucide-react';
+import { X, Maximize2, Minimize2, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { db } from '../services/database';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -45,6 +45,7 @@ export function DockedAgentRail({
   // widthRef mirrors width so the mouseup persist sees the final drag value, not a stale closure.
   const widthRef = useRef(RAIL_DEFAULT);
   const [width, setWidth] = useState(RAIL_DEFAULT);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
   const allTabs = useSpaceStore(s => s.omniTabs);
@@ -87,8 +88,10 @@ export function DockedAgentRail({
   return (
     <div
       ref={railRef}
-      style={{ width }}
-      className="relative shrink-0 flex flex-col rounded-xl border border-edge/50 shadow-lg bg-white/10 dark:bg-black/10 overflow-hidden backdrop-blur-xl"
+      style={isExpanded ? {} : { width }}
+      className={`relative flex flex-col rounded-xl border border-edge/50 shadow-lg bg-white/10 dark:bg-black/10 overflow-hidden backdrop-blur-xl transition-all ${
+        isExpanded ? 'absolute inset-0 z-[100] m-2' : 'shrink-0'
+      }`}
     >
       <div
         onMouseDown={handleResizeDrag}
@@ -98,7 +101,17 @@ export function DockedAgentRail({
       <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0">
         <div className="flex-1 min-w-0 flex items-center gap-2">{header}</div>
         <button
-          onClick={() => onToggle(false)}
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="p-1 rounded-md text-ink-3 hover:text-ink hover:bg-inset transition-colors"
+          title={isExpanded ? "Collapse" : "Expand to full screen"}
+        >
+          {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+        </button>
+        <button
+          onClick={() => {
+            if (isExpanded) setIsExpanded(false);
+            onToggle(false);
+          }}
           className="p-1 rounded-md text-ink-3 hover:text-ink hover:bg-inset transition-colors"
           title={hideTitle}
         >

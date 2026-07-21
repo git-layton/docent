@@ -48,7 +48,11 @@ The Planner (calendar icon in header) combines a task list with a calendar view:
 When an agent generates code, diagrams, or documents, it appears in the Canvas panel (toggle with the split-screen icon). Save canvas content to your Library.
 
 ### 🌙 Dream Cycle
-Dream Cycle is an experimental, manual memory cleanup tool. Run it from Agent Settings when you want Docent to suggest merges, updates, and archive actions for an agent's notes.
+A Dream Cycle is a pass over an agent's memory. It consolidates related notes, saves durable insights it spots across several files, and flags loose ends — an intention you never followed up on, a deadline coming up, a worry with no resolution.
+
+Run one from Agent Settings ("Run Dream Cycle"). Afterwards you get a **Dream Digest**: every change listed, each one undoable, and archived files kept for 7 days in the Archive tab of the Knowledge Tray.
+
+Dream Cycles are manual by default — Docent never rewrites memory on its own until you say so. Once you've seen a digest you like, turn on **Daily Dream Cycle** in Settings → Privacy & control to have it run once a day while Docent is open.
 
 ### 🔍 Knowledge Search
 Your agent automatically searches your Knowledge Core when relevant. You can force a knowledge search for any message with ⌘⇧K.

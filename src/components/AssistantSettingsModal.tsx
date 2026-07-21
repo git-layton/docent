@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   UserCog, X, Wand2, ImageIcon, Bot, BookOpen, Paperclip, FileText,
-  Pin, Trash2, Loader2, Brain, Database, AlertTriangle, Copy
+  Pin, Trash2, Loader2, Moon, Database, AlertTriangle, Copy
 } from 'lucide-react';
 import { BOT_COLORS, AVAILABLE_TOOLS } from './ui/AgentIcon';
 import { VoicePicker } from './ui/VoicePicker';
@@ -347,10 +347,13 @@ export function AssistantSettingsModal({
                      className="w-full flex items-center justify-center gap-2 py-2.5 mt-3 rounded-xl border border-primary/30 text-xs font-bold text-primary dark:text-secondary-muted hover:bg-primary/10 transition-all disabled:opacity-50"
                    >
                      {isDreamRunning
-                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Organizing memories…</>
-                       : <><Brain className="w-3.5 h-3.5" /> Review & organize memories</>
+                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Dreaming…</>
+                       : <><Moon className="w-3.5 h-3.5" /> Run Dream Cycle</>
                      }
                    </button>
+                   <p className="text-micro text-ink-3 mt-2 text-center leading-relaxed">
+                     Tidies this assistant's memory and flags anything left hanging. You'll get a digest you can undo.
+                   </p>
                  </div>
 
                  {/* Knowledge Library */}

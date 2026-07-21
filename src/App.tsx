@@ -51,10 +51,12 @@ import { MemoComposeModal } from './components/MemoComposeModal';
 import { SourcesTray } from './components/SourcesTray';
 import type { SlashCommand } from './components/SlashCommandPalette';
 import { MorningBriefingBanner } from './components/MorningBriefingBanner';
+import { FirstDreamPrompt } from './components/FirstDreamPrompt';
 import { DreamDigestModal } from './components/DreamDigestModal';
 import { DynamicBackground } from './components/DynamicBackground';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
 import { buildDreamerSystemPrompt, buildDreamerUserMessage, DreamerPlanSchema, DreamerPlanWireSchema } from './services/dreamer';
+import { loadLibrarianCharter } from './services/librarianCharter';
 import { generateStructuredResponse, toWireSchema } from './services/structured';
 import { isDue, runRoutine, detectRoutineIntent, type Routine } from './services/routines';
 import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agentForgeUserDocs';
@@ -164,6 +166,9 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const dreamLog = useMemoryStore(s => s.dreamLog);
   const showDreamBanner = useMemoryStore(s => s.showDreamBanner);
   const showDreamDigest = useMemoryStore(s => s.showDreamDigest);
+  const showFirstDreamPrompt = useMemoryStore(s => s.showFirstDreamPrompt);
+  const firstDreamFileCount = useMemoryStore(s => s.firstDreamFileCount);
+  const isDreamRunning = useMemoryStore(s => s.isDreamRunning);
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
   const showMemmoPanel = useMemoryStore(s => s.showMemmoPanel);
   const memmoPanelTab = useMemoryStore(s => s.memmoPanelTab);
@@ -836,6 +841,40 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     runDreamCycle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextHealth]);
+
+  // A Dream Cycle the user never runs is a Dream Cycle they never learn about, and manual-only
+  // means nothing runs unprompted. So once an agent's memory is actually worth consolidating,
+  // offer the first run once — then never ask again, whichever way they answer. Evaluates at most
+  // once per session; the digest that follows is what sells the daily opt-in.
+  const firstDreamCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!isDbLoaded || !activeAssistant?.id || firstDreamCheckedRef.current) return;
+    firstDreamCheckedRef.current = true;
+    void (async () => {
+      try {
+        if (await db.get('firstDreamPromptSeen', false)) return;
+        if (useSettingsStore.getState().appSettings?.dreamAutoEnabled === true) return;
+        // Already dreaming daily, or has dreamed before — they've met the feature.
+        const logResult = await invoke<{ exists: boolean }>('read_dream_log');
+        if (logResult.exists) return;
+        if (useMemoryStore.getState().showDreamBanner) return; // never stack two strips
+        // Count only — reading every memory file just to test a banner condition is wasteful,
+        // and runDreamCycle re-validates non-empty content before it spends a token.
+        const listed = await invoke<{ files: Array<{ path: string; name: string }> }>('list_agent_memory_files', {
+          agentId: activeAssistant.id,
+          spaceId: useSpaceStore.getState().activeSpaceId || undefined,
+        });
+        const count = (listed.files ?? []).length;
+        if (count < 5) return;
+        useMemoryStore.getState().setFirstDreamPrompt(true, count);
+      } catch (e) { console.warn('[AgentForge] First-dream check skipped:', e); }
+    })();
+  }, [isDbLoaded, activeAssistant?.id]);
+
+  const dismissFirstDreamPrompt = useCallback(() => {
+    useMemoryStore.getState().setFirstDreamPrompt(false);
+    void db.set('firstDreamPromptSeen', true);
+  }, []);
 
   // Reset evaluated IDs when switching chats
   useEffect(() => {
@@ -1770,7 +1809,10 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       const maxChars = Math.floor(charBudget(activeModel.contextLimit) * 0.75);
 
       // Call the Dreamer LLM
-      const systemPrompt = buildDreamerSystemPrompt();
+      // Curate toward the user's own standards. A missing or unreadable charter is not a failure:
+      // the dreamer falls back to its built-in judgement rather than skipping the cycle.
+      const charter = await loadLibrarianCharter().catch(() => undefined);
+      const systemPrompt = buildDreamerSystemPrompt(charter);
       const userMessage = buildDreamerUserMessage(memoryFiles, activeAgent.name, activeAgent.id, maxChars, { currentDate: new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), referenceFiles: dossierFiles });
 
       // Grammar-enforced where the provider supports it, schema-validated always; each op is
@@ -3544,6 +3586,15 @@ if (isSpotlight) {
         />
       )}
 
+      {!showDreamBanner && showFirstDreamPrompt && (
+        <FirstDreamPrompt
+          fileCount={firstDreamFileCount}
+          isRunning={isDreamRunning}
+          onRun={() => { dismissFirstDreamPrompt(); runDreamCycle(); }}
+          onDismiss={dismissFirstDreamPrompt}
+        />
+      )}
+
       {showDreamDigest && dreamLog && (
         <DreamDigestModal
           log={dreamLog}
@@ -3680,7 +3731,7 @@ if (isSpotlight) {
               <>
                 <button
                   onClick={() => useSpaceStore.getState().closeTab(activeOmniTab.id)}
-                  className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
+                  className="absolute top-2 left-2 z-[100] pointer-events-auto p-1.5 group outline-none focus:outline-none"
                   title="Close"
                 >
                   <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
@@ -3716,7 +3767,7 @@ if (isSpotlight) {
                   <>
                     <button
                       onClick={() => useUIStore.getState().setSplitTabId(null)}
-                      className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
+                      className="absolute top-2 left-2 z-[100] pointer-events-auto p-1.5 group outline-none focus:outline-none"
                       title="Close split"
                     >
                       <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">

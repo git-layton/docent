@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useWeatherStore, weatherCondition, weatherSeverity, type WeatherCondition } from '../store/useWeatherStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 type TimeOfDay = 'night' | 'sunrise' | 'day' | 'sunset';
 
@@ -27,6 +28,7 @@ export const DynamicBackground: React.FC = () => {
   const sunset = useWeatherStore(s => s.sunset);
   const condition: WeatherCondition = weatherCondition(weatherCode);
   const severity = weatherSeverity(weatherCode);
+  const ambientWeatherEnabled = useSettingsStore(s => s.appSettings.ambientWeatherEnabled ?? true);
 
   useEffect(() => {
     const updateTime = () => {
@@ -164,13 +166,13 @@ export const DynamicBackground: React.FC = () => {
 
   const activeSky = stormGradients[condition]?.[timeOfDay] ?? skyGradients[timeOfDay];
   const isDark = timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
-  const showClouds = timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
-  const showBirds = timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');
-  const showShootingStars = timeOfDay === 'night' && condition === 'clear';
-  const showRain = condition === 'rain' || condition === 'drizzle' || condition === 'thunderstorm';
-  const showSnow = condition === 'snow';
-  const showFog = condition === 'fog';
-  const showLightning = condition === 'thunderstorm';
+  const showClouds = ambientWeatherEnabled && (timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
+  const showBirds = ambientWeatherEnabled && timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');
+  const showShootingStars = ambientWeatherEnabled && timeOfDay === 'night' && condition === 'clear';
+  const showRain = ambientWeatherEnabled && (condition === 'rain' || condition === 'drizzle' || condition === 'thunderstorm');
+  const showSnow = ambientWeatherEnabled && condition === 'snow';
+  const showFog = ambientWeatherEnabled && condition === 'fog';
+  const showLightning = ambientWeatherEnabled && condition === 'thunderstorm';
   // Extra clouds for overcast/rainy conditions
   const cloudDensity = (condition === 'cloudy' || condition === 'rain' || condition === 'thunderstorm') ? 1.6 : 1;
 

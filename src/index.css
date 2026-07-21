@@ -249,3 +249,39 @@
   --text-mini: 11px;
   --text-mini--line-height: 1.4;
 }
+
+[data-accent='emerald'] {
+  --af-accent: #10b981; --af-accent-strong: #059669;
+  --af-accent-soft: #ecfdf5; --af-accent-soft-ink: #059669; --af-on-accent: #ecfdf5;
+}
+[data-theme='dark'][data-accent='emerald'] {
+  --af-accent: #34d399; --af-accent-strong: #6ee7b7;
+  --af-accent-soft: #064e3b; --af-accent-soft-ink: #a7f3d0; --af-on-accent: #022c22;
+}
+
+[data-accent='cyan'] {
+  --af-accent: #06b6d4; --af-accent-strong: #0891b2;
+  --af-accent-soft: #ecfeff; --af-accent-soft-ink: #0891b2; --af-on-accent: #ecfeff;
+}
+[data-theme='dark'][data-accent='cyan'] {
+  --af-accent: #22d3ee; --af-accent-strong: #67e8f9;
+  --af-accent-soft: #164e63; --af-accent-soft-ink: #cffafe; --af-on-accent: #083344;
+}
+
+[data-accent='violet'] {
+  --af-accent: #8b5cf6; --af-accent-strong: #7c3aed;
+  --af-accent-soft: #f5f3ff; --af-accent-soft-ink: #7c3aed; --af-on-accent: #f5f3ff;
+}
+[data-theme='dark'][data-accent='violet'] {
+  --af-accent: #a78bfa; --af-accent-strong: #c4b5fd;
+  --af-accent-soft: #2e1065; --af-accent-soft-ink: #ede9fe; --af-on-accent: #1e1b4b;
+}
+
+[data-accent='rose'] {
+  --af-accent: #f43f5e; --af-accent-strong: #e11d48;
+  --af-accent-soft: #fff1f2; --af-accent-soft-ink: #e11d48; --af-on-accent: #fff1f2;
+}
+[data-theme='dark'][data-accent='rose'] {
+  --af-accent: #fb7185; --af-accent-strong: #fda4af;
+  --af-accent-soft: #4c0519; --af-accent-soft-ink: #ffe4e6; --af-on-accent: #221217;
+}

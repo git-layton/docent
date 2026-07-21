@@ -80,7 +80,7 @@ export function IntegrationsDashboard() {
       setShowProfileSettings(true);
       setRow(id, 'unknown'); // Re-probe isn't strictly needed as it relies on store state
     } else if (id === 'dream') {
-      setProfileSettingsTab('agent');
+      setProfileSettingsTab('privacy');
       setShowProfileSettings(true);
       setRow(id, 'unknown');
     }
@@ -126,7 +126,7 @@ export function IntegrationsDashboard() {
     {
       id: 'dream',
       title: 'Dream Cycle',
-      description: 'Consolidates memory and plans your next day overnight.',
+      description: 'Consolidates memory, saves insights, and flags loose ends. You get a digest after every run.',
       icon: Moon,
       iconBg: 'bg-indigo-500/15',
       iconColor: 'text-indigo-600 dark:text-indigo-400',
