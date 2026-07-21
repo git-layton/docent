@@ -50,7 +50,7 @@ describe('OmniTabBar — rendering', () => {
   it('renders nothing but the + button when there are no tabs', () => {
     seedStore([])
     render(<OmniTabBar />)
-    expect(screen.getByTitle('New tab')).toBeInTheDocument()
+    expect(screen.getByTitle('Start')).toBeInTheDocument()
   })
 
   it('renders one pill per tab', () => {
@@ -235,13 +235,13 @@ describe('OmniTabBar — new tab button', () => {
   it('+ button is always present', () => {
     seedStore([])
     render(<OmniTabBar />)
-    expect(screen.getByTitle('New tab')).toBeInTheDocument()
+    expect(screen.getByTitle('Start')).toBeInTheDocument()
   })
 
   it('does not render a tab-type dropdown (the old popover is gone)', () => {
     seedStore([])
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
+    fireEvent.click(screen.getByTitle('Start'))
     expect(screen.queryByText('Web Browser')).not.toBeInTheDocument()
     expect(screen.queryByText('Code Canvas')).not.toBeInTheDocument()
   })
@@ -249,7 +249,7 @@ describe('OmniTabBar — new tab button', () => {
   it('clicking + opens and activates a fresh Start tab', () => {
     seedStore([])
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
+    fireEvent.click(screen.getByTitle('Start'))
     const { omniTabs, activeOmniTabId } = useSpaceStore.getState()
     const start = omniTabs.find(t => t.type === 'home')
     expect(start).toBeDefined()
@@ -257,7 +257,7 @@ describe('OmniTabBar — new tab button', () => {
     expect(activeOmniTabId).toBe(start?.id)
   })
 
-  it('clicking + always opens a fresh Start tab — even when one exists (browser-style, fe66713)', () => {
+  it('clicking + focuses the existing Start tab instead of stacking a second (Home is a singleton)', () => {
     seedStore(
       [
         makeTab({ id: 'home-1', type: 'home', label: 'Start' }),
@@ -266,10 +266,12 @@ describe('OmniTabBar — new tab button', () => {
       'log-1',
     )
     render(<OmniTabBar />)
-    fireEvent.click(screen.getByTitle('New tab'))
+    // The existing Home tab pill also carries the title "Start"; the + button is the icon-only one.
+    const plusButton = screen.getAllByTitle('Start').find(el => !el.textContent?.trim())!
+    fireEvent.click(plusButton)
     const homes = useSpaceStore.getState().omniTabs.filter(t => t.type === 'home')
-    expect(homes).toHaveLength(2)
-    expect(useSpaceStore.getState().activeOmniTabId).toBe(homes[1].id)
+    expect(homes).toHaveLength(1)
+    expect(useSpaceStore.getState().activeOmniTabId).toBe('home-1')
   })
 })
 

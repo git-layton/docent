@@ -68,8 +68,10 @@ describe('StartPage — omni-bar', () => {
   it('Escape clears the query and restores the section grid', () => {
     render(<StartPage onAsk={vi.fn()} />)
     const input = typeQuery('brow')
-    expect(screen.queryByText('Apps')).not.toBeInTheDocument() // grid hidden while searching
+    // The grid's section headings hide while searching. Target the heading role specifically —
+    // the omni-bar's intent chips also carry an "Apps" label, so a plain text query is ambiguous.
+    expect(screen.queryByRole('heading', { name: 'Apps' })).not.toBeInTheDocument()
     fireEvent.keyDown(input, { key: 'Escape' })
-    expect(screen.getByText('Apps')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Apps' })).toBeInTheDocument()
   })
 })

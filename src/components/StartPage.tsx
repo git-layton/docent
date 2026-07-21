@@ -3,23 +3,14 @@ import {
   Globe,
   FileText,
   Code2,
-  CheckSquare,
-  CalendarDays,
   Image as ImageIcon,
-  Mail,
   MessageSquare,
-  MessageCircle,
   Star,
   Sunrise,
   Sun,
   Sunset,
   Moon,
-  Activity,
-  Share2,
   Settings,
-  StickyNote,
-  FolderGit2,
-  Monitor,
   TriangleAlert,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -34,7 +25,16 @@ import { useMessagesStore } from '../store/useMessagesStore';
 import { getUnreadTotal } from '../lib/mailUnread';
 import { type SearchDoc } from '../services/universalSearch';
 import { OmniSearch } from './OmniSearch';
-import type { OmniTab, OmniTabType, ToolTabId } from '../types/omniTab';
+import {
+  APPS,
+  appDocId,
+  appSearchDocs,
+  launch,
+  focusExisting,
+  openSpaceLog,
+} from '../data/appRegistry';
+import { webSearchUrl } from '../services/omniIntent';
+import type { OmniTabType, ToolTabId } from '../types/omniTab';
 
 // ---------------------------------------------------------------------------
 // StartPage — the OS-style "Home" surface opened by the new-tab (+) button.
@@ -44,172 +44,6 @@ import type { OmniTab, OmniTabType, ToolTabId } from '../types/omniTab';
 // ↑/↓ moves the selection, and ↵ runs it (so plain text + ↵ → chat). Every
 // section is wired to real data — no placeholders.
 // ---------------------------------------------------------------------------
-
-// ── Apps: the openable surfaces (Tools merged in, per the agreed taxonomy) ──
-interface AppEntry {
-  id: string;
-  label: string;
-  sub: string;
-  icon: React.ElementType;
-  tint: string; // icon chip tint classes (soft fill + readable icon, both themes)
-  open: (tabId?: string) => void;
-}
-
-// Start is what a new tab renders — an ordinary tab, not a pinned fixture. Launching an app opens
-// a NEW tab beside it rather than consuming it, so the launcher you came from stays put until you
-// close it yourself.
-function launch(_tabId: string | undefined, tab: Omit<OmniTab, 'id'>) {
-  useSpaceStore.getState().openTab(tab);
-}
-
-// Focus an already-open tab (chat / bookmark); Home stays where it is.
-function focusExisting(_tabId: string | undefined, targetId: string) {
-  useSpaceStore.getState().setActiveTab(targetId);
-}
-
-// Open a Space's chat: focus its existing Chat tab, or recreate one (Chat is a normal
-// closable tab now) — reusing the Home tab slot we came from so tabs don't stack.
-function openSpaceLog(fromTabId: string | undefined, spaceId: string | undefined) {
-  const st = useSpaceStore.getState();
-  const log =
-    st.omniTabs.find((t) => t.type === 'space-log' && t.spaceId === spaceId) ??
-    st.omniTabs.find((t) => t.type === 'space-log');
-  if (log) focusExisting(fromTabId, log.id);
-  else launch(fromTabId, { type: 'space-log', label: 'Chat', spaceId });
-}
-
-// Order mirrors the home-page mockup: lead with the actionable daily-driver apps
-// (Inbox, Calendar, To-Do, Messages), then the creation/utility apps.
-const APPS: AppEntry[] = [
-  {
-    id: 'canvas',
-    label: '+ Create app',
-    sub: 'Build apps & prototypes',
-    icon: Code2,
-    tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
-    open: (tabId) => launch(tabId, { type: 'code-canvas', label: 'Untitled Canvas' }),
-  },
-  {
-    id: 'inbox',
-    label: 'Inbox',
-    sub: 'Gmail & iCloud mail',
-    icon: Mail,
-    tint: 'bg-orange-500/12 text-orange-700 dark:bg-orange-400/15 dark:text-orange-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'inbox' as ToolTabId, label: 'Inbox' }),
-  },
-  {
-    id: 'calendar',
-    label: 'Calendar',
-    sub: 'Your schedule',
-    icon: CalendarDays,
-    tint: 'bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'calendar' as ToolTabId, label: 'Calendar' }),
-  },
-  {
-    id: 'todo',
-    label: 'To-Do',
-    sub: 'Tasks & planning',
-    icon: CheckSquare,
-    tint: 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'planner' as ToolTabId, label: 'To-Do' }),
-  },
-  {
-    id: 'messages',
-    label: 'Messages',
-    sub: 'iMessage & SMS',
-    icon: MessageCircle,
-    tint: 'bg-green-500/12 text-green-700 dark:bg-green-400/15 dark:text-green-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'messages' as ToolTabId, label: 'Messages' }),
-  },
-  {
-    id: 'desktop',
-    label: 'Desktop',
-    sub: 'Mission Control',
-    icon: Monitor,
-    tint: 'bg-blue-500/12 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'desktop' as ToolTabId, label: 'Desktop' }),
-  },
-  {
-    id: 'notes',
-    label: 'Notes',
-    sub: 'Apple Notes',
-    icon: StickyNote,
-    tint: 'bg-amber-500/12 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'notes' as ToolTabId, label: 'Notes' }),
-  },
-  {
-    id: 'chat',
-    label: 'Chat',
-    sub: 'Talk to your agent',
-    icon: MessageSquare,
-    tint: 'bg-pink-500/12 text-pink-700 dark:bg-pink-400/15 dark:text-pink-300',
-    open: (tabId) => {
-      // Open the current Space's chat — recreating its Chat tab if it was closed.
-      openSpaceLog(tabId, useSpaceStore.getState().activeSpaceId ?? undefined);
-    },
-  },
-  {
-    id: 'doc',
-    label: 'Document',
-    sub: 'Write & edit',
-    icon: FileText,
-    tint: 'bg-sky-500/12 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300',
-    open: (tabId) => launch(tabId, { type: 'doc', label: 'Untitled Doc' }),
-  },
-  {
-    id: 'agentforge-code',
-    label: 'Code',
-    sub: 'Real development — open a folder, write & run code',
-    icon: FolderGit2,
-    tint: 'bg-teal-500/12 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300',
-    // Code is a CANVAS (Codey's coding surface), not a space — open it in the CURRENT space so that
-    // space's own group chat stays the rail beside it. Consume the Home tab we launched from.
-    open: (tabId) => {
-      useSpaceStore.getState().openCodeCanvas();
-      if (tabId) useSpaceStore.getState().closeTab(tabId);
-    },
-  },
-  {
-    id: 'browser',
-    label: 'Web Browser',
-    sub: 'Browse the web',
-    icon: Globe,
-    tint: 'bg-blue-500/12 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300',
-    open: (tabId) => launch(tabId, { type: 'web', label: 'New Tab', url: 'https://duckduckgo.com' }),
-  },
-  {
-    id: 'gallery',
-    label: 'Gallery',
-    sub: 'Your saved images',
-    icon: ImageIcon,
-    tint: 'bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'gallery' as ToolTabId, label: 'Gallery' }),
-  },
-  {
-    id: 'activity',
-    label: 'Activity',
-    sub: 'Logs, performance & context',
-    icon: Activity,
-    tint: 'bg-rose-500/12 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'activity' as ToolTabId, label: 'Activity' }),
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    sub: 'Profile, models & connections',
-    icon: Settings,
-    tint: 'bg-slate-500/12 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'settings' as ToolTabId, label: 'Settings' }),
-  },
-  {
-    id: 'knowledge-graph',
-    label: 'Knowledge Graph',
-    sub: 'Your connected memory',
-    icon: Share2,
-    tint: 'bg-amber-500/12 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300',
-    open: (tabId) => launch(tabId, { type: 'tool', toolId: 'knowledge-graph' as ToolTabId, label: 'Knowledge Graph' }),
-  },
-];
 
 // Time-of-day character — drives the greeting word, glyph, and accent color.
 function timeOfDay(d: Date): { greeting: string; Icon: React.ElementType; color: string } {
@@ -456,17 +290,14 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   }, [assistants, activeSpace]);
 
   // Launcher apps as search docs — merged into the global corpus by <OmniSearch>.
-  const appDocs = useMemo<SearchDoc[]>(
-    () => APPS.map((a) => ({ kind: 'App', id: `app-${a.id}`, title: a.label, sub: a.sub })),
-    [],
-  );
+  const appDocs = useMemo<SearchDoc[]>(() => appSearchDocs(), []);
 
   // The omni-bar hides the section grid behind its results while a query is active.
   const [searchActive, setSearchActive] = useState(false);
 
   // Apps keep their own tile icon in results; other kinds fall back to OmniSearch's per-kind icons.
   const iconForDoc = (doc: SearchDoc): React.ElementType | undefined =>
-    doc.kind === 'App' ? APPS.find((a) => `app-${a.id}` === doc.id)?.icon : undefined;
+    doc.kind === 'App' ? APPS.find((a) => appDocId(a.id) === doc.id)?.icon : undefined;
 
   const ask = (text: string) => {
     const t = text.trim();
@@ -489,7 +320,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const runSearchDoc = (doc: SearchDoc) => {
     switch (doc.kind) {
       case 'App':
-        APPS.find((a) => `app-${a.id}` === doc.id)?.open(tabId);
+        APPS.find((a) => appDocId(a.id) === doc.id)?.open(tabId);
         break;
       case 'Task':
         launch(tabId, { type: 'tool', toolId: 'planner' as ToolTabId, label: 'To-Do' });
@@ -576,6 +407,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             placeholder={agentName ? `Search apps & docs, or ask ${agentName} anything…` : 'Search apps & docs, or ask your agent…'}
             onAsk={ask}
             onRun={runSearchDoc}
+            onWebSearch={(text) => launch(tabId, { type: 'web', url: webSearchUrl(text), label: text })}
             onActiveChange={setSearchActive}
           />
           {!searchActive && (

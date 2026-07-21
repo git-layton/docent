@@ -1,5 +1,5 @@
 export type OmniTabType = 'home' | 'space-log' | 'web' | 'doc' | 'code-canvas' | 'tool';
-export type ToolTabId = 'knowledge-graph' | 'planner' | 'inbox' | 'messages' | 'notes' | 'model-store' | 'calendar' | 'activity' | 'agentforge-code' | 'gallery' | 'desktop' | 'settings' | 'day';
+export type ToolTabId = 'knowledge-graph' | 'planner' | 'inbox' | 'messages' | 'notes' | 'model-store' | 'calendar' | 'activity' | 'terminal' | 'files' | 'gallery' | 'desktop' | 'settings' | 'day';
 
 export interface OmniTab {
   id: string;

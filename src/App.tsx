@@ -8,7 +8,7 @@ import { checkForUpdatesOnStartup } from './services/updater';
 
 import { extractTextFromPDF } from './services/pdfParser';
 import { useChatStore } from './store/useChatStore';
-import { useAgentStore, DEFAULT_ASSISTANT, resolveCodeyId } from './store/useAgentStore';
+import { useAgentStore, DEFAULT_ASSISTANT } from './store/useAgentStore';
 import { useSettingsStore, isLocalProvider } from './store/useSettingsStore';
 import { useMemoryStore } from './store/useMemoryStore';
 import { useTaskStore } from './store/useTaskStore';
@@ -25,7 +25,7 @@ import { parseModelBlock } from './services/modelBlocks';
 import { trustOfToolSource } from './services/trust';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
 import { searchWebHistory, renderWebRecall } from './services/webHistory';
-import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds, mentionedAgentsInOrder } from './services/channels';
+import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { generateNodeId, upsertGraphNode } from './services/graphEntityExtractor';
@@ -59,13 +59,11 @@ import { buildDreamerSystemPrompt, buildDreamerUserMessage, DreamerPlanSchema, D
 import { loadLibrarianCharter } from './services/librarianCharter';
 import { generateStructuredResponse, toWireSchema } from './services/structured';
 import { isDue, runRoutine, detectRoutineIntent, type Routine } from './services/routines';
-import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from './data/agentForgeUserDocs';
 import { AssistantSettingsModal } from './components/AssistantSettingsModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { NewSpaceModal } from './components/NewSpaceModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
 import { AppSidebar } from './components/AppSidebar';
-import { ArtifactStartModal } from './components/ArtifactStartModal';
 import { CanvasPanel } from './components/CanvasPanel';
 import { PlannerPanel } from './components/PlannerPanel';
 import { KnowledgeGraphPanel } from './components/KnowledgeGraphPanel';
@@ -84,13 +82,12 @@ import { MessagesPanel } from './components/MessagesPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { CalendarPanel } from './components/CalendarPanel';
 import { DayPanel } from './components/DayPanel';
-import { AgentForgeCodePanel } from './components/AgentForgeCodePanel';
 import { GalleryPanel } from './components/GalleryPanel';
 import { EventCard, GcalEventCard, EventUpdateCard, EventDeleteCard, GcalUpdateCard, GcalDeleteCard } from './components/EventCards';
 import { CmdKPalette } from './components/CmdKPalette';
 import { MarginaliaLayer } from './components/MarginaliaLayer';
 import { AgentVisionToggle } from './components/AgentVisionToggle';
-import { useSpaceStore, CODEY_CHAT_ID } from './store/useSpaceStore';
+import { useSpaceStore } from './store/useSpaceStore';
 import { useMarginaliaStore } from './store/useMarginaliaStore';
 import { speak, cancelSpeech, resolveVoicePrefs } from './lib/voice';
 import { generateId } from './lib/id';
@@ -434,22 +431,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         if (kc.initialized) useUIStore.getState().showToast(`📚 Knowledge Core initialized at ${kc.path}`);
         if (kc.path) {
           useMemoryStore.getState().setAgentForgePath(kc.path);
-          const guideInstalled = await db.get('userDocsInstalled', false);
-          if (!guideInstalled) {
-            try {
-              await invoke('write_memory', {
-                path: `${kc.path}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
-                content: AGENT_FORGE_GUIDE,
-                commitMessage: 'Add Docent user guide',
-                agentId: null,
-                contextTokens: null,
-                ramState: null,
-              });
-              await db.set('userDocsInstalled', true);
-            } catch (e) {
-              console.warn('[AgentForge] Could not install user guide:', e);
-            }
-          }
         }
       } catch (e) { console.warn('[AgentForge] Knowledge Core init skipped:', e); }
 
@@ -731,23 +712,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     ss.setOnboardingComplete(true);
     ss.setShowOnboarding(false);
   }, [models.length, showOnboarding]);
-
-  // ── Codey's coding conversation (CODEY_CHAT_ID) — the code canvas's CENTER chat. A standalone DM with
-  // Codey (the code copilot), independent of the active space. Derived here (where the message store +
-  // render handlers live) and passed to AgentForgeCodePanel; the panel owns the center composer's own
-  // buffer. The space's own group chat stays the co-pilot rail beside the canvas — uniform everywhere.
-  const codeyMessages = useMemo(() => messages[CODEY_CHAT_ID] ?? [], [messages]);
-  const codeyAgent = useMemo(
-    () => assistants.find((a: any) => a.id === resolveCodeyId(assistants)) ?? null,
-    [assistants],
-  );
-  // @-mention picker for Codey's chat — any real agent can be summoned as an advisor (Codey still drives).
-  const codeyChannelParticipants = useMemo(() => {
-    const codeyId = resolveCodeyId(assistants);
-    return assistants
-      .filter((a: any) => a.id !== codeyId && a.id !== 'forge-guide' && a.id !== 'f-default')
-      .map((a: any) => ({ id: a.id, name: a.name }));
-  }, [assistants]);
 
   // Keep dream cycle refs in sync (avoids stale closures in 24h timer)
   useEffect(() => { activeAssistantRef.current = activeAssistant; }, [activeAssistant]);
@@ -1284,31 +1248,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       ag.setAssistants((prev: any[]) => prev.map((a: any) => a.id === ea.id ? ea : a));
     }
     ag.setShowAssistantSettings(false);
-  };
-
-  const confirmArtifactCreate = (agentId: string, type: 'code' | 'doc') => {
-    useAgentStore.getState().setActiveFolderId(agentId);
-    const { chats } = useChatStore.getState();
-    const existing = chats.find((c: any) => {
-      const norm = normalizeChatRecord(c, agentId);
-      return norm.kind === 'dm' && (norm.primaryAgentId === agentId || c.folderId === agentId);
-    });
-    if (existing) {
-      useChatStore.getState().setActiveChatId(existing.id);
-    } else {
-      const chatId = generateId('c');
-      const agent = useAgentStore.getState().assistants.find((a: any) => a.id === agentId);
-      const chat = normalizeChatRecord({ id: chatId, folderId: agentId, primaryAgentId: agentId, participantAgentIds: [agentId], kind: 'dm', name: `${agent?.name ?? 'Agent'} Direct`, goal: '', createdAt: Date.now(), updatedAt: Date.now() }, agentId);
-      useChatStore.getState().setChats((prev: any[]) => [chat, ...prev]);
-      useChatStore.getState().setActiveChatId(chatId);
-      useChatStore.getState().setMessages((prev: any) => ({ ...prev, [chatId]: [] }));
-    }
-    const initialContent = type === 'code' ? '\n' : '<h1>New Document</h1><p>Start writing here...</p>';
-    const ui = useUIStore.getState();
-    ui.setCanvasContent({ id: generateId('art'), title: `Untitled ${type === 'code' ? 'App' : 'Document'}`, content: initialContent, language: 'html', type, isStandalone: false, history: [{ timestamp: Date.now(), content: initialContent }], historyIndex: 0 });
-    ui.setGenerationMode(type); ui.setCanvasTab(type === 'code' ? 'code' : 'preview');
-    useTaskStore.getState().setShowPlanner(false);
-    setPendingArtifactType(null);
   };
 
   const saveToLibrary = (asNew = false) => {
@@ -2189,39 +2128,15 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       const isChannelChat = normalizedCurrentChat.kind === 'channel';
 
       if (isChannelChat) {
-        // ── Code conversation: Codey ALWAYS drives; @-mentioned agents only ADVISE ──
-        // The Code chat is Codey-pinned and the chat-first Code surface @-mentions any of the user's
-        // real agents (resolved against the full roster, not just stored participants). We override the
-        // generic sticky-scope routing so a mentioned advisor never silences Codey: responders are
-        // Codey + the mentioned advisors, with Codey last so he can synthesize their advice and own the
-        // edits. No mention → just Codey. (Full Strategy-B decoupling is deferred — see docs pt 8.)
-        const isCodeChat = chatId === CODEY_CHAT_ID;
-        let routedAgents: any[];
-        let _isScoped: boolean;
-        let allParticipants: any[];
-        let mentionedIds: Set<string>;
-        let codeDriverId: string | null = null;
-        if (isCodeChat) {
-          const codey = _assistants.find((a: any) => a.id === resolveCodeyId(_assistants)) ?? _assistants[0];
-          codeDriverId = codey?.id ?? null; // Codey is the Code chat's permanent driver — he always responds.
-          // Resolve mentions against the WHOLE roster so any agent can be summoned as an advisor.
-          const advisors = mentionedAgentsInOrder(userMsg.content, _assistants).filter((a: any) => a.id !== codey?.id);
-          allParticipants = codey ? [codey, ...advisors] : advisors;
-          mentionedIds = new Set(advisors.map((a: any) => a.id));
-          routedAgents = codey ? [...advisors, codey] : advisors; // advisors first, Codey synthesizes last
-          _isScoped = advisors.length > 0;
-          useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, scopedAgentIds: null } : c));
-        } else {
-          // Scoped/sticky routing (spec §5): a tagged agent stays the sole responder across follow-ups
-          // until the user @s someone else. No tag + active scope → still just the scoped agent(s).
-          const _stickyScopeIds = (currentChatRecord as any)?.scopedAgentIds ?? null;
-          const routed = scopeAgentsForChat(userMsg.content, normalizedCurrentChat, _assistants, _activeFolderId, _stickyScopeIds);
-          routedAgents = routed.agents;
-          _isScoped = !!(routed.scopeIds && routed.scopeIds.length > 0);
-          useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, scopedAgentIds: routed.scopeIds } : c));
-          allParticipants = getParticipantAgents(normalizedCurrentChat, _assistants);
-          mentionedIds = extractMentionedAgentIds(userMsg.content, allParticipants);
-        }
+        // ── Channel routing: scoped/sticky (spec §5). A tagged agent stays the sole responder across
+        // follow-ups until the user @s someone else; no tag + active scope → still just the scoped agent(s). ──
+        const _stickyScopeIds = (currentChatRecord as any)?.scopedAgentIds ?? null;
+        const routed = scopeAgentsForChat(userMsg.content, normalizedCurrentChat, _assistants, _activeFolderId, _stickyScopeIds);
+        const routedAgents: any[] = routed.agents;
+        const _isScoped = !!(routed.scopeIds && routed.scopeIds.length > 0);
+        useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === chatId ? { ...c, scopedAgentIds: routed.scopeIds } : c));
+        const allParticipants = getParticipantAgents(normalizedCurrentChat, _assistants);
+        const mentionedIds = extractMentionedAgentIds(userMsg.content, allParticipants);
         const previousResponses: Array<{ agentName: string; content: string }> = [];
 
         for (const agent of routedAgents) {
@@ -2235,10 +2150,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
           };
 
           // Channel context PREPENDED so it frames the persona, not buried after it.
-          // Codey is the Code chat's sole driver — force must-respond so he's never told to [PASS]
-          // (advisors stay opt-in via @-mention; only Codey edits).
-          const isCodeDriver = isCodeChat && agent.id === codeDriverId;
-          const channelAddendum = buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, isCodeDriver || mentionedIds.has(agent.id) || _isScoped);
+          const channelAddendum = buildChannelPromptAddendum(normalizedCurrentChat, allParticipants, previousResponses, agent, mentionedIds.has(agent.id) || _isScoped);
           const agentWithChannelContext = {
             ...agent,
             prompt: channelAddendum + '\n\n---\n\n' + (agent.prompt || ''),
@@ -2736,37 +2648,6 @@ const handleSendMessage = async () => {
     handleSendPrompt(text);
   };
 
-  // ── Code-canvas center send (Codey) — a SECOND, concurrent conversation ─────────────────────────
-  // Sends the canvas center composer's text straight to a SPECIFIC chatId (CODEY_CHAT_ID) via
-  // processChatRequest, which routes it to Codey (his standalone chat). NEVER touches the global
-  // activeChatId/activeFolderId, so the space's own group chat (the co-pilot rail) stays intact and the
-  // two conversations stream independently. Text + attachments come from the canvas's own buffer (passed
-  // in), not useUIStore. Generic over targetChatId so the canvas passes CODEY_CHAT_ID.
-  const handleSendCodeyMessage = async (targetChatId: string, text: string, attachments: any[] = []) => {
-    if (isChatGenerating(targetChatId)) return;
-    if (!text.trim() && attachments.length === 0) return;
-    const _selectedModel = (() => {
-      const { models: m, selectedModelId: id } = useSettingsStore.getState();
-      return m.find((x: any) => x.id === id) ?? m[0] ?? null;
-    })();
-    if (!_selectedModel) {
-      useUIStore.getState().showToast('Connect a model first — here are picks for your Mac.');
-      const ss = useSettingsStore.getState();
-      ss.setWizardStep(3);
-      ss.setShowModelWizard(true);
-      return;
-    }
-
-    const userMsg = { id: generateId('msg'), role: 'user', content: text, attachedFiles: [...attachments], isPinned: false, timestamp: Date.now() };
-    for (const f of attachments) {
-      if (f?.isImage && typeof f.content === 'string') saveImageToLibrary(f.content, { source: 'attached', name: f.name, mimeType: f.type });
-    }
-    const currentHistory = useChatStore.getState().messages[targetChatId] ?? [];
-    useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [targetChatId]: [...(prev[targetChatId] ?? []), userMsg] }));
-    useChatStore.getState().setChats((prev: any[]) => prev.map((c: any) => c.id === targetChatId ? { ...c, updatedAt: Date.now() } : c));
-    await processChatRequest(targetChatId, userMsg, currentHistory);
-  };
-
   const confirmEditMessage = async (msgId: string, chatId?: string) => {
      const { editingMessageContent: _emc, messages: _messages } = useChatStore.getState();
      // chatId targets a specific conversation (the Code Team rail edits its own thread); defaults to active.
@@ -3190,30 +3071,6 @@ const handleSendMessage = async () => {
     onSlashCommand: handleSlashCommand,
   };
 
-  // ── Code-canvas center prop bags (Codey) — clones of the global bags pointed at Codey's standalone
-  // conversation (CODEY_CHAT_ID) + Codey himself. They differ only in the pointed-at messages/agent/
-  // participants + per-chat generation; the canvas's own input buffer + onSend are layered in by
-  // AgentForgeCodePanel (it owns that local state). The space's group chat keeps the global bags (rail).
-  const codeySpaceLogProps = {
-    ...spaceLogProps,
-    activeMessages: codeyMessages,
-    activeAssistant: codeyAgent ?? activeAssistant,
-    forgettingIndex: -1,
-    showAgentIntro: false,
-    // Codey's chat tracks its OWN generation, independent of the space group chat — both stream at once.
-    isGenerating: isChatGenerating(CODEY_CHAT_ID),
-    // Per-message actions target Codey's chat, not the global active (space) chat.
-    onBookmark: (msg: any) => handleBookmark(msg, CODEY_CHAT_ID),
-    onConfirmEdit: (msgId: string) => confirmEditMessage(msgId, CODEY_CHAT_ID),
-  };
-  const codeyChatInputBarProps = {
-    ...chatInputBarProps,
-    activeAssistant: codeyAgent ?? activeAssistant,
-    channelParticipants: codeyChannelParticipants,
-    isGenerating: isChatGenerating(CODEY_CHAT_ID),
-    onStop: () => handleStop(CODEY_CHAT_ID),
-  };
-
   // Render the content for any tab — the chat (space-log) is just another tab,
   // shown full-width by default and splittable beside another.
   const renderTabContent = (tab: typeof activeOmniTab) => {
@@ -3256,18 +3113,6 @@ const handleSendMessage = async () => {
     }
     if (tab.type === 'tool' && tab.toolId === 'notes') {
       return <NotesPanel />;
-    }
-    if (tab.type === 'tool' && tab.toolId === 'agentforge-code') {
-      // The code canvas: a chat-first surface with Codey (his standalone CODEY_CHAT_ID conversation) as
-      // the center + Files/Terminal/Preview toggle panels. It lives in a NORMAL space, so the space's own
-      // group chat is the co-pilot rail beside it (rendered below) — uniform with every other space.
-      return (
-        <AgentForgeCodePanel
-          codeySpaceLogProps={codeySpaceLogProps}
-          codeyChatInputBarProps={codeyChatInputBarProps}
-          onSendCodeyMessage={handleSendCodeyMessage}
-        />
-      );
     }
     if (tab.type === 'tool' && tab.toolId === 'gallery') {
       return <GalleryPanel spaceId={tab.spaceId} />;
@@ -3951,15 +3796,6 @@ if (isSpotlight) {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Artifact start picker */}
-      {pendingArtifactType && (
-        <ArtifactStartModal
-          type={pendingArtifactType}
-          onConfirm={(agentId) => confirmArtifactCreate(agentId, pendingArtifactType)}
-          onCancel={() => setPendingArtifactType(null)}
-        />
       )}
 
       {/* Model Onboarding / Engine Wizard */}

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { emit } from '@tauri-apps/api/event';
 import { db } from '../services/database';
+import { repointRetiredAgentRefs } from './useAgentStore';
 
 interface ChatStore {
   chats: any[];
@@ -77,7 +78,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         };
       });
 
-    const chats = [...storedChats, ...recoveredChats];
+    // One-assistant merge: threads that belonged to a retired agent (Codey, Forge Guide) become
+    // Docent's. Messages are untouched — only the agent references move.
+    const chats = [...storedChats, ...recoveredChats].map(repointRetiredAgentRefs);
     const validActiveId = storedActiveChatId && chats.some((chat: any) => chat.id === storedActiveChatId)
       ? storedActiveChatId
       : [...chats].sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.id ?? null;

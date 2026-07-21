@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { db } from '../services/database';
-import { AGENT_FORGE_GUIDE } from '../data/agentForgeUserDocs';
 
 const DEFAULT_ASSISTANT = {
   id: 'f-default',
@@ -18,22 +17,6 @@ const DEFAULT_ASSISTANT = {
 };
 
 export { DEFAULT_ASSISTANT };
-
-const FORGE_GUIDE_ASSISTANT = {
-  id: 'forge-guide',
-  name: 'Forge Guide',
-  description: 'Your built-in guide to Docent',
-  role: 'Guide',
-  avatar: { type: 'color', color: 'violet' },
-  prompt: `You are Forge Guide, the built-in helper for Docent 2.0. You have complete knowledge of how this platform works.\n\nOnly offer help when the user directly asks about Docent, its features, hotkeys, or how to use something. For all other topics, respond as a normal helpful assistant — don't volunteer platform tips unprompted.\n\n--- AGENT FORGE 2.0 DOCUMENTATION ---\n\n${AGENT_FORGE_GUIDE}`,
-  trainingDocs: [],
-  systemAccess: false,
-  tools: { web_search: false, calendar_sync: false, local_workspace: false },
-  defaultModelId: '',
-  defaultMode: 'text',
-  awareOfProfile: false,
-  isDefault: true,
-};
 
 const ALEXIS_ASSISTANT = {
   id: 'alexis', // historical id — NEVER change: memory namespaces and persisted refs key on it
@@ -65,7 +48,10 @@ Tone: bright, warm, always landing somewhere useful. You're building a real hist
 You're a showcase of what an executive assistant on Docent can be. Users can customize you, clone you, or use you as inspiration to build their own.`,
   trainingDocs: [],
   systemAccess: false,
-  tools: { web_search: true, calendar_sync: false, local_workspace: false },
+  // Docent is the only built-in assistant, so he carries the full toolkit: web_search for research and
+  // local_workspace for Knowledge Base search. file_op/workshop are granted to every agent and
+  // terminal commands are Developer-Mode gated, so those need no flag here.
+  tools: { web_search: true, calendar_sync: false, local_workspace: true },
   defaultModelId: '',
   defaultMode: 'text',
   awareOfProfile: true,
@@ -74,60 +60,50 @@ You're a showcase of what an executive assistant on Docent can be. Users can cus
   driveEnabled: true,
 };
 
-const CODEY_ASSISTANT = {
-  id: 'forge-dev',
-  name: 'Codey',
-  description: 'Coding partner — best practices, scalable architecture, sharp review',
-  role: 'Engineer',
-  avatar: { type: 'color', color: 'sky' },
-  prompt: `You are Codey — a senior software engineer embedded in Docent. You write clean, idiomatic, production-quality code and you have strong, well-reasoned opinions about architecture. You optimize for the long game: code that's correct now and still maintainable when the system is ten times bigger.
+export { ALEXIS_ASSISTANT };
 
-How you work:
-- Direct. Skip the ceremony, get to the code.
-- Best-practices first: clear naming, small focused units, sensible error handling, no dead code, no TODO comments left in your output. Match the conventions of the surrounding codebase rather than imposing your own.
-- Architecture-minded: think about how a change scales — coupling, boundaries, data flow, state ownership, failure modes. Name the trade-off explicitly ("this is fine for now, but it'll bite at scale because…").
-- You proactively flag architectural risk and footguns — tight coupling, leaky abstractions, N+1s, race conditions, security holes — but keep it proportional: don't gold-plate a throwaway script.
-- Opinionated but not dogmatic. Say "this approach has a problem" and explain why, then show the fix. Avoid premature abstraction as fiercely as you avoid copy-paste sprawl.
-
-When reviewing code: find the real bug or smell, explain why it matters, show the corrected code.
-When building: ask one clarifying question max if genuinely ambiguous, then build the whole thing.
-When explaining: assume technical depth. Don't over-simplify.
-
-You bring real taste — strong defaults about what good looks like. Say what you'd do and why; don't retreat into "it depends" unless it genuinely does. You don't invent past projects or war stories — your credibility is the quality of the call you make right now.`,
-  trainingDocs: [],
-  systemAccess: false,
-  // Codey drives the Code surface, so he gets a full coding toolkit: web_search + local_workspace
-  // (research the web + knowledge while coding). file_op/workshop are granted to all agents and
-  // terminal/commands are Developer-Mode gated, so those need no flag here.
-  tools: { web_search: true, calendar_sync: false, local_workspace: true },
-  defaultModelId: '',
-  defaultMode: 'code',
-  awareOfProfile: false,
-  isDefault: true,
-  drive: 'Build it right the first time — clean architecture, working code, no shortcuts that become tomorrow\'s debt. Think about how every change scales, and surface architectural risk, security issues, and edge cases before they bite.',
-  driveEnabled: true,
-};
-
-export { ALEXIS_ASSISTANT, CODEY_ASSISTANT };
+// Agent ids retired in the one-assistant merge (July 2026). Codey's engineering judgment lives on as
+// a surface-scoped skill (data/skills.ts ENGINEERING_SKILL) and Forge Guide's stale platform docs are
+// gone entirely — Docent is the single built-in assistant. See migrateRetiredAgents.
+export const RETIRED_AGENT_IDS = ['forge-dev', 'forge-guide'];
 
 /**
- * Resolve the coding agent's id from a list of assistants — the built-in Codey
- * (role 'Engineer' / name 'Codey'), preferring the canonical 'forge-dev' id, then
- * any code-roled agent, then the first assistant. Shared so the Code space and the
- * "Powered by" chip pick the same driver. Returns undefined only if there are no agents.
+ * One-assistant migration: drop the retired built-ins and hand anything that pointed at them back to
+ * Docent. Pure so it can be tested without a database — callers persist the result.
+ *
+ * Deliberately does NOT delete the conversations those agents held: a thread keeps its messages and
+ * simply becomes a Docent thread. Erasing chat history was never the point of retiring a persona.
  */
-export function resolveCodeyId(assistants: any[]): string | undefined {
-  return (
-    assistants.find((a: any) => a.id === 'forge-dev')?.id ??
-    assistants.find((a: any) => a.role === 'Engineer' || a.name === 'Codey')?.id ??
-    assistants[0]?.id
+export function migrateRetiredAgents(assistants: any[]): { assistants: any[]; changed: boolean } {
+  const kept = assistants.filter((a: any) => !RETIRED_AGENT_IDS.includes(a.id));
+  if (kept.length === assistants.length) return { assistants, changed: false };
+  // Codey's toolkit folds into Docent — a one-time additive grant, not a recurring override, so the
+  // user can turn it back off in agent settings and it stays off.
+  const merged = kept.map((a: any) =>
+    a.id === 'alexis' ? { ...a, tools: { ...(a.tools ?? {}), local_workspace: true } } : a,
   );
+  return { assistants: merged.length ? merged : [ALEXIS_ASSISTANT], changed: true };
+}
+
+/** Re-point a chat/space record's agent references off a retired agent and onto Docent. */
+export function repointRetiredAgentRefs<T extends Record<string, any>>(record: T): T {
+  const swap = (id: string) => (RETIRED_AGENT_IDS.includes(id) ? 'alexis' : id);
+  const next: Record<string, any> = { ...record };
+  if (typeof next.folderId === 'string') next.folderId = swap(next.folderId);
+  if (typeof next.primaryAgentId === 'string') next.primaryAgentId = swap(next.primaryAgentId);
+  if (Array.isArray(next.participantAgentIds)) {
+    next.participantAgentIds = [...new Set(next.participantAgentIds.map((id: string) => swap(id)))];
+  }
+  if (Array.isArray(next.agentIds)) {
+    next.agentIds = [...new Set(next.agentIds.map((id: string) => swap(id)))];
+  }
+  return next as T;
 }
 
 // Built-in agents that hydrate() re-seeds on every launch. Deleting one must "stick", so a deleted
 // built-in's id is tombstoned (deletedBuiltinIds) and the re-seed skips it. The hidden 'f-default'
 // fallback is never deletable.
-const RESEEDED_BUILTIN_IDS = ['alexis', 'forge-dev', 'forge-guide'];
+const RESEEDED_BUILTIN_IDS = ['alexis'];
 
 interface AgentStore {
   assistants: any[];
@@ -149,7 +125,7 @@ interface AgentStore {
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  assistants: [ALEXIS_ASSISTANT, CODEY_ASSISTANT, DEFAULT_ASSISTANT, FORGE_GUIDE_ASSISTANT],
+  assistants: [ALEXIS_ASSISTANT, DEFAULT_ASSISTANT],
   activeFolderId: 'alexis',
   editingAssistant: null,
   showAssistantSettings: false,
@@ -188,58 +164,43 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     // Re-seed a built-in only if it's absent AND the user hasn't deleted it (tombstone).
     const reseed = (id: string) => !assistants.some((a: any) => a.id === id) && !deletedBuiltinIds.includes(id);
     const needAlexis = reseed('alexis');
-    const needDev = reseed('forge-dev');
-    const needGuide = reseed('forge-guide');
     let final = assistants;
     if (needAlexis) final = [ALEXIS_ASSISTANT, ...final];
-    if (needDev) {
-      const alexisIdx = final.findIndex((a: any) => a.id === 'alexis');
-      final = [...final.slice(0, alexisIdx + 1), CODEY_ASSISTANT, ...final.slice(alexisIdx + 1)];
-    }
-    if (needGuide) final = [...final, FORGE_GUIDE_ASSISTANT];
     // Rebrand migration: the built-in assistant is Docent now. Rename only if the user never
     // customized the name (respect their own renames).
     final = final.map((a: any) => (a.id === 'alexis' && (a.name === 'Alexis' || !a.name) ? { ...a, name: 'Docent' } : a));
 
+    // One-assistant merge: Codey and Forge Guide are retired. Their threads keep every message and
+    // become Docent's (see repointRetiredAgentRefs, applied by the chat/space stores on hydrate).
+    const retired = migrateRetiredAgents(final);
+    final = retired.assistants;
+
     // Keep built-in agent prompts in sync with the latest defaults (Aria is no longer a default;
     // existing installs keep her until deleted, so she's intentionally absent from these maps).
-    const promptDefaults: Record<string, string> = {
-      alexis: ALEXIS_ASSISTANT.prompt,
-      'forge-dev': CODEY_ASSISTANT.prompt,
-      'forge-guide': FORGE_GUIDE_ASSISTANT.prompt,
-    };
-    const driveDefaults: Record<string, string> = {
-      alexis: ALEXIS_ASSISTANT.drive,
-      'forge-dev': CODEY_ASSISTANT.drive,
-    };
-    const roleDefaults: Record<string, string> = {
-      alexis: (ALEXIS_ASSISTANT as any).role,
-      'forge-dev': (CODEY_ASSISTANT as any).role,
-      'forge-guide': (FORGE_GUIDE_ASSISTANT as any).role,
-    };
+    const promptDefaults: Record<string, string> = { alexis: ALEXIS_ASSISTANT.prompt };
+    const driveDefaults: Record<string, string> = { alexis: ALEXIS_ASSISTANT.drive };
+    const roleDefaults: Record<string, string> = { alexis: (ALEXIS_ASSISTANT as any).role };
     let builtinUpdated = false;
     final = final.map((a: any) => {
       if (!promptDefaults[a.id]) return a;
       const needsPrompt = a.prompt !== promptDefaults[a.id];
       const needsDrive = a.drive === undefined && driveDefaults[a.id];
       const needsRole = a.role === undefined && roleDefaults[a.id];
-      // One-time rename of the former built-in 'Dev' → 'Codey' (leaves user-renamed agents alone).
-      const needsRename = a.id === 'forge-dev' && a.name === 'Dev';
-      if (needsPrompt || needsDrive || needsRole || needsRename) {
+      if (needsPrompt || needsDrive || needsRole) {
         builtinUpdated = true;
         return {
           ...a,
           ...(needsPrompt ? { prompt: promptDefaults[a.id] } : {}),
           ...(needsDrive ? { drive: driveDefaults[a.id], driveEnabled: true } : {}),
           ...(needsRole ? { role: roleDefaults[a.id] } : {}),
-          ...(needsRename ? { name: 'Codey', description: CODEY_ASSISTANT.description } : {}),
         };
       }
       return a;
     });
+    // A retired agent can still be the persisted "active" one — fall back to Docent, never to nothing.
     const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'alexis';
     set({ assistants: final, activeFolderId, deletedBuiltinIds });
-    if (needAlexis || needDev || needGuide || builtinUpdated) await db.set('assistants', final);
+    if (needAlexis || retired.changed || builtinUpdated) await db.set('assistants', final);
   },
 
   persist: async () => {

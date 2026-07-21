@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useSpaceStore, CODEY_CHAT_ID } from '../../store/useSpaceStore'
+import { useSpaceStore } from '../../store/useSpaceStore'
 import type { OmniTab, Space } from '../../types/omniTab'
 
 // ---------------------------------------------------------------------------
@@ -576,59 +576,5 @@ describe('container model — per-container threads', () => {
     const team = useSpaceStore.getState().spaces.find(s => s.name === 'Team')!
     useSpaceStore.getState().setActiveSpaceId(team.id)
     expect(useAgentStore.getState().activeFolderId).toBe('dev')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// openCodeCanvas — Code is a CANVAS, not a space. It opens Codey's coding surface (the agentforge-code
-// tool tab) in the CURRENT space — so that space's own group chat stays the rail beside it — backed by
-// a standalone Codey conversation (CODEY_CHAT_ID). No dedicated "Code" space, no Team thread.
-// ---------------------------------------------------------------------------
-
-describe('openCodeCanvas', () => {
-  let spaceId: string
-  beforeEach(() => {
-    resetStore()
-    useChatStore.setState({ chats: [], messages: {}, activeChatId: null })
-    useAgentStore.setState({ activeFolderId: 'alexis' })
-    // Be in a normal space — the canvas opens inside whatever space is active.
-    spaceId = useSpaceStore.getState().createSpace('Proj', ['alexis']).id
-    useSpaceStore.getState().setActiveSpaceId(spaceId)
-  })
-
-  it('opens the agentforge-code tool tab in the CURRENT space and focuses it', () => {
-    const tabId = useSpaceStore.getState().openCodeCanvas()
-    const tab = useSpaceStore.getState().omniTabs.find(t => t.id === tabId)
-    expect(tab?.type).toBe('tool')
-    expect(tab?.toolId).toBe('agentforge-code')
-    expect(tab?.spaceId).toBe(spaceId)
-    expect(useSpaceStore.getState().activeOmniTabId).toBe(tabId)
-  })
-
-  it('does NOT create a dedicated "Code" space — spaces stay uniform', () => {
-    const before = useSpaceStore.getState().spaces.length
-    useSpaceStore.getState().openCodeCanvas()
-    expect(useSpaceStore.getState().spaces.length).toBe(before)
-    expect(useSpaceStore.getState().spaces.some(s => s.id === 'space-code')).toBe(false)
-    // The active space is unchanged — opening Code does not yank you into another space.
-    expect(useSpaceStore.getState().activeSpaceId).toBe(spaceId)
-  })
-
-  it('ensures a standalone Codey conversation (CODEY_CHAT_ID) as a DM with Codey', () => {
-    useSpaceStore.getState().openCodeCanvas()
-    const chat = useChatStore.getState().chats.find((c: any) => c.id === CODEY_CHAT_ID)
-    expect(chat).toBeTruthy()
-    expect(chat?.primaryAgentId).toBe('forge-dev')
-    expect(chat?.participantAgentIds).toEqual(['forge-dev'])
-  })
-
-  it('is idempotent — reuses the code canvas in the same space', () => {
-    const a = useSpaceStore.getState().openCodeCanvas()
-    const b = useSpaceStore.getState().openCodeCanvas()
-    expect(a).toBe(b)
-    const tools = useSpaceStore.getState().omniTabs.filter(
-      t => t.spaceId === spaceId && t.toolId === 'agentforge-code',
-    )
-    expect(tools).toHaveLength(1)
   })
 })

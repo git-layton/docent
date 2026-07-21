@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { db } from '../services/database';
-import type { OmniTab, Space, SpaceKind } from '../types/omniTab';
+import type { OmniTab, Space, SpaceKind, ToolTabId } from '../types/omniTab';
 import { useChatStore } from './useChatStore';
-import { useAgentStore, resolveCodeyId, CODEY_ASSISTANT } from './useAgentStore';
+import { useAgentStore, repointRetiredAgentRefs } from './useAgentStore';
 import { useUIStore } from './useUIStore';
 import { normalizeChatRecord } from '../services/channels';
 import { projectContextPath, AGENTS_TEMPLATE } from '../services/fileAccess/spaces';
@@ -17,12 +17,6 @@ import { generateId } from '../lib/id';
 const STORE_VERSION = '5';
 
 const HOME_CHAT_ID = 'chat-home';
-
-// Codey's coding conversation — a standalone DM with Codey that the code canvas surfaces wherever you
-// open it. NOT tied to a space: spaces are uniform (each has its own agent group chat); Codey is ONLY
-// the code-canvas copilot. Stable id so the canvas always reuses the one Codey thread. (Replaces the
-// old CODE_CHAT_ID / dedicated "Code" space, which incorrectly made Codey a space's chat driver.)
-export const CODEY_CHAT_ID = 'chat-codey';
 
 const defaultSpace: Space = {
   id: 'space-home',
@@ -101,7 +95,8 @@ interface SpaceStore {
    *  + his standalone conversation exist, then opens/focuses the agentforge-code tool tab in the active
    *  space. Code is a canvas, not a space; the space's own group chat stays the rail beside it.
    *  Returns the tab id. */
-  openCodeCanvas(): string;
+  /** Open (or focus) a tool surface — Terminal, Files — in the active space. */
+  openToolTab(toolId: ToolTabId, label: string): string;
   deleteSpace(id: string): void;
   updateSpace(id: string, patch: Partial<Space>): void;
   setAgentGoal(spaceId: string, agentId: string, goal: string): void;
@@ -351,35 +346,19 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     return containerId;
   },
 
-  openCodeCanvas: () => {
-    // Code is a CANVAS, not a space. Ensure the built-in Codey exists (reseed if the user deleted it),
-    // make sure Codey's standalone conversation exists, then open the code-canvas surface IN THE CURRENT
-    // space — so that space's own agent group chat stays the rail beside it. No special space, no Team
-    // thread. Codey is only the code copilot; the rail is uniform with every other space.
-    const agentStore = useAgentStore.getState();
-    const hasCodey = agentStore.assistants.some(
-      (a: any) => a.id === 'forge-dev' || a.role === 'Engineer' || a.name === 'Codey',
-    );
-    if (!hasCodey) {
-      agentStore.setAssistants((prev: any[]) => [...prev, CODEY_ASSISTANT]);
-      agentStore.persist();
-    }
-    const codeyId = resolveCodeyId(useAgentStore.getState().assistants) ?? 'forge-dev';
-    // Codey's conversation — a DM with just Codey (he naturally drives a one-agent thread). Shared by
-    // every code canvas so you keep one continuous Codey thread regardless of which space you opened it in.
-    ensureChatThread(CODEY_CHAT_ID, { kind: 'dm', name: 'Codey', primaryAgentId: codeyId, agentIds: [codeyId] });
-
-    // Open (or focus) the code canvas in the CURRENT space — reuse an existing one rather than stacking.
+  openToolTab: (toolId, label) => {
+    // Tool surfaces (Terminal, Files, …) open in the CURRENT space so that space's group chat stays
+    // the rail beside them. Reuse an existing tab rather than stacking duplicates.
     const spaceId = get().activeSpaceId ?? undefined;
     const existing = get().omniTabs.find(
-      t => t.spaceId === spaceId && t.type === 'tool' && t.toolId === 'agentforge-code',
+      t => t.spaceId === spaceId && t.type === 'tool' && t.toolId === toolId,
     );
     if (existing) {
       set({ activeOmniTabId: existing.id });
       get().persist();
       return existing.id;
     }
-    return get().openTab({ type: 'tool', toolId: 'agentforge-code', label: 'Code', spaceId });
+    return get().openTab({ type: 'tool', toolId, label, spaceId });
   },
 
   deleteSpace: (id) => {
@@ -470,15 +449,23 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       // persisted them pinned, so clear that here — a non-destructive migration: the tabs the user
       // had open are preserved, they just stop being unclosable fixtures. Start is no longer a
       // permanent tab at all; it is simply what a new tab renders.
-      const tabs = (omniTabs as OmniTab[]).map(t =>
-        (t.type === 'space-log' || t.type === 'home') && t.isPinned
-          ? { ...t, isPinned: false, ...(t.type === 'home' ? { label: 'Start' } : {}) }
-          : t,
-      );
+      const tabs = (omniTabs as OmniTab[])
+        // The Code surface is retired; its powers live on as the Terminal and Files tools. Drop any
+        // tab still pointing at the removed panel so an old session doesn't render a blank pane.
+        .filter(t => !(t.type === 'tool' && (t.toolId as string) === 'agentforge-code'))
+        .map(t =>
+          (t.type === 'space-log' || t.type === 'home') && t.isPinned
+            ? { ...t, isPinned: false, ...(t.type === 'home' ? { label: 'Start' } : {}) }
+            : t,
+        );
+      // The persisted active tab may be one we just dropped — fall through to Home rather than
+      // restoring a tab that no longer exists (which would render an empty viewport).
+      const persistedActive = activeIds?.activeOmniTabId ?? null;
       set({
-        spaces: spaces as Space[],
+        // One-assistant merge: spaces that invited a retired agent now list Docent instead.
+        spaces: (spaces as Space[]).map(repointRetiredAgentRefs),
         omniTabs: tabs,
-        activeOmniTabId: activeIds?.activeOmniTabId ?? null,
+        activeOmniTabId: tabs.some(t => t.id === persistedActive) ? persistedActive : null,
         activeSpaceId: activeIds?.activeSpaceId ?? null,
       });
       // Backfill: the active context always has its Home; land on it if nothing was active.

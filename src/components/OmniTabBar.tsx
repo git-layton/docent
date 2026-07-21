@@ -321,8 +321,11 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
 // NewTabButton
 // ---------------------------------------------------------------------------
 function NewTabButton() {
+  // Home is a pinned singleton per space, so `+` focuses it rather than opening another one —
+  // openTab() always appends, which used to stack a fresh "Start" tab on every click.
   const handleNewTab = useCallback(() => {
-    useSpaceStore.getState().openTab({ type: 'home', label: 'Start' });
+    const st = useSpaceStore.getState();
+    st.setActiveTab(st.ensureHomeTab());
   }, []);
 
   return (
@@ -330,7 +333,7 @@ function NewTabButton() {
       type="button"
       onClick={handleNewTab}
       className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-wash transition-colors mb-1"
-      title="New tab"
+      title="Start"
     >
       <Plus className="w-3.5 h-3.5" />
     </button>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link, BookOpen,
+  Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link,
   MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
   Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User, AlertCircle
 } from 'lucide-react';
@@ -24,7 +24,6 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
 import { migrateLocalCalendarToEventkit, localCalendarMigrationCount, migrateLocalTasksToEventkit, localTasksMigrationCount } from '../services/connectors/migrate';
 import { getCalendar, getTasks, getNotes } from '../services/connectors';
-import { AGENT_FORGE_GUIDE, AGENT_FORGE_GUIDE_RELATIVE_PATH } from '../data/agentForgeUserDocs';
 import { describeImage, resolveVisionRoute } from '../services/llm';
 
 // 1×1 PNG used purely to round-trip the vision provider on "Test" (proves the key/endpoint works).
@@ -148,7 +147,6 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
 
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
 
-  const [guideStatus, setGuideStatus] = useState<'installed' | 'deleted' | 'checking'>('checking');
   const [showVoiceSetup, setShowVoiceSetup] = useState(false);
 
   // Label for the current default voice — the chosen one, or the auto-recommended pick.
@@ -345,41 +343,6 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
       await useSettingsStore.getState().persist();
       setCalStatus({ state: 'ok', msg: `Migrated ${n} event${n === 1 ? '' : 's'} to your Mac calendar — syncing to your devices` });
     } catch (e) { setCalStatus({ state: 'error', msg: String(e) }); }
-  };
-
-  useEffect(() => {
-    db.get('userDocsInstalled', false).then(v => setGuideStatus(v ? 'installed' : 'deleted'));
-  }, []);
-
-  const handleRestoreGuide = async () => {
-    if (!agentForgePath) return;
-    try {
-      await invoke('write_memory', {
-        path: `${agentForgePath}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
-        content: AGENT_FORGE_GUIDE,
-        commitMessage: 'Restore Docent user guide',
-        agentId: null,
-        contextTokens: null,
-        ramState: null,
-      });
-      await db.set('userDocsInstalled', true);
-      setGuideStatus('installed');
-    } catch (e) {
-      console.error('[AgentForge] Failed to restore user guide:', e);
-    }
-  };
-
-  const handleDeleteGuide = async () => {
-    if (!agentForgePath) return;
-    try {
-      await invoke('delete_memory_file', {
-        path: `${agentForgePath}/${AGENT_FORGE_GUIDE_RELATIVE_PATH}`,
-      });
-      await db.set('userDocsInstalled', false);
-      setGuideStatus('deleted');
-    } catch (e) {
-      console.error('[AgentForge] Failed to delete user guide:', e);
-    }
   };
 
   const activeImageKey = appSettings.imageProvider === 'openai'
@@ -707,34 +670,6 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                   <p className="text-tiny text-ink-3 font-medium mt-1.5">Saved step-by-step procedures. When one is relevant the agent offers to run it — doing each step with your normal tools, confirmed one at a time.</p>
                 </div>
               )}
-
-              {/* User Guide section */}
-              <div className="border-t border-edge pt-4 mt-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <BookOpen className="w-4 h-4 text-secondary shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold text-ink">User Guide</p>
-                      <p className="text-xs text-ink-3 mt-0.5">Docent 2.0 help docs in your Knowledge Core</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {guideStatus === 'installed' ? (
-                      <>
-                        <span className="text-tiny font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Installed</span>
-                        <button onClick={handleDeleteGuide} className="text-xs text-ink-3 hover:text-rose-500 transition-colors">Remove</button>
-                      </>
-                    ) : guideStatus === 'deleted' ? (
-                      <>
-                        <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Not installed</span>
-                        <button onClick={handleRestoreGuide} className="text-xs font-bold text-primary hover:text-primary-hover transition-colors">Restore</button>
-                      </>
-                    ) : (
-                      <span className="text-tiny text-ink-3">...</span>
-                    )}
-                  </div>
-                </div>
-              </div>
 
               {/* Setup Wizard */}
               <div className="border-t border-edge pt-4 mt-4">
