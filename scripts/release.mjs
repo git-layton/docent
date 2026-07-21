@@ -79,7 +79,8 @@ const files = [
 
 if (dryRun) {
   console.log('  Would update:\n    ' + files.join('\n    '))
-  console.log(`\n  Then: commit "release: v${next}", tag v${next}, push --follow-tags.\n`)
+  console.log(`\n  Then: commit "release: v${next}", tag v${next}, push to the dev remote,`)
+  console.log(`        and push main + the tag to agent-forge (the repo that builds it).\n`)
   process.exit(0)
 }
 
@@ -87,6 +88,36 @@ if (dryRun) {
 sh(`git add ${files.join(' ')}`)
 sh(`git commit -m "release: v${next}"`)
 sh(`git tag -a v${next} -m "v${next}"`) // annotated so --follow-tags pushes it
+
+// Code goes to the dev remote (main's upstream — `docent`).
 console.log(sh('git push --follow-tags'))
-console.log(`\n  ✅ Released v${next}. CI is building & publishing now.`)
-console.log(`     Track it:  gh run watch $(gh run list --workflow=release.yml -L1 --json databaseId --jq '.[0].databaseId') -R git-layton/agent-forge\n`)
+
+// The tag must ALSO reach the repo that can actually build it. Development lives on `docent`, but
+// the self-hosted runner and every signing secret are registered on `agent-forge`, and release.yml
+// is `runs-on: self-hosted`. A tag that only reaches docent creates a Release job that sits QUEUED
+// FOREVER — it never starts, never fails, never notifies, while docent's CI goes green and the
+// whole thing looks fine. v2.11.0 and v2.11.1 were both stranded that way on 2026-07-21 (2h18m and
+// 1h11m) before anyone noticed. Resolve the remote by URL rather than by name: it's `origin` on one
+// machine and `agent-forge` on another, and guessing wrong silently skips the build again.
+const releaseRemote = sh('git remote -v')
+  .split('\n')
+  .filter((l) => l.includes('(push)') && l.includes('agent-forge'))
+  .map((l) => l.split(/\s+/)[0])[0]
+
+if (!releaseRemote) {
+  console.error(`\n  ⚠️  v${next} is tagged and pushed, but NOT to a repo that can build it.`)
+  console.error(`     No remote points at agent-forge, which holds the runner and the secrets.`)
+  console.error(`     Nothing will be published until you do:\n`)
+  console.error(`       git remote add agent-forge https://github.com/git-layton/agent-forge.git`)
+  console.error(`       git push agent-forge main && git push agent-forge v${next}\n`)
+  process.exit(1)
+}
+
+sh(`git push ${releaseRemote} main`)
+sh(`git push ${releaseRemote} v${next}`)
+
+console.log(`\n  ✅ Released v${next} — building on "${releaseRemote}" (agent-forge).`)
+console.log(`     Track it:   gh run watch $(gh run list --repo git-layton/agent-forge \\`)
+console.log(`                   --workflow=release.yml -L1 --json databaseId --jq '.[0].databaseId') \\`)
+console.log(`                   --repo git-layton/agent-forge --exit-status`)
+console.log(`     Confirm it: gh release list --repo git-layton/docent-releases --limit 3\n`)

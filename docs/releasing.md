@@ -1,86 +1,210 @@
 # Releasing & auto-update
 
-Agent Forge updates itself in place. On launch it polls GitHub Releases, and when a newer
-version exists it offers a one-click **Install & restart**. You ship a new version by pushing
-a git tag — CI builds, signs, and publishes everything.
+Docent updates itself in place. On launch it polls a public `latest.json`, and when a newer version
+exists it offers a one-click **Install & restart**. You ship by pushing a git tag.
+
+**Read the next section before you cut anything.** Releasing spans three repos, and pushing a tag to
+the obvious one silently does nothing.
+
+---
+
+## The three-repo layout
+
+| Repo | Visibility | Role | Has runner? | Has secrets? |
+| --- | --- | --- | --- | --- |
+| `git-layton/docent` | public | **Development.** All code + CI lives here. | ❌ none | ❌ none |
+| `git-layton/agent-forge` | private | **The release machine.** Builds, signs, notarizes, publishes. | ✅ `AgentForge-MacRunner` | ✅ all 9 |
+| `git-layton/docent-releases` | public | **The updater feed.** Installed copies poll it. Assets only, no source. | — | — |
 
 ```
-Local: bump version + git tag  ─►  GitHub Actions (release.yml)  ─►  GitHub Release + latest.json
-                                                                          │
-                              every installed copy polls latest.json ◄────┘  →  "Update available"
+  you: npm run release -- patch
+        │
+        ├─► push main + tag ──► docent          (CI: typecheck/lint/test/build on macos-latest)
+        │
+        └─► push tag ────────► agent-forge      (Release: self-hosted runner on your Mac)
+                                    │
+                                    │  build → Developer ID sign → notarize → updater-sign
+                                    ▼
+                              docent-releases    ──►  latest.json  ──►  installed copies
 ```
 
-## One-time setup
+The split is deliberate: `agent-forge` is the frozen repo that still holds the self-hosted runner
+registration and every signing secret. `ci.yml` is guarded with
+`if: github.repository == 'git-layton/docent'` so pushes to `agent-forge` never run (or email) CI.
 
-The auto-updater verifies each download against a signing key. The **public** key is committed
-in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The **private** key lives only on
-your machine at `~/.tauri/agentforge-updater.key` and as a GitHub secret — **never commit it.**
+### ⚠️ The trap: a tag on `docent` queues forever and never errors
 
-1. Copy the private key to your clipboard:
-   ```sh
-   cat ~/.tauri/agentforge-updater.key | pbcopy
-   ```
-2. In the repo on GitHub → **Settings → Secrets and variables → Actions → New repository secret**:
-   - Name: `TAURI_SIGNING_PRIVATE_KEY`
-   - Value: paste (⌘V)
-3. That's it. The key has no password, so `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is intentionally
-   left unset — the workflow supplies an empty string.
+`release.yml` is `runs-on: self-hosted`. The only runner is registered to **`agent-forge`**, so a
+`v*` tag pushed to `docent` creates a Release job that sits **queued indefinitely** — it never starts,
+never fails, never notifies. Meanwhile `docent`'s CI goes green and everything *looks* fine.
 
-> ⚠️ If you ever lose `~/.tauri/agentforge-updater.key`, you cannot sign updates that existing
-> installs will accept. Back it up somewhere safe (password manager / encrypted drive).
+> **Green CI on `docent` does not mean a release shipped.** It only means the code compiles.
 
-The repo must be **public** for installed copies to fetch releases over plain HTTPS. (Private-repo
-release assets require auth, which we don't bake into the app.)
+This is not hypothetical: on 2026-07-21, `v2.11.0` sat queued 2h18m and `v2.11.1` 1h11m before anyone
+noticed. Neither ever built. Always confirm the run on **`agent-forge`**, and confirm the release
+actually appears in `docent-releases`.
+
+`scripts/release.mjs` handles this for you (fixed 2026-07-21): it pushes code to the dev remote,
+then pushes `main` **and** the tag to `agent-forge`. It finds that remote by URL rather than by name
+— it's `origin` on one machine and `agent-forge` on another — and hard-fails with instructions if no
+remote points there, rather than "succeeding" into a build that never happens.
+
+Before that fix the script ran a bare `git push --follow-tags`, which follows `main`'s upstream to
+`docent` only. That is exactly how v2.11.0 and v2.11.1 got stranded.
+
+---
 
 ## Cutting a release
 
-The running app compares its own version to `latest.json`, so the version must be bumped in all
-three manifests and the tag must match.
+```sh
+# 1. Verify green locally first — the build takes ~4-14 min on the runner, so fail fast here.
+npm run release:check          # typecheck && lint && test && build
 
-1. Bump the version in **`package.json`**, **`src-tauri/tauri.conf.json`** (`version`), and
-   **`src-tauri/Cargo.toml`** (`package.version`) — keep them identical (e.g. `2.0.1`).
-2. Commit, tag, and push:
-   ```sh
-   git commit -am "release: v2.0.1"
-   git tag v2.0.1
-   git push --follow-tags
-   ```
-3. The **Release** workflow builds for `aarch64-apple-darwin` (Apple Silicon), signs the update,
-   and publishes a GitHub Release plus `latest.json`. Your other Macs pick it up on next launch.
+# 2. Bump + commit + tag + push (to BOTH remotes — the script does this).
+npm run release -- patch       # or: minor | major | 2.12.0 | patch --dry-run
 
-## First install on a new Mac (until notarized — see below)
+# 3. Watch the run that matters — on agent-forge, not docent.
+gh run watch $(gh run list --repo git-layton/agent-forge --workflow=release.yml \
+  -L1 --json databaseId --jq '.[0].databaseId') --repo git-layton/agent-forge --exit-status
 
-Without Apple notarization the build is unsigned, so Gatekeeper blocks the first launch. Once per
-machine: **right-click the app → Open → Open**, or run
-`xattr -dr com.apple.quarantine "/Applications/Agent Forge.app"`. Subsequent auto-updates do not
-re-trigger this.
+# 4. Confirm the artifact is really live. Never skip this — a green run is not a shipped release.
+gh release list --repo git-layton/docent-releases --limit 3
+curl -sL https://github.com/git-layton/docent-releases/releases/latest/download/latest.json
+```
 
-## Turning on Apple notarization (recommended once you have the $99 account)
+Check your working tree before releasing. This repo sometimes has more than one agent session editing
+it at once, and `npm run release` commits **only** the five version manifests — so unrelated
+in-flight edits are silently left out of the build. On 2026-07-21 two real fixes (a Spotlight glass
+fallback and the duplicate-`alexis`-assistant fix) were uncommitted when v2.11.1 was cut, and
+therefore did not ship.
 
-This removes the Gatekeeper warning **and** keeps the app's code-signing identity stable across
-updates — which matters here because API keys are stored in the macOS Keychain, and an unsigned
-build's identity changes every release (forcing Keychain re-prompts after each update). A stable
-Developer ID identity makes Keychain access persist silently.
+`npm run release` guards that you're on `main` with nothing staged and the tag doesn't already exist,
+then rewrites the version in **five** manifests in lockstep and commits as `release: vX.Y.Z`:
 
-Add these repo secrets (from your Apple Developer account), then just push a new tag — no workflow
-edit needed (they're already referenced in `release.yml`):
+- `package.json`, `package-lock.json`
+- `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`
+
+They must stay identical: the updater compares the *installed* version (from `tauri.conf.json` /
+`Cargo.toml`) against `latest.json`. If the manifests drift, the update is **silently never offered**.
+That's why you bump via the script rather than by hand.
+
+---
+
+## What the Release workflow does
+
+`.github/workflows/release.yml`, triggered on `push: tags: v*`, targeting `aarch64-apple-darwin`
+(**Apple Silicon only** — no Intel build is produced):
+
+1. **Pre-signs `src-tauri/bin/llama-libs/*.dylib`** with the Developer ID identity. The bundled
+   llama-server dylibs must be signed individually or the app crashes at model load. See
+   `docs/` notes on llama-server packaging — the historical "model too large" SIGABRT was really a
+   missing/unsigned dylib.
+2. **Builds, signs, and notarizes** via `tauri-action` using the `APPLE_*` secrets, then **signs the
+   update artifact** with the Tauri updater key.
+3. **Publishes to `docent-releases`** — uploads the `.dmg`, `.tar.gz`, `.tar.gz.sig`, and a generated
+   `latest.json`.
+
+Two hard-won details are load-bearing in that last step:
+
+- **`--latest` is pinned explicitly.** GitHub resolves "latest" by release *creation date*, not
+  version order. `v2.7.1` was published five minutes after `v2.8.0` and captured the pointer — every
+  installed copy was served 2.7.1 and 2.8.0 was invisible to the updater.
+- **Re-running a tag is idempotent.** `gh release create` is not, so the workflow checks for an
+  existing release and re-uploads with `--clobber` instead of failing after a long build.
+
+The asset URL in `latest.json` replaces spaces with dots, matching how GitHub renames assets.
+
+---
+
+## Signing assets — what exists and what to back up
+
+### Updater key (verified 2026-07-21)
+
+The public key is committed in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The matching
+private key is **`~/.tauri/agent-forge`** — verified by matching it against `~/.tauri/agent-forge.pub`,
+which is byte-identical to the committed pubkey.
+
+> ⚠️ **Back up `~/.tauri/agent-forge`.** `~/.tauri/agentforge-updater.key` is an *older, unused* key —
+> earlier revisions of this doc named it, so a backup made by following those instructions protects
+> the wrong file. Lose `agent-forge` and you can never again sign an update that existing installs
+> will accept; every user would need to reinstall by hand.
+
+### Repository secrets (all on `agent-forge` only)
 
 | Secret | What it is |
 | --- | --- |
-| `APPLE_CERTIFICATE` | base64 of your exported **Developer ID Application** `.p12` |
-| `APPLE_CERTIFICATE_PASSWORD` | password you set when exporting the `.p12` |
-| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
-| `APPLE_ID` | your Apple ID email |
-| `APPLE_PASSWORD` | an **app-specific password** (appleid.apple.com → Sign-In & Security) |
-| `APPLE_TEAM_ID` | your 10-char Team ID |
+| `TAURI_SIGNING_PRIVATE_KEY` | contents of `~/.tauri/agent-forge` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | empty — the key has no password |
+| `APPLE_CERTIFICATE` | base64 of the exported **Developer ID Application** `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | password set when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: Alexander Layton (57R6U422C4)` |
+| `APPLE_ID` / `APPLE_PASSWORD` | Apple ID + an **app-specific** password |
+| `APPLE_TEAM_ID` | 10-char Team ID |
 
-Until you have an Apple account, the `APPLE_*` env vars in `release.yml` are **commented out** (not
-wired to empty secrets) so CI ships an unsigned build — an empty `APPLE_CERTIFICATE` makes the
-bundler attempt and fail a keychain import. To turn signing on: add the secrets above **and**
-uncomment those env lines, then re-tag.
+GitHub secrets are **write-only** — they cannot be read back out, not even by an admin. There is no
+way to copy these to another repo programmatically; migrating means re-supplying every value from the
+original source (the `.p12`, `~/.tauri/agent-forge`, a fresh PAT).
 
-## Manual "Check for updates"
+`RELEASES_REPO_TOKEN` is a separate PAT with write access to `docent-releases`, used by the publish
+step. If releases start failing with a 403 on upload, check whether it expired.
 
-`checkForUpdates({ silent: false })` in `src/services/updater.ts` does an on-demand check with
-feedback either way — wire it to a Settings button whenever you want one. The silent startup
-check (`checkForUpdatesOnStartup`) already runs from `App.tsx`.
+### The self-hosted runner
+
+`AgentForge-MacRunner` — a launch daemon on Alex's Mac at `~/actions-runner`, labels
+`self-hosted, macOS, ARM64`, registered to `git-layton/agent-forge`.
+
+**Releases only build while that Mac is awake and the runner process is up.** Check it:
+
+```sh
+gh api repos/git-layton/agent-forge/actions/runners --jq '.runners[] | {name,status,busy}'
+ps aux | grep '[R]unner.Listener'
+```
+
+Notarization is Apple-side and dominates wall-clock time: builds have ranged 3m48s to ~14m.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Release job stuck `queued` for many minutes | Tag went to `docent`, or the runner is offline/asleep | Push the tag to `agent-forge`; confirm runner `status: online` |
+| CI green but nothing in `docent-releases` | Only `ci.yml` ran; the Release job never executed | Check runs on `agent-forge`, not `docent` |
+| App never offers an update | Manifest versions drifted, or `--latest` points at an older release | Confirm all five manifests match the tag; check which release is flagged Latest |
+| Users get served an *older* version | Out-of-order publish captured the `latest` pointer | `gh release edit vX.Y.Z --repo git-layton/docent-releases --latest` |
+| Upload step fails 403 | `RELEASES_REPO_TOKEN` expired | Mint a new PAT with write on `docent-releases` |
+| Gatekeeper blocks first launch | Build wasn't notarized | Confirm the `APPLE_*` secrets are set and the sign step succeeded |
+
+To retry a failed release, re-push the same tag — the publish step clobbers existing assets rather
+than failing.
+
+---
+
+## Moving the release home to `docent` (not done yet)
+
+If you ever want `docent` to build its own releases, copying secrets is **not** sufficient — the
+runner must also be re-registered:
+
+1. Re-register `~/actions-runner` against `https://github.com/git-layton/docent`
+   (`./config.sh remove`, then `./config.sh --url … --token …`). Note this **removes** it from
+   `agent-forge`, breaking that path — do one or the other, not a half-migration.
+2. Re-supply all nine secrets on `docent` from their original sources.
+3. Drop the `agent-forge` push from step 3 above, and fix `scripts/release.mjs`.
+
+Until all of that is done, `agent-forge` remains the only repo that can ship.
+
+---
+
+## Auto-update mechanics
+
+Installed copies poll
+`https://github.com/git-layton/docent-releases/releases/latest/download/latest.json`
+(`plugins.updater.endpoints` in `src-tauri/tauri.conf.json`). `docent-releases` must stay **public** —
+private release assets require auth, which the app doesn't carry.
+
+`checkForUpdatesOnStartup` runs from `App.tsx`; `checkForUpdates({ silent: false })` in
+`src/services/updater.ts` is the on-demand version that reports either outcome.
+
+A stable Developer ID identity also matters beyond Gatekeeper: API keys live in the macOS Keychain,
+and an ad-hoc-signed build's identity changes every release, forcing a re-prompt after each update.
+Signing with the same Developer ID keeps Keychain access silent across updates.
