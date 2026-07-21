@@ -60,7 +60,7 @@ export function EntityDossierPage({
   const [dossierText, setDossierText] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const activeAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? 'alexis');
+  const activeAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? 'docent');
 
   // Dossier path e.g. "people/taylor.md" — prefer the path pinned on the node, else derive it from
   // the label. Saving pins it (see saveDossier), so renaming an entity later can't orphan the file

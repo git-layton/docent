@@ -863,8 +863,8 @@ function StepDone({ onFinish }: { onFinish: () => void }) {
     { label: 'AI model connected', done: models.length > 0 },
   ];
 
-  function openAlexis() {
-    useAgentStore.getState().setActiveFolderId('alexis');
+  function openDocent() {
+    useAgentStore.getState().setActiveFolderId('docent');
     onFinish();
   }
 
@@ -910,7 +910,7 @@ function StepDone({ onFinish }: { onFinish: () => void }) {
           Confident, sharp, and a little fun. Think of her as your executive assistant — edit her personality, clone her, or use her as a starting point to build your own.
         </p>
         <button
-          onClick={openAlexis}
+          onClick={openDocent}
           className="text-tiny font-black uppercase tracking-widest text-error hover:underline"
         >
           Say hi to Docent →
@@ -947,9 +947,9 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
     if (!cs.activeChatId) {
       cs.setChats((prev: any[]) => [{
         id: targetChatId,
-        folderId: 'alexis',
-        primaryAgentId: 'alexis',
-        participantAgentIds: ['alexis'],
+        folderId: 'docent',
+        primaryAgentId: 'docent',
+        participantAgentIds: ['docent'],
         kind: 'dm',
         name: 'New Session',
         createdAt: Date.now(),
@@ -964,7 +964,7 @@ export function OnboardingWizard({ onClose, initialStep }: Props) {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: "Welcome, I'm Docent. I'm here to get you started whether you want to connect your applications, start working on something, or start browsing the web. Take me with you via this hotkey (Cmd+Shift+F) or if you just want to chat we can talk. I learn about you as we go and can do quite a bit but let's discover that together.",
-        agentId: 'alexis',
+        agentId: 'docent',
         agentName: 'Docent',
         timestamp: Date.now(),
         attachments: [],

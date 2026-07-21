@@ -18,8 +18,12 @@ const DEFAULT_ASSISTANT = {
 
 export { DEFAULT_ASSISTANT };
 
-const ALEXIS_ASSISTANT = {
-  id: 'alexis', // historical id — NEVER change: memory namespaces and persisted refs key on it
+const DOCENT_ASSISTANT = {
+  // Renamed from 'alexis' in the Docent rebrand. Memory namespaces and persisted agent
+  // refs key on this id, so the rename orphans anything written under the old one — done
+  // deliberately, with no installed base to protect. Treat it as fixed from here: once
+  // this ships, changing it again costs real user memory and needs a migration.
+  id: 'docent',
   name: 'Docent',
   description: 'Your executive assistant — local-first AI command center',
   role: 'Executive Assistant',
@@ -60,7 +64,7 @@ You're a showcase of what an executive assistant on Docent can be. Users can cus
   driveEnabled: true,
 };
 
-export { ALEXIS_ASSISTANT };
+export { DOCENT_ASSISTANT };
 
 // Agent ids retired in the one-assistant merge (July 2026). Codey's engineering judgment lives on as
 // a surface-scoped skill (data/skills.ts ENGINEERING_SKILL) and Forge Guide's stale platform docs are
@@ -80,14 +84,14 @@ export function migrateRetiredAgents(assistants: any[]): { assistants: any[]; ch
   // Codey's toolkit folds into Docent — a one-time additive grant, not a recurring override, so the
   // user can turn it back off in agent settings and it stays off.
   const merged = kept.map((a: any) =>
-    a.id === 'alexis' ? { ...a, tools: { ...(a.tools ?? {}), local_workspace: true } } : a,
+    a.id === 'docent' ? { ...a, tools: { ...(a.tools ?? {}), local_workspace: true } } : a,
   );
-  return { assistants: merged.length ? merged : [ALEXIS_ASSISTANT], changed: true };
+  return { assistants: merged.length ? merged : [DOCENT_ASSISTANT], changed: true };
 }
 
 /** Re-point a chat/space record's agent references off a retired agent and onto Docent. */
 export function repointRetiredAgentRefs<T extends Record<string, any>>(record: T): T {
-  const swap = (id: string) => (RETIRED_AGENT_IDS.includes(id) ? 'alexis' : id);
+  const swap = (id: string) => (RETIRED_AGENT_IDS.includes(id) ? 'docent' : id);
   const next: Record<string, any> = { ...record };
   if (typeof next.folderId === 'string') next.folderId = swap(next.folderId);
   if (typeof next.primaryAgentId === 'string') next.primaryAgentId = swap(next.primaryAgentId);
@@ -103,7 +107,7 @@ export function repointRetiredAgentRefs<T extends Record<string, any>>(record: T
 // Built-in agents that hydrate() re-seeds on every launch. Deleting one must "stick", so a deleted
 // built-in's id is tombstoned (deletedBuiltinIds) and the re-seed skips it. The hidden 'f-default'
 // fallback is never deletable.
-const RESEEDED_BUILTIN_IDS = ['alexis'];
+const RESEEDED_BUILTIN_IDS = ['docent'];
 
 interface AgentStore {
   assistants: any[];
@@ -125,8 +129,8 @@ interface AgentStore {
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  assistants: [ALEXIS_ASSISTANT, DEFAULT_ASSISTANT],
-  activeFolderId: 'alexis',
+  assistants: [DOCENT_ASSISTANT, DEFAULT_ASSISTANT],
+  activeFolderId: 'docent',
   editingAssistant: null,
   showAssistantSettings: false,
   assistantSettingsTab: 'config',
@@ -151,7 +155,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       ? [...deletedBuiltinIds, id]
       : deletedBuiltinIds;
     const nextActive = activeFolderId === id
-      ? (safe.find((a: any) => a.id === 'alexis')?.id ?? safe[0].id)
+      ? (safe.find((a: any) => a.id === 'docent')?.id ?? safe[0].id)
       : activeFolderId;
     set({ assistants: safe, deletedBuiltinIds: tombstones, activeFolderId: nextActive });
     await get().persist();
@@ -159,16 +163,16 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   hydrate: async () => {
     const assistants = await db.get('assistants', [DEFAULT_ASSISTANT]);
-    const savedActiveFolderId = await db.get('activeFolderId', 'alexis');
+    const savedActiveFolderId = await db.get('activeFolderId', 'docent');
     const deletedBuiltinIds: string[] = await db.get('deletedBuiltinIds', []);
     // Re-seed a built-in only if it's absent AND the user hasn't deleted it (tombstone).
     const reseed = (id: string) => !assistants.some((a: any) => a.id === id) && !deletedBuiltinIds.includes(id);
-    const needAlexis = reseed('alexis');
+    const needDocent = reseed('docent');
     let final = assistants;
-    if (needAlexis) final = [ALEXIS_ASSISTANT, ...final];
+    if (needDocent) final = [DOCENT_ASSISTANT, ...final];
     // Rebrand migration: the built-in assistant is Docent now. Rename only if the user never
     // customized the name (respect their own renames).
-    final = final.map((a: any) => (a.id === 'alexis' && (a.name === 'Alexis' || !a.name) ? { ...a, name: 'Docent' } : a));
+    final = final.map((a: any) => (a.id === 'docent' && !a.name ? { ...a, name: 'Docent' } : a));
 
     // One-assistant merge: Codey and Forge Guide are retired. Their threads keep every message and
     // become Docent's (see repointRetiredAgentRefs, applied by the chat/space stores on hydrate).
@@ -177,9 +181,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
     // Keep built-in agent prompts in sync with the latest defaults (Aria is no longer a default;
     // existing installs keep her until deleted, so she's intentionally absent from these maps).
-    const promptDefaults: Record<string, string> = { alexis: ALEXIS_ASSISTANT.prompt };
-    const driveDefaults: Record<string, string> = { alexis: ALEXIS_ASSISTANT.drive };
-    const roleDefaults: Record<string, string> = { alexis: (ALEXIS_ASSISTANT as any).role };
+    const promptDefaults: Record<string, string> = { docent: DOCENT_ASSISTANT.prompt };
+    const driveDefaults: Record<string, string> = { docent: DOCENT_ASSISTANT.drive };
+    const roleDefaults: Record<string, string> = { docent: (DOCENT_ASSISTANT as any).role };
     let builtinUpdated = false;
     final = final.map((a: any) => {
       if (!promptDefaults[a.id]) return a;
@@ -198,9 +202,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       return a;
     });
     // A retired agent can still be the persisted "active" one — fall back to Docent, never to nothing.
-    const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'alexis';
+    const activeFolderId = final.some((a: any) => a.id === savedActiveFolderId) ? savedActiveFolderId : 'docent';
     set({ assistants: final, activeFolderId, deletedBuiltinIds });
-    if (needAlexis || retired.changed || builtinUpdated) await db.set('assistants', final);
+    if (needDocent || retired.changed || builtinUpdated) await db.set('assistants', final);
   },
 
   persist: async () => {

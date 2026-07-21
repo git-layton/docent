@@ -165,6 +165,30 @@ export const DynamicBackground: React.FC = () => {
   };
 
   const activeSky = stormGradients[condition]?.[timeOfDay] ?? skyGradients[timeOfDay];
+
+  // Publish how bright the wallpaper currently is, so CSS can pick ink from the SKY
+  // rather than from the theme. Every surface above the wallpaper is translucent, so
+  // what text is actually read against is the sky — and the sky swings from #7db9f7
+  // at noon to #151a30 at night. A theme-fixed ink ramp fails at one end or the
+  // other (measured: light ink is 1.22:1 on the night sky; dark ink 1.81:1 at midday).
+  // Luminance is read off the gradient itself rather than mapped from the clock, so
+  // storm/overcast variants — which darken the sky independently of time — come along
+  // for free.
+  useEffect(() => {
+    const stops = activeSky.match(/#[0-9a-f]{6}/gi) ?? [];
+    const mid = stops[Math.floor(stops.length / 2)] ?? '#7db9f7';
+    const channel = (i: number) => {
+      const c = parseInt(mid.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    const luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+    // 0.25, not the midpoint. Sunrise (#a46d78) sits at 0.202 and is the worst
+    // backdrop in the set — mid-tone, so neither ink wins on it. Classifying it
+    // dim and treating it with light ink on a dark plate takes the tightest
+    // measurement in the whole system from 2.88:1 to 4.89:1. Lower this and
+    // sunrise falls back below AA.
+    document.documentElement.setAttribute('data-sky', luminance > 0.25 ? 'bright' : 'dim');
+  }, [activeSky]);
   const isDark = timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
   const showClouds = ambientWeatherEnabled && (timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
   const showBirds = ambientWeatherEnabled && timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');

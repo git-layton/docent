@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { TypingIndicator } from './ui/TypingIndicator';
+import { ActivityTrail } from './ui/ActivityTrail';
 import { useChatStore } from '../store/useChatStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useTaskStore } from '../store/useTaskStore';
@@ -149,7 +150,7 @@ export function MessageList({
 
                   <div className={`group relative flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
                      {msg.role === 'bot' && msg.agentName && <div className="text-[11px] font-bold text-ink-3 mb-0.5 ml-1">{msg.agentName}</div>}
-                     <div className={`p-3 max-w-[92%] shadow-sm ${msg.role === 'user' ? 'bg-accent-soft text-accent-soft-ink rounded-2xl rounded-br-sm' : 'bg-white/10 dark:bg-black/10 border border-edge/50 text-ink rounded-2xl rounded-bl-sm'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
+                     <div className={`p-3 max-w-[92%] shadow-sm backdrop-blur-xl ${msg.role === 'user' ? 'bg-accent-soft text-accent-soft-ink rounded-2xl rounded-br-sm' : 'bg-white/10 dark:bg-black/10 border border-edge/50 text-ink rounded-2xl rounded-bl-sm'} ${editingMessageId === msg.id ? 'w-full' : ''}`}>
 
                        {editingMessageId === msg.id ? (
                           <div className="flex flex-col gap-3 w-full animate-in fade-in">
@@ -163,6 +164,11 @@ export function MessageList({
                           <div className="leading-relaxed">{onRenderMessage(msg)}</div>
                        )}
                      </div>
+
+                     {/* What this reply actually did — receipts, pinned in place, with undo. */}
+                     {msg.role === 'bot' && Array.isArray(msg.receiptIds) && msg.receiptIds.length > 0 && (
+                       <ActivityTrail receiptIds={msg.receiptIds} />
+                     )}
 
                      {/* Actions Bar - Positioned Below Bubble */}
                      {!editingMessageId && (
@@ -186,7 +192,7 @@ export function MessageList({
                 </div>
                 <div className="group relative flex flex-col items-start">
                   <div className="text-[11px] font-bold text-ink-3 mb-0.5 ml-1">{activeAssistant?.name || 'Agent'}</div>
-                  <div className="p-3 max-w-[92%] shadow-sm bg-white/10 dark:bg-black/10 border border-edge/50 text-ink rounded-2xl rounded-bl-sm">
+                  <div className="p-3 max-w-[92%] shadow-sm backdrop-blur-xl bg-white/10 dark:bg-black/10 border border-edge/50 text-ink rounded-2xl rounded-bl-sm">
                     <TypingIndicator inline />
                   </div>
                 </div>

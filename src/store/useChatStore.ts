@@ -67,9 +67,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const updatedAt = last?.timestamp ?? last?.createdAt ?? createdAt;
         return {
           id: chatId,
-          folderId: 'alexis',
-          primaryAgentId: 'alexis',
-          participantAgentIds: ['alexis'],
+          folderId: 'docent',
+          primaryAgentId: 'docent',
+          participantAgentIds: ['docent'],
           kind: 'dm',
           name: 'Recovered Chat',
           goal: '',

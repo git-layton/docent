@@ -25,6 +25,9 @@ export interface Annotation {
 // Accent colors per agent, in the OS dark palette.
 const AGENT_COLORS: Record<string, string> = {
   dev: '#6AA9FF',
+  docent: '#E59FC4',
+  // Pre-rename ids. Kept as aliases so any record still carrying the old id keeps
+  // its accent instead of falling back to neutral gray.
   alexis: '#E59FC4',
   lexi: '#E59FC4',
   aria: '#7A9E8D',

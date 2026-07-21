@@ -132,7 +132,11 @@ export function ChatPanel({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white/10 min-h-0">
+    // Same glass recipe as the Start-page tiles (sky-adaptive tint + backdrop-blur-xl)
+    // so the chat reads as one material with the rest of the app rather than a solid
+    // slab. data-ambient opts its ink into the sky ramp too, since it floats on the
+    // wallpaper exactly like the tiles do.
+    <div data-ambient="true" className="flex flex-col h-full glass-sky backdrop-blur-xl min-h-0">
       {/* Header (suppressed for the Team rail — it brings its own slim header) */}
       {!hideHeader && (
         <div className="flex items-center">

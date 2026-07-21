@@ -278,7 +278,11 @@ export function OmniSearch({
 
   return (
     <div className={clsx('relative w-full', className)}>
-      <div className="flex items-center gap-3 rounded-full border border-edge-2 bg-panel-2 px-5 py-3 shadow-sm transition-colors focus-within:border-accent">
+      {/* glass-sky, not bg-panel-2. That token is rgba(23,25,32,.55) in dark and
+          rgba(250,249,246,.60) in light — i.e. the opaque black/white input slab
+          this design is explicitly trying not to look like. The bar now uses the
+          same tint + blur as the tiles so it reads as one material with them. */}
+      <div className="flex items-center gap-3 rounded-full border border-edge-2 glass-sky backdrop-blur-xl px-5 py-3 shadow-sm transition-colors focus-within:border-accent">
         <Search className="h-4 w-4 shrink-0 text-ink-3" />
         <input
           ref={inputRef}

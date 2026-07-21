@@ -9,11 +9,11 @@ import { useAgentStore } from '../../store/useAgentStore'
 
 // Seed the four stores StartPage reads from, with one Space + its chat tab.
 beforeEach(() => {
-  useAgentStore.setState({ assistants: [{ id: 'alexis', name: 'Alexis' }] } as any)
+  useAgentStore.setState({ assistants: [{ id: 'docent', name: 'Docent' }] } as any)
   useSettingsStore.setState({ userName: 'Sam', integrations: {} } as any)
   useUIStore.setState({ savedApps: [] } as any)
   useSpaceStore.setState({
-    spaces: [{ id: 'space-home', kind: 'space', name: 'Personal', agentIds: ['alexis'], peopleIds: [], tabIds: ['log'], chatId: 'c1', createdAt: 0, updatedAt: 0 }],
+    spaces: [{ id: 'space-home', kind: 'space', name: 'Personal', agentIds: ['docent'], peopleIds: [], tabIds: ['log'], chatId: 'c1', createdAt: 0, updatedAt: 0 }],
     activeSpaceId: 'space-home',
     omniTabs: [{ id: 'log', type: 'space-log', label: 'Chat', spaceId: 'space-home', isPinned: true }],
     activeOmniTabId: 'home',
@@ -40,7 +40,7 @@ describe('StartPage — omni-bar', () => {
   it('typing shows the "Ask <agent>" row and live-filters apps', () => {
     render(<StartPage onAsk={vi.fn()} />)
     typeQuery('brow')
-    expect(screen.getByText('Ask Alexis')).toBeInTheDocument()
+    expect(screen.getByText('Ask Docent')).toBeInTheDocument()
     // The section grid is hidden while searching, so "Web Browser" appears once (the result row).
     expect(screen.getByText('Web Browser')).toBeInTheDocument()
     expect(screen.queryByText('Calendar')).not.toBeInTheDocument()

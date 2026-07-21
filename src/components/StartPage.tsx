@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Globe,
   FileText,
   Code2,
   Image as ImageIcon,
   MessageSquare,
-  Star,
   Sunrise,
   Sun,
   Sunset,
@@ -67,23 +65,20 @@ function relativeTime(ts?: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-function domainOf(url?: string): string {
-  if (!url) return '';
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return url;
-  }
-}
+// Recents shown in Pick-up before "See all" — see the note at its useState.
+const RECENT_LIMIT = 2;
 
 // ── Section shell ──
 function Section({
   title,
   count,
+  action,
   children,
 }: {
   title: string;
   count?: number;
+  /** Optional trailing affordance, right-aligned — e.g. a "See all" into the Library. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -93,6 +88,7 @@ function Section({
         {count !== undefined && count > 0 && (
           <span className="text-[10px] font-bold text-accent-soft-ink bg-accent-soft px-1.5 py-0.5 rounded-full">{count}</span>
         )}
+        {action && <span className="ml-auto">{action}</span>}
       </div>
       {children}
     </section>
@@ -114,7 +110,9 @@ function Tile({
       type="button"
       onClick={onClick}
       className={clsx(
-        'group flex items-center gap-3 rounded-2xl border border-edge/50 bg-white/10 dark:bg-black/10 backdrop-blur-xl px-3.5 py-3 text-left',
+        // glass-sky tints from the wallpaper's brightness, not the theme — see the
+        // sky-adaptive block in index.css. Blur stays; only the tint source changed.
+        'group flex items-center gap-3 rounded-2xl border border-edge/50 glass-sky backdrop-blur-xl px-3.5 py-3 text-left',
         'shadow-sm transition-all duration-150',
         'hover:-translate-y-0.5 hover:border-edge-2',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
@@ -124,14 +122,6 @@ function Tile({
     >
       {children}
     </button>
-  );
-}
-
-function EmptyHint({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-edge-2 px-4 py-5 text-center text-[11px] leading-relaxed text-ink-3">
-      {children}
-    </div>
   );
 }
 
@@ -223,6 +213,11 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
         .slice(0, 8),
     [savedApps],
   );
+
+  // How many recents Pick-up shows before the See-all. Two, so that with the chat
+  // tile the row lands at three — one grid row at sm and up, and few enough to read
+  // as a suggestion rather than a list to work through.
+  const [showAllRecent, setShowAllRecent] = useState(false);
 
   // Apps — saved Codey apps
   const yourApps = useMemo(
@@ -356,7 +351,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
         type="button"
         onClick={() => useSettingsStore.getState().setShowProfileSettings(true)}
         title="Settings"
-        className="absolute right-5 top-5 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-edge bg-panel-2 text-ink-3 shadow-sm transition-colors hover:border-edge-2 hover:text-ink"
+        className="on-sky absolute right-5 top-5 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-edge text-ink-2 transition-colors hover:border-edge-2 hover:text-ink"
       >
         <Settings className="h-[18px] w-[18px]" />
       </button>
@@ -411,7 +406,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             onActiveChange={setSearchActive}
           />
           {!searchActive && (
-            <p className="mt-2 text-[11px] text-ink-3">
+            <p className="mt-2 w-fit text-[11px] text-ink-3">
               Search your apps, docs, tasks &amp; history · press <span className="text-ink-2">↵</span> to ask your agent
             </p>
           )}
@@ -421,21 +416,34 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
         {!searchActive && (<>
         {/* ── Pick up where you left off (first — your most likely next action) ── */}
         {(recentDoc || lastChat) && (
-        <Section title="Pick up where you left off">
+        <Section
+          title="Pick up where you left off"
+          action={docs.length > RECENT_LIMIT && (
+            <button
+              onClick={() => setShowAllRecent((v) => !v)}
+              className="rounded-full px-2 py-0.5 text-[11px] font-medium text-ink-2 transition-colors hover:text-ink"
+            >
+              {showAllRecent ? 'Show less' : `See all ${docs.length}`}
+            </button>
+          )}
+        >
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {recentDoc && (
-              <Tile onClick={() => openDoc(recentDoc, tabId)}>
+            {/* Recents stay deliberately short — this is a suggestion, not an index.
+                Chat leads because resuming a conversation is the likeliest next move;
+                docs follow, newest first, capped at RECENT_LIMIT until See-all. */}
+            {(showAllRecent ? docs : docs.slice(0, RECENT_LIMIT)).map((doc: any) => (
+              <Tile key={doc.id} onClick={() => openDoc(doc, tabId)}>
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
-                  {recentDoc?.type === 'image'
+                  {doc?.type === 'image'
                     ? <ImageIcon className="h-[18px] w-[18px] text-accent-soft-ink" />
                     : <FileText className="h-[18px] w-[18px] text-accent-soft-ink" />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium text-ink">{recentDoc?.title || 'Untitled'}</span>
-                  <span className="block truncate text-[11px] text-ink-3">Edited {relativeTime(recentDoc?.updatedAt)}</span>
+                  <span className="block truncate text-[13px] font-medium text-ink">{doc?.title || 'Untitled'}</span>
+                  <span className="block truncate text-[11px] text-ink-3">Edited {relativeTime(doc?.updatedAt)}</span>
                 </span>
               </Tile>
-            )}
+            ))}
             {lastChat && (
               <Tile onClick={() => APPS.find((a) => a.id === 'chat')?.open(tabId)}>
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
@@ -515,56 +523,14 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
           </Section>
         )}
 
-        {/* ── Docs ── */}
-        <Section title="Docs" count={docs.length}>
-          {docs.length === 0 ? (
-            <EmptyHint>Nothing saved yet — anything you build or save to your Library shows up here.</EmptyHint>
-          ) : (
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-              {docs.map((doc: any) => {
-                const Icon = doc?.type === 'image' ? ImageIcon : doc?.type === 'doc' ? FileText : Code2;
-                return (
-                  <Tile key={doc.id} onClick={() => openDoc(doc, tabId)}>
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-wash ring-1 ring-edge">
-                      <Icon className="h-[18px] w-[18px] text-ink-2" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-medium text-ink">
-                        {doc?.title || 'Untitled'}
-                      </span>
-                      <span className="block truncate text-[11px] text-ink-3">{relativeTime(doc?.updatedAt)}</span>
-                    </span>
-                  </Tile>
-                );
-              })}
-            </div>
-          )}
-        </Section>
-
-        {/* ── Bookmarks ── */}
-        <Section title="Bookmarks" count={bookmarks.length}>
-          {bookmarks.length === 0 ? (
-            <EmptyHint>
-              <span className="inline-flex items-center gap-1.5">
-                Star a web page <Star className="h-3 w-3 text-warning" /> to pin it here for quick access.
-              </span>
-            </EmptyHint>
-          ) : (
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-              {bookmarks.map((tab) => (
-                <Tile key={tab.id} onClick={() => focusExisting(tabId, tab.id)}>
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-wash ring-1 ring-edge">
-                    <Globe className="h-[18px] w-[18px] text-ink-2" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-ink">{tab.label}</span>
-                    <span className="block truncate text-[11px] text-ink-3">{domainOf(tab.url)}</span>
-                  </span>
-                </Tile>
-              ))}
-            </div>
-          )}
-        </Section>
+        {/* Docs and Bookmarks used to close the page out here as their own sections.
+            Both spent most of their life rendering an empty state, so Home ended in
+            two apologies. Recent docs now surface as Pick-up tiles above (with See
+            all → Library), and bookmarks moved to the browser, which is the only
+            place they're ever acted on — and where the real, persisted list already
+            lives as `favorites` in useBrowserStore. The Home list was reading a
+            different source entirely: web tabs flagged isFavorite, which vanish when
+            the tab closes. Two bookmark systems; this retires the wrong one. */}
 
         </>)}
       </div>

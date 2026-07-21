@@ -22,7 +22,7 @@ const defaultSpace: Space = {
   id: 'space-home',
   kind: 'space',
   name: 'Personal',
-  agentIds: ['alexis'],
+  agentIds: ['docent'],
   peopleIds: [],
   tabIds: ['tab-space-log-default'],
   chatId: HOME_CHAT_ID,
@@ -263,7 +263,7 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     const spaceId = generateId('space');
     const tabId = generateId('tab');
     const chatId = generateId('chat');
-    const primaryAgentId = agentIds[0] ?? 'alexis';
+    const primaryAgentId = agentIds[0] ?? 'docent';
     const participants = agentIds.length > 0 ? agentIds : [primaryAgentId];
 
     // Each container owns its own conversation thread.
@@ -514,8 +514,8 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       ensureChatThread(active.chatId, {
         kind: active.kind === 'dm' ? 'dm' : 'channel',
         name: active.name,
-        primaryAgentId: active.agentIds[0] ?? 'alexis',
-        agentIds: active.agentIds.length > 0 ? active.agentIds : ['alexis'],
+        primaryAgentId: active.agentIds[0] ?? 'docent',
+        agentIds: active.agentIds.length > 0 ? active.agentIds : ['docent'],
       });
       useChatStore.getState().setActiveChatId(active.chatId);
       const primary = active.agentIds[0];

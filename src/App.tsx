@@ -21,6 +21,8 @@ import { assessContextHealth } from './services/contextHealth';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
 import { parseAgentActions, actionNeedsApproval, executeAgentAction, describeAction, resolveActionTargets, isCardAction, renderCardActionBlocks, stripActionBlocks, type AgentAction } from './services/agentActions';
+import { useReceiptStore } from './services/receipts';
+import { useAgentActivityStore, activityLabel, receiptsSince } from './store/useAgentActivityStore';
 import { parseModelBlock } from './services/modelBlocks';
 import { trustOfToolSource } from './services/trust';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
@@ -201,6 +203,14 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     : null;
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
+  // Home and the space log are AMBIENT surfaces: the weather background is the
+  // backdrop, so their pane paints no tint and no blur — you look straight through
+  // to the sky, and it reads identically in light and dark. Every other tab type
+  // holds foreign content (web, docs, code), so it keeps a translucent pane to stay
+  // readable. Only the border marks the pane edge on ambient tabs.
+  const primaryIsAmbient = !activeOmniTab || activeOmniTab.type === 'home' || activeOmniTab.type === 'space-log';
+  const splitIsAmbient = !splitTab || splitTab.type === 'home' || splitTab.type === 'space-log';
+
   // Ghost UI / marginalia (doc + code-canvas tabs only)
   const agentVisionOn = useMarginaliaStore(s => s.agentVisionOn);
   const setAgentVisionOn = useMarginaliaStore(s => s.setAgentVisionOn);
@@ -266,6 +276,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const handleAgentActions = async (text: string, chatId: string, botId: string, turnIngestedUntrusted = false) => {
     const actions = parseAgentActions(text);
     if (actions.length === 0) return;
+    // Mark the top of the receipt ledger before anything runs. Every receipt appended past this
+    // point belongs to THIS turn, which is what lets the reply carry its own audit trail instead
+    // of the user having to go dig through the Activity Center to find out what just happened.
+    const receiptMark: string | null = useReceiptStore.getState().receipts[0]?.id ?? null;
+    const activity = useAgentActivityStore.getState();
+    activity.begin('Working', actions.length);
     // Card actions (event/library/profile) don't execute — they render as the app's existing
     // editable/confirm cards. Translate them back into the legacy fenced blocks the message
     // renderer understands, and splice them into the displayed message in place of the stripped
@@ -318,6 +334,8 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     // Confirmed actions that actually ran this turn — the raw material an organic skill is distilled from.
     const completedActions: CompletedAction[] = [];
     for (const a of toolActions.filter(x => !actionNeedsApproval(x, turnIngestedUntrusted))) {
+      // Name the step BEFORE awaiting it — the label is the whole point during the slow part.
+      useAgentActivityStore.getState().advance(activityLabel(String(a.tool ?? ''), String(a.op ?? '')));
       try {
         const done = await executeAgentAction(a);
         showToast(`✓ ${done}`);
@@ -337,6 +355,21 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     // only becomes suggestable when the user trusts it (SEC-PLAYBOOKVERIFY).
     if (!turnIngestedUntrusted && completedActions.length >= DEFAULT_SKILL_POLICY.minSteps) {
       await captureOrganicSkill(chatId, completedActions);
+    }
+
+    // Pin this turn's receipts to the reply that caused them. Toasts were the only signal before,
+    // and they expire in a few seconds — so the record of what Docent actually touched was gone
+    // by the time anyone thought to look. The trail on the message doesn't expire.
+    useAgentActivityStore.getState().end();
+    const turnReceiptIds = receiptsSince(
+      useReceiptStore.getState().receipts.map(r => r.id),
+      receiptMark,
+    );
+    if (turnReceiptIds.length) {
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+        ...prev,
+        [chatId]: (prev[chatId] ?? []).map((m: any) => (m.id === botId ? { ...m, receiptIds: turnReceiptIds } : m)),
+      }));
     }
   };
   const saveGlobalPins = useMemoryStore.getState().saveGlobalPins;
@@ -3484,7 +3517,12 @@ if (isSpotlight) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 bg-base text-ink relative">
+    // No `bg-base` here on purpose. That token resolves to --af-base, which is
+    // rgba(255,255,255,.40) in light and rgba(10,11,14,.35) in dark — a film painted
+    // straight over the wallpaper, in opposite directions per theme. It made one
+    // wallpaper read as two. The sky IS the base now, so it looks identical in both
+    // themes; every surface above it carries its own glass instead.
+    <div className="flex h-screen overflow-hidden w-full font-sans transition-colors duration-300 text-ink relative">
       <DynamicBackground />
       <PermissionsBootstrapper />
       <SpotlightListener anyGeneratingRef={anyGeneratingRef} pendingOverlayHydrateRef={pendingOverlayHydrateRef} />
@@ -3656,13 +3694,14 @@ if (isSpotlight) {
       {!appSettings.newShellEnabled && <AppSidebar />}
 
       {/* ── Center column: tab bar + viewport ── */}
-      <div className="flex-1 flex flex-col overflow-hidden relative min-w-0 bg-white/10">
+      <div className={`flex-1 flex flex-col overflow-hidden relative min-w-0 ${primaryIsAmbient ? '' : 'bg-white/10'}`}>
         <OmniTabBar copilotOpen={copilotOpen} onToggleCopilot={toggleCopilot} />
 
         <div ref={splitContainerRef} className="flex-1 flex overflow-hidden min-h-0 gap-2 p-2">
           {/* PRIMARY pane — the active tab, full width unless split */}
           <div
-            className={`relative overflow-hidden min-w-0 flex flex-col bg-white/10 dark:bg-black/10 rounded-xl border border-edge/50 shadow-lg ${(!activeOmniTab || activeOmniTab.type === 'home' || activeOmniTab.type === 'space-log') ? '' : 'backdrop-blur-xl'}`}
+            data-ambient={primaryIsAmbient ? 'true' : undefined}
+            className={`relative overflow-hidden min-w-0 flex flex-col rounded-xl border border-edge/50 ${primaryIsAmbient ? '' : 'bg-white/10 dark:bg-black/10 shadow-lg backdrop-blur-xl'}`}
             style={{ flex: splitTab ? `0 0 ${splitRatio * 100}%` : '1 1 100%' }}
           >
             {activeOmniTab && activeOmniTab.type !== 'home' && activeOmniTab.type !== 'space-log' && (
@@ -3700,7 +3739,10 @@ if (isSpotlight) {
                 className="w-1 shrink-0 cursor-col-resize bg-edge-2 hover:bg-accent transition-colors rounded-full"
                 title="Drag to resize"
               />
-              <div className={`relative overflow-hidden min-w-0 flex flex-col flex-1 bg-white/10 dark:bg-black/10 rounded-xl border border-edge/50 shadow-lg ${(!splitTab || splitTab.type === 'home' || splitTab.type === 'space-log') ? '' : 'backdrop-blur-xl'}`}>
+              <div
+                data-ambient={splitIsAmbient ? 'true' : undefined}
+                className={`relative overflow-hidden min-w-0 flex flex-col flex-1 rounded-xl border border-edge/50 ${splitIsAmbient ? '' : 'bg-white/10 dark:bg-black/10 shadow-lg backdrop-blur-xl'}`}
+              >
                 {splitTab.type !== 'home' && splitTab.type !== 'space-log' && (
                   <>
                     <button

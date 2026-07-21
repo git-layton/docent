@@ -84,7 +84,9 @@ export function DockedAgentRail({
     <div
       ref={railRef}
       style={isExpanded ? {} : { width }}
-      className={`relative flex flex-col rounded-xl border border-edge/50 shadow-lg bg-white/10 dark:bg-black/10 overflow-hidden backdrop-blur-xl transition-all ${
+      // glass-sky rather than a theme-fixed tint: the rail floats on the wallpaper like the
+      // tiles do, so it takes its tint from the sky and stays one material with them.
+      className={`relative flex flex-col rounded-xl border border-edge/50 shadow-lg glass-sky overflow-hidden backdrop-blur-xl transition-all ${
         isExpanded ? 'absolute inset-0 z-[100] m-2' : 'shrink-0'
       }`}
     >

@@ -16,6 +16,7 @@ import { capturePageText } from '../services/pageCapture';
 import { readBrowserVisualText } from '../services/browserVision';
 import { BrowserContextMenu } from './BrowserContextMenu';
 import { BrowserPasswordBar } from './BrowserPasswordBar';
+import { BrowserStartPage } from './BrowserStartPage';
 import { useSpaceStore } from '../store/useSpaceStore';
 
 const HOME_URL = 'https://duckduckgo.com';
@@ -161,6 +162,12 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
 
 
+  // A tab opened with no destination shows the start page, and NO native webview is created until
+  // there's somewhere to go. Deferring creation (rather than parking an existing webview offscreen)
+  // keeps the start page as ordinary React, so it inherits the app's glass instead of being a
+  // foreign HTML document served into a webview.
+  const [showStart, setShowStart] = useState(!initialUrl);
+
   const [url, setUrl] = useState(startUrl);
   const [inputUrl, setInputUrl] = useState(startUrl);
   const [isLoading, setIsLoading] = useState(false);
@@ -228,8 +235,11 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     useSpaceStore.getState().updateTabLabel(tabId, url, pageTitle || tryHostname(url));
   }, [tabId, url, pageTitle]);
 
-  // Create/destroy the native child webview on mount/unmount
+  // Create/destroy the native child webview on mount/unmount.
+  // Skipped entirely while the start page is up — there is no page to render yet, and creating a
+  // webview just to cover it with React would fight the bounds-sync effect below.
   useEffect(() => {
+    if (showStart) return;
     mountedRef.current = true;
     let pollInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -258,7 +268,11 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       await invoke('browser_create', {
         windowLabel: win.label,
         label: BROWSER_LABEL,
-        url: startUrl,
+        // urlRef, not startUrl: when the webview is being created because the user just left the
+        // start page, the destination they picked is in `url`, and startUrl is still the stale
+        // mount-time default. Using startUrl here would silently send every start-page click to
+        // the home page instead.
+        url: urlRef.current,
         x: Math.round(rect.left),
         y: Math.round(rect.top),
         width: Math.round(rect.width),
@@ -292,8 +306,10 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       // Close async after cleanup — don't await
       Webview.getByLabel(BROWSER_LABEL).then(wv => wv?.close()).catch(() => {});
     };
+  // showStart is the only added dep: leaving the start page must build the webview that was
+  // deliberately skipped on mount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [showStart]);
 
   // Keep webview bounds in sync with the container div
   useEffect(() => {
@@ -562,11 +578,18 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     setIsLoading(true);
     setUrl(dest);
     setInputUrl(dest);
+    if (showStart) {
+      // No webview exists yet. Dropping the start page triggers the creation effect, which opens
+      // `dest` directly — calling browser_navigate here would just throw against a missing label.
+      setShowStart(false);
+      return;
+    }
     invoke('browser_navigate', { label: BROWSER_LABEL, url: dest }).catch(() => setIsLoading(false));
-  }, [inputUrl]);
+  }, [inputUrl, showStart]);
 
   const openNewTab = useCallback(() => {
-    useSpaceStore.getState().openTab({ type: 'web', url: HOME_URL, label: 'New Tab' });
+    // Deliberately url-less — see the browser entry in appRegistry. A new tab opens the start page.
+    useSpaceStore.getState().openTab({ type: 'web', label: 'New Tab' });
   }, []);
 
   const showUrlContextMenu = useCallback((e: React.MouseEvent) => {
@@ -1013,7 +1036,11 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
       {/* Content area — webview tracks these bounds via ResizeObserver */}
       <div className="flex-1 overflow-hidden relative">
-        <div ref={contentRef} className="w-full h-full" />
+        {/* The native webview is positioned over contentRef. While the start page is up no webview
+            exists, so this same box holds ordinary React instead. */}
+        {showStart
+          ? <BrowserStartPage onNavigate={navigate} />
+          : <div ref={contentRef} className="w-full h-full" />}
         {comment && <ProactiveChip comment={comment} onDismiss={dismiss} />}
         {downloadToast && (
           <div className={clsx(

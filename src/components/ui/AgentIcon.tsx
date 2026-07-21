@@ -33,7 +33,7 @@ export const BOT_COLORS = [
 ];
 
 export const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
-  if (agent?.id === 'alexis' || agent?.name === 'Docent' || agent?.name === 'Alexis') {
+  if (agent?.id === 'docent' || agent?.name === 'Docent') {
     return (
       <div className={`${containerClass} bg-ink text-panel flex items-center justify-center shrink-0`}>
         <DocentMark className={sizeClass} />

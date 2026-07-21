@@ -6,7 +6,7 @@ const FS = '\u001f';
 
 // Raw shape mirrors memory_git_log's --pretty=format:\x1e%h\x1f%ct\x1f%s --name-only output.
 const raw =
-  `${RS}abc1234${FS}1752700000${FS}memory: learned venue pricing\nmemory/alexis/venue.md\nmemory/alexis/budget.md\n\n` +
+  `${RS}abc1234${FS}1752700000${FS}memory: learned venue pricing\nmemory/docent/venue.md\nmemory/docent/budget.md\n\n` +
   `${RS}def5678${FS}1752600000${FS}library: saved contract.pdf\nlibrary/contract.pdf\n\n` +
   `${RS}0a1b2c3${FS}1752500000${FS}dream: merged 3 notes`;
 
@@ -18,7 +18,7 @@ describe('parseGitLog', () => {
       hash: 'abc1234',
       ts: 1752700000000,
       subject: 'memory: learned venue pricing',
-      files: ['memory/alexis/venue.md', 'memory/alexis/budget.md'],
+      files: ['memory/docent/venue.md', 'memory/docent/budget.md'],
     });
     expect(entries[2].files).toEqual([]); // commit with no file list still parses
   });

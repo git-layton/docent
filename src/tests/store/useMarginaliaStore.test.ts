@@ -37,11 +37,11 @@ describe('getAgentColor', () => {
     expect(getAgentColor('dev')).toBe('#6AA9FF')
   })
 
-  it('returns the alexis accent color', () => {
-    expect(getAgentColor('alexis')).toBe('#E59FC4')
+  it('returns the docent accent color', () => {
+    expect(getAgentColor('docent')).toBe('#E59FC4')
   })
 
-  it('treats "lexi" as the same color as alexis', () => {
+  it('treats "lexi" as the same color as docent', () => {
     expect(getAgentColor('lexi')).toBe('#E59FC4')
   })
 
@@ -62,10 +62,10 @@ describe('getAgentColor', () => {
     expect(getAgentColor('')).toBe('#8A8F98')
   })
 
-  it('returns distinct colors for dev / alexis / aria', () => {
+  it('returns distinct colors for dev / docent / aria', () => {
     const colors = new Set([
       getAgentColor('dev'),
-      getAgentColor('alexis'),
+      getAgentColor('docent'),
       getAgentColor('aria'),
     ])
     expect(colors.size).toBe(3)

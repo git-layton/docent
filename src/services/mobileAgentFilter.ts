@@ -3,5 +3,5 @@
 // surface, Forge Guide documents the desktop app, 'f-default' is the hidden
 // fallback — and don't belong on the phone.
 export function filterMobileAgents(assistants: any[]): any[] {
-  return assistants.filter((a: any) => a && (a.id === 'alexis' || !a.isDefault));
+  return assistants.filter((a: any) => a && (a.id === 'docent' || !a.isDefault));
 }

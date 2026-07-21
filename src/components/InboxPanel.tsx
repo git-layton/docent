@@ -220,7 +220,7 @@ export function InboxPanel({ agentForgePath: _agentForgePath, activeAgentId, onT
     // Write a memory file from the capture body
     const slug = capture.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'capture';
     await invoke('write_memory_file', {
-      agentId: 'alexis',
+      agentId: 'docent',
       path: `inbox/${slug}.md`,
       content: `# ${capture.title}\n\n${capture.bodyText || ''}\n`,
       commitMessage: `inbox: triage → memory "${capture.title.slice(0, 60)}"`,

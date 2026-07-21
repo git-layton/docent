@@ -95,6 +95,68 @@
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
 }
 
+/* ── Sky-adaptive surfaces ───────────────────────────────────────────────
+   `data-sky` is set by DynamicBackground from the wallpaper's own luminance.
+   Surfaces marked [data-ambient] float directly on the wallpaper and are
+   see-through, so what their text is really read against is the SKY, not the
+   theme — and the sky travels the full range, #7db9f7 at noon to #151a30 at
+   night. Keying ink to the theme fails at one end or the other no matter which
+   values you pick (measured on bare sky: light ink 1.22:1 at night, dark ink
+   1.81:1 at midday). Keying it to the sky holds at every hour.
+
+   The 0.20 tint is a measured floor, not a taste call: it's the lowest value
+   that clears AA on every sky in the set, the mauve sunrise (#a46d78) being the
+   hardest. It stays clearly translucent on purpose — the opaque black/white
+   input boxes this avoids are exactly what makes other apps feel cheap.     */
+[data-sky="bright"] {
+  --af-glass: rgba(255, 255, 255, 0.20);  /* large surfaces: tiles, panes, chat */
+  --af-plate: rgba(255, 255, 255, 0.25);  /* small text plates (.on-sky)        */
+}
+[data-sky="dim"] {
+  --af-glass: rgba(0, 0, 0, 0.20);
+  --af-plate: rgba(0, 0, 0, 0.25);
+}
+
+.glass-sky { background: var(--af-glass); }
+
+/* A tight plate for a LOAD-BEARING control that has no choice but to float on the
+   bare wallpaper — currently the Home settings button, top-right on nothing. On a
+   mid-tone sky no ink colour clears AA on bare pixels (sunrise #a46d78, luminance
+   0.202: 3.38:1 dark, 3.65:1 light), so a control you have to be able to hit gets
+   a real backing rather than a hint of one. It's a tight plate, not the full-bleed
+   film we removed — the wallpaper still reads everywhere around it — and on the
+   same 0.20 tint the tiles use it lands at 4.72:1 at sunrise, better elsewhere. */
+.on-sky {
+  background: var(--af-plate);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Decorative labels on the bare wallpaper — section headers, the date/weather line,
+   the search hint — carry NO backing and NO halo. They ride entirely on the adaptive
+   ink below: near-black on a bright sky, near-white on a dim one, switched from the
+   wallpaper's own luminance. An earlier pass haloed them with a blurred text-shadow
+   for extra separation, but on a bright sky the white glow bled into the dark strokes
+   and made thin text read as fuzzy rather than sharper — hazy, not clean. Weight and
+   size (bold, uppercase, tracking) do the separating instead. Anything you actually
+   have to click still rides on real glass (.on-sky above).                        */
+
+/* Solved against all four skies; the ramp is compressed — ink-2 and ink-3 sit closer
+   together than a paper design would put them — because a backdrop that travels this
+   far leaves less room for a three-step hierarchy. Legibility wins; separation is
+   carried by weight and size instead of by tone.                              */
+[data-sky="bright"] [data-ambient="true"] {
+  --af-ink: #2a2c2a;
+  --af-ink-2: #3d403a;
+  --af-ink-3: #43463f;
+}
+
+[data-sky="dim"] [data-ambient="true"] {
+  --af-ink: #f1f0ec;
+  --af-ink-2: rgba(255, 255, 255, 0.90);
+  --af-ink-3: rgba(255, 255, 255, 0.80);
+}
+
 .cursor-glow {
   position: relative;
   overflow: hidden;

@@ -52,7 +52,7 @@ export function NewSpaceModal() {
     useChatStore.getState().setChats((prev: any[]) =>
       prev.map((c: any) =>
         c.id === chatId
-          ? normalizeChatRecord({ ...c, name: finalName, goal: g, participantAgentIds: ids }, ids[0] ?? 'alexis')
+          ? normalizeChatRecord({ ...c, name: finalName, goal: g, participantAgentIds: ids }, ids[0] ?? 'docent')
           : c,
       ),
     );
