@@ -145,16 +145,31 @@
    together than a paper design would put them — because a backdrop that travels this
    far leaves less room for a three-step hierarchy. Legibility wins; separation is
    carried by weight and size instead of by tone.                              */
+/* Surface tokens follow the sky too, not the theme. A raised surface inside an ambient
+   pane — the chat's input box, the agent-intro card, a dropdown — is drawn with bg-panel /
+   bg-panel-2 / bg-inset. Left at their theme values those resolve to near-black in dark mode
+   (#12141a), so on a bright daytime sky the docked chat grew opaque charcoal slabs while the
+   tiles beside it stayed light glass — the "ugly black bars." Remapping the tokens to the same
+   sky-adaptive glass the tiles use makes every such surface one translucent material with the
+   rest of the app, layered a touch heavier than the 0.20 pane so it still reads as raised.
+   Only ambient panes (Home, the docked/spotlight ChatPanel) are affected; Home doesn't use
+   these tokens, so in practice this is the chat. */
 [data-sky="bright"] [data-ambient="true"] {
   --af-ink: #2a2c2a;
   --af-ink-2: #3d403a;
   --af-ink-3: #43463f;
+  --af-panel: rgba(255, 255, 255, 0.32);
+  --af-panel-2: rgba(255, 255, 255, 0.44);
+  --af-inset: rgba(255, 255, 255, 0.55);
 }
 
 [data-sky="dim"] [data-ambient="true"] {
   --af-ink: #f1f0ec;
   --af-ink-2: rgba(255, 255, 255, 0.90);
   --af-ink-3: rgba(255, 255, 255, 0.80);
+  --af-panel: rgba(0, 0, 0, 0.26);
+  --af-panel-2: rgba(0, 0, 0, 0.36);
+  --af-inset: rgba(0, 0, 0, 0.45);
 }
 
 .cursor-glow {

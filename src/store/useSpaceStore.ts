@@ -31,9 +31,12 @@ const defaultSpace: Space = {
 };
 
 const defaultTab: OmniTab = {
+  // Home/Start dashboard, not a "Chat" tab: the conversation lives in the docked copilot now, so
+  // the center surface is the dashboard. (Legacy id string kept so the in-place migration of
+  // existing installs — see hydrate — needn't rewrite tab references.)
   id: 'tab-space-log-default',
-  type: 'space-log',
-  label: 'Chat',
+  type: 'home',
+  label: 'Start',
   spaceId: 'space-home',
 };
 
@@ -276,8 +279,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
 
     const chatTab: OmniTab = {
       id: tabId,
-      type: 'space-log',
-      label: 'Chat',
+      // Start dashboard, not a center "Chat" tab — this space's conversation rides in the docked copilot.
+      type: 'home',
+      label: 'Start',
       spaceId,
     };
     const space: Space = {
@@ -312,8 +316,9 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       const tabId = `tab-${containerId}`;
       const chatTab: OmniTab = {
         id: tabId,
-        type: 'space-log',
-        label: 'Chat',
+        // Start dashboard, not a center "Chat" tab — the DM conversation rides in the docked copilot.
+        type: 'home',
+        label: 'Start',
         spaceId: containerId,
       };
       const dm: Space = {
@@ -449,15 +454,36 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
       // persisted them pinned, so clear that here — a non-destructive migration: the tabs the user
       // had open are preserved, they just stop being unclosable fixtures. Start is no longer a
       // permanent tab at all; it is simply what a new tab renders.
-      const tabs = (omniTabs as OmniTab[])
+      // A home tab with no spaceId is a global-Home leftover; anchor it to the active space so it
+      // both collapses against, and is found by ensureHomeTab as, that space's Start tab.
+      const homeSpaceKey = activeIds?.activeSpaceId ?? 'space-home';
+      const mapped = (omniTabs as OmniTab[])
         // The Code surface is retired; its powers live on as the Terminal and Files tools. Drop any
         // tab still pointing at the removed panel so an old session doesn't render a blank pane.
         .filter(t => !(t.type === 'tool' && (t.toolId as string) === 'agentforge-code'))
         .map(t =>
-          (t.type === 'space-log' || t.type === 'home') && t.isPinned
-            ? { ...t, isPinned: false, ...(t.type === 'home' ? { label: 'Start' } : {}) }
+          // Fold the retired 'space-log' surface into an ordinary 'home' Start tab. space-log was
+          // once a full-screen conversation, but it came to render a Start clone with the copilot
+          // suppressed — so its "Chat" tab read as a broken duplicate of Home. Chat lives in the
+          // docked copilot now. Non-destructive: same id and position; type/label/pin normalise and
+          // an orphan home tab gets anchored to the active space.
+          t.type === 'space-log' || t.type === 'home'
+            ? { ...t, type: 'home' as const, isPinned: false, label: 'Start', spaceId: t.spaceId ?? homeSpaceKey }
             : t,
         );
+      // Collapse duplicate Home tabs within a space. Older installs could carry BOTH a legacy
+      // space-log "Chat" tab and a 'home' Start tab in the same space (ensureHomeTab only matched
+      // 'home', so it never reused the space-log one and appended a second), which after folding
+      // would surface as two identical Start tabs. Keep the first per space; the drop is safe
+      // because both render the same StartPage.
+      const seenHome = new Set<string>();
+      const tabs = mapped.filter(t => {
+        if (t.type !== 'home') return true;
+        const key = t.spaceId ?? homeSpaceKey;
+        if (seenHome.has(key)) return false;
+        seenHome.add(key);
+        return true;
+      });
       // The persisted active tab may be one we just dropped — fall through to Home rather than
       // restoring a tab that no longer exists (which would render an empty viewport).
       const persistedActive = activeIds?.activeOmniTabId ?? null;

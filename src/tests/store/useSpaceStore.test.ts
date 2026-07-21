@@ -324,10 +324,11 @@ describe('createSpace', () => {
   it('initialises peopleIds as empty array and auto-creates a chat tab', () => {
     const space = useSpaceStore.getState().createSpace('Fresh')
     expect(space.peopleIds).toEqual([])
-    // createSpace seeds one space-log (Chat) tab automatically — a normal, closable tab.
+    // createSpace seeds one Home (Start) tab automatically — a normal, closable tab. The space's
+    // conversation rides in the docked copilot, so there is no separate center "Chat" tab.
     expect(space.tabIds).toHaveLength(1)
     const tab = useSpaceStore.getState().omniTabs.find(t => t.id === space.tabIds[0])
-    expect(tab?.type).toBe('space-log')
+    expect(tab?.type).toBe('home')
     expect(tab?.isPinned).toBeFalsy()
     expect(tab?.spaceId).toBe(space.id)
   })
@@ -367,14 +368,15 @@ describe('hydrate — first-run seeding', () => {
     expect(spaces[0].id).toBe('space-home')
   })
 
-  it('seeds a default Space Log tab when no data is stored', async () => {
+  it('seeds a default Home (Start) tab when no data is stored', async () => {
     await useSpaceStore.getState().hydrate()
     const { omniTabs } = useSpaceStore.getState()
-    const log = omniTabs.find(t => t.type === 'space-log')
-    expect(log?.id).toBe('tab-space-log-default')
-    expect(log?.isPinned).toBeFalsy()
-    // hydrate keeps a Home (StartPage) tab available alongside the chat.
-    expect(omniTabs.some(t => t.type === 'home')).toBe(true)
+    const home = omniTabs.find(t => t.id === 'tab-space-log-default')
+    expect(home?.type).toBe('home')
+    expect(home?.label).toBe('Start')
+    expect(home?.isPinned).toBeFalsy()
+    // The legacy 'space-log' chat tab is retired — the conversation lives in the docked copilot now.
+    expect(omniTabs.some(t => t.type === 'space-log')).toBe(false)
   })
 
   it('lands on the Home screen (home tab) on first run', async () => {

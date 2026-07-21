@@ -2765,15 +2765,12 @@ const handleSendMessage = async () => {
     queueMicrotask(() => { void handleSendMessage(); });
   };
 
-  // Same as handleSendPrompt, but first surfaces the conversation. A full-screen tool tab (the
-  // Knowledge Graph) covers the chat, so a bare send would fire into a chat the user can't see;
-  // activate this space's Chat (space-log) tab so the reply is actually visible.
+  // Same as handleSendPrompt, but first reveals the docked copilot. Sending from a full-screen
+  // tool tab (e.g. the Knowledge Graph) with the copilot collapsed would stream the reply into a
+  // rail the user can't see, so open it before firing.
   const handleSendPromptFromTool = (text: string) => {
     if (!text.trim()) return;
-    const { omniTabs, activeSpaceId, setActiveTab } = useSpaceStore.getState();
-    const chatTab = omniTabs.find(t => t.spaceId === activeSpaceId && t.type === 'space-log')
-      ?? omniTabs.find(t => t.type === 'space-log');
-    if (chatTab) setActiveTab(chatTab.id);
+    window.dispatchEvent(new Event('forge:open-copilot'));
     handleSendPrompt(text);
   };
 

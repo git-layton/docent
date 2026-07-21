@@ -43,13 +43,14 @@ export function focusExisting(_tabId: string | undefined, targetId: string) {
 
 // Open a Space's chat: focus its existing Chat tab, or recreate one (Chat is a normal closable tab
 // now) — reusing the Home tab slot we came from so tabs don't stack.
-export function openSpaceLog(fromTabId: string | undefined, spaceId: string | undefined) {
+export function openSpaceLog(_fromTabId: string | undefined, spaceId: string | undefined) {
+  // "Surface the conversation" now means reveal the docked copilot — chat no longer has a center
+  // tab. Land on the space's Start dashboard (creating it if the space has none) and open the
+  // copilot so a reply is actually visible. Named openSpaceLog still because every caller means
+  // exactly this: "take me to where I talk to this space's agent."
   const st = useSpaceStore.getState();
-  const log =
-    st.omniTabs.find((t) => t.type === 'space-log' && t.spaceId === spaceId) ??
-    st.omniTabs.find((t) => t.type === 'space-log');
-  if (log) focusExisting(fromTabId, log.id);
-  else launch(fromTabId, { type: 'space-log', label: 'Chat', spaceId });
+  st.setActiveTab(st.ensureHomeTab(spaceId));
+  window.dispatchEvent(new Event('forge:open-copilot'));
 }
 
 // ── The catalog ──
