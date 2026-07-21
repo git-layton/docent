@@ -519,7 +519,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   };
 
   return (
-    <div className="relative h-full w-full overflow-y-auto bg-white/10 no-scrollbar">
+    <div className="relative h-full w-full overflow-y-auto bg-transparent no-scrollbar">
       {/* Global settings — profile, models, integrations live here (per-chat settings stay in chat). */}
       <button
         type="button"

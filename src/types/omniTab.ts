@@ -11,6 +11,7 @@ export interface OmniTab {
   canvasContentId?: string; // for 'doc'/'code-canvas'
   isPinned?: boolean;       // pinned tabs have no close button
   isFavorite?: boolean;     // user-starred → surfaced in the sidebar FAVORITES section
+  trackingDisabled?: boolean; // if true, AI context tracking is explicitly paused by user
   openedByAgentId?: string; // if an agent opened this tab, group it under that agent in the overflow menu
 }
 

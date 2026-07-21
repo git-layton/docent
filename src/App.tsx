@@ -1,7 +1,7 @@
 import './index.css';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { relaunch } from "@tauri-apps/plugin-process";
-import { X, Bot, Glasses, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search, Info } from 'lucide-react';
+import { X, Bot, Glasses, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search, Info, Eye, EyeOff } from 'lucide-react';
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
@@ -3677,15 +3677,28 @@ if (isSpotlight) {
             style={{ flex: splitTab ? `0 0 ${splitRatio * 100}%` : '1 1 100%' }}
           >
             {activeOmniTab && activeOmniTab.type !== 'home' && activeOmniTab.type !== 'space-log' && (
-              <button
-                onClick={() => useSpaceStore.getState().closeTab(activeOmniTabId)}
-                className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
-                title="Close"
-              >
-                <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
-                  <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
-                </div>
-              </button>
+              <>
+                <button
+                  onClick={() => useSpaceStore.getState().closeTab(activeOmniTabId)}
+                  className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
+                  title="Close"
+                >
+                  <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
+                    <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
+                  </div>
+                </button>
+                <button
+                  onClick={() => useSpaceStore.getState().toggleTabTracking(activeOmniTab.id)}
+                  className={`absolute top-2 right-2 z-[60] p-1.5 rounded-full border shadow-sm transition-all backdrop-blur-md flex items-center justify-center group ${
+                    activeOmniTab.trackingDisabled
+                      ? 'bg-wash/80 border-edge text-ink-3 hover:bg-wash'
+                      : 'bg-accent/10 border-accent/20 text-accent hover:bg-accent/20'
+                  }`}
+                  title={activeOmniTab.trackingDisabled ? "AI tracking disabled for this app" : "AI is watching this app"}
+                >
+                  {activeOmniTab.trackingDisabled ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                </button>
+              </>
             )}
             {renderTabContent(activeOmniTab)}
           </div>
@@ -3700,15 +3713,28 @@ if (isSpotlight) {
               />
               <div className={`relative overflow-hidden min-w-0 flex flex-col flex-1 bg-white/10 dark:bg-black/10 rounded-xl border border-edge/50 shadow-lg ${(!splitTab || splitTab.type === 'home' || splitTab.type === 'space-log') ? '' : 'backdrop-blur-xl'}`}>
                 {splitTab.type !== 'home' && splitTab.type !== 'space-log' && (
-                  <button
-                    onClick={() => useUIStore.getState().setSplitTabId(null)}
-                    className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
-                    title="Close split"
-                  >
-                    <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
-                      <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
-                    </div>
-                  </button>
+                  <>
+                    <button
+                      onClick={() => useUIStore.getState().setSplitTabId(null)}
+                      className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
+                      title="Close split"
+                    >
+                      <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
+                        <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => useSpaceStore.getState().toggleTabTracking(splitTab.id)}
+                      className={`absolute top-2 right-2 z-[60] p-1.5 rounded-full border shadow-sm transition-all backdrop-blur-md flex items-center justify-center group ${
+                        splitTab.trackingDisabled
+                          ? 'bg-wash/80 border-edge text-ink-3 hover:bg-wash'
+                          : 'bg-accent/10 border-accent/20 text-accent hover:bg-accent/20'
+                      }`}
+                      title={splitTab.trackingDisabled ? "AI tracking disabled for this app" : "AI is watching this app"}
+                    >
+                      {splitTab.trackingDisabled ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  </>
                 )}
                 {renderTabContent(splitTab)}
               </div>

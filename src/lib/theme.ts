@@ -22,7 +22,8 @@ export const DEFAULT_THEME: ThemeMode = 'system';
 const media = () => window.matchMedia('(prefers-color-scheme: dark)');
 
 export function resolveTheme(mode: ThemeMode): 'light' | 'dark' {
-  return 'dark'; // Forced dark mode per user request
+  if (mode === 'system') return media().matches ? 'dark' : 'light';
+  return mode;
 }
 
 /** Stamp [data-theme] and [data-accent] on <html>; index.css does the rest. */

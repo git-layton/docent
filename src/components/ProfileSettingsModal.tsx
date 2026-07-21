@@ -448,11 +448,11 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
 
   return (
     <div className={embedded
-      ? 'flex-1 h-full min-h-0 overflow-hidden bg-panel'
+      ? 'flex-1 h-full min-h-0 overflow-hidden bg-transparent'
       : 'fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 animate-in fade-in'}>
       <div className={embedded
-        ? 'bg-panel w-full h-full p-8 text-ink flex flex-col'
-        : 'bg-panel w-full max-w-4xl rounded-[2rem] p-8 shadow-2xl border border-edge text-ink flex flex-col max-h-[90vh]'}>
+        ? 'bg-transparent w-full h-full p-8 text-ink flex flex-col'
+        : 'bg-white/10 dark:bg-black/10 backdrop-blur-xl w-full max-w-4xl rounded-[2rem] p-8 shadow-2xl border border-edge/50 text-ink flex flex-col max-h-[90vh]'}>
         <div className="flex justify-between items-center mb-6 shrink-0">
           <div className="flex items-center gap-3"><div className="p-2 bg-accent rounded-xl"><Settings className="w-6 h-6 text-on-accent" /></div><h3 className="text-xl font-black tracking-tighter uppercase">Settings</h3></div>
           {!embedded && <button onClick={onClose} className="p-2 hover:bg-wash rounded-full"><X className="w-5 h-5" /></button>}
@@ -494,6 +494,31 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
           <div className="flex-1 min-w-0 overflow-y-auto custom-scrollbar pr-2">
           {activeSection === 'you' ? (
             <div className="space-y-6">
+              {/* Theme mode */}
+              <div>
+                <label className="text-tiny font-black uppercase tracking-widest text-primary dark:text-secondary-light mb-2 block">Theme</label>
+                <div className="inline-flex rounded-full border border-edge-2 p-1 gap-1">
+                  {([
+                    { id: 'light', label: 'Light', icon: Sun },
+                    { id: 'dark', label: 'Dark', icon: Moon },
+                    { id: 'system', label: 'System', icon: Monitor },
+                  ] as const).map(({ id, label, icon: Icon }) => (
+                    <button
+                      key={id}
+                      onClick={() => setTheme(id)}
+                      className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                        theme === id
+                          ? 'bg-accent text-on-accent'
+                          : 'text-ink-3 hover:bg-wash'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" /> {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-tiny text-ink-3 mt-1.5 font-medium">System follows your OS light/dark preference.</p>
+              </div>
+
               {/* Avatar */}
               <div className="mb-6 flex items-center gap-5">
                 <div className="relative shrink-0">

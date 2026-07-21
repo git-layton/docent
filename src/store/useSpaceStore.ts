@@ -91,6 +91,7 @@ interface SpaceStore {
   moveTab(fromIdx: number, toIdx: number): void;
   updateTabLabel(id: string, url: string, title: string): void;
   toggleFavorite(id: string): void;
+  toggleTabTracking(id: string): void;
   createSpace(name: string, agentIds?: string[], kind?: SpaceKind): Space;
   /** Open (or create) the agent's DM container. `keepTab: true` activates the DM's thread + agent
    *  WITHOUT swapping the center viewport to its Chat tab — used when the chat rides in the
@@ -250,6 +251,14 @@ export const useSpaceStore = create<SpaceStore>((set, get) => ({
     set(s => ({
       omniTabs: s.omniTabs.map(t =>
         t.id === id ? { ...t, isFavorite: !t.isFavorite } : t
+      ),
+    }));
+  },
+
+  toggleTabTracking: (id) => {
+    set(s => ({
+      omniTabs: s.omniTabs.map(t =>
+        t.id === id ? { ...t, trackingDisabled: !t.trackingDisabled } : t
       ),
     }));
     get().persist();
