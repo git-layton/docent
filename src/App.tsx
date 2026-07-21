@@ -3679,7 +3679,7 @@ if (isSpotlight) {
             {activeOmniTab && activeOmniTab.type !== 'home' && activeOmniTab.type !== 'space-log' && (
               <>
                 <button
-                  onClick={() => useSpaceStore.getState().closeTab(activeOmniTabId)}
+                  onClick={() => useSpaceStore.getState().closeTab(activeOmniTab.id)}
                   className="absolute top-2 left-2 z-[60] p-1.5 group outline-none focus:outline-none"
                   title="Close"
                 >

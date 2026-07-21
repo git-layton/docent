@@ -36,10 +36,15 @@ class GraphErrorBoundary extends Component<{ children: ReactNode }, { error: Err
     return this.props.children;
   }
 }
-import { X, Search, RefreshCw, Trash2, Telescope, LayoutList, Share2 as GraphIcon, ArrowRight } from 'lucide-react';
+import { X, RefreshCw, Trash2, Telescope, LayoutList, Share2 as GraphIcon, Pin, PinOff, Check, Pencil, Merge } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { EntityDossierPage } from './EntityDossierPage';
+import { KnowledgeLibraryView } from './KnowledgeLibraryView';
+import { NoteReaderPage } from './NoteReaderPage';
+import { loadNoteItems, parseNodeMetadata, NODE_TYPE_VOCABULARY, type LibraryItem } from '../services/knowledgeLibrary';
+import { useAgentStore } from '../store/useAgentStore';
+import { useUIStore } from '../store/useUIStore';
 
 type NodeType = 'page' | 'file' | 'note' | 'entity' | 'person' | 'concept' | 'technology' | string;
 
@@ -49,9 +54,13 @@ interface GraphNode {
   node_type: NodeType;
   source_url?: string;
   source_path?: string;
+  /** Raw JSON from graph_nodes.metadata_json — carries dossier_path, aliases, curated. */
+  metadata_json?: string;
 }
 
 interface GraphEdge {
+  /** Backend row id — required to delete a single connection. */
+  id?: string;
   source: string;
   target: string;
   relation: string;
@@ -99,15 +108,23 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
+  const [noteItems, setNoteItems] = useState<LibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [activeEntityNode, setActiveEntityNode] = useState<GraphNode | null>(null);
-  const [mode, setMode] = useState<'directory' | 'graph'>('directory');
+  const [activeNotePath, setActiveNotePath] = useState<string | null>(null);
+  const [mode, setMode] = useState<'library' | 'graph'>('library');
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Curation state (design §B) — rename/retype happen inline in the detail sidebar.
+  const [editingLabel, setEditingLabel] = useState<string | null>(null);
+  const [mergeSourceId, setMergeSourceId] = useState<string | null>(null);
+
+  const activeAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? null);
 
   // Pull the REAL knowledge graph (all nodes + edges). The backend serializes edge endpoints as
   // source_id/target_id, but the renderer + filters expect source/target — so map them here.
@@ -116,6 +133,7 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
     const asGraph = (g: any): GraphData | null => {
       if (!Array.isArray(g?.nodes) || !Array.isArray(g?.edges)) return null;
       const edges: GraphEdge[] = g.edges.map((e: any) => ({
+        id: e.id ? String(e.id) : undefined,
         source: String(e.source ?? e.source_id),
         target: String(e.target ?? e.target_id),
         relation: e.relation ?? '',
@@ -130,12 +148,18 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
     setConfirmingDelete(false);
     setLoading(true);
     try {
-      const full = asGraph(await invoke('get_graph_full').catch(() => null));
+      // The graph and the saved notes are two halves of the same library, so they load together —
+      // notes are best-effort, since an unreadable note must not blank the whole panel.
+      const [full, notes] = await Promise.all([
+        invoke('get_graph_full').then(asGraph).catch(() => null),
+        loadNoteItems(activeAgentId).catch(() => [] as LibraryItem[]),
+      ]);
       setGraphData(full ?? { nodes: [], edges: [] });
+      setNoteItems(notes);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeAgentId]);
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
@@ -242,6 +266,79 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
     }
   }, [selectedNode, confirmingDelete]);
 
+  // ── Curation verbs (design §B) ──────────────────────────────────────────────
+  // The graph used to be read-only output of whatever the extractor happened to emit; these are the
+  // edits that make it the user's. Each one writes through to SQLite and mirrors the result locally
+  // so the view doesn't have to refetch the whole graph.
+
+  const patchNodeLocally = useCallback((id: string, patch: Partial<GraphNode>) => {
+    setGraphData(prev => ({
+      ...prev,
+      nodes: prev.nodes.map(n => (n.id === id ? { ...n, ...patch } : n)),
+    }));
+    setSelectedNode(prev => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const handleRenameNode = useCallback(async (id: string, label: string) => {
+    const clean = label.trim().slice(0, 200);
+    if (!clean) return;
+    try {
+      await invoke('update_graph_node', { id, label: clean });
+      patchNodeLocally(id, { label: clean });
+      setEditingLabel(null);
+    } catch (err) {
+      useUIStore.getState().showToast(`Could not rename: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [patchNodeLocally]);
+
+  const handleRetypeNode = useCallback(async (id: string, nodeType: string) => {
+    try {
+      await invoke('update_graph_node', { id, nodeType });
+      patchNodeLocally(id, { node_type: nodeType });
+    } catch (err) {
+      useUIStore.getState().showToast(`Could not change type: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [patchNodeLocally]);
+
+  /** Pinning marks a node curated — the backend upsert then preserves its label and type, so the
+   * next extraction pass can't overwrite a correction the user made by hand. */
+  const handleToggleCurated = useCallback(async (node: GraphNode) => {
+    const { curated } = parseNodeMetadata(node.metadata_json);
+    const next = !curated;
+    try {
+      await invoke('update_graph_node', { id: node.id, metadataPatch: JSON.stringify({ curated: next ? true : null }) });
+      const meta = (() => { try { return JSON.parse(node.metadata_json || '{}'); } catch { return {}; } })();
+      if (next) meta.curated = true; else delete meta.curated;
+      patchNodeLocally(node.id, { metadata_json: JSON.stringify(meta) });
+      useUIStore.getState().showToast(next ? 'Confirmed — this entity is now protected from automatic edits.' : 'Unpinned.');
+    } catch (err) {
+      useUIStore.getState().showToast(`Could not update: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [patchNodeLocally]);
+
+  const handleDeleteEdge = useCallback(async (edgeId: string) => {
+    try {
+      await invoke('delete_graph_edge', { id: edgeId });
+      setGraphData(prev => ({ ...prev, edges: prev.edges.filter(e => e.id !== edgeId) }));
+    } catch (err) {
+      useUIStore.getState().showToast(`Could not remove connection: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, []);
+
+  /** Fold a duplicate into the selected node. The backend re-points edges and records the absorbed
+   * label as an alias, which is also what later lets search find this entity by its old name. */
+  const handleMergeInto = useCallback(async (survivorId: string, absorbedId: string) => {
+    if (survivorId === absorbedId) return;
+    try {
+      await invoke('merge_graph_nodes', { survivorId, absorbedIds: [absorbedId] });
+      setMergeSourceId(null);
+      useUIStore.getState().showToast('Merged — the other name is kept as an alias.');
+      await loadGraph();
+    } catch (err) {
+      useUIStore.getState().showToast(`Could not merge: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [loadGraph]);
+
   const handleResearchNode = useCallback(() => {
     if (!selectedNode || !onSendPrompt) return;
     // Node labels/urls come from LLM extraction over untrusted pages, so treat them as data, not
@@ -312,6 +409,18 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
     );
   }
 
+  // A saved note opened from the Library reads in place, rather than being a filename you can't open.
+  if (activeNotePath) {
+    return (
+      <NoteReaderPage
+        path={activeNotePath}
+        fallbackTitle={noteItems.find(n => n.path === activeNotePath)?.label}
+        onBack={() => setActiveNotePath(null)}
+        onSendPrompt={onSendPrompt}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-panel overflow-hidden">
       {/* Top control bar */}
@@ -320,16 +429,16 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
           Knowledge Base
         </span>
 
-        {/* Directory / Graph View mode switcher */}
+        {/* Library / Graph View mode switcher */}
         <div className="flex p-0.5 rounded-lg bg-inset border border-edge shrink-0">
           <button
-            onClick={() => setMode('directory')}
+            onClick={() => setMode('library')}
             className={clsx(
               'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all',
-              mode === 'directory' ? 'bg-panel text-accent shadow-sm' : 'text-ink-3 hover:text-ink-2',
+              mode === 'library' ? 'bg-panel text-accent shadow-sm' : 'text-ink-3 hover:text-ink-2',
             )}
           >
-            <LayoutList className="w-3 h-3" /> Directory
+            <LayoutList className="w-3 h-3" /> Library
           </button>
           <button
             onClick={() => setMode('graph')}
@@ -342,95 +451,61 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
           </button>
         </div>
 
-        <div className="relative flex-1 min-w-32 max-w-56">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-3" />
-          <input
-            className="w-full bg-inset rounded-lg pl-7 pr-3 py-1.5 text-[10px] font-bold outline-none focus:ring-1 ring-accent/30"
-            placeholder="Search nodes..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-
-        <div className="flex gap-1 flex-wrap">
-          {NODE_TYPES.map(t => (
-            <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                typeFilter === t
-                  ? 'bg-accent text-on-accent'
-                  : 'bg-inset text-ink-3 hover:text-ink-2'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        <span className="ml-auto shrink-0 text-[9px] font-black uppercase tracking-widest text-ink-3 bg-inset px-2 py-1 rounded-lg">
-          {filteredNodes.length} nodes · {filteredEdges.length} edges
-        </span>
+        {/* Graph mode keeps the node-label filter; the Library has its own content search. */}
+        {mode === 'graph' && (
+          <>
+            <input
+              className="flex-1 min-w-32 max-w-56 bg-inset rounded-lg px-3 py-1.5 text-[10px] font-bold outline-none focus:ring-1 ring-accent/30"
+              placeholder="Filter nodes…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <div className="flex gap-1 flex-wrap">
+              {NODE_TYPES.map(t => (
+                <button
+                  key={t}
+                  onClick={() => setTypeFilter(t)}
+                  className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    typeFilter === t
+                      ? 'bg-accent text-on-accent'
+                      : 'bg-inset text-ink-3 hover:text-ink-2'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-ink-3 bg-inset px-2 py-1 rounded-lg">
+              {filteredNodes.length} nodes · {filteredEdges.length} edges
+            </span>
+          </>
+        )}
 
         <button
           onClick={() => loadGraph()}
           disabled={loading}
-          title="Refresh graph"
-          className="shrink-0 p-1.5 rounded-lg text-ink-3 hover:text-ink-2 hover:bg-inset transition-colors disabled:opacity-40"
+          title="Refresh"
+          className="ml-auto shrink-0 p-1.5 rounded-lg text-ink-3 hover:text-ink-2 hover:bg-inset transition-colors disabled:opacity-40"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      {/* Main content: Directory vs Graph */}
-      {mode === 'directory' ? (
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading ? (
-            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest">
-              Loading Directory…
-            </div>
-          ) : filteredNodes.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-xs text-ink-3 font-bold uppercase tracking-widest text-center px-6">
-              No entities found matching search/filter.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredNodes.map(node => {
-                const degrees = degreeMap.get(node.id) ?? 0;
-                return (
-                  <button
-                    key={node.id}
-                    onClick={() => setActiveEntityNode(node)}
-                    className="flex items-start gap-3 p-3.5 rounded-xl border border-edge bg-panel-2 hover:bg-wash hover:border-accent/40 transition-all text-left group"
-                  >
-                    <div
-                      className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-xs font-black text-white shadow-sm"
-                      style={{ background: nodeColor(node.node_type) }}
-                    >
-                      {node.label.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-ink truncate group-hover:text-accent transition-colors">
-                          {node.label}
-                        </span>
-                        <ArrowRight className="w-3 h-3 text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity ml-auto shrink-0" />
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-inset text-ink-3">
-                          {node.node_type}
-                        </span>
-                        <span className="text-[10px] text-ink-3">
-                          {degrees} connection{degrees === 1 ? '' : 's'}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      {/* Main content: Library vs Graph */}
+      {mode === 'library' ? (
+        <KnowledgeLibraryView
+          nodes={graphData.nodes}
+          edges={graphData.edges}
+          noteItems={noteItems}
+          loading={loading}
+          agentId={activeAgentId}
+          onOpenEntity={id => {
+            const node = graphData.nodes.find(n => n.id === id);
+            if (node) setActiveEntityNode(node);
+          }}
+          onOpenNote={path => setActiveNotePath(path)}
+          onSendPrompt={onSendPrompt}
+        />
       ) : (
         /* Graph + Sidebar */
         <div className="flex flex-1 overflow-hidden relative">
@@ -488,20 +563,99 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 no-scrollbar">
+              {/* Label — click to rename. The extractor's guess is a starting point, not a fact. */}
               <div className="space-y-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">Label</p>
-                <p className="text-sm font-bold text-ink">{selectedNode.label}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">Label</p>
+                  {editingLabel === null && (
+                    <button
+                      onClick={() => setEditingLabel(selectedNode.label)}
+                      title="Rename"
+                      className="p-1 rounded text-ink-3 hover:text-ink hover:bg-wash transition-colors"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                {editingLabel !== null ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      autoFocus
+                      value={editingLabel}
+                      onChange={e => setEditingLabel(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleRenameNode(selectedNode.id, editingLabel);
+                        if (e.key === 'Escape') setEditingLabel(null);
+                      }}
+                      className="flex-1 min-w-0 bg-inset rounded-lg px-2 py-1 text-xs outline-none focus:ring-1 ring-accent/40"
+                    />
+                    <button
+                      onClick={() => handleRenameNode(selectedNode.id, editingLabel)}
+                      className="p-1 rounded text-accent hover:bg-wash transition-colors"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setEditingLabel(null)}
+                      className="p-1 rounded text-ink-3 hover:bg-wash transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm font-bold text-ink break-words">{selectedNode.label}</p>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ background: nodeColor(selectedNode.node_type) }}
-                />
-                <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: nodeColor(selectedNode.node_type) }}>
-                  {selectedNode.node_type}
-                </span>
+              {/* Type — a closed vocabulary, so a correction lands somewhere the app understands. */}
+              <div className="space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">Type</p>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ background: nodeColor(selectedNode.node_type) }}
+                  />
+                  <select
+                    value={NODE_TYPE_VOCABULARY.includes(selectedNode.node_type as any) ? selectedNode.node_type : ''}
+                    onChange={e => handleRetypeNode(selectedNode.id, e.target.value)}
+                    className="flex-1 min-w-0 bg-inset rounded-lg px-2 py-1 text-[10px] font-bold outline-none focus:ring-1 ring-accent/40 capitalize"
+                  >
+                    {!NODE_TYPE_VOCABULARY.includes(selectedNode.node_type as any) && (
+                      <option value="">{selectedNode.node_type} (unrecognized)</option>
+                    )}
+                    {NODE_TYPE_VOCABULARY.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
+
+              {/* Confirming a node protects it from the extractor's next pass (backend upsert
+                  preserves label + type when metadata.curated is set). */}
+              <button
+                onClick={() => handleToggleCurated(selectedNode)}
+                className={clsx(
+                  'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-colors',
+                  parseNodeMetadata(selectedNode.metadata_json).curated
+                    ? 'bg-accent-soft text-accent'
+                    : 'bg-inset text-ink-3 hover:text-ink-2',
+                )}
+              >
+                {parseNodeMetadata(selectedNode.metadata_json).curated
+                  ? <><Pin className="w-3 h-3" /> Confirmed — protected from auto-edits</>
+                  : <><PinOff className="w-3 h-3" /> Confirm this entity</>}
+              </button>
+
+              {parseNodeMetadata(selectedNode.metadata_json).aliases.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-ink-3">Also known as</p>
+                  <div className="flex flex-wrap gap-1">
+                    {parseNodeMetadata(selectedNode.metadata_json).aliases.map(a => (
+                      <span key={a} className="text-[9px] px-1.5 py-0.5 rounded bg-inset text-ink-3">{a}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {selectedNode.source_url && (
                 <div className="space-y-1">
@@ -530,17 +684,31 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
                       const otherNode = graphData.nodes.find(n => n.id === otherId);
                       return (
                         <div
-                          key={i}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-inset cursor-pointer hover:bg-wash transition-colors"
+                          key={e.id ?? i}
+                          className="group/edge flex items-center gap-2 px-2 py-1.5 rounded-lg bg-inset cursor-pointer hover:bg-wash transition-colors"
                           onClick={() => {
                             if (otherNode) handleNodeClick(otherNode as any);
                           }}
                         >
                           <span className="text-[9px] text-ink-3 font-bold shrink-0">{isOut ? '→' : '←'}</span>
                           <span className="text-[9px] text-ink-2 font-bold italic shrink-0">{e.relation}</span>
-                          <span className="text-[10px] font-bold text-ink-2 truncate">
+                          <span className="text-[10px] font-bold text-ink-2 truncate flex-1">
                             {otherNode?.label ?? otherId}
                           </span>
+                          {/* A wrong connection is as much noise as a wrong node. */}
+                          {e.id && (
+                            <button
+                              onClick={ev => { ev.stopPropagation(); handleDeleteEdge(e.id!); }}
+                              title="Remove this connection"
+                              className="shrink-0 p-0.5 rounded text-ink-3 opacity-0 group-hover/edge:opacity-100 hover:text-red-400 transition-all"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                          {/* Merge target picker: arm on one node, then click another to fold it in. */}
+                          {mergeSourceId && mergeSourceId !== selectedNode.id && otherId === mergeSourceId && (
+                            <span className="text-[8px] text-accent font-bold shrink-0">merge source</span>
+                          )}
                         </div>
                       );
                     })}
@@ -560,6 +728,48 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
                   Research this
                 </button>
               )}
+
+              {/* Two-step merge: arm on the duplicate, then select the node to keep. Duplicates are
+                  structural here — the extractor mints ids per pass, so the same person arrives
+                  under several nodes and only a human can say they're the same one. */}
+              {mergeSourceId === null ? (
+                <button
+                  onClick={() => setMergeSourceId(selectedNode.id)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-inset text-ink-3 hover:text-ink-2 text-[10px] font-black uppercase tracking-widest transition-colors"
+                >
+                  <Merge className="w-3.5 h-3.5" />
+                  Merge this into…
+                </button>
+              ) : mergeSourceId === selectedNode.id ? (
+                <div className="space-y-1.5">
+                  <p className="text-[9px] text-accent font-bold text-center leading-snug">
+                    Now select the entity to keep.
+                  </p>
+                  <button
+                    onClick={() => setMergeSourceId(null)}
+                    className="w-full px-3 py-1.5 rounded-lg bg-inset text-ink-3 hover:text-ink-2 text-[10px] font-bold transition-colors"
+                  >
+                    Cancel merge
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <button
+                    onClick={() => handleMergeInto(selectedNode.id, mergeSourceId)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-accent text-on-accent text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-opacity"
+                  >
+                    <Merge className="w-3.5 h-3.5" />
+                    Keep this one
+                  </button>
+                  <button
+                    onClick={() => setMergeSourceId(null)}
+                    className="w-full px-3 py-1.5 rounded-lg bg-inset text-ink-3 hover:text-ink-2 text-[10px] font-bold transition-colors"
+                  >
+                    Cancel merge
+                  </button>
+                </div>
+              )}
+
               <button
                 onClick={handleDeleteNode}
                 className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${
