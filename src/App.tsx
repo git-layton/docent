@@ -30,7 +30,8 @@ import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { generateNodeId, upsertGraphNode } from './services/graphEntityExtractor';
 import { assessConversationMemory } from './services/memoryPolicy';
-import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, reinforcePlaybook, formatProceduresBlock } from './services/appliedMemory';
+import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, reinforcePlaybook, readPlaybookByTrigger } from './services/appliedMemory';
+import { distillCandidate, observeCompletion, composeSkillContext, shouldPropose, isStale, DEFAULT_SKILL_POLICY, type LearnedSkill, type CompletedAction } from './services/organicSkills';
 import { buildVoiceCard } from './services/voiceRuntime';
 import { normalizeVoiceProfile } from './services/voice';
 import { capabilityForRoute, type CapabilityContext } from './services/capabilities';
@@ -314,8 +315,14 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     // approval; when the turn ingested untrusted content, EVERY write needs approval too (trust rule 2),
     // so it surfaces in the approval card rather than auto-applying.
     const toolActions = actions.filter(x => x.tool !== 'memory' && x.tool !== 'playbook' && !isCardAction(x));
+    // Confirmed actions that actually ran this turn — the raw material an organic skill is distilled from.
+    const completedActions: CompletedAction[] = [];
     for (const a of toolActions.filter(x => !actionNeedsApproval(x, turnIngestedUntrusted))) {
-      try { showToast(`✓ ${await executeAgentAction(a)}`); }
+      try {
+        const done = await executeAgentAction(a);
+        showToast(`✓ ${done}`);
+        completedActions.push({ tool: String(a.tool ?? ''), intent: describeAction(a) || done });
+      }
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }
     }
     const needApproval = toolActions.filter(x => actionNeedsApproval(x, turnIngestedUntrusted));
@@ -324,6 +331,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       // the user must approve the actual destination, not a guess resolved after the fact.
       const resolved = await Promise.all(needApproval.map(resolveActionTargets));
       setPendingActions(prev => [...prev, ...resolved]);
+    }
+    // Organic skill learning — a task done as several confirmed actions is worth remembering. Skipped on
+    // untrusted turns (an injected page must not plant a skill); the candidate is stored UNVERIFIED and
+    // only becomes suggestable when the user trusts it (SEC-PLAYBOOKVERIFY).
+    if (!turnIngestedUntrusted && completedActions.length >= DEFAULT_SKILL_POLICY.minSteps) {
+      await captureOrganicSkill(chatId, completedActions);
     }
   };
   const saveGlobalPins = useMemoryStore.getState().saveGlobalPins;
@@ -1423,6 +1436,44 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     }
   }, [showToast]);
 
+  // Organic skill capture — Docent notices a recurring task by DOING it. After a turn completes a run of
+  // confirmed tool actions, distill the shape of the task into an UNVERIFIED candidate and reinforce its
+  // `seen` counter. Unlike persistPlaybook (an explicit user save → verified), this NEVER sets verified:
+  // per SEC-PLAYBOOKVERIFY, only the user's trust toggle makes a skill suggestable. Recurrence just
+  // surfaces it in Settings › Playbooks for the user to bless. The caller already gates this on the turn
+  // NOT having ingested untrusted content, so an injected page can't plant a skill.
+  const captureOrganicSkill = useCallback(async (chatId: string, completed: CompletedAction[]) => {
+    const rootPath = useMemoryStore.getState().agentForgePath;
+    if (!rootPath || !((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) return;
+    const { assistants: _assistants, activeFolderId: _activeFolderId } = useAgentStore.getState();
+    const agentId = (_assistants.find((x: any) => x.id === _activeFolderId) ?? _assistants[0])?.id ?? 'default';
+    // The task intent is the user's message that drove this turn.
+    const msgs = useChatStore.getState().messages[chatId] ?? [];
+    const intent = String([...msgs].reverse().find((m: any) => m.role === 'user')?.content ?? '').trim();
+    if (!intent) return;
+    const candidate = distillCandidate(intent, completed);
+    if (!candidate) return;
+    try {
+      const prior = await readPlaybookByTrigger(rootPath, candidate.trigger);
+      const priorSkill: LearnedSkill | null = prior ? { ...prior, seen: prior.seen ?? 0 } : null;
+      const merged = observeCompletion(priorSkill, candidate);
+      // Never silently rewrite a skill the user already trusted — only its usage count grows. New shapes
+      // for a trusted procedure go through explicit re-trust or the dream cycle's playbook_refine.
+      const steps = prior?.verified ? prior.steps : merged.steps;
+      const { path, content } = buildPlaybookRecord({
+        rootPath, agentId, title: merged.title, intent: merged.trigger, steps,
+        verified: prior?.verified ?? false, accept: prior?.accept ?? 0, seen: merged.seen,
+      });
+      // Silent by design: capture just records the observation. Proposing the skill for the user to
+      // trust happens later, in the dream cycle's digest — never as a mid-task interruption here.
+      await invoke<{ blocked?: boolean }>('write_memory', {
+        path, content, commitMessage: `skill: observe ${merged.trigger}`, agentId, contextTokens: null, ramState: null,
+      });
+    } catch (e) {
+      console.warn('[OrganicSkill] capture failed:', e);
+    }
+  }, []);
+
   const persistGatekeeperMemory = useCallback(async (chatId: string, userMsg: any, decision: ReturnType<typeof evaluateMemoryGate>, agent: any) => {
     if (!shouldPersistGatekeeperDecision(decision, userMsg.content)) return;
     const rootPath = useMemoryStore.getState().agentForgePath;
@@ -1872,7 +1923,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
             const existing = memoryFiles.find((m) => m.path === op.target_path);
             const pb = existing ? parsePlaybook(existing.content) : null;
             if (!pb) continue;
-            const rebuilt = buildPlaybookRecord({ rootPath: _agentForgePath, agentId: activeAgent.id, title: pb.title, intent: pb.trigger, steps, verified: pb.verified, accept: pb.accept });
+            const rebuilt = buildPlaybookRecord({ rootPath: _agentForgePath, agentId: activeAgent.id, title: pb.title, intent: pb.trigger, steps, verified: pb.verified, accept: pb.accept, seen: pb.seen, proposed: pb.proposed });
             const writeResult = await writeMemory({
               path: rebuilt.path, content: rebuilt.content, commitMessage: `dream: playbook — ${op.description}`,
               agentId: activeAgent.id,
@@ -1897,6 +1948,46 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
           }
         } catch (opErr) {
           console.warn('[DreamCycle] Operation failed:', opErr);
+        }
+      }
+
+      // ── Organic skill lifecycle (deterministic — no LLM) ──────────────────────────────────────────
+      // Reflection is where skills are forgotten and where recurring ones get proposed. We already read
+      // every playbook above; sweep the UN-trusted candidates: forget the ones gone stale (archived, so
+      // it stays undoable), and surface the ones that have recurred enough as a digest proposal — marked
+      // `proposed` so they're offered only once. Trust stays an explicit user action (SEC-PLAYBOOKVERIFY):
+      // a proposal never sets `verified`. Trusted skills' STEPS are refined separately by playbook_refine.
+      const _nowSweep = new Date();
+      for (const f of memoryFiles) {
+        if (!f.path.includes('/playbooks/')) continue;
+        const pb = parsePlaybook(f.content);
+        if (!pb || pb.verified) continue;
+        const skill: LearnedSkill = { ...pb, seen: pb.seen ?? 0 };
+        const sweepId = `dream-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        try {
+          if (isStale(skill, DEFAULT_SKILL_POLICY, _nowSweep)) {
+            const ar = await invoke<{ ok: boolean; archive_path: string; commit: string }>('archive_memory_file', { path: f.path });
+            if (ar.ok) {
+              totalTokensSaved += Math.round(f.content.length / 4);
+              dreamItems.push({ id: sweepId, type: 'pruned', description: `Forgot an unused skill Docent never got to keep: “${skill.title}”`, archive_paths: [ar.archive_path], original_paths: [f.path], git_commits: ar.commit ? [ar.commit] : [], undone: false });
+            }
+          } else if (shouldPropose(skill)) {
+            // Mark it proposed so future dreams don't re-nag, then surface it in the digest.
+            const rebuilt = buildPlaybookRecord({ rootPath: _agentForgePath, agentId: activeAgent.id, title: skill.title, intent: skill.trigger, steps: skill.steps, verified: false, accept: skill.accept, seen: skill.seen, proposed: true });
+            const wr = await writeMemory({ path: rebuilt.path, content: rebuilt.content, commitMessage: `dream: propose skill — ${skill.trigger}`, agentId: activeAgent.id });
+            if (!wr.blocked) {
+              dreamItems.push({
+                id: sweepId, type: 'noticed',
+                description: `Recurring task seen ${skill.seen}× — proposing it as a skill`,
+                notice_title: `Save “${skill.title}” as a skill?`,
+                notice_body: `You've done this about ${skill.seen} times. Want me to keep it as a suggestable skill? Trust it in Settings › Playbooks and I'll offer it next time it comes up.`,
+                notice_agent_id: activeAgent.id,
+                archive_paths: [], original_paths: [], git_commits: wr.commit ? [wr.commit] : [], undone: false,
+              });
+            }
+          }
+        } catch (sweepErr) {
+          console.warn('[DreamCycle] Skill sweep failed:', sweepErr);
         }
       }
 
@@ -2054,8 +2145,13 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       const activeSpace = useSpaceStore.getState().activeSpaceId;
       const _memorySummary = await loadMemorySummary(_activeAssistant?.id, activeSpace || undefined);
       const { text: _relevantMemory, hits: _relevantMemoryHits } = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
-      // Known procedures (playbooks) relevant to this turn — a propose-don't-run block; '' when none match.
-      const _knownProcedures = formatProceduresBlock(await retrievePlaybooks(userMsg.content, _activeAssistant?.id));
+      // Skill context for this turn: the surface's static skills (skills.ts) layered with the user-TRUSTED
+      // learned playbooks (a propose-don't-run block). For plain chat this is identical to the procedures
+      // block — a surface skill only applies on the code/doc surfaces. '' when nothing applies.
+      const _knownProcedures = composeSkillContext(
+        { mode: _generationMode },
+        await retrievePlaybooks(userMsg.content, _activeAssistant?.id),
+      );
       // Browsing-history recall — "remember that article I saw?" (privacy-filtered, dwell-gated).
       // Scoped to the Spaces this agent belongs to: it must not recall pages read in Spaces it was
       // never part of. Visits with no spaceId (legacy/outside a Space) are excluded by the scope.
