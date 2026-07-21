@@ -467,10 +467,10 @@ export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): R
           <button
             onClick={() => onToggleCopilot(!copilotOpen)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors border shadow-sm ${copilotOpen ? 'bg-accent border-accent text-on-accent' : 'bg-inset border-edge text-ink hover:bg-wash'}`}
-            title="Toggle Docent Copilot"
+            title="Ask Docent"
           >
             <Glasses className="w-4 h-4" />
-            <span className="text-xs font-semibold">Docent</span>
+            <span className="text-xs font-semibold">Ask Docent</span>
           </button>
         )}
       </div>

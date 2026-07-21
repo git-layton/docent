@@ -81,6 +81,11 @@
   --af-edge: rgba(255, 255, 255, 0.08);
 }
 
+/* Non-ambient default for --af-on-ink (see the ambient overrides further down). Light theme paints
+   `bg-ink` dark, so the glyph on it is light; dark theme inverts. */
+:root { --af-on-ink: #f1f0ec; }
+[data-theme='dark'] { --af-on-ink: #17171a; }
+
 /* No blur applied to main surfaces per user request; translucent only */
 [data-glass="true"] .bg-panel,
 [data-glass="true"] .bg-panel-2,
@@ -90,16 +95,13 @@
   -webkit-backdrop-filter: none;
 }
 
-/* …except inside the docked chat, which is meant to be real frosted glass, not a flat film. The
-   rule above strips blur from every .bg-panel (the app chrome stays translucent-only by
-   preference); these ambient chat surfaces opt back in so their whisper-thin tint reads as glass
-   you see the sky THROUGH rather than a white sheet laid on top. Higher specificity wins; scoped
-   to [data-ambient] so nothing outside the chat starts blurring. */
-[data-glass="true"] [data-ambient="true"] .bg-panel,
-[data-glass="true"] [data-ambient="true"] .bg-panel-2 {
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
+/* The docked chat is CLEAR glass, not frosted — no exception to the rule above. An earlier pass
+   opted ambient chat surfaces back into blur(20px), reasoning that frosting is what makes a
+   whisper-thin tint read as glass rather than a film. Alex rejected that on sight: "it's still not
+   clear, it's frosted." Clear means you see the sky through it undistorted, like a window pane —
+   the tint alone carries the material, and blur is what made it read as frosted in the first place.
+   Do not reintroduce backdrop-blur here to fix a "the chat looks like a flat film" report; fix that
+   with the tint (--af-panel/-2/-inset in the [data-sky][data-ambient] blocks below) instead. */
 
 .glass-chrome {
   background: var(--color-panel);
@@ -119,6 +121,21 @@
    that clears AA on every sky in the set, the mauve sunrise (#a46d78) being the
    hardest. It stays clearly translucent on purpose — the opaque black/white
    input boxes this avoids are exactly what makes other apps feel cheap.     */
+/* Fallback FIRST, and load-bearing: `data-sky` is set from an effect inside DynamicBackground, so
+   it is absent on the first paint and absent entirely anywhere that component never mounts — the
+   Spotlight overlay being the real case, since it renders OmniSearch (a .glass-sky surface) with
+   no wallpaper behind it. Without a default, `background: var(--af-glass)` resolves to nothing and
+   those surfaces render with no fill at all. Theme-shaped, because a wallpaper-less surface should
+   follow the theme; [data-sky] overrides it the moment a sky is known.                        */
+:root {
+  --af-glass: rgba(255, 255, 255, 0.20);
+  --af-plate: rgba(255, 255, 255, 0.25);
+}
+[data-theme='dark'] {
+  --af-glass: rgba(0, 0, 0, 0.20);
+  --af-plate: rgba(0, 0, 0, 0.25);
+}
+
 [data-sky="bright"] {
   --af-glass: rgba(255, 255, 255, 0.20);  /* large surfaces: tiles, panes, chat */
   --af-plate: rgba(255, 255, 255, 0.25);  /* small text plates (.on-sky)        */
@@ -183,7 +200,16 @@
   --af-panel: rgba(0, 0, 0, 0.10);
   --af-panel-2: rgba(0, 0, 0, 0.14);
   --af-inset: rgba(0, 0, 0, 0.20);
+  --af-on-ink: #17171a;
 }
+
+/* The colour that reads ON TOP of a --af-ink fill. A chip painted `bg-ink` flips with the sky —
+   dark on a bright sky, light on a dim one — so its glyph has to flip the opposite way. The
+   Docent mark used `text-panel` for this, which looked plausible but is a SURFACE token: inside
+   an ambient pane it's a whisper (0.08 white / 0.10 black), so the mark rendered at 8% on its own
+   dark chip and was invisible at every hour. That's the "I still don't see the icon" report.
+   Never reach for a panel/surface token as a foreground colour — use this. */
+[data-sky="bright"] [data-ambient="true"] { --af-on-ink: #f1f0ec; }
 
 .cursor-glow {
   position: relative;
@@ -294,6 +320,7 @@
   --color-ink: var(--af-ink);
   --color-ink-2: var(--af-ink-2);
   --color-ink-3: var(--af-ink-3);
+  --color-on-ink: var(--af-on-ink);
   /* accent */
   --color-accent: var(--af-accent);
   --color-accent-strong: var(--af-accent-strong);

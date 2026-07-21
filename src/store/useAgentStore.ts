@@ -109,6 +109,10 @@ export function repointRetiredAgentRefs<T extends Record<string, any>>(record: T
 // fallback is never deletable.
 const RESEEDED_BUILTIN_IDS = ['docent'];
 
+/** The built-in's id before the Docent rebrand. Records carrying it are dropped on hydrate so the
+ *  rename replaces the old assistant instead of duplicating it. */
+export const LEGACY_BUILTIN_ID = 'alexis';
+
 interface AgentStore {
   assistants: any[];
   activeFolderId: string;
@@ -162,7 +166,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   },
 
   hydrate: async () => {
-    const assistants = await db.get('assistants', [DEFAULT_ASSISTANT]);
+    const persisted = await db.get('assistants', [DEFAULT_ASSISTANT]);
+    // Drop the pre-rename built-in. Without this the reseed below sees no 'docent', adds a fresh
+    // one, and the stale 'alexis' record sits beside it — two agents, both displaying the name
+    // "Docent", which is worse than either losing it or keeping it. Only the built-in id is
+    // dropped; user-created agents are untouched.
+    const assistants = persisted.filter((a: any) => a?.id !== LEGACY_BUILTIN_ID);
     const savedActiveFolderId = await db.get('activeFolderId', 'docent');
     const deletedBuiltinIds: string[] = await db.get('deletedBuiltinIds', []);
     // Re-seed a built-in only if it's absent AND the user hasn't deleted it (tombstone).

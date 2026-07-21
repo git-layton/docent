@@ -223,7 +223,11 @@ export function MessageList({
         ) : hideEmptyState ? (
           <div ref={messagesEndRef} className="h-4" />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center opacity-20 pointer-events-none grayscale pb-20">
+          <div className="h-full flex flex-col items-center justify-center text-center opacity-80 pointer-events-none pb-20">
+            {/* Was opacity-20 + grayscale, which ghosted this to the point of being unreadable — the
+                heading measured 20% effective opacity and the mark disappeared entirely. It's the
+                first thing you see in an empty chat, so it should be legible, not a watermark. Held
+                slightly back (not full strength) so it still reads as an empty state. */}
             <AgentIcon agent={activeAssistant} sizeClass="w-16 h-16" containerClass="p-4 rounded-3xl mb-4" />
             <h2 className="text-2xl font-black italic tracking-tighter uppercase text-ink">Start Session</h2>
             {activeAssistant?.description && <p className="text-sm font-medium mt-2 max-w-xs text-ink-2">{activeAssistant.description}</p>}

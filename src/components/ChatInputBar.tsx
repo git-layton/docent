@@ -182,6 +182,10 @@ export function ChatInputBar({
   const attachAccept = [DOC_ACCEPT, canAttachImages ? 'image/*' : '', modelHears ? 'audio/*' : '']
     .filter(Boolean).join(',');
 
+  // The input bar IS frosted, deliberately — it's the one exception to the chat's clear glass. The
+  // conversation above reads through to the wallpaper undistorted; the bar is a control surface, and
+  // frosting is what lifts its small icons off a busy sky enough to be legible. Clear glass here was
+  // tried and the icons vanished into the wallpaper.
   return (
     <div className="absolute bottom-0 left-0 right-0 bg-white/10 dark:bg-black/5 backdrop-blur-xl border-t border-edge/50 shadow-[0_-8px_32px_rgba(0,0,0,0.1)] pt-4 pb-3 px-3 lg:px-4 z-10">
       <div className="max-w-3xl mx-auto">
@@ -290,24 +294,24 @@ export function ChatInputBar({
         {/* Mode bar + model selector + actions — single row */}
         <div className="flex items-center gap-0.5 px-0.5 pt-1" ref={modelDropdownRef}>
           {/* Reasoning modes */}
-          <button onClick={() => setIsPlanMode(v => !v)} className={`p-1.5 rounded-full transition-all ${isPlanMode ? 'bg-success-soft text-success' : 'text-ink-3 hover:text-success hover:bg-wash'}`} title="Plan — structured step-by-step response"><ListTodo className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setIsPlanMode(v => !v)} className={`p-1.5 rounded-full transition-all ${isPlanMode ? 'bg-success-soft text-success' : 'text-ink-2 hover:text-success hover:bg-wash'}`} title="Plan — structured step-by-step response"><ListTodo className="w-3.5 h-3.5" /></button>
           {/* Output modes */}
-          <button onClick={() => setGenerationMode(generationMode === 'code' ? 'text' : 'code')} className={`p-1.5 rounded-full transition-all ${generationMode === 'code' ? 'bg-accent text-on-accent' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title="Canvas — generate a code app"><Code2 className="w-3.5 h-3.5" /></button>
-          <button onClick={() => setGenerationMode(generationMode === 'doc' ? 'text' : 'doc')} className={`p-1.5 rounded-full transition-all ${generationMode === 'doc' ? 'bg-success-soft text-success' : 'text-ink-3 hover:text-success hover:bg-wash'}`} title="Doc — generate a rich document"><ScrollText className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setGenerationMode(generationMode === 'code' ? 'text' : 'code')} className={`p-1.5 rounded-full transition-all ${generationMode === 'code' ? 'bg-accent text-on-accent' : 'text-ink-2 hover:text-accent hover:bg-wash'}`} title="Canvas — generate a code app"><Code2 className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setGenerationMode(generationMode === 'doc' ? 'text' : 'doc')} className={`p-1.5 rounded-full transition-all ${generationMode === 'doc' ? 'bg-success-soft text-success' : 'text-ink-2 hover:text-success hover:bg-wash'}`} title="Doc — generate a rich document"><ScrollText className="w-3.5 h-3.5" /></button>
           {/* Pinned tools — dynamic, only shows if enabled on current agent */}
           {AVAILABLE_TOOLS.filter(t => pinnedTools.includes(t.id) && activeAssistant?.tools?.[t.id]).map(tool => {
             const Icon = tool.icon;
             const force = TOOL_FORCE_VALUE[tool.id] ?? tool.id;
             const isActive = forcedTool === force;
             return (
-              <button key={tool.id} onClick={() => setForcedTool(f => f === force ? null : force)} className={`p-1.5 rounded-full transition-all ${isActive ? 'bg-accent-soft text-accent-soft-ink' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title={tool.name}>
+              <button key={tool.id} onClick={() => setForcedTool(f => f === force ? null : force)} className={`p-1.5 rounded-full transition-all ${isActive ? 'bg-accent-soft text-accent-soft-ink' : 'text-ink-2 hover:text-accent hover:bg-wash'}`} title={tool.name}>
                 <Icon className="w-3.5 h-3.5" />
               </button>
             );
           })}
           {/* + Tools popover */}
           <div className="relative" ref={toolPopoverRef}>
-            <button onClick={() => setShowToolPopover(v => !v)} className={`p-1.5 rounded-full transition-all ${showToolPopover ? 'bg-wash text-ink-2' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Add tools"><Plus className="w-3 h-3" /></button>
+            <button onClick={() => setShowToolPopover(v => !v)} className={`p-1.5 rounded-full transition-all ${showToolPopover ? 'bg-wash text-ink-2' : 'text-ink-2 hover:text-ink hover:bg-wash'}`} title="Add tools"><Plus className="w-3 h-3" /></button>
             {showToolPopover && (
               <div className="absolute bottom-full left-0 mb-2 w-52 bg-white/10 dark:bg-black/10 backdrop-blur-xl border border-edge/50 rounded-2xl shadow-2xl z-[100] p-1.5 animate-in slide-in-from-bottom-2 duration-150">
                 <div className="px-2 py-1 text-[9px] font-medium text-ink-3 uppercase tracking-wider">Pin tools to toolbar</div>
@@ -364,7 +368,7 @@ export function ChatInputBar({
                             {modelValidation[m.id] === 'fail'    && <AlertTriangle className="w-3 h-3 text-danger" />}
                             {modelValidation[m.id] === 'ok'      && <ShieldCheck   className="w-3 h-3 text-success" />}
                             {modelValidation[m.id] === 'pending' && <Loader2       className="w-3 h-3 animate-spin text-ink-3" />}
-                            <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-ink-3 hover:text-danger hover:bg-danger-soft rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
+                            <div onClick={e => { e.stopPropagation(); setModels(prev => prev.filter(x => x.id !== m.id)); if (selectedModelId === m.id) setSelectedModelId(models[0]?.id ?? ''); }} className="p-1.5 text-ink-2 hover:text-danger hover:bg-danger-soft rounded-lg transition-colors" title="Remove Model"><Trash2 className="w-3.5 h-3.5" /></div>
                           </div>
                         </button>
                       );
@@ -392,15 +396,15 @@ export function ChatInputBar({
               )}
             </div>
             <div className="w-px h-4 bg-edge mx-0.5" />
-            {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-full transition-all ${isListening ? 'text-danger bg-danger-soft' : 'text-ink-3 hover:text-ink hover:bg-wash'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
-            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-3 hover:text-ink hover:bg-wash rounded-full transition-all" title={`Attach document${canAttachImages ? ' or image' : ''}${modelHears ? ' or audio' : ''}${!modelSees && canAttachImages ? ' — images read by your Image Understanding model' : ''}`}><Paperclip className="w-3.5 h-3.5" /></button>}
+            {models.length > 0 && <button onClick={onToggleListening} className={`p-2 rounded-full transition-all ${isListening ? 'text-danger bg-danger-soft' : 'text-ink-2 hover:text-ink hover:bg-wash'}`} title="Dictate"><Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} /></button>}
+            {!isGenerating && models.length > 0 && <button onClick={() => fileInputRef.current?.click()} className="p-2 text-ink-2 hover:text-ink hover:bg-wash rounded-full transition-all" title={`Attach document${canAttachImages ? ' or image' : ''}${modelHears ? ' or audio' : ''}${!modelSees && canAttachImages ? ' — images read by your Image Understanding model' : ''}`}><Paperclip className="w-3.5 h-3.5" /></button>}
             <input type="file" ref={fileInputRef} onChange={onChatFileUpload} accept={attachAccept} className="hidden" />
             {/* Emoji picker */}
             {models.length > 0 && (
               <div className="relative" ref={emojiPickerRef}>
                 <button
                   onClick={() => setShowEmojiPicker(v => !v)}
-                  className={`p-2 rounded-full transition-all ${showEmojiPicker ? 'text-accent-soft-ink bg-accent-soft' : 'text-ink-3 hover:text-ink hover:bg-wash'}`}
+                  className={`p-2 rounded-full transition-all ${showEmojiPicker ? 'text-accent-soft-ink bg-accent-soft' : 'text-ink-2 hover:text-ink hover:bg-wash'}`}
                   title="Emoji"
                 >
                   <Smile className="w-3.5 h-3.5" />

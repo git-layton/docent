@@ -83,10 +83,20 @@ export function DockedAgentRail({
   return (
     <div
       ref={railRef}
+      // data-ambient on the RAIL, not just on the ChatPanel inside it. The header strip below is
+      // the rail's own, so it sits outside the panel's ambient subtree — which left its title and
+      // buttons resolving --af-ink from the THEME (near-white #f1f0ec) while the body correctly
+      // used the sky ramp (#2a2c2a on a bright sky). White icons on a bright-sky glass panel are
+      // the "all the icons are blank" report: they were painted, just invisible.
+      data-ambient="true"
       style={isExpanded ? {} : { width }}
-      // glass-sky rather than a theme-fixed tint: the rail floats on the wallpaper like the
-      // tiles do, so it takes its tint from the sky and stays one material with them.
-      className={`relative flex flex-col rounded-xl border border-edge/50 shadow-lg glass-sky overflow-hidden backdrop-blur-xl transition-all ${
+      // NO glass on the rail itself — it is a frame (border + shadow + rounding), not a surface.
+      // The body it wraps is a <ChatPanel>, which paints its own sky-adaptive glass. When the rail
+      // painted glass too, the two identical layers stacked: 0.20 over 0.20 is an effective 0.36
+      // tint and blur(24px) applied twice (~34px), which is the milky "white sheet" look rather
+      // than clear glass. Same deferral App.tsx already does via `primaryIsAmbient`. Only the
+      // header strip below — which sits OUTSIDE the ChatPanel — carries its own glass.
+      className={`relative flex flex-col rounded-xl border border-edge/50 shadow-lg overflow-hidden transition-all ${
         isExpanded ? 'absolute inset-0 z-[100] m-2' : 'shrink-0'
       }`}
     >
@@ -95,7 +105,9 @@ export function DockedAgentRail({
         className="absolute left-0 top-0 bottom-0 w-1 z-10 cursor-col-resize hover:bg-accent transition-colors"
         title="Drag to resize"
       />
-      <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0">
+      {/* Carries the glass for the header strip only: it lives above the ChatPanel, so without a
+          fill of its own it would float on the bare wallpaper once the rail stopped painting one. */}
+      <div className="h-9 flex items-center gap-2 px-3 border-b border-edge shrink-0 glass-sky">
         <div className="flex-1 min-w-0 flex items-center gap-2">{header}</div>
         <button
           onClick={() => setIsExpanded(!isExpanded)}

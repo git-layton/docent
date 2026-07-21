@@ -3785,7 +3785,7 @@ if (isSpotlight) {
                 <div className="flex items-center gap-2 flex-1 justify-between">
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-ink tracking-tight uppercase">
                     <Glasses className="w-3.5 h-3.5" />
-                    Chat with {activeAssistant?.name || 'Docent'}
+                    Ask {activeAssistant?.name || 'Docent'}
                   </span>
                   <div className="flex items-center gap-1">
                     <button

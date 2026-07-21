@@ -132,11 +132,12 @@ export function ChatPanel({
   };
 
   return (
-    // Same glass recipe as the Start-page tiles (sky-adaptive tint + backdrop-blur-xl)
-    // so the chat reads as one material with the rest of the app rather than a solid
-    // slab. data-ambient opts its ink into the sky ramp too, since it floats on the
-    // wallpaper exactly like the tiles do.
-    <div data-ambient="true" className="flex flex-col h-full glass-sky backdrop-blur-xl min-h-0">
+    // Sky-adaptive tint, and NO backdrop-blur: the chat is clear glass, so you see the
+    // wallpaper through it undistorted rather than frosted. data-ambient opts its ink into
+    // the sky ramp too, since it floats on the wallpaper exactly like the tiles do.
+    // The rail that wraps this paints no glass of its own — one layer only, or the two
+    // tints compound and the whole thing goes milky.
+    <div data-ambient="true" className="flex flex-col h-full glass-sky min-h-0">
       {/* Header (suppressed for the Team rail — it brings its own slim header) */}
       {!hideHeader && (
         <div className="flex items-center">
@@ -231,7 +232,10 @@ export function ChatPanel({
         </div>
       ) : (
         <div className="shrink-0 px-4 pb-4 flex justify-center">
-          <div className="w-[min(720px,calc(100%-1rem))] bg-white/10 dark:bg-black/10 backdrop-blur-3xl rounded-3xl border border-edge-2 shadow-xl p-1">
+          {/* Frosted, like the input bar it wraps — a control surface, not part of the clear
+              conversation glass. Dialled back from blur-3xl (64px), which was the most frosted
+              thing in the app. */}
+          <div className="w-[min(720px,calc(100%-1rem))] bg-white/10 dark:bg-black/10 backdrop-blur-xl rounded-3xl border border-edge-2 shadow-xl p-1">
             <ChatInputBar {...chatInputBarProps} />
           </div>
         </div>

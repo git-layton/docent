@@ -34,8 +34,10 @@ export const BOT_COLORS = [
 
 export const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
   if (agent?.id === 'docent' || agent?.name === 'Docent') {
+    // text-on-ink, NOT text-panel: panel is a surface token and inside an ambient pane it's a
+    // 0.08 whisper, which rendered the mark invisible on its own chip.
     return (
-      <div className={`${containerClass} bg-ink text-panel flex items-center justify-center shrink-0`}>
+      <div className={`${containerClass} bg-ink text-on-ink flex items-center justify-center shrink-0`}>
         <DocentMark className={sizeClass} />
       </div>
     );
