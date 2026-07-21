@@ -1,4 +1,4 @@
-import { Bot, Globe, Database, CalendarDays, MessageSquare, Mail, FolderOpen, Layers, CalendarClock, Glasses } from 'lucide-react';
+import { Globe, Database, CalendarDays, MessageSquare, Mail, FolderOpen, Layers, CalendarClock, Glasses } from 'lucide-react';
 import { DocentMark } from './DocentMark';
 
 export const AVAILABLE_TOOLS = [

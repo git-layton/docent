@@ -1,7 +1,6 @@
 import { X, Maximize2, Minimize2, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { db } from '../services/database';
-import { useSpaceStore } from '../store/useSpaceStore';
 
 // One shared chrome for every docked agent rail so they look + behave identically wherever they appear:
 // the co-pilot rail beside Notes/Browser/Canvas (App.tsx) and the Team group-chat rail in Code
@@ -35,9 +34,9 @@ interface DockedAgentRailProps {
 export function DockedAgentRail({
   open,
   onToggle,
-  icon: Icon,
+  
   header,
-  collapsedTitle,
+  
   hideTitle = 'Hide',
   children,
 }: DockedAgentRailProps) {
@@ -47,10 +46,6 @@ export function DockedAgentRail({
   const [width, setWidth] = useState(RAIL_DEFAULT);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const activeOmniTabId = useSpaceStore(s => s.activeOmniTabId);
-  const allTabs = useSpaceStore(s => s.omniTabs);
-  const activeTab = allTabs.find(t => t.id === activeOmniTabId);
-  const isStartActive = !activeTab || activeTab.type === 'home' || activeTab.type === 'space-log';
 
   useEffect(() => {
     db.get(RAIL_WIDTH_KEY, RAIL_DEFAULT)
