@@ -139,7 +139,7 @@ export function observeCompletion(
  * or hasn't recurred enough, is not proposed. Nothing here ever makes a skill suggestable on its own.
  */
 export function shouldPropose(skill: LearnedSkill, policy: SkillLearningPolicy = DEFAULT_SKILL_POLICY): boolean {
-  if (skill.verified) return false;
+  if (skill.verified || skill.proposed) return false; // already trusted, or already offered once
   return (skill.seen ?? 0) >= policy.proposeAfterSeen;
 }
 

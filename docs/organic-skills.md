@@ -45,6 +45,16 @@ Reuses the playbook records under `memory/spaces/<spaceId>/playbooks/<trigger>.m
 - **Propose** — when `shouldPropose` is true, a one-line toast points the user to Settings › Playbooks; the existing playbook list (`ProfileSettingsModal`, trust/untrust toggle) is where they bless it.
 - **Retrieve** — where the turn's `_knownProcedures` block is built, `composeSkillContext({ mode }, await retrievePlaybooks(...))` layers the surface skill onto the user-trusted playbooks. For plain chat this is byte-identical to the old procedures block (a surface skill only applies on the code/doc surfaces).
 
+## Dream-cycle unification (live)
+
+Skill *lifecycle* — forgetting and proposing — runs during reflection, not on the hot path. A deterministic sweep at the end of `runDreamCycle` (`src/App.tsx`) walks the un-trusted candidates already in the Dreamer's working set:
+
+- **Decay** — `isStale` candidates are archived via the existing `archive_memory_file` op, so a forgotten skill shows up in the dream digest as an **undoable** "pruned" item.
+- **Propose** — a candidate that has recurred enough (`shouldPropose`) is surfaced as a digest **notice** ("Save '…' as a skill?") and stamped `proposed: true` so later dreams don't re-nag. Trust is still an explicit tap in Settings › Playbooks — the proposal never sets `verified`.
+- **Refine** — trusted skills' steps are cleaned up by the Dreamer's existing `playbook_refine` op (now preserving `seen`/`proposed`).
+
+The sweep is deterministic (no LLM, no extra tokens) and reuses the dream digest's undo/notice machinery. Capture on the hot path is silent — the digest is the single place skills are proposed.
+
 ## Future
 
-An `isStale` sweep fits naturally into the **dream cycle** (`src/services/dreamer.ts`), alongside its `playbook_refine` op, so forgetting happens during reflection rather than on the hot path. A dedicated "proposed skills" section in the playbook UI (ranked by `seen`) would make blessing candidates a first-class action rather than a toast.
+A dedicated "proposed skills" section in the playbook UI (ranked by `seen`) would make blessing candidates a first-class action rather than a digest notice.

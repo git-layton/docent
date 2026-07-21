@@ -99,6 +99,11 @@ describe('proposal — recurrence surfaces a candidate but never verifies it (SE
     expect(shouldPropose(base({ seen: 99, verified: true }))).toBe(false);
   });
 
+  it('offers a candidate only once (proposed flag prevents re-nagging)', () => {
+    expect(shouldPropose(base({ seen: 99, proposed: false }))).toBe(true);
+    expect(shouldPropose(base({ seen: 99, proposed: true }))).toBe(false);
+  });
+
   it('recurrence alone NEVER sets verified — trust stays an explicit user action', () => {
     let skill = distillCandidate('recurring chore', actions(2))!; // seen 1
     for (let i = 0; i < 6; i++) {
