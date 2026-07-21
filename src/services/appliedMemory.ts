@@ -25,6 +25,7 @@ export interface Playbook {
   steps: PlaybookStep[];
   verified: boolean;  // true only after the user approves its first run — gates whether it's suggestable
   accept: number;     // how many times the user has approved running it
+  seen?: number;      // times this task-pattern recurred and completed on its own (organic-learning counter)
 }
 
 const sanitizeInline = (s: string): string =>
@@ -50,6 +51,7 @@ export const buildPlaybookRecord = (input: {
   steps: PlaybookStep[];
   verified?: boolean;
   accept?: number;
+  seen?: number;
   now?: Date;
 }): { path: string; trigger: string; content: string } => {
   const now = input.now ?? new Date();
@@ -60,6 +62,7 @@ export const buildPlaybookRecord = (input: {
 
   const verified = input.verified === true;
   const accept = Number.isFinite(input.accept) ? Math.max(0, Math.floor(Number(input.accept))) : 0;
+  const seen = Number.isFinite(input.seen) ? Math.max(0, Math.floor(Number(input.seen))) : 0;
   const steps = (input.steps ?? []).filter((s) => s && sanitizeInline(s.intent));
   const tools = Array.from(new Set(steps.map((s) => sanitizeInline(s.toolHint || '')).filter(Boolean)));
   const tags = ['playbook', `trigger:${trigger}`, ...tools.map((t) => `tool:${t}`)];
@@ -74,6 +77,7 @@ export const buildPlaybookRecord = (input: {
     `trigger: "${escQuote(trigger)}"`,
     `verified: ${verified}`,
     `accept: ${accept}`,
+    `seen: ${seen}`,
     `tags: [${tags.map((t) => `"${escQuote(t)}"`).join(', ')}]`,
     '---',
     '',
@@ -100,6 +104,7 @@ export const parsePlaybook = (content: string): Playbook | null => {
   if (!title && !trigger) return null;
   const verified = /^verified:\s*true\s*$/m.test(head);
   const accept = parseInt(field('accept') || '0', 10) || 0;
+  const seen = parseInt(field('seen') || '0', 10) || 0;
   const steps: PlaybookStep[] = [];
   const procIdx = text.indexOf('## Procedure');
   if (procIdx >= 0) {
@@ -116,7 +121,7 @@ export const parsePlaybook = (content: string): Playbook | null => {
       if (intent) steps.push({ intent, toolHint });
     }
   }
-  return { title: title || trigger, trigger, steps, verified, accept };
+  return { title: title || trigger, trigger, steps, verified, accept, seen };
 };
 
 /**
