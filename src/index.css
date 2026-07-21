@@ -90,6 +90,17 @@
   -webkit-backdrop-filter: none;
 }
 
+/* …except inside the docked chat, which is meant to be real frosted glass, not a flat film. The
+   rule above strips blur from every .bg-panel (the app chrome stays translucent-only by
+   preference); these ambient chat surfaces opt back in so their whisper-thin tint reads as glass
+   you see the sky THROUGH rather than a white sheet laid on top. Higher specificity wins; scoped
+   to [data-ambient] so nothing outside the chat starts blurring. */
+[data-glass="true"] [data-ambient="true"] .bg-panel,
+[data-glass="true"] [data-ambient="true"] .bg-panel-2 {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
 .glass-chrome {
   background: var(--color-panel);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
@@ -145,31 +156,33 @@
    together than a paper design would put them — because a backdrop that travels this
    far leaves less room for a three-step hierarchy. Legibility wins; separation is
    carried by weight and size instead of by tone.                              */
-/* Surface tokens follow the sky too, not the theme. A raised surface inside an ambient
-   pane — the chat's input box, the agent-intro card, a dropdown — is drawn with bg-panel /
-   bg-panel-2 / bg-inset. Left at their theme values those resolve to near-black in dark mode
-   (#12141a), so on a bright daytime sky the docked chat grew opaque charcoal slabs while the
-   tiles beside it stayed light glass — the "ugly black bars." Remapping the tokens to the same
-   sky-adaptive glass the tiles use makes every such surface one translucent material with the
-   rest of the app, layered a touch heavier than the 0.20 pane so it still reads as raised.
-   Only ambient panes (Home, the docked/spotlight ChatPanel) are affected; Home doesn't use
-   these tokens, so in practice this is the chat. */
+/* Surface tokens follow the sky too, not the theme. A raised surface inside an ambient pane —
+   the chat's input box, the agent-intro card, a dropdown — is drawn with bg-panel / bg-panel-2 /
+   bg-inset. Left at their theme values those resolve to near-black in dark mode (#12141a), which
+   painted charcoal slabs in the chat; bumped to a heavy white tint they became a flat WHITE sheet
+   ("that white overlay") — a light-mode rectangle laid over a dark-theme app. Neither is glass.
+
+   Clear glass instead: the tint is only a WHISPER (0.08–0.18), and the frosting is done by
+   backdrop-blur on the surfaces themselves (see ChatInputBar / ChatPanel). You look THROUGH to
+   the blurred sky rather than at a coloured film — the sky's own light is what makes it read
+   light by day and dark by night, not an overlay. Only ambient panes are affected, and Home
+   doesn't use these tokens, so in practice this is the chat. */
 [data-sky="bright"] [data-ambient="true"] {
   --af-ink: #2a2c2a;
   --af-ink-2: #3d403a;
   --af-ink-3: #43463f;
-  --af-panel: rgba(255, 255, 255, 0.32);
-  --af-panel-2: rgba(255, 255, 255, 0.44);
-  --af-inset: rgba(255, 255, 255, 0.55);
+  --af-panel: rgba(255, 255, 255, 0.08);
+  --af-panel-2: rgba(255, 255, 255, 0.12);
+  --af-inset: rgba(255, 255, 255, 0.18);
 }
 
 [data-sky="dim"] [data-ambient="true"] {
   --af-ink: #f1f0ec;
   --af-ink-2: rgba(255, 255, 255, 0.90);
   --af-ink-3: rgba(255, 255, 255, 0.80);
-  --af-panel: rgba(0, 0, 0, 0.26);
-  --af-panel-2: rgba(0, 0, 0, 0.36);
-  --af-inset: rgba(0, 0, 0, 0.45);
+  --af-panel: rgba(0, 0, 0, 0.10);
+  --af-panel-2: rgba(0, 0, 0, 0.14);
+  --af-inset: rgba(0, 0, 0, 0.20);
 }
 
 .cursor-glow {
