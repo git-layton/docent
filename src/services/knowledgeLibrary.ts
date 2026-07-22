@@ -33,6 +33,58 @@ export const NODE_TYPE_VOCABULARY = [
 
 export type NodeTypeVocabulary = typeof NODE_TYPE_VOCABULARY[number];
 
+/**
+ * The closed set of relations an extraction may emit.
+ *
+ * Left freeform, an LLM produces `works_at`, `employed_by` and `works for` across three extractions
+ * of the same fact, and the graph ends up with three edges that mean one thing. Filters, ranking and
+ * any future "who works where" question are all built on sand until the verb set is fixed. Anything
+ * outside this list is normalized to `related_to` rather than stored — a slightly vaguer true edge
+ * beats a precise one nobody can query.
+ */
+export const RELATION_VOCABULARY = [
+  'appears_in', 'related_to', 'part_of', 'located_in', 'works_at', 'member_of',
+  'created_by', 'authored_by', 'owns', 'uses', 'produces', 'depends_on',
+  'is_a', 'founded', 'works_on', 'based_on', 'mentions', 'competes_with',
+  'married_to', 'parent_of',
+] as const;
+
+export type RelationVocabulary = typeof RELATION_VOCABULARY[number];
+
+/** Map a raw extractor relation onto the closed set. Unknown verbs become `related_to`. */
+export function normalizeRelation(relation: string | undefined): RelationVocabulary {
+  const r = String(relation ?? '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  if ((RELATION_VOCABULARY as readonly string[]).includes(r)) return r as RelationVocabulary;
+  // A few shapes the models reach for constantly, folded onto their canonical member rather than
+  // thrown away — these carry real meaning and losing them to `related_to` would be a downgrade.
+  const aliases: Record<string, RelationVocabulary> = {
+    employed_by: 'works_at', works_for: 'works_at', employee_of: 'works_at',
+    belongs_to: 'part_of', contains: 'part_of', subsidiary_of: 'part_of',
+    in: 'located_in', based_in: 'located_in', headquartered_in: 'located_in',
+    made_by: 'created_by', developed_by: 'created_by', built_by: 'created_by',
+    wrote: 'authored_by', written_by: 'authored_by',
+    instance_of: 'is_a', type_of: 'is_a', kind_of: 'is_a', subclass_of: 'is_a',
+    requires: 'depends_on', needs: 'depends_on',
+    founded_by: 'founded', started: 'founded',
+  };
+  return aliases[r] ?? 'related_to';
+}
+
+/** Map a raw extractor node type onto the closed set. Unknown types become `entity`. */
+export function normalizeNodeType(nodeType: string | undefined): NodeTypeVocabulary {
+  const t = String(nodeType ?? '').toLowerCase().trim();
+  if ((NODE_TYPE_VOCABULARY as readonly string[]).includes(t)) return t as NodeTypeVocabulary;
+  const aliases: Record<string, NodeTypeVocabulary> = {
+    organization: 'org', company: 'org', business: 'org',
+    location: 'place', city: 'place', country: 'place',
+    tech: 'technology', tool: 'technology', software: 'technology',
+    human: 'person', people: 'person',
+    topic: 'concept', idea: 'concept', subject: 'concept',
+    document: 'file', doc: 'file', article: 'page', website: 'page', url: 'page',
+  };
+  return aliases[t] ?? 'entity';
+}
+
 export interface LibraryItem {
   /** Graph node id for entities; file path for notes. Unique within a library. */
   id: string;

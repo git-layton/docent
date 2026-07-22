@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   isEntityLabel,
+  normalizeRelation,
+  normalizeNodeType,
   withoutFileMirrors,
   shelfForNodeType,
   frontmatterValue,
@@ -411,5 +413,55 @@ describe('withoutFileMirrors', () => {
   it('is a no-op when there are no notes', () => {
     const items = [mirror('memory-x', 'memory/a.md')]
     expect(withoutFileMirrors(items, [])).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Closed vocabularies. Left freeform, an LLM emits works_at / employed_by /
+// "works for" across three extractions of the same fact, and the graph ends up
+// with three edges meaning one thing — which makes any "who works where"
+// question unanswerable.
+// ---------------------------------------------------------------------------
+
+describe('normalizeRelation', () => {
+  it('passes through members of the closed set', () => {
+    expect(normalizeRelation('works_at')).toBe('works_at')
+    expect(normalizeRelation('part_of')).toBe('part_of')
+  })
+
+  it('folds the spellings a model actually reaches for onto one member', () => {
+    expect(normalizeRelation('employed_by')).toBe('works_at')
+    expect(normalizeRelation('works for')).toBe('works_at')
+    expect(normalizeRelation('WORKS-FOR')).toBe('works_at')
+    expect(normalizeRelation('headquartered_in')).toBe('located_in')
+    expect(normalizeRelation('developed_by')).toBe('created_by')
+    expect(normalizeRelation('instance_of')).toBe('is_a')
+  })
+
+  it('falls back to related_to rather than storing an invented verb', () => {
+    expect(normalizeRelation('vibes_with')).toBe('related_to')
+    expect(normalizeRelation('')).toBe('related_to')
+    expect(normalizeRelation(undefined)).toBe('related_to')
+  })
+})
+
+describe('normalizeNodeType', () => {
+  it('passes through members of the vocabulary', () => {
+    expect(normalizeNodeType('person')).toBe('person')
+    expect(normalizeNodeType('technology')).toBe('technology')
+  })
+
+  it('folds common synonyms onto the canonical type', () => {
+    expect(normalizeNodeType('organization')).toBe('org')
+    expect(normalizeNodeType('company')).toBe('org')
+    expect(normalizeNodeType('city')).toBe('place')
+    expect(normalizeNodeType('software')).toBe('technology')
+    expect(normalizeNodeType('website')).toBe('page')
+  })
+
+  it('falls back to entity, which still lands on a real shelf', () => {
+    expect(normalizeNodeType('kaiju')).toBe('entity')
+    expect(normalizeNodeType(undefined)).toBe('entity')
+    expect(shelfForNodeType(normalizeNodeType('kaiju'))).toBe('things')
   })
 })

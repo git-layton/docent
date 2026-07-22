@@ -4882,6 +4882,78 @@ fn delete_graph_node(id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Identity: find an existing node by label or alias, so the same thing mentioned twice reuses one
+/// node instead of minting a second.
+///
+/// Entity ids come from the extraction LLM, so "Alex Layton", "Alex" and "alex-layton" only collide
+/// if the model happens to emit an identical id across separate extractions — which it does not. The
+/// graph's default trajectory was therefore monotonic duplication: every ingest could add another
+/// copy of something already present. Matching is on a normalized label (lowercased, punctuation and
+/// leading articles stripped) across both `label` and the `aliases` array that merging writes into
+/// metadata, so a name folded in by an earlier merge still resolves.
+///
+/// Returns the FIRST match. Ties are not meaningful here — if two nodes genuinely share a normalized
+/// label they are duplicates, and reusing either one is what stops a third being created.
+#[tauri::command]
+fn find_graph_node_by_label(label: String) -> Result<Option<String>, String> {
+    fn normalize(s: &str) -> String {
+        let lowered = s.to_lowercase();
+        let stripped = lowered
+            .trim_start_matches("the ")
+            .trim_start_matches("a ")
+            .trim_start_matches("an ");
+        stripped
+            .chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    let target = normalize(&label);
+    if target.is_empty() {
+        return Ok(None);
+    }
+
+    let conn = open_graph_db()?;
+    let mut stmt = conn
+        .prepare("SELECT id, label, metadata_json FROM graph_nodes")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    for row in rows.flatten() {
+        let (id, node_label, metadata) = row;
+        if normalize(&node_label) == target {
+            return Ok(Some(id));
+        }
+        // Aliases are written by merge_graph_nodes when it folds a duplicate in, so the absorbed
+        // name must keep resolving to the survivor.
+        if let Some(meta) = metadata {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&meta) {
+                if let Some(aliases) = parsed.get("aliases").and_then(|a| a.as_array()) {
+                    if aliases
+                        .iter()
+                        .filter_map(|a| a.as_str())
+                        .any(|a| normalize(a) == target)
+                    {
+                        return Ok(Some(id));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Curation: edit a node in place. Only the provided fields change; metadata_patch is RFC-7396
 /// style — keys merge over the existing metadata, an explicit null deletes a key (so
 /// `{"curated": null}` un-pins a node).
@@ -5358,6 +5430,7 @@ pub fn run() {
             get_graph_stats,
             delete_graph_node,
             update_graph_node,
+            find_graph_node_by_label,
             delete_graph_edge,
             merge_graph_nodes,
         ])

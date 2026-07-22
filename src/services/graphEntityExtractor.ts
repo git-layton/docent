@@ -2,6 +2,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { z } from 'zod';
 import { generateStructuredResponse, salvageArray, toWireSchema } from './structured';
 import { buildEntityExtractionPrompt } from './semantic';
+import {
+  isEntityLabel,
+  normalizeNodeType,
+  normalizeRelation,
+  NODE_TYPE_VOCABULARY,
+  RELATION_VOCABULARY,
+} from './knowledgeLibrary';
 
 export interface ExtractedGraph {
   nodes: Array<{
@@ -152,11 +159,45 @@ const RelationSchema = z.object({
   relation: z.string().catch('related_to'),
 });
 // Wire: strict shape guiding the grammar. Validation: each entity/relation salvaged individually.
-const ExtractionWireSchema = z.object({ entities: z.array(EntitySchema), relations: z.array(RelationSchema) });
+//
+// The wire schema uses enums where the validation schema uses tolerant strings, and the asymmetry is
+// deliberate. The enum is what constrains a structured-output grammar, so a model that supports one
+// is prevented from inventing `works for` in the first place. The tolerant schema is what survives a
+// model that doesn't: rather than dropping the whole extraction over one unknown verb, out-of-
+// vocabulary values are salvaged and normalized below. Asking in prose alone was not enough — that
+// is how `works_at`, `employed_by` and `works for` all ended up meaning one thing.
+const WireEntitySchema = z.object({
+  id: z.coerce.string().min(1),
+  type: z.enum(NODE_TYPE_VOCABULARY),
+  label: z.coerce.string().min(1),
+});
+const WireRelationSchema = z.object({
+  source: z.coerce.string().min(1),
+  target: z.coerce.string().min(1),
+  relation: z.enum(RELATION_VOCABULARY),
+});
+const ExtractionWireSchema = z.object({ entities: z.array(WireEntitySchema), relations: z.array(WireRelationSchema) });
 const ExtractionSchema = z.object({
   entities: salvageArray(EntitySchema),
   relations: salvageArray(RelationSchema),
 });
+
+/**
+ * Resolve a label to an existing node id, or null.
+ *
+ * Without this every extraction mints fresh ids, so "Alex Layton" mentioned in three notes becomes
+ * three nodes and the graph's default trajectory is monotonic duplication. Reusing the id is also
+ * what makes re-mention *reinforce* rather than fragment: the second mention lands another
+ * appears_in edge on the same node instead of starting a lonely new one.
+ */
+async function findExistingNodeId(label: string): Promise<string | null> {
+  try {
+    return (await invoke<string | null>('find_graph_node_by_label', { label })) ?? null;
+  } catch {
+    // Never fatal — a failed lookup just means a new id, which is the old behaviour.
+    return null;
+  }
+}
 
 function sanitizeEntityId(value: unknown): string {
   return String(value ?? '')
@@ -229,11 +270,29 @@ export async function extractAndWriteGraph(opts: {
   const batchNodes: BatchNode[] = [sourceNode];
   const batchEdges: BatchEdge[] = [];
 
+  // Model-emitted id → the id actually written. They differ whenever an entity resolves to a node
+  // that already exists, and the relation loop below must follow the same remapping or its edges
+  // would point at ids that were never inserted.
+  const idMap = new Map<string, string>();
+
   for (const entity of entities) {
-    const id = sanitizeEntityId(entity.id);
+    const emitted = sanitizeEntityId(entity.id);
     const label = String(entity.label ?? '').trim();
-    if (!id || !label || writtenIds.has(id)) continue;
-    const type = sanitizeEntityId(entity.type) || 'entity';
+    if (!emitted || !label) continue;
+    // The junk gate, applied at the last point before anything is written. The prompt asks for names
+    // and the grammar constrains types, but neither stops a model from labelling an entity "Ok is it
+    // too late though" — and once that is a row in graph_nodes it is on a shelf forever. This is the
+    // check that made the difference between a Topics list of chat fragments and one of real topics.
+    if (!isEntityLabel(label)) continue;
+    // Out-of-vocabulary types are normalized rather than stored raw, so the shelves and any future
+    // filtering have a fixed set to work against.
+    const type = normalizeNodeType(entity.type);
+
+    // Reuse the node this label already has, if any. A hit means the second mention reinforces the
+    // first — another appears_in edge on the same node — instead of forking a duplicate.
+    const id = (await findExistingNodeId(label)) ?? emitted;
+    idMap.set(emitted, id);
+    if (writtenIds.has(id)) continue;
 
     writtenIds.add(id);
     nodes.push({ id, type, label });
@@ -243,10 +302,14 @@ export async function extractAndWriteGraph(opts: {
   }
 
   for (const rel of relations) {
-    const source = sanitizeEntityId(rel.source);
-    const target = sanitizeEntityId(rel.target);
-    const relation = String(rel.relation ?? '').trim();
-    if (!source || !target || !relation) continue;
+    // Through the same remapping the entity loop applied, or an edge would reference a model-emitted
+    // id that was never written because the entity resolved to an existing node.
+    const source = idMap.get(sanitizeEntityId(rel.source)) ?? sanitizeEntityId(rel.source);
+    const target = idMap.get(sanitizeEntityId(rel.target)) ?? sanitizeEntityId(rel.target);
+    // Folded onto the closed verb set, so `works_at` / `employed_by` / `works for` stop being three
+    // different edges meaning one thing.
+    const relation = normalizeRelation(rel.relation);
+    if (!source || !target) continue;
     // Both endpoints must have been written this pass — the FK would reject dangling edges anyway.
     if (!writtenIds.has(source) || !writtenIds.has(target)) continue;
 

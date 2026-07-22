@@ -58,6 +58,7 @@ allow = [
   "eventkit_update_event",
   "eventkit_update_reminder",
   "extract_page_text",
+  "find_graph_node_by_label",
   "fs_delete",
   "fs_delete_external",
   "fs_import",

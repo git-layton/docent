@@ -1,3 +1,5 @@
+import { NODE_TYPE_VOCABULARY, RELATION_VOCABULARY } from './knowledgeLibrary';
+
 export interface SemanticFactHit {
   fact: string;
   subject?: string;
@@ -81,18 +83,28 @@ ${text}
 JSON schema to follow exactly:
 {
   "entities": [
-    { "id": "<slug using only lowercase letters, digits, hyphens>", "type": "<person|org|place|product|concept|technology>", "label": "<display name>" }
+    { "id": "<slug using only lowercase letters, digits, hyphens>", "type": "<${NODE_TYPE_VOCABULARY.join('|')}>", "label": "<display name>" }
   ],
   "relations": [
-    { "source": "<entity id>", "target": "<entity id>", "relation": "<verb phrase, e.g. created|is-a|located-in|founded|uses|part-of>" }
+    { "source": "<entity id>", "target": "<entity id>", "relation": "<${RELATION_VOCABULARY.join('|')}>" }
   ]
 }
 
 Rules:
-- Extract people, organizations, places, products, concepts, and technologies.
+- EXTRACT THINGS THAT HAVE NAMES. A person, an organization, a place, a product, a technology, a
+  named concept. If you could not point at it and say what it is called, it is not an entity.
+- NEVER turn a sentence, question, instruction or opinion into an entity. "Baldur's Gate 3" and
+  "Dark Urge" are entities; "Do it", "Ok is it too late though" and "Maybe you can create a note
+  for me" are things somebody said, and must not appear at all.
+- A label is a name, not a phrase: no trailing punctuation, no more than about six words.
+- "type" MUST be one of: ${NODE_TYPE_VOCABULARY.join(', ')}.
+- "relation" MUST be one of: ${RELATION_VOCABULARY.join(', ')}. Pick the closest one; use
+  related_to when nothing else fits. Do not invent verbs.
 - Only include relations where both source and target appear in the entities array.
 - Keep ids as short slugs, e.g. "openai", "sam-altman", "san-francisco".
 - Return at most 30 entities and 40 relations.
+- If the text contains no real named entities, return {"entities": [], "relations": []}. Returning
+  nothing is correct and expected for ordinary conversation.
 - Output nothing except the JSON object.`;
 }
 
