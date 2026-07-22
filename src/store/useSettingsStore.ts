@@ -188,7 +188,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     visionProvider: 'auto',
     visionModelId: '',
     visionEndpoint: '',
-    dreamAutoEnabled: false, // opt-in: the Dream Cycle never auto-runs or auto-mutates memory until the user enables it (README: "manual-only")
+    // Scheduled dreaming is ON, but it still cannot run without consent: runDreamCycle's first act
+    // is to check `dreamConsentAt` and, if absent, show the consent modal and return without
+    // spending a token (App.tsx). So the scheduler firing on a fresh install opens a dialog that
+    // explains what dreaming does, what it costs, and nudges a free local model — it does not
+    // quietly start billing anyone.
+    //
+    // This was deliberately `false` before, because "opt-in" was the ONLY protection against an
+    // unattended LLM pass over the memory store. The consent gate is now that protection, and it is
+    // a stronger one: a default of false meant most users never discovered the feature at all,
+    // while a default of true with a hard consent stop means everyone is asked exactly once, in
+    // context, with the cost stated. Do not remove the gate and leave this true.
+    dreamAutoEnabled: true,
     showContextWindowLine: false,
     developerMode: false,
     fileAccessGrants: {},
