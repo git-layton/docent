@@ -11,14 +11,30 @@ import { create } from 'zustand';
 // long turn was indistinguishable from a hung one — the app read as slow when it was working.
 // The label turns that dead time into progress the user can actually read.
 
+export interface ActivityStep {
+  label: string;
+  status: 'pending' | 'running' | 'done';
+}
+
 interface AgentActivityState {
   /** Present-tense phrase for the step in flight, e.g. "Saving to memory". Null when idle. */
   label: string | null;
   /** How many actions this turn will apply, for "2 of 5" style progress. 0 when not applying. */
   total: number;
   done: number;
+  /**
+   * Every step this turn will take, in order, each carrying its own status.
+   *
+   * `label` alone could only ever show the step in flight: each new action overwrote the last and
+   * the whole lot was cleared at the end, so actions flickered past and vanished. You could watch
+   * five things happen and be unable to say what any of them were. The list is what lets the UI
+   * show the shape of the work — what is done, what is happening, what is still coming.
+   */
+  steps: ActivityStep[];
 
   begin: (label: string, total?: number) => void;
+  /** Seed the whole plan up front. Callers know every action before applying the first. */
+  beginSteps: (labels: string[]) => void;
   advance: (label: string) => void;
   end: () => void;
 }
@@ -27,10 +43,32 @@ export const useAgentActivityStore = create<AgentActivityState>((set) => ({
   label: null,
   total: 0,
   done: 0,
+  steps: [],
 
-  begin: (label, total = 0) => set({ label, total, done: 0 }),
-  advance: (label) => set(s => ({ label, done: Math.min(s.done + 1, s.total || s.done + 1) })),
-  end: () => set({ label: null, total: 0, done: 0 }),
+  begin: (label, total = 0) => set({ label, total, done: 0, steps: [] }),
+
+  beginSteps: (labels) => set({
+    label: labels[0] ?? null,
+    total: labels.length,
+    done: 0,
+    steps: labels.map((l, i) => ({ label: l, status: i === 0 ? 'running' : 'pending' })),
+  }),
+
+  // Advancing means: whatever was running is finished, and this is what's running now. Matched by
+  // position rather than by label text, since two identical actions in one turn share a label.
+  advance: (label) => set(s => {
+    const nextDone = Math.min(s.done + 1, s.total || s.done + 1);
+    const steps = s.steps.length
+      ? s.steps.map((st, i) => (
+          i < nextDone ? { ...st, status: 'done' as const }
+          : i === nextDone ? { ...st, status: 'running' as const }
+          : st
+        ))
+      : s.steps;
+    return { label, done: nextDone, steps };
+  }),
+
+  end: () => set({ label: null, total: 0, done: 0, steps: [] }),
 }));
 
 /**

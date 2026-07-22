@@ -71,3 +71,58 @@ describe('activity lifecycle', () => {
     expect(s().done).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Step list. `label` alone could only show the step in flight: each action
+// overwrote the last and the lot was cleared at the end, so actions flickered
+// past and vanished — you could watch five things happen and not be able to say
+// what any of them were. The list is what the action bubble renders.
+// ---------------------------------------------------------------------------
+
+describe('useAgentActivityStore — steps', () => {
+  beforeEach(() => useAgentActivityStore.getState().end());
+
+  it('seeds the whole plan with only the first step running', () => {
+    useAgentActivityStore.getState().beginSteps(['Writing a note', 'Adding a task', 'Sending mail']);
+    const { steps, total, done, label } = useAgentActivityStore.getState();
+    expect(total).toBe(3);
+    expect(done).toBe(0);
+    expect(label).toBe('Writing a note');
+    expect(steps.map(s => s.status)).toEqual(['running', 'pending', 'pending']);
+  });
+
+  it('marks finished steps done and keeps them in the list', () => {
+    const s = useAgentActivityStore.getState();
+    s.beginSteps(['Writing a note', 'Adding a task', 'Sending mail']);
+    useAgentActivityStore.getState().advance('Adding a task');
+    expect(useAgentActivityStore.getState().steps.map(x => x.status))
+      .toEqual(['done', 'running', 'pending']);
+
+    useAgentActivityStore.getState().advance('Sending mail');
+    expect(useAgentActivityStore.getState().steps.map(x => x.status))
+      .toEqual(['done', 'done', 'running']);
+    // The finished steps are still there — that is the whole point.
+    expect(useAgentActivityStore.getState().steps).toHaveLength(3);
+  });
+
+  it('handles two identical actions in one turn by position, not label text', () => {
+    useAgentActivityStore.getState().beginSteps(['Adding a task', 'Adding a task']);
+    useAgentActivityStore.getState().advance('Adding a task');
+    expect(useAgentActivityStore.getState().steps.map(x => x.status)).toEqual(['done', 'running']);
+  });
+
+  it('clears everything when the turn ends, so nothing leaks into the next one', () => {
+    useAgentActivityStore.getState().beginSteps(['Writing a note']);
+    useAgentActivityStore.getState().end();
+    const { steps, label, total, done } = useAgentActivityStore.getState();
+    expect(steps).toEqual([]);
+    expect(label).toBeNull();
+    expect(total).toBe(0);
+    expect(done).toBe(0);
+  });
+
+  it('begin() without steps leaves the list empty so the bubble stays hidden', () => {
+    useAgentActivityStore.getState().begin('Working', 0);
+    expect(useAgentActivityStore.getState().steps).toEqual([]);
+  });
+});

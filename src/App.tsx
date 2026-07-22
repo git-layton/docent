@@ -285,7 +285,9 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     // of the user having to go dig through the Activity Center to find out what just happened.
     const receiptMark: string | null = useReceiptStore.getState().receipts[0]?.id ?? null;
     const activity = useAgentActivityStore.getState();
-    activity.begin('Working', actions.length);
+    // Seed the whole plan, not just a "Working" placeholder — the bubble can then show what is
+    // coming, not only what is happening, which is the difference between progress and a spinner.
+    activity.beginSteps(actions.map(a => activityLabel(String(a.tool ?? ''), String(a.op ?? ''))));
     // Card actions (event/library/profile) don't execute — they render as the app's existing
     // editable/confirm cards. Translate them back into the legacy fenced blocks the message
     // renderer understands, and splice them into the displayed message in place of the stripped

@@ -5,7 +5,9 @@ import {
 } from 'lucide-react';
 import { AgentIcon } from './ui/AgentIcon';
 import { TypingIndicator } from './ui/TypingIndicator';
+import { ActionBubble } from './ui/ActionBubble';
 import { ActivityTrail } from './ui/ActivityTrail';
+import { useAgentActivityStore } from '../store/useAgentActivityStore';
 import { useChatStore } from '../store/useChatStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { useTaskStore } from '../store/useTaskStore';
@@ -56,6 +58,8 @@ export function MessageList({
     activeMessages.length <= 2 &&
     lastMsg?.role === 'bot' &&
     !lastMsg?.isStreaming;
+  // Subscribed rather than read once: steps arrive mid-turn, after this bubble is already mounted.
+  const hasActionSteps = useAgentActivityStore(s => s.steps.length > 0);
   const editingMessageId = useChatStore(s => s.editingMessageId);
   const editingMessageContent = useChatStore(s => s.editingMessageContent);
   const activeChatId = useChatStore(s => s.activeChatId);
@@ -192,9 +196,17 @@ export function MessageList({
                 </div>
                 <div className="group relative flex flex-col items-start">
                   <div className="text-[11px] font-bold text-ink-3 mb-0.5 ml-1">{activeAssistant?.name || 'Agent'}</div>
-                  <div className="p-3 max-w-[92%] shadow-sm backdrop-blur-xl glass-sky border border-edge/50 text-ink rounded-2xl rounded-bl-sm">
-                    <TypingIndicator inline />
-                  </div>
+                  {/* Once there are real steps to show, the action bubble replaces the dots outright
+                      rather than sitting beside them — two "we're busy" indicators at once is noise.
+                      The dots remain for the genuinely unknowable stretch before the first token,
+                      where any label would be invented. */}
+                  {hasActionSteps ? (
+                    <ActionBubble />
+                  ) : (
+                    <div className="p-3 max-w-[92%] shadow-sm glass-sky border border-edge/50 text-ink rounded-2xl rounded-bl-sm">
+                      <TypingIndicator inline />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
