@@ -8,6 +8,7 @@ import { useTaskStore } from '../store/useTaskStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { AgentIcon } from './ui/AgentIcon';
+import { IntegrationsModal } from './IntegrationsModal';
 
 
 interface AppSidebarProps {
@@ -18,6 +19,7 @@ export function AppSidebar(_: AppSidebarProps) {
   const [networkActive, setNetworkActive] = useState(false);
   const [networkPeers, setNetworkPeers] = useState<Array<{ id: string; name: string; ip: string }>>([]);
   const [showNewMenu, setShowNewMenu] = useState(false);
+  const [showIntegrations, setShowIntegrations] = useState(false);
 
   // Store reads
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
@@ -116,13 +118,24 @@ export function AppSidebar(_: AppSidebarProps) {
     .filter((agent: any) => `${agent.name} ${agent.description ?? ''}`.toLowerCase().includes(query));
 
   return (
-    <div className={`shrink-0 transition-all duration-300 border-r border-edge z-[60] bg-base overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
-      <div className="w-72 h-full flex flex-col">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-edge flex items-center gap-2.5">
-          <div className="p-1.5 bg-accent rounded-lg shrink-0"><Bot className="w-3.5 h-3.5 text-on-accent" /></div>
-          <span className="text-xs font-semibold text-ink tracking-tight">Docent</span>
-        </div>
+    <>
+      {showIntegrations && <IntegrationsModal onClose={() => setShowIntegrations(false)} />}
+      <div className={`shrink-0 transition-all duration-300 border-r border-edge z-[60] bg-base overflow-hidden flex flex-col ${isSidebarOpen && !canvasContent?.isStandalone ? 'w-72' : 'w-0'}`}>
+        <div className="w-72 h-full flex flex-col">
+          {/* Header */}
+          <div className="px-4 py-3 border-b border-edge flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 bg-accent rounded-lg shrink-0"><Bot className="w-3.5 h-3.5 text-on-accent" /></div>
+              <span className="text-xs font-semibold text-ink tracking-tight">Docent</span>
+            </div>
+            <button 
+               onClick={() => setShowIntegrations(true)}
+               title="Integrations & Settings"
+               className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
 
         {/* Scrollable nav */}
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2 no-scrollbar">
@@ -349,5 +362,6 @@ export function AppSidebar(_: AppSidebarProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }

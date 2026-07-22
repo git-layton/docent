@@ -29,6 +29,7 @@ export interface AgentAction {
 export function actionNeedsApproval(a: AgentAction, turnIngestedUntrusted = false): boolean {
   if (a.tool === 'playbook' && a.op === 'execute') return true;
   if (a.op === 'send' || a.op === 'delete') return true;
+  if (a.tool === 'desktop' && a.op === 'click') return true;
   if (turnIngestedUntrusted) return true;
   return false;
 }
@@ -167,6 +168,7 @@ export function describeAction(a: AgentAction): string {
     case 'mail.send': return a.unresolved
       ? `Send email — ${a.unresolved}`
       : `Send email to ${Array.isArray(a.to) ? a.to.join(', ') : (a.to ?? '?')}${a.resolvedAccount ? ` (from ${a.resolvedAccount})` : ''}: “${a.subject ?? ''}”`;
+    case 'note.update': return `Update note`;
     case 'note.delete': return `Delete a note`;
     case 'task.delete': return `Delete a to-do`;
     case 'calendar.delete': return `Delete a calendar event`;
@@ -215,6 +217,24 @@ async function executeInner(a: AgentAction): Promise<{ result: string; undo?: ()
       });
       useSpaceStore.getState().openTab({ type: 'doc', label: title });
       return { result: `Created note “${title}” on canvas` };
+    }
+    case 'note.update': {
+      const body = String(a.body ?? '');
+      const current = useUIStore.getState().canvasContent;
+      if (!current || current.id !== String(a.id)) {
+         throw new Error(`Note ${a.id} is not currently open in the canvas.`);
+      }
+      
+      const newHistory = current.history ? [...current.history.slice(0, (current.historyIndex ?? 0) + 1)] : [{timestamp: Date.now(), content: current.content}];
+      newHistory.push({ timestamp: Date.now(), content: body });
+      
+      useUIStore.getState().setCanvasContent({
+        ...current,
+        content: body,
+        history: newHistory,
+        historyIndex: newHistory.length - 1
+      });
+      return { result: `Updated note on canvas` };
     }
     case 'task.create': {
       const id = await getTasks().createTask({ title: String(a.title ?? ''), dueDate: a.dueDate, details: a.details, location: a.location });

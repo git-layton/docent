@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { Monitor, AlertTriangle, Settings, X, ChevronLeft, ChevronRight, LayoutTemplate, Eye, RotateCw } from 'lucide-react';
 import { captureDesktopContextMesh, executeSemanticClick } from '../services/desktopVision';
+import { useToolContextStore } from '../store/useToolContextStore';
 import { useUIStore } from '../store/useUIStore';
 
 interface WindowInfo {
@@ -53,6 +54,7 @@ export function DesktopViewerPanel() {
 
         let isFetching = false;
         
+        let lastMeshTime = 0;
         const fetchFrame = async () => {
           if (isFetching || !active) return;
           isFetching = true;
@@ -61,6 +63,20 @@ export function DesktopViewerPanel() {
             if (currentId !== null) {
               const dataUrl = await invoke<string>('capture_window', { windowId: currentId });
               if (active) setFrameSrc(dataUrl);
+            }
+            
+            // Periodically capture mesh every 3 seconds for agent context
+            const now = Date.now();
+            if (now - lastMeshTime > 3000) {
+              lastMeshTime = now;
+              const mesh = await captureDesktopContextMesh();
+              if (active) {
+                useToolContextStore.getState().setToolContext({
+                  label: 'Desktop',
+                  text: mesh.markdownMesh,
+                  source: 'desktop'
+                });
+              }
             }
           } catch (err) {
             // Silently ignore capture errors to keep polling alive
@@ -81,6 +97,7 @@ export function DesktopViewerPanel() {
     return () => {
       active = false;
       if (timer) clearInterval(timer);
+      useToolContextStore.getState().clearToolContext();
     };
   }, []);
 

@@ -343,8 +343,10 @@ export const getSystemPromptBreakdown = (params: {
 export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
-  let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
-
+  const now = new Date();
+  const dateStr = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString(undefined, { timeZoneName: 'short' });
+  let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: Today is ${dateStr}. The current time is ${timeStr}. Use this precise temporal grounding for all time-related requests.${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n\n[PROACTIVE RESEARCH]\nIf you have a web search tool available, use it judiciously. Only trigger web searches when explicitly necessary to fulfill a request (e.g., retrieving real-time external facts, news, or specific documentation). When your local context or internal knowledge is sufficient, prefer a seamless, conversational response without reaching out to the web.\n`;
   if (agent.role) prompt += `[YOUR ROLE]\nIn this workspace you are acting as the "${agent.role}". Lean into that specialty when deciding what to contribute.\n\n`;
   if (goal) prompt += `[YOUR STANDING GOAL IN THIS SPACE]\n${goal}\nKeep steering toward this across the conversation.\n\n`;
 
@@ -403,6 +405,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
   prompt += `[ACTING ON THE USER'S TOOLS]\n` +
     `When the user clearly wants you to DO something to their tools (not just discuss it), emit a fenced \`\`\`forge:action\`\`\` block containing JSON — a single object or an array. Supported:\n` +
     `- {"tool":"note","op":"create","title":"…","body":"…"}\n` +
+    `- {"tool":"note","op":"update","id":"…","body":"…"}\n` +
     `- {"tool":"task","op":"create","title":"…","dueDate":"YYYY-MM-DD"?}\n` +
     `- {"tool":"task","op":"complete","id":"…"}\n` +
     `- {"tool":"message","op":"send","to":"conversation or contact name","text":"…"}\n` +
@@ -415,7 +418,9 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
     `- {"tool":"music","op":"pause"}  // pauses playback in Apple Music\n` +
     `- {"tool":"music","op":"create_playlist","name":"…"}\n` +
     `- {"tool":"music","op":"add_track","trackName":"…","playlistName":"…"}\n` +
-    `Creating a note/to-do/event applies automatically. Sending a message/email or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Use memory.save when YOU notice something durable worth carrying forward (it's written to your own private memory, not shown as a message, and you'll see it again automatically) — restating the same thing just updates it, so don't worry about duplicates. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
+    `- {"tool":"desktop","op":"click","targetLabel":"text on screen to click"}\n` +
+    `- {"tool":"web","op":"search","query":"…"}\n` +
+    `Creating a note/to-do/event applies automatically. Web searches run automatically and feed results into the next turn. Sending a message/email, clicking the desktop, or deleting anything asks the user to approve first — so just emit the action; don't ask permission in prose. Use memory.save when YOU notice something durable worth carrying forward (it's written to your own private memory, not shown as a message, and you'll see it again automatically) — restating the same thing just updates it, so don't worry about duplicates. Keep a short natural sentence alongside the block. Only emit an action when the intent is clear.\n\n`;
 
   // Tier 2 — relevant memory retrieved for THIS message (semantic, gated by relevance). Placed near
   // the end so it sits close to the user's turn (mitigates "lost in the middle").

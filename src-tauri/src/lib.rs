@@ -12,6 +12,7 @@ pub mod jobs;
 mod mail;
 mod music;
 mod notes;
+mod oauth;
 mod permissions;
 mod pty;
 mod screenshot;
@@ -5275,6 +5276,7 @@ pub fn run() {
             jobs::start_job,
             jobs::update_job,
             jobs::cancel_job,
+            oauth::start_oauth_server,
             greet,
             open_spoken_content_settings,
             get_ram_stats,

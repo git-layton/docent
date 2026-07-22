@@ -78,6 +78,7 @@ const AGENT_ACTION_OP_SCHEMAS: Record<string, z.ZodType<unknown>> = {
   'task.create': z.looseObject({ title: z.string().min(1), dueDate: looseDate }),
   'task.complete': z.looseObject({ id: requiredId }),
   'task.delete': z.looseObject({ id: requiredId }),
+  'note.update': z.looseObject({ id: requiredId, body: z.string().min(1) }),
   'note.delete': z.looseObject({ id: requiredId }),
   'calendar.create': z.looseObject({ title: z.string().min(1), start: z.string().min(1) }),
   'calendar.delete': z.looseObject({ id: requiredId }),
@@ -91,6 +92,8 @@ const AGENT_ACTION_OP_SCHEMAS: Record<string, z.ZodType<unknown>> = {
     title: z.string().min(1),
     steps: z.array(z.looseObject({ intent: z.string().min(1) })).min(1),
   }),
+  'desktop.click': z.looseObject({ targetLabel: z.string().min(1) }),
+  'web.search': z.looseObject({ query: z.string().min(1) }),
   // Card ops — consolidated replacements for the legacy ```event/```save/```profile blocks.
   // They render as editable/confirm cards (never auto-execute), so field tolerance mirrors the
   // cards: EventCard repairs anything; updates/deletes need the id; save needs content; profile

@@ -345,9 +345,26 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       // Name the step BEFORE awaiting it — the label is the whole point during the slow part.
       useAgentActivityStore.getState().advance(activityLabel(String(a.tool ?? ''), String(a.op ?? '')));
       try {
-        const done = await executeAgentAction(a);
-        showToast(`✓ ${done}`);
-        completedActions.push({ tool: String(a.tool ?? ''), intent: describeAction(a) || done });
+        if (a.tool === 'web' && a.op === 'search') {
+          // Execute web search autonomously and trigger a follow-up turn so the agent can read the results.
+          const { webSearchCapability } = await import('./services/capabilities/builtins/webSearch');
+          const mockCtx: any = { userMsg: { content: String(a.query || '') }, integrations: useSettingsStore.getState().integrations, setStatus: showToast };
+          const res = await webSearchCapability.execute(mockCtx);
+          
+          useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
+            ...prev,
+            [chatId]: [...(prev[chatId] ?? []), { id: generateId('sys'), role: 'system', content: res.toolData || 'No results found.', isPinned: false, timestamp: Date.now() }]
+          }));
+          
+          // Trigger follow-up turn seamlessly after a short tick to let React render the message
+          setTimeout(() => handleSendMessageRef.current(), 50);
+          showToast(`✓ Searched for: ${a.query}`);
+          completedActions.push({ tool: 'web', intent: `Search for ${a.query}` });
+        } else {
+          const done = await executeAgentAction(a);
+          showToast(`✓ ${done}`);
+          completedActions.push({ tool: String(a.tool ?? ''), intent: describeAction(a) || done });
+        }
       }
       catch (e) { showToast(`Couldn't ${describeAction(a)}: ${String(e)}`); }
     }

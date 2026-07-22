@@ -9,6 +9,11 @@ const AUTOMATION_LS_KEY = (id: string) => `af-perm-${id}`;
 
 export function IntegrationsDashboard() {
   const [states, setStates] = useState<Record<string, RowState>>({});
+  const [showMailConfig, setShowMailConfig] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [oauthStatus, setOauthStatus] = useState<'idle' | 'waiting' | 'success' | 'error'>('idle');
+  const [oauthError, setOauthError] = useState('');
   
   const integrations = useSettingsStore(s => s.integrations);
   const appSettings = useSettingsStore(s => s.appSettings);
@@ -76,9 +81,8 @@ export function IntegrationsDashboard() {
       setRow(id, s);
       if (s === 'denied') invoke('open_privacy_settings', { pane: 'automation' });
     } else if (id === 'mail') {
-      setProfileSettingsTab('connect');
-      setShowProfileSettings(true);
-      setRow(id, 'unknown'); // Re-probe isn't strictly needed as it relies on store state
+      setShowMailConfig(true);
+      setRow(id, 'unknown');
     } else if (id === 'dream') {
       setProfileSettingsTab('privacy');
       setShowProfileSettings(true);
@@ -189,6 +193,100 @@ export function IntegrationsDashboard() {
           );
         })}
       </div>
+
+      {showMailConfig && (
+        <div className="mt-6 p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4 animate-in slide-in-from-top-4">
+          <div className="flex items-center gap-3 mb-2">
+             <div className="p-3 bg-orange-500/15 rounded-xl shadow-sm"><Mail className="w-5 h-5 text-orange-600 dark:text-orange-400" /></div>
+             <div>
+               <h3 className="text-sm font-bold text-ink">Sign in with Google</h3>
+               <p className="text-[11px] text-ink-3">Provide your own OAuth Client ID to securely connect your Gmail account via XOAUTH2.</p>
+             </div>
+          </div>
+          
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-ink-3 block mb-1.5">Google Client ID</label>
+              <input type="text" value={clientId} onChange={e => setClientId(e.target.value)} placeholder="e.g. 12345-abcde.apps.googleusercontent.com" className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-2.5 text-[13px] outline-none focus:border-accent transition-all" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-ink-3 block mb-1.5">Google Client Secret</label>
+              <input type="password" value={clientSecret} onChange={e => setClientSecret(e.target.value)} placeholder="e.g. GOCSPX-12345..." className="w-full bg-inset border border-edge-2 rounded-xl px-4 py-2.5 text-[13px] outline-none focus:border-accent transition-all" />
+            </div>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between gap-4">
+            <button onClick={() => setShowMailConfig(false)} className="px-4 py-2 text-xs font-bold text-ink-3 hover:text-ink transition-colors">Cancel</button>
+            <button 
+              disabled={!clientId || !clientSecret || oauthStatus === 'waiting'}
+              onClick={async () => {
+                setOauthStatus('waiting');
+                setOauthError('');
+                try {
+                  const port = 18451;
+                  // Start the local server
+                  const authPromise = invoke<string>('start_oauth_server', { port });
+                  // Open the browser
+                  const redirectUri = `http://127.0.0.1:${port}`;
+                  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=https://mail.google.com/%20https://www.googleapis.com/auth/userinfo.email&access_type=offline&prompt=consent`;
+                  await invoke('open_url', { url: authUrl }).catch(async () => {
+                    // Fallback to Shell open
+                    const { open } = await import('@tauri-apps/plugin-shell');
+                    await open(authUrl);
+                  });
+                  // Wait for the server to get the code
+                  const code = await authPromise;
+                  
+                  // Exchange code for token
+                  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                      client_id: clientId,
+                      client_secret: clientSecret,
+                      code,
+                      grant_type: 'authorization_code',
+                      redirect_uri: redirectUri
+                    }).toString()
+                  });
+                  const tokenData = await tokenRes.json();
+                  if (!tokenData.refresh_token) throw new Error('No refresh token received. Ensure you are prompting for consent.');
+                  
+                  // Fetch user email
+                  const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+                  });
+                  const profileData = await profileRes.json();
+                  if (!profileData.email) throw new Error('Could not fetch email from Google profile.');
+                  const userEmail = profileData.email;
+
+                  // Save the oauth payload to keychain
+                  const oauthPayload = `oauth2:${clientId}:${clientSecret}:${tokenData.refresh_token}`;
+                  await invoke('keychain_save', { host: `mail:${userEmail}`, username: 'oauth2', password: oauthPayload });
+                  
+                  useSettingsStore.getState().setIntegrations((prev: any) => {
+                    const rest = (prev.mailAccounts ?? []).filter((a: any) => a.provider !== 'gmail');
+                    return { ...prev, mailAccounts: [...rest, { id: `mail-${Date.now()}`, provider: 'gmail', email: userEmail }] };
+                  });
+                  await useSettingsStore.getState().persist();
+                  
+                  setOauthStatus('success');
+                  setTimeout(() => setShowMailConfig(false), 2000);
+                } catch (e: any) {
+                  setOauthStatus('error');
+                  setOauthError(e.message || String(e));
+                }
+              }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-accent text-on-accent rounded-xl text-xs font-black uppercase tracking-widest hover:bg-accent-strong disabled:opacity-50 transition-all active:scale-95 shadow-sm"
+            >
+              {oauthStatus === 'waiting' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {oauthStatus === 'success' && <CheckCircle2 className="w-3.5 h-3.5" />}
+              {oauthStatus === 'idle' || oauthStatus === 'error' ? 'Authenticate' : oauthStatus === 'waiting' ? 'Waiting for Browser...' : 'Success'}
+            </button>
+          </div>
+          {oauthError && <div className="text-danger text-xs font-bold bg-danger-soft p-3 rounded-lg border border-danger/30">{oauthError}</div>}
+        </div>
+      )}
     </div>
   );
 }

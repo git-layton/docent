@@ -36,7 +36,7 @@ sysinfo = "0.30"
 notify = "6"
 rusqlite = { version = "0.31", features = ["bundled"] }
 fastembed = "4"
-reqwest = { version = "0.12", features = ["stream"] }
+reqwest = { version = "0.12", features = ["stream", "blocking", "json"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["time"] }
 scraper = "0.20"
@@ -51,6 +51,7 @@ native-tls = "0.2"
 mail-parser = "0.9"
 lettre = "0.11"
 uuid = { version = "1.23.5", features = ["v4"] }
+url = "2.5"
 
 # Native macOS Calendar/Reminders via EventKit (objc2 bindings). Calendar events + reminders sync to
 # the user's other devices over iCloud. Feature-gated per Obj-C class/method used in calendar.rs.

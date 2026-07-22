@@ -150,6 +150,7 @@ export function MessageList({
                   <div className="flex-1 h-px bg-edge" />
                 </div>
               ) : null;
+              if (msg.isToolCall) return divider ? [divider] : [];
               const bubble = (
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.role === 'bot' && <div className="shrink-0 mr-2 mt-0.5 hidden sm:block"><AgentIcon agent={activeAssistant} sizeClass="w-4 h-4" containerClass="p-1.5 rounded-lg shadow-sm" /></div>}
