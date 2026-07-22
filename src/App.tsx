@@ -31,6 +31,7 @@ import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, ge
 import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { generateNodeId, upsertGraphNode } from './services/graphEntityExtractor';
+import { ingestMemoryIntoGraph } from './services/conversationGraph';
 import { assessConversationMemory } from './services/memoryPolicy';
 import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, reinforcePlaybook, readPlaybookByTrigger } from './services/appliedMemory';
 import { distillCandidate, observeCompletion, composeSkillContext, shouldPropose, isStale, DEFAULT_SKILL_POLICY, type LearnedSkill, type CompletedAction } from './services/organicSkills';
@@ -1532,15 +1533,21 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       });
       if (!ok) return;
       if (updated) invalidateMemorySummary();
-      // Mirror fresh memories into the knowledge graph as concept nodes — the graph is the agent's
-      // mental map, and explicit memories are its most deliberate beliefs. A deduped merge folded
-      // into an existing memory file, so there's no new fact to add a node for.
+      // Mirror fresh memories into the knowledge graph — the graph is the agent's mental map, and
+      // explicit memories are its most deliberate beliefs. A deduped merge folded into an existing
+      // memory file, so there's no new fact to add a node for.
+      //
+      // This used to write a bare `concept` stub labelled with the memory's title, which is the
+      // first sentence of the user's message: that is how "Do it" became a Topic. Now the memory is
+      // a `note` and the real extractor runs over the exchange, so the graph learns what the memory
+      // is ABOUT rather than what it was called.
       if (!updated) {
-        void upsertGraphNode({
-          id: generateNodeId('memory', write.path),
-          nodeType: 'concept',
-          label: write.title,
-          sourcePath: write.path,
+        const { models, selectedModelId } = useSettingsStore.getState();
+        void ingestMemoryIntoGraph({
+          path: write.path,
+          title: write.title,
+          text: userMsg.content,
+          modelConfig: (models.find((m: any) => m.id === selectedModelId) ?? models[0]) as any,
         });
       }
       showToast(decision.destination === 'library' ? 'Saved to Library.' : updated ? 'Updated what I knew.' : 'Saved to agent memory.');
@@ -1584,6 +1591,17 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       // ordinary chatter doesn't flood memory; explicit requests are owned by the gatekeeper above.
       if (!assessment.shouldSave || (assessment.level !== 'notable' && assessment.level !== 'explicit')) return;
 
+      // The gatekeeper gets a veto. `memoryType` is only 'none' when it classified the turn
+      // `background` AND matched no durable category at all (memoryGatekeeper.ts:248-255) — the
+      // default is 'fact', so a turn it rated notable/explicit can never land here. Without this the
+      // salience score was the sole gate, and it is easy to clear on structure alone: `multi-agent`
+      // (+3, permanent whenever contributions exist) plus `durable-user-signal` (+2) plus
+      // `durable-answer` (+2) plus `channel-memory` (+1) reaches the notable bar of 7 with no
+      // durable content. That produced files contradicting themselves on disk — `memory_type: none`,
+      // `confidence: low`, body reading "No durable memory save is recommended" — saved and tagged
+      // `memory-notable`. Two rule engines disagreed and the louder one won; now the classifier wins.
+      if (decision.memoryType === 'none') return;
+
       // Keep the gatekeeper's rich classification (memory type, evidence, privacy, provenance), but
       // promote it to a save and route it to a real destination if the gatekeeper had declined.
       const destination = (['agent_memory', 'channel_memory', 'library'] as const).includes(decision.destination as any)
@@ -1617,14 +1635,18 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       });
       if (!ok) return;
       invalidateMemorySummary();
-      // Same mental-map mirror as the explicit gatekeeper path: fresh auto-captured memories
-      // become concept nodes; deduped merges already have one.
+      // Same mental-map mirror as the explicit gatekeeper path: fresh auto-captured memories become
+      // `note` nodes with their entities extracted; deduped merges already have one. This path has
+      // both halves of the exchange, so the extractor sees the answer too — which is usually where
+      // the proper nouns and relationships live.
       if (!updated) {
-        void upsertGraphNode({
-          id: generateNodeId('memory', write.path),
-          nodeType: 'concept',
-          label: write.title,
-          sourcePath: write.path,
+        const { models, selectedModelId } = useSettingsStore.getState();
+        void ingestMemoryIntoGraph({
+          path: write.path,
+          title: write.title,
+          text: userMsg.content,
+          answer,
+          modelConfig: (models.find((m: any) => m.id === selectedModelId) ?? models[0]) as any,
         });
       }
       showToast(updated ? '🧠 Updated what I knew.' : '🧠 Remembered this.');

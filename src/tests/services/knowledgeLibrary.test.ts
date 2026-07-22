@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  isEntityLabel,
   shelfForNodeType,
   frontmatterValue,
   noteTitle,
@@ -315,5 +316,58 @@ describe('buildTopicChatPrompt', () => {
 
   it('returns empty for an unusable label so callers can skip the action', () => {
     expect(buildTopicChatPrompt({ kind: 'entity', label: '   ' })).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isEntityLabel — the junk gate.
+//
+// The fixtures below are not invented: they are the seven labels that were actually in the live
+// graph at ~/AgentForge/.index.db, which contained nothing else. Every one was minted by a saved
+// memory whose title is the first sentence of the user's message. If this gate ever stops
+// rejecting them, the Topics shelf fills with chat fragments again.
+// ---------------------------------------------------------------------------
+
+describe('isEntityLabel', () => {
+  const LIVE_JUNK = [
+    'Do it',
+    'Ok is it too late though',
+    'Hmm so in baldur’s gate, I am playing a dark urge draw and was going to play red',
+    'Maybe you can create a note for me, that tracks this feedback for Docent',
+    'Can you see what this agent says, summarize all 3 issues in detial',
+    'No you saw it and summarized back it exaclty',
+    'Well if you’re tracking… I walso am still made and the dakr vs light, liek they',
+  ]
+
+  it.each(LIVE_JUNK)('rejects the live junk label %#: %s', (label) => {
+    expect(isEntityLabel(label)).toBe(false)
+  })
+
+  it.each([
+    'Baldur’s Gate 3',
+    'Dark Urge',
+    'Docent',
+    'Alex Layton',
+    'Apple Notes',
+    'Tauri',
+  ])('accepts the real entity %s', (label) => {
+    expect(isEntityLabel(label)).toBe(true)
+  })
+
+  it('rejects empty and whitespace-only labels', () => {
+    expect(isEntityLabel('')).toBe(false)
+    expect(isEntityLabel('   ')).toBe(false)
+    expect(isEntityLabel(undefined as unknown as string)).toBe(false)
+  })
+
+  it('rejects a title cut at the truncation width even when it looks name-like', () => {
+    // titleFromText slices at 80 chars; anything reaching it was a sentence that ran past the cut.
+    expect(isEntityLabel('A'.repeat(80))).toBe(false)
+    expect(isEntityLabel('A'.repeat(79))).toBe(true)
+  })
+
+  it('rejects labels with no letters', () => {
+    expect(isEntityLabel('2026')).toBe(false)
+    expect(isEntityLabel('--')).toBe(false)
   })
 })

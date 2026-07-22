@@ -44,6 +44,7 @@ import { KnowledgeLibraryView } from './KnowledgeLibraryView';
 import { NoteReaderPage } from './NoteReaderPage';
 import { loadNoteItems, parseNodeMetadata, NODE_TYPE_VOCABULARY, type LibraryItem } from '../services/knowledgeLibrary';
 import { useAgentStore } from '../store/useAgentStore';
+import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
 
 type NodeType = 'page' | 'file' | 'note' | 'entity' | 'person' | 'concept' | 'technology' | string;
@@ -125,6 +126,7 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
   const [mergeSourceId, setMergeSourceId] = useState<string | null>(null);
 
   const activeAgentId = useAgentStore(s => s.activeFolderId ?? s.assistants[0]?.id ?? null);
+  const activeSpaceId = useSpaceStore(s => s.activeSpaceId);
 
   // Pull the REAL knowledge graph (all nodes + edges). The backend serializes edge endpoints as
   // source_id/target_id, but the renderer + filters expect source/target — so map them here.
@@ -152,14 +154,16 @@ function KnowledgeGraphPanelInner({ onSendPrompt }: KnowledgeGraphPanelProps) {
       // notes are best-effort, since an unreadable note must not blank the whole panel.
       const [full, notes] = await Promise.all([
         invoke('get_graph_full').then(asGraph).catch(() => null),
-        loadNoteItems(activeAgentId).catch(() => [] as LibraryItem[]),
+        // The space id is load-bearing: without it the backend scans `memory/<agent-id>/`, which
+        // does not exist, and the shelf comes back empty (see loadNoteItems).
+        loadNoteItems(activeAgentId, activeSpaceId).catch(() => [] as LibraryItem[]),
       ]);
       setGraphData(full ?? { nodes: [], edges: [] });
       setNoteItems(notes);
     } finally {
       setLoading(false);
     }
-  }, [activeAgentId]);
+  }, [activeAgentId, activeSpaceId]);
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 

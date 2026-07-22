@@ -2082,6 +2082,16 @@ fn list_agent_memory_files(agent_id: String, space_id: Option<String>) -> serde_
         let global_dir = knowledge_root().join("memory").join("spaces").join("space-home");
         collect_knowledge_files(&space_dir, &mut files, true);
         collect_knowledge_files(&global_dir, &mut files, true);
+        // Knowledge that lives at the memory root rather than under any space. `research/` is the
+        // browser capture path (pageDigest writes every saved web page there) and `saved/` is
+        // explicit saves; both are global by design. Neither was walked by this command nor by
+        // `list_library_files` (which only scans `library/`), so 22 captured pages — the richest
+        // content on disk, with real titles and source URLs — reached no shelf at all. Listed
+        // explicitly rather than by walking `memory/` itself, which would recurse into every other
+        // space and break the isolation the branch above exists to provide.
+        for shared in ["research", "saved"] {
+            collect_knowledge_files(&knowledge_root().join("memory").join(shared), &mut files, true);
+        }
     } else {
         if !is_safe_agent_id(&agent_id) {
             return serde_json::json!({ "files": [], "error": "Invalid agent id" });

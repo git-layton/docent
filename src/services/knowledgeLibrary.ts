@@ -75,6 +75,57 @@ export function shelfForNodeType(nodeType: string | undefined): ShelfId {
   return 'things';
 }
 
+/** Words that begin an utterance rather than a name. A label opening with one of these is something
+ *  the user *said*, not something that exists. */
+const UTTERANCE_OPENERS = new Set([
+  'i', 'you', 'we', 'it', 'ok', 'okay', 'hmm', 'um', 'well', 'no', 'yes', 'yeah', 'nope',
+  'do', 'can', 'could', 'would', 'should', 'maybe', 'let', 'lets', "let's", 'what', 'why',
+  'how', 'when', 'where', 'who', 'so', 'and', 'but', 'if', 'is', 'are', 'was', 'please',
+  'thanks', 'thank', 'oh', 'also', 'just', 'actually', 'wait',
+]);
+
+/** The width `titleFromText` (memoryGatekeeper.ts) truncates to. A label at exactly this length was
+ *  almost certainly cut mid-sentence rather than being a genuinely long name. */
+const TITLE_TRUNCATION_WIDTH = 80;
+
+/**
+ * Is this label a *thing* rather than something someone said?
+ *
+ * The graph's entire content was chat fragments — "Do it", "Ok is it too late though", "Hmm so in
+ * baldur's gate, I am playing a dark urge draw and was going to play red" — because every saved
+ * memory minted a node labelled with `titleFromText`, the first sentence of the user's message.
+ * Entities have names; utterances have grammar. This gate is the difference, and it is pure so the
+ * junk it must reject can be pinned down in tests.
+ *
+ * Deliberately conservative in one direction: it is far better to drop a real entity (the next
+ * mention re-adds it) than to admit a sentence, which is permanent visual noise on a shelf.
+ */
+export function isEntityLabel(label: string): boolean {
+  const raw = String(label ?? '').trim();
+  if (!raw) return false;
+
+  // A truncated title is a sentence that ran past the cut, never a name.
+  if (raw.length >= TITLE_TRUNCATION_WIDTH) return false;
+
+  // Sentence-terminal punctuation, or the ellipsis left by truncation.
+  if (/[.!?]|…|\.\.\./.test(raw)) return false;
+
+  // Commas and semicolons join clauses; names don't need them. ("Alexander Layton, PhD" is a rare
+  // enough shape to lose.)
+  if (/[;,]/.test(raw)) return false;
+
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length > 6) return false;
+
+  const first = words[0].toLowerCase().replace(/[^a-z']/g, '');
+  if (UTTERANCE_OPENERS.has(first)) return false;
+
+  // Must contain at least one letter — bare numbers and punctuation aren't entities.
+  if (!/[a-z]/i.test(raw)) return false;
+
+  return true;
+}
+
 // ── Note parsing ────────────────────────────────────────────────────────────
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\s*/;
@@ -186,12 +237,20 @@ export function buildEntityItems(nodes: GraphNodeLike[], edges: GraphEdgeLike[])
 
 export interface NoteFile { path: string; name: string; content?: string }
 
+/** A file that records where it came from is a source, not a note. Web captures written by
+ *  pageDigest carry `source: "https://…"` in frontmatter; gatekeeper memories never do. Routing on
+ *  the field rather than the directory keeps this true for any future writer that records origin. */
+function shelfForNoteFile(content: string | undefined): ShelfId {
+  const src = frontmatterValue(content ?? '', 'source');
+  return src && /^https?:\/\//i.test(src) ? 'sources' : 'notes';
+}
+
 export function buildNoteItems(files: NoteFile[]): LibraryItem[] {
   return (files ?? []).map(f => ({
     id: f.path,
     kind: 'note' as const,
     label: noteTitle(f.content ?? '', f.name),
-    shelf: 'notes' as const,
+    shelf: shelfForNoteFile(f.content),
     path: f.path,
     snippet: f.content ? noteSnippet(f.content) : undefined,
   }));
@@ -312,16 +371,33 @@ const isTauri = () => !!((window as any).__TAURI_INTERNALS__ || (window as any).
  * Phase 0 made visible. Contents are read so cards can show a real preview — capped, because this
  * runs on panel open and a large Knowledge Core would otherwise mean hundreds of reads.
  */
-export async function loadNoteItems(agentId?: string | null, maxRead = 120): Promise<LibraryItem[]> {
+export async function loadNoteItems(
+  agentId?: string | null,
+  spaceId?: string | null,
+  maxRead = 120,
+): Promise<LibraryItem[]> {
   if (!isTauri()) return [];
-  const [memory, dossiers] = await Promise.all([
-    invoke<{ files: NoteFile[] }>('list_agent_memory_files', { agentId: agentId ?? null }).catch(() => ({ files: [] })),
-    invoke<{ files: NoteFile[] }>('list_dossier_files').catch(() => ({ files: [] })),
+  // `agentId: null` was the whole bug. Rust declares `agent_id: String` (non-optional) with
+  // `space_id: Option<String>`, so null failed to deserialize, the command errored, and the
+  // `.catch` below turned that into an empty list — an empty Notes shelf with no trace of why, for
+  // weeks. Without a space it would have scanned `memory/<agent_id>/`, which doesn't exist either;
+  // the real files live under `memory/spaces/<space>/gatekeeper/`. appliedMemory.ts:170 always had
+  // this right. Errors are logged now rather than swallowed, so the next signature drift is visible.
+  const listed = await Promise.all([
+    invoke<{ files: NoteFile[] }>('list_agent_memory_files', {
+      agentId: agentId ?? 'default',
+      spaceId: spaceId || undefined,
+    }).catch((e) => { console.warn('[knowledgeLibrary] list_agent_memory_files failed:', e); return { files: [] }; }),
+    invoke<{ files: NoteFile[] }>('list_dossier_files')
+      .catch((e) => { console.warn('[knowledgeLibrary] list_dossier_files failed:', e); return { files: [] }; }),
+    // Bookmarked library saves and dropped documents.
+    invoke<{ files: NoteFile[] }>('list_library_files')
+      .catch((e) => { console.warn('[knowledgeLibrary] list_library_files failed:', e); return { files: [] }; }),
   ]);
 
   const seen = new Set<string>();
   const files: NoteFile[] = [];
-  for (const f of [...(dossiers.files ?? []), ...(memory.files ?? [])]) {
+  for (const f of listed.flatMap(r => r.files ?? [])) {
     if (!f?.path || seen.has(f.path)) continue;
     seen.add(f.path);
     files.push(f);

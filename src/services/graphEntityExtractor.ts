@@ -189,8 +189,17 @@ export async function extractAndWriteGraph(opts: {
   // Always record the source node itself, even when extraction is skipped or fails — the graph
   // should at least show what was ingested. It must also exist before any appears_in edge (FK); the
   // batch below inserts nodes before edges, so ordering holds inside the transaction.
+  //
+  // Written unconditionally, BEFORE any early return, because this comment used to promise an
+  // invariant the code didn't keep: the upsert sat inside the short-text branch only, so the
+  // `!extraction` bail below returned having written nothing. pageDigest passes
+  // `modelConfig: (modelConfig ?? {})`, which makes the structured call throw whenever no model is
+  // configured — caught, null, silent return. That is why 22 saved page digests produced ZERO
+  // `page` nodes in a database created before the oldest of them. Any early return past this point
+  // must still leave the source node behind.
+  await upsertGraphNode(sourceNode);
+
   if (text.trim().length < MIN_EXTRACTION_CHARS) {
-    await upsertGraphNode(sourceNode);
     return { nodes: [], edges: [] };
   }
 
