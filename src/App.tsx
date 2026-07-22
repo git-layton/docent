@@ -424,6 +424,11 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const evaluatedContextRef = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() });
   const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const routineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Routes the previous turn took, per chat, so a follow-up can inherit an intent it plainly
+  // continues (see previousRoutes in memoryGatekeeper). A ref, not state: nothing renders from it,
+  // and it must not trigger a re-render mid-turn. Per-chat so switching conversations can't leak
+  // one thread's intent into another.
+  const lastRoutesRef = useRef<Record<string, string[]>>({});
   const activeAssistantRef = useRef<any>(null);
   const selectedModelRef = useRef<any>(null);
 
@@ -2210,8 +2215,11 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         forcedTool: _forcedTool,
         enabledTools: _activeAssistant?.tools ?? {},
         webSearchUsable: _webSearchUsable,
+        previousRoutes: (lastRoutesRef.current[chatId] ?? []) as any,
         attachedFiles: userMsg.attachedFiles ?? [],
       });
+      // Remember what this turn resolved to, for the next one to inherit if it's a continuation.
+      lastRoutesRef.current[chatId] = gatekeeperDecision.toolRoutes ?? [];
 
       await persistGatekeeperMemory(chatId, userMsg, gatekeeperDecision, _activeAssistant);
 

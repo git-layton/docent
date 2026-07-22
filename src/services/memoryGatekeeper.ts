@@ -29,6 +29,17 @@ export interface MemoryGatekeeperInput {
   // Optional; defaults to "usable" so existing callers are unchanged. When false, a search intent
   // falls back to the keyless `browser` route instead of the silently-failing API path.
   webSearchUsable?: boolean;
+  /**
+   * Routes the PREVIOUS turn took, so a follow-up can inherit the intent it plainly continues.
+   *
+   * Routing reads only the current message, which is wrong the moment a request spans two turns.
+   * Observed: "can you look up the event" routed to search and worked; the next turns — "try again"
+   * and "it's Ruoff Center in Noblesville" — carry the same intent but none of the keywords, so
+   * routing silently dropped. Left with no way to search mid-conversation, the model invented a
+   * `{"tool":"web_search"}` call that no grammar accepts and printed it as text. The visible bug was
+   * hallucinated JSON; the actual bug was here.
+   */
+  previousRoutes?: ToolRoute[];
   sourcePaths?: string[];
   sourceUrls?: string[];
   attachedFiles?: Array<{ name?: string; type?: string; isImage?: boolean }>;
@@ -63,6 +74,8 @@ const TOOL_ROUTES = ['memory_search', 'web_search', 'browser', 'integrations', '
 const PRIVACY_LABELS = ['normal', 'personal', 'sensitive'] as const;
 
 const TRIVIAL_RE = /^(lol|lmao|haha|thanks|thank you|thx|ok|okay|yes|no|yep|nah|cool|nice|got it|sounds good|perfect)[.!?\s]*$/i;
+/** Phrases that explicitly pick the previous request back up, at any length. */
+const CONTINUATION_RE = /^\s*(try again|try that again|again|retry|one more time|go on|continue|keep going|now try|same thing|do that|what about|how about)\b/i;
 const EXPLICIT_MEMORY_RE = /\b(remember this|remember that|remember my|remember:|please remember|save this|save that|save to memory|add to memory|note this|take a note|pin this|log this|add this to (my )?(memory|library)|save to library)\b/i;
 const TASK_RE = /\b(to-?do|task|remind me|schedule|appointment|meeting|deadline|follow up|call .* by|email .* by|add .* to planner)\b/i;
 const DECISION_RE = /\b(we decided|decision|agreed|approved|chosen|final decision|supported|not supported|standardize|settled on|ship with|decided that)\b/i;
@@ -170,7 +183,33 @@ function routeToolCandidates(input: MemoryGatekeeperInput, text: string, isExpli
     routes.push('integrations');
   }
 
-  return uniq(routes).length > 0 ? uniq(routes) : ['none'];
+  if (uniq(routes).length > 0) return uniq(routes);
+
+  // Nothing matched. Before giving up, consider whether this turn is plainly continuing the last
+  // one — "try again", or a bare clarification like "it's Ruoff Center in Noblesville". Those carry
+  // the previous intent and none of its keywords, and dropping the route there is what strands the
+  // model mid-task.
+  //
+  // Only the two search routes are inherited: re-running a lookup with better details is the whole
+  // point of a follow-up, whereas silently re-sending mail or re-writing a calendar event because
+  // someone said "again" would be an unrequested side effect. Read-only routes are safe to repeat.
+  const inheritable = (input.previousRoutes ?? []).filter(r => r === 'web_search' || r === 'browser');
+  if (inheritable.length > 0 && isFollowUpTurn(text)) return uniq(inheritable);
+
+  return ['none'];
+}
+
+/** Short, non-trivial, and not a fresh subject — i.e. the user is still on the previous request. */
+function isFollowUpTurn(text: string): boolean {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  // "thanks" / "ok" end a thread rather than continue it; inheriting there would fire a pointless
+  // search at the exact moment the user is done.
+  if (TRIVIAL_RE.test(t)) return false;
+  if (CONTINUATION_RE.test(t)) return true;
+  // A short turn following a routed one is almost always a correction or an added detail. Long turns
+  // are new subjects and should be routed on their own merits.
+  return t.split(/\s+/).filter(Boolean).length <= 12;
 }
 
 export function validateMemoryGatekeeperDecision(

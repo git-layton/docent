@@ -725,3 +725,77 @@ describe('validateMemoryGatekeeperDecision', () => {
     expect(result.toolRoutes).toEqual(['memory_search', 'none'])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Route inheritance across follow-up turns.
+//
+// Reproduced from a real transcript. "can you look up the event" routed to
+// search and worked. The next two turns — "try again" and a bare clarification —
+// carry the same intent but none of the keywords, so routing dropped to 'none'.
+// With no way to search mid-conversation the model invented a
+// {"tool":"web_search"} call and printed it as text. The hallucinated JSON was
+// the symptom; losing the route was the bug.
+// ---------------------------------------------------------------------------
+
+describe('evaluateMemoryGate — follow-up route inheritance', () => {
+  const tools = { web_search: true }
+
+  it('routes the original request on its own keywords', () => {
+    const d = evaluateMemoryGate({
+      text: 'can you look up the event on ticketmaster?',
+      enabledTools: tools,
+    })
+    expect(d.toolRoutes).toContain('web_search')
+  })
+
+  it('inherits the route for "try again"', () => {
+    const d = evaluateMemoryGate({
+      text: 'try again',
+      enabledTools: tools,
+      previousRoutes: ['web_search'],
+    })
+    expect(d.toolRoutes).toContain('web_search')
+  })
+
+  it('inherits the route for a bare clarification', () => {
+    const d = evaluateMemoryGate({
+      text: "it's ruoff center in noblesville?",
+      enabledTools: tools,
+      previousRoutes: ['web_search'],
+    })
+    expect(d.toolRoutes).toContain('web_search')
+  })
+
+  it('does NOT inherit when the user is signing off', () => {
+    const d = evaluateMemoryGate({
+      text: 'thanks',
+      enabledTools: tools,
+      previousRoutes: ['web_search'],
+    })
+    expect(d.toolRoutes).not.toContain('web_search')
+  })
+
+  it('does NOT inherit for a long, clearly new subject', () => {
+    const d = evaluateMemoryGate({
+      text: 'completely changing topic now, I want to talk about how the quarterly planning process should work for the design team next year',
+      enabledTools: tools,
+      previousRoutes: ['web_search'],
+    })
+    expect(d.toolRoutes).not.toContain('web_search')
+  })
+
+  it('never inherits a side-effecting route — "again" must not re-send mail', () => {
+    const d = evaluateMemoryGate({
+      text: 'try again',
+      enabledTools: { ...tools, gmail: true },
+      previousRoutes: ['integrations', 'calendar'] as any,
+    })
+    expect(d.toolRoutes).not.toContain('integrations')
+    expect(d.toolRoutes).not.toContain('calendar')
+  })
+
+  it('is a no-op when there was no previous route', () => {
+    const d = evaluateMemoryGate({ text: 'try again', enabledTools: tools })
+    expect(d.toolRoutes).not.toContain('web_search')
+  })
+})
