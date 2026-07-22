@@ -117,6 +117,58 @@ export function buildAnnotatorScript(requestId: string): string {
 })();`;
 }
 
+// Well-known ids for the control-frame overlay, so painting is idempotent and teardown is clean.
+const CONTROL_FRAME_ID = '__docent-control-frame';
+const CONTROL_STYLE_ID = '__docent-control-style';
+
+/**
+ * The "Docent took control" indicator: a steady ember-violet frame around the page edge plus a small
+ * "Docent is browsing for you" pill, injected into the browsed page while the agent is driving it —
+ * the acting counterpart to GlowOverlay's perception glow, sharing the same `--af-glow-*` palette so
+ * "the app is doing something" reads the same everywhere.
+ *
+ * `on=true` paints (idempotent — a no-op if already present, so it can be re-asserted every turn to
+ * survive navigations); `on=false` removes it. The overlay is `pointer-events:none` so it can never
+ * intercept the agent's own clicks, and its label is CSS generated content (`::after`) so it stays
+ * out of `document.body.innerText` and never pollutes the page text the model reads back. Honors
+ * prefers-reduced-motion with a static frame. Defensive throughout — a hostile page can't break it.
+ */
+export function buildControlFrameScript(on: boolean): string {
+  const fid = JSON.stringify(CONTROL_FRAME_ID);
+  const sid = JSON.stringify(CONTROL_STYLE_ID);
+  if (!on) {
+    return `(function(){ try {
+      var f=document.getElementById(${fid}); if(f&&f.parentNode) f.parentNode.removeChild(f);
+      var s=document.getElementById(${sid}); if(s&&s.parentNode) s.parentNode.removeChild(s);
+    } catch(_){} })();`;
+  }
+  return `(function(){ try {
+    if (!document.body || document.getElementById(${fid})) return;
+    var reduce=false; try { reduce=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch(_){}
+    if (!document.getElementById(${sid})) {
+      var st=document.createElement('style'); st.id=${sid};
+      st.textContent='@keyframes __docentCtl{0%,100%{opacity:.5}50%{opacity:.9}}'
+        +'#'+${fid}+' .__docent-pill::after{content:"Docent is browsing for you"}';
+      (document.head||document.documentElement).appendChild(st);
+    }
+    var f=document.createElement('div'); f.id=${fid}; f.setAttribute('aria-hidden','true');
+    f.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:2147483647;border-radius:10px;'
+      +'box-shadow:inset 0 0 0 3px rgba(165,155,255,.95),inset 0 0 46px 6px rgba(122,110,230,.55),inset 0 0 140px rgba(224,120,90,.16);'
+      +(reduce?'opacity:.72;':'animation:__docentCtl 3s ease-in-out infinite;');
+    var pill=document.createElement('div'); pill.className='__docent-pill';
+    pill.style.cssText='position:absolute;top:12px;left:50%;transform:translateX(-50%);pointer-events:none;'
+      +'display:flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;'
+      +'background:rgba(20,18,40,.86);color:#E7E3FF;font:600 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;'
+      +'box-shadow:0 4px 16px rgba(0,0,0,.35),inset 0 0 0 1px rgba(165,155,255,.35);white-space:nowrap;letter-spacing:.2px;';
+    var dot=document.createElement('span');
+    dot.style.cssText='width:7px;height:7px;border-radius:50%;background:rgba(224,120,90,.95);box-shadow:0 0 8px rgba(224,120,90,.9);flex:0 0 auto;'
+      +(reduce?'':'animation:__docentCtl 1.4s ease-in-out infinite;');
+    pill.appendChild(dot);
+    f.appendChild(pill);
+    document.body.appendChild(f);
+  } catch(_){} })();`;
+}
+
 /** Click the element tagged with the given index. */
 export function buildClickScript(index: number): string {
   return `(function(){ try { var el=document.querySelector('[data-agf-idx="${index}"]'); if(el){ el.scrollIntoView({block:'center'}); el.click(); } } catch(_){} })();`;

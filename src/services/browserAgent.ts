@@ -19,6 +19,7 @@ import { fetchWithRetry } from './llm';
 import {
   OBSERVATION_EVENT,
   buildAnnotatorScript,
+  buildControlFrameScript,
   buildClickScript,
   buildTypeScript,
   buildScrollScript,
@@ -123,6 +124,10 @@ export async function isBrowserPanelReady(): Promise<boolean> {
 
 // ─── Observation ──────────────────────────────────────────────────────────────
 
+// True only while an errand is actively driving the browser. Every page load wipes injected DOM,
+// so the control frame is re-asserted from `observe` (which runs each turn) rather than painted once.
+let controlFrameActive = false;
+
 // Inject the annotator and wait for it to report back through `browser-agent:observation`,
 // matching on the requestId we embedded so a stale report from an earlier step can't fool us.
 async function observe(waitMs: number): Promise<Observation> {
@@ -150,6 +155,10 @@ async function observe(waitMs: number): Promise<Observation> {
 
   try {
     await invoke('browser_eval', { label: BROWSER_LABEL, script: buildAnnotatorScript(requestId) });
+    // Re-assert the "Docent took control" frame on the freshly-loaded page (idempotent within a page).
+    if (controlFrameActive) {
+      try { await invoke('browser_eval', { label: BROWSER_LABEL, script: buildControlFrameScript(true) }); } catch { /* cosmetic */ }
+    }
   } catch (e) {
     if (!settled) {
       settled = true;
@@ -401,6 +410,8 @@ async function runBrowserAgentInner(opts: RunBrowserAgentOptions): Promise<Brows
     return obs;
   };
 
+  controlFrameActive = true; // paints from the first observe; the finally always clears it
+
   try {
     let obs = await goTo(startUrl);
 
@@ -579,5 +590,10 @@ ${transcript.slice(-10).join('\n')}`;
       reachedBudget: false,
       error: String(e?.message ?? e),
     };
+  } finally {
+    // Control released — pull the frame off whatever page we ended on (runs on every exit: DONE,
+    // out-of-steps, abort, or error). Best-effort; a dead webview just means nothing to clean up.
+    controlFrameActive = false;
+    try { await invoke('browser_eval', { label: BROWSER_LABEL, script: buildControlFrameScript(false) }); } catch { /* cosmetic */ }
   }
 }
