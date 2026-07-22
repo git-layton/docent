@@ -1,4 +1,5 @@
 import { extractAndWriteGraph, generateNodeId } from './graphEntityExtractor';
+import { invalidateGraphContext } from './graphContext';
 
 /**
  * Feed a saved memory into the knowledge graph.
@@ -62,7 +63,11 @@ export async function ingestMemoryIntoGraph(input: IngestMemoryInput): Promise<v
       sourcePath: path,
       modelConfig: (modelConfig ?? {}) as Record<string, unknown>,
     }),
-  ).catch((err) => {
+  ).then(() => {
+    // Drop the label cache so the very next turn can match against what was just learned. Without
+    // this the read path (graphContext) would run a turn behind everything the write path added.
+    invalidateGraphContext();
+  }).catch((err) => {
     // Never surfaces to the user and never fails a chat turn: both call sites invoke this
     // fire-and-forget, and a memory is still saved to disk whether or not the graph learns from it.
     console.warn('[conversationGraph] ingest failed:', err);

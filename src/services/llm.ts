@@ -340,7 +340,7 @@ export const getSystemPromptBreakdown = (params: {
   return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: ${new Date().toLocaleString()}${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n`;
@@ -419,6 +419,10 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
 
   // Tier 2 — relevant memory retrieved for THIS message (semantic, gated by relevance). Placed near
   // the end so it sits close to the user's turn (mitigates "lost in the middle").
+  if (graphContext) {
+    prompt += `[WHAT YOU KNOW ABOUT THINGS JUST MENTIONED]\nFrom your knowledge graph — these entities came up in the message, with what they're connected to. Use it to answer as someone who already knows who and what these are; don't ask the user to re-explain them:\n${String(graphContext).slice(0, 900)}\n\n`;
+  }
+
   if (relevantMemory) {
     prompt += `[RELEVANT MEMORY FOR THIS MESSAGE]\nRetrieved from your knowledge base because it's relevant to what was just said — use it if helpful:\n${String(relevantMemory).slice(0, 3000)}\n\n`;
   }
@@ -498,7 +502,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
 export const stripThinkingTags = (text: string): string =>
   text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
+export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
 
@@ -553,7 +557,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, knownProcedures, webRecall, goal, projectContext, voiceProfile })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);

@@ -26,6 +26,7 @@ import { useAgentActivityStore, activityLabel, receiptsSince } from './store/use
 import { parseModelBlock } from './services/modelBlocks';
 import { trustOfToolSource } from './services/trust';
 import { loadMemorySummary, retrieveRelevantMemory, invalidateMemorySummary } from './services/memoryContext';
+import { retrieveGraphContext } from './services/graphContext';
 import { searchWebHistory, renderWebRecall } from './services/webHistory';
 import { normalizeChatRecord, scopeAgentsForChat, buildChannelPromptAddendum, getParticipantAgents, extractMentionedAgentIds } from './services/channels';
 import { runIntegrationTools } from './services/integrations';
@@ -2251,6 +2252,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       const activeSpace = useSpaceStore.getState().activeSpaceId;
       const _memorySummary = await loadMemorySummary(_activeAssistant?.id, activeSpace || undefined);
       const { text: _relevantMemory, hits: _relevantMemoryHits } = await retrieveRelevantMemory(userMsg.content, _activeAssistant?.id);
+      // What the graph knows about entities this message names. Rides the existing retrieval path
+      // rather than adding another: until now nothing outside the two UI panels ever read the graph,
+      // so every extracted entity and relation was stored, drawn, and never consulted when
+      // answering. Budgeted like its neighbours (2 entities, ~600 chars) so a graph that grows
+      // without bound cannot grow the prompt with it.
+      const _graphContext = await retrieveGraphContext(userMsg.content);
       // Skill context for this turn: the surface's static skills (skills.ts) layered with the user-TRUSTED
       // learned playbooks (a propose-don't-run block). For plain chat this is identical to the procedures
       // block — a surface skill only applies on the code/doc surfaces. '' when nothing applies.
@@ -2391,7 +2398,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
             integrations: _integrations,
             models: _models,
             runIntegrationTools,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, graphContext: _graphContext, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
             goal: _activeSpace?.agentGoals?.[agent.id], projectContext: _activeProjectContext,
           });
 
@@ -2454,7 +2461,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
               integrations: _integrations,
               models: _models,
               runIntegrationTools,
-              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
+              ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, graphContext: _graphContext, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
               goal: _activeSpace?.agentGoals?.[primaryAgent.id], projectContext: _activeProjectContext,
             });
             useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
@@ -2533,7 +2540,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
             models: _models,
             runIntegrationTools,
             browserContext: _browserContext,
-            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
+            ambientContext: _ambientContext, toolContext: _toolContext, memorySummary: _memorySummary, relevantMemory: _relevantMemory, graphContext: _graphContext, knownProcedures: _knownProcedures, webRecall: _webRecall, voiceProfile: _appSettings?.voiceProfile,
             goal: _activeSpace?.agentGoals?.[_activeAssistant?.id], projectContext: _activeProjectContext,
         });
 
