@@ -506,15 +506,23 @@ function FeedbackButton() {
 
   const send = useCallback(() => {
     const subject = `Docent feedback${version ? ` (v${version})` : ''}`;
+    // Two prompts, in this order. "What happened" on its own gets a bug title with no bug in it;
+    // the gap between what someone expected and what they got is the actual report, and it is the
+    // one thing they can't reconstruct later once they've moved on.
     const body = [
+      '',
+      'What I was trying to do:',
+      '',
+      '',
+      'What I expected to happen:',
+      '',
+      '',
+      'What actually happened:',
       '',
       '',
       '---',
       `Docent ${version || 'unknown version'}`,
       `Platform: ${navigator.userAgent.includes('Mac') ? 'macOS' : navigator.platform || 'unknown'}`,
-      '',
-      'What happened:',
-      '',
     ].join('\n');
     const url = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     openUrl(url).catch(err => console.warn('[Feedback] could not open mail client:', err));

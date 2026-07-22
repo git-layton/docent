@@ -156,7 +156,6 @@ export function OmniSearch({
   const topApp = intent === 'app' ? displayed[0] : undefined;
   const rows = useMemo<ScoredDoc[]>(() => (topApp ? displayed.slice(1) : displayed), [displayed, topApp]);
 
-  const resultCount = 1 + rows.length;
   const [activeIndex, setActiveIndex] = useState(0);
   useEffect(() => { setActiveIndex(0); }, [q]);
   useEffect(() => { onActiveChange?.(!!q);   }, [q]);
@@ -202,6 +201,49 @@ export function OmniSearch({
 
   const ask = (s: string) => { const t = s.trim(); if (t) onAsk(t); };
 
+  const openKnowledge = () => {
+    const mem = useMemoryStore.getState();
+    mem.setMemmoPanelTab('library');
+    mem.setShowMemmoPanel(true);
+  };
+
+  // ── Offered actions ───────────────────────────────────────────────────────
+  // The intents already existed, but only as *filters* — reachable by clicking a chip or by knowing
+  // that `?` means web. So anything you typed that wasn't an app match offered exactly one thing:
+  // ask the agent. Typing "google" and being told "No matches — press ↵ to ask" is the bar failing
+  // to mention it can search the web for you.
+  //
+  // Same verbs, offered as rows. Row 0 already performs one of them — which one depends on the
+  // aimed intent — so that one is filtered out rather than listed twice.
+  const actions = useMemo(() => {
+    const t = queryText;
+    type Action = { id: string; verb: OmniIntent; label: string; hint: string; Icon: typeof Globe; run: () => void };
+    if (!t) return [] as Action[];
+    const all: Action[] = [
+      {
+        id: 'act-ask', verb: 'auto', Icon: MessageSquare,
+        label: `Ask ${agentName ?? 'your agent'} about “${t}”`, hint: 'Chat',
+        run: () => ask(t),
+      },
+      {
+        id: 'act-web', verb: 'web', Icon: Globe,
+        label: `Search the web for “${t}”`, hint: 'Web',
+        run: () => (onWebSearch ? onWebSearch(t) : ask(t)),
+      },
+      {
+        id: 'act-knowledge', verb: 'knowledge', Icon: FileText,
+        label: `Search your knowledge for “${t}”`, hint: 'Knowledge',
+        run: openKnowledge,
+      },
+    ];
+    // `app` intent runs the top app hit, which is none of these verbs, so in that mode all three
+    // stay offered.
+    return all.filter(a => a.verb !== intent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryText, intent, agentName, onWebSearch]);
+
+  const resultCount = 1 + rows.length + actions.length;
+
   // What ↵ on row 0 means, per intent. Ask stays the default so plain text + ↵ → chat, unchanged.
   const runPrimary = () => {
     const t = queryText;
@@ -224,6 +266,8 @@ export function OmniSearch({
 
   const runIndex = (i: number) => {
     if (i <= 0) { runPrimary(); return; }
+    // Actions sit after the matches, so they own the tail of the index space.
+    if (i - 1 >= rows.length) { actions[i - 1 - rows.length]?.run(); return; }
     const m = rows[i - 1];
     if (!m) return;
     // Semantic Knowledge-Core hits open the Knowledge Base — the caller's onRun only knows about
@@ -414,14 +458,30 @@ export function OmniSearch({
           {rows.length === 0 && !answering && !answerText && (
             <div className="px-3.5 py-2 text-[11px] text-ink-3">
               {intent === 'app' && !topApp
-                ? <>No app matches “{queryText}” — press ↵ to ask {agentName ?? 'your agent'} instead.</>
-                : intent === 'web'
-                  ? <>Press ↵ to search the web for “{queryText}”.</>
-                  : intent === 'knowledge'
-                    ? <>Nothing in your knowledge yet — press ↵ to browse it.</>
-                    : <>No matches — press ↵ to ask {agentName ?? 'your agent'}.</>}
+                ? <>No app matches “{queryText}”.</>
+                : intent === 'knowledge'
+                  ? <>Nothing in your knowledge yet.</>
+                  : <>No direct matches.</>}
+              {actions.length > 0 && <> Try one of these:</>}
             </div>
           )}
+
+          {/* The alternatives to whatever ↵ already does. Always offered, not only on empty results:
+              finding three app matches doesn't mean the web wasn't what you wanted. */}
+          {actions.map((a, i) => {
+            const idx = rows.length + i + 1;
+            return (
+              <ResultRow key={a.id} active={activeIndex === idx} onMouseEnter={() => setActiveIndex(idx)} onClick={() => runIndex(idx)}>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-wash ring-1 ring-edge">
+                  <a.Icon className="h-3.5 w-3.5 text-ink-2" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-ink">{a.label}</span>
+                </span>
+                <span className="shrink-0 rounded-full bg-wash px-2 py-0.5 text-[10px] font-medium text-ink-3">{a.hint}</span>
+              </ResultRow>
+            );
+          })}
         </div>
       )}
     </div>
