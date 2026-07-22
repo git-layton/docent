@@ -74,7 +74,7 @@ export function DesktopViewerPanel() {
                 useToolContextStore.getState().setToolContext({
                   label: 'Desktop',
                   text: mesh.markdownMesh,
-                  source: 'desktop'
+                  source: 'screen'
                 });
               }
             }
