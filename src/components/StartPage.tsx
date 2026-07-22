@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { WanderingFriends } from './ui/WanderingFriends';
 import {
   FileText,
   Code2,
@@ -346,6 +347,8 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
 
   return (
     <div className="relative h-full w-full overflow-y-auto bg-transparent no-scrollbar">
+      {/* Rare, silent, and nobody's business but yours. */}
+      <WanderingFriends />
       {/* Global settings — profile, models, integrations live here (per-chat settings stay in chat). */}
       <button
         type="button"
