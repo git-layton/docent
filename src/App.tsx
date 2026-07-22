@@ -32,6 +32,7 @@ import { runIntegrationTools } from './services/integrations';
 import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateText, selectPrimaryToolRoute, shouldPersistGatekeeperDecision } from './services/memoryGatekeeper';
 import { generateNodeId, upsertGraphNode } from './services/graphEntityExtractor';
 import { ingestMemoryIntoGraph } from './services/conversationGraph';
+import { runGraphMigrations } from './services/graphMigrations';
 import { assessConversationMemory } from './services/memoryPolicy';
 import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, reinforcePlaybook, readPlaybookByTrigger } from './services/appliedMemory';
 import { distillCandidate, observeCompletion, composeSkillContext, shouldPropose, isStale, DEFAULT_SKILL_POLICY, type LearnedSkill, type CompletedAction } from './services/organicSkills';
@@ -610,6 +611,15 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     };
     boot();
 
+    // One-time graph repair: retype the `concept` stubs that filled Topics with chat fragments, and
+    // back-fill the knowledge files that produced no nodes at all while the extractor was silently
+    // failing. Delayed past boot so it never competes with first paint, and fire-and-forget because
+    // the Knowledge Base works whether or not it succeeds. Self-guarding: it records a version key
+    // only on success, so a failed run retries next launch instead of being marked done.
+    const migrationTimeout = setTimeout(() => {
+      void runGraphMigrations(selectedModelRef.current as any);
+    }, 20 * 1000);
+
     // Auto-schedule Dream Cycle — 30min warm-up, then every 24h.
     // Declared here (not inside boot) so the cleanup return can reach warmupTimeout.
     const DREAM_WARMUP_MS = 30 * 60 * 1000;
@@ -631,6 +641,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
     return () => {
       clearTimeout(warmupTimeout);
+      clearTimeout(migrationTimeout);
       if (dreamTimerRef.current) clearInterval(dreamTimerRef.current);
       if (routineTimerRef.current) clearInterval(routineTimerRef.current);
     };
