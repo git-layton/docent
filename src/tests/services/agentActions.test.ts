@@ -173,3 +173,50 @@ describe('parseAgentActions — card ops validate through the same grammar', () 
     expect(bad).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fence drift. Reproduced from a real transcript: asked to search, the model
+// emitted ```json {"tool":"web_search","query":"…"} — a tool that is a
+// *capability*, not a forge:action verb. The old regex matched only
+// ```forge:action, so the block was neither executed NOR stripped, and the user
+// saw raw tool JSON in the middle of a reply.
+// ---------------------------------------------------------------------------
+
+describe('agentActions — fence drift', () => {
+  const DRIFTED = 'Searching now.\n```json\n{\n"tool": "web_search",\n"query": "Hilary Duff Ruoff Music Center"\n}\n```';
+
+  it('never shows invented tool JSON to the user, whatever fence it arrived in', () => {
+    const out = stripActionBlocks(DRIFTED);
+    expect(out).not.toContain('web_search');
+    expect(out).not.toContain('{');
+    expect(out).toContain('Searching now.');
+  });
+
+  it('runs a fully valid action even when the fence drifted to ```json', () => {
+    const text = 'Done.\n```json\n{"tool":"task","op":"create","title":"Buy milk"}\n```';
+    const a = parseAgentActions(text);
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({ tool: 'task', op: 'create', title: 'Buy milk' });
+  });
+
+  it('does not execute the invented call — it names no real op', () => {
+    expect(parseAgentActions(DRIFTED)).toHaveLength(0);
+  });
+
+  it('leaves ordinary code blocks alone', () => {
+    const code = 'Here:\n```ts\nconst tool = "hammer";\n```';
+    expect(stripActionBlocks(code)).toContain('const tool');
+    expect(parseAgentActions(code)).toHaveLength(0);
+  });
+
+  it('leaves non-tool JSON blocks visible', () => {
+    const json = 'Config:\n```json\n{"retries": 3}\n```';
+    expect(stripActionBlocks(json)).toContain('retries');
+  });
+
+  it('does not run the same action twice when both fences appear', () => {
+    const text = '```forge:action\n{"tool":"task","op":"create","title":"X"}\n```\n' +
+                 '```json\n{"tool":"task","op":"create","title":"X"}\n```';
+    expect(parseAgentActions(text)).toHaveLength(1);
+  });
+});

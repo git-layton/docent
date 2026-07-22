@@ -36,25 +36,67 @@ export function actionNeedsApproval(a: AgentAction, turnIngestedUntrusted = fals
 export function parseAgentActions(text: string): AgentAction[] {
   if (!text) return [];
   const out: AgentAction[] = [];
-  const re = /```forge:action\s*([\s\S]*?)```/g;
+  const seen = new Set<string>();
+  // Any fenced block, not only ```forge:action. Models drift off the documented fence — the same
+  // drift that produced raw tool JSON in a reply — and a legitimate, fully-valid action should still
+  // run when it arrives as ```json. Widening the FENCE is safe because it widens nothing else:
+  // validateAgentAction is still the only gate, so a block reaches execution only if it names a real
+  // tool and op and satisfies that op's schema. Prose and ordinary code fences fail it and are
+  // ignored, exactly as before.
+  const re = /```[a-zA-Z:]*\s*\n?([\s\S]*?)```/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     try {
       const parsed = JSON.parse(m[1].trim());
       for (const raw of Array.isArray(parsed) ? parsed : [parsed]) {
         const a = validateAgentAction(raw);
-        if (a) out.push(a as AgentAction);
+        if (!a) continue;
+        // The same action emitted twice (once per fence style) must not run twice.
+        const key = JSON.stringify(a);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(a as AgentAction);
       }
     } catch {
-      /* skip malformed block */
+      /* not JSON, or malformed — ordinary code block, skip */
     }
   }
   return out;
 }
 
-/** Strip the action blocks from a message so they don't render as raw code to the user. */
+/** Does this fenced body look like a tool call the model meant to make? */
+function isToolCallJson(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body.trim());
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    return items.length > 0 && items.every(
+      it => it && typeof it === 'object' && typeof (it as any).tool === 'string',
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Strip action blocks so they don't render as raw code to the user.
+ *
+ * Strips ANY fenced JSON carrying a `tool` field, not just ```forge:action``` — because the failure
+ * this exists to prevent is the model drifting off the documented fence. Observed in the wild: asked
+ * to search, the model emitted ```json {"tool":"web_search","query":"…"}```. `web_search` is a
+ * *capability* (routed by toolRouter), not a forge:action verb, so the model had invented a call
+ * that no grammar accepts — and because the fence wasn't `forge:action`, the old regex neither
+ * executed it NOR removed it. The user got a wall of raw tool JSON in the middle of a reply.
+ *
+ * Nothing is executed by this widening; it only decides what the user SEES. An unrunnable tool call
+ * is a bug either way, and showing it to the user is strictly worse than hiding it.
+ */
 export function stripActionBlocks(text: string): string {
-  return text.replace(/```forge:action\s*[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  return text
+    .replace(/```forge:action\s*[\s\S]*?```/g, '')
+    // Any other fenced block (```json, ``` , ```forge:action already handled) whose body is a tool call.
+    .replace(/```[a-zA-Z:]*\s*\n?([\s\S]*?)```/g, (whole, body) => (isToolCallJson(body) ? '' : whole))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 // ─── Card actions ─────────────────────────────────────────────────────────────
