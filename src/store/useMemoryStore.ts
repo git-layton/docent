@@ -21,6 +21,9 @@ interface MemoryStore {
   /** One-time invite to run a first Dream Cycle, shown once memory is worth consolidating. */
   showFirstDreamPrompt: boolean;
   firstDreamFileCount: number;
+  /** First-run consent gate: shown before the very first Dream Cycle ever runs, so the user
+   *  understands what it does and its cost before any tokens are spent. */
+  showDreamConsent: boolean;
   agentForgePath: string;
   showMemmoPanel: boolean;
   memmoPanelTab: 'inbox' | 'pins' | 'notes' | 'library' | 'archive' | 'weblog';
@@ -33,6 +36,7 @@ interface MemoryStore {
   setShowDreamDigest: (v: boolean) => void;
   setIsDreamRunning: (v: boolean) => void;
   setFirstDreamPrompt: (show: boolean, fileCount?: number) => void;
+  setShowDreamConsent: (v: boolean) => void;
   setAgentForgePath: (path: string) => void;
   setShowMemmoPanel: (v: boolean | ((prev: boolean) => boolean)) => void;
   setMemmoPanelTab: (tab: 'inbox' | 'pins' | 'notes' | 'library' | 'archive' | 'weblog') => void;
@@ -49,6 +53,7 @@ export const useMemoryStore = create<MemoryStore>((set) => ({
   isDreamRunning: false,
   showFirstDreamPrompt: false,
   firstDreamFileCount: 0,
+  showDreamConsent: false,
   agentForgePath: '',
   showMemmoPanel: false,
   memmoPanelTab: 'library',
@@ -65,6 +70,7 @@ export const useMemoryStore = create<MemoryStore>((set) => ({
   setIsDreamRunning: (v) => set({ isDreamRunning: v }),
   setFirstDreamPrompt: (show, fileCount) =>
     set(s => ({ showFirstDreamPrompt: show, firstDreamFileCount: fileCount ?? s.firstDreamFileCount })),
+  setShowDreamConsent: (v) => set({ showDreamConsent: v }),
   setAgentForgePath: (path) => set({ agentForgePath: path }),
   setShowMemmoPanel: (v) =>
     set(s => ({ showMemmoPanel: typeof v === 'function' ? v(s.showMemmoPanel) : v })),

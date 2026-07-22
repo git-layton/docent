@@ -57,6 +57,7 @@ import { SourcesTray } from './components/SourcesTray';
 import type { SlashCommand } from './components/SlashCommandPalette';
 import { MorningBriefingBanner } from './components/MorningBriefingBanner';
 import { FirstDreamPrompt } from './components/FirstDreamPrompt';
+import { DreamConsentModal } from './components/DreamConsentModal';
 import { DreamDigestModal } from './components/DreamDigestModal';
 import { DynamicBackground } from './components/DynamicBackground';
 import type { DreamLog, DreamItem } from './components/DreamDigestModal';
@@ -166,6 +167,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const showDreamBanner = useMemoryStore(s => s.showDreamBanner);
   const showDreamDigest = useMemoryStore(s => s.showDreamDigest);
   const showFirstDreamPrompt = useMemoryStore(s => s.showFirstDreamPrompt);
+  const showDreamConsent = useMemoryStore(s => s.showDreamConsent);
   const firstDreamFileCount = useMemoryStore(s => s.firstDreamFileCount);
   const isDreamRunning = useMemoryStore(s => s.isDreamRunning);
   const agentForgePath = useMemoryStore(s => s.agentForgePath);
@@ -415,6 +417,8 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<any>(null);
   const isDreamRunningRef = useRef(false);
+  // Holds the run the consent gate interrupted, so a "Run Dream Cycle" click resumes exactly it.
+  const pendingDreamRunRef = useRef<{ agent?: any; model?: any } | null>(null);
   const evaluatedContextRef = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() });
   const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const routineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1823,6 +1827,17 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     const activeAgent = agent ?? _activeAssistant;
     const activeModel = model ?? _selectedModel;
     if (isDreamRunningRef.current || !_agentForgePath || !activeAgent || !activeModel) return;
+
+    // First-run consent gate — never spend a token on a dream the user hasn't agreed to. Shown once,
+    // in front of the first run from any entry point (invite, settings, the daily scheduler); the
+    // modal explains what dreaming does and what it costs, and nudges a free local model. See
+    // [[dream-cycle-discoverability]]: the Dreamer is opt-in and must never run silently.
+    if ((await db.get('dreamConsentAt', null)) == null) {
+      pendingDreamRunRef.current = { agent: activeAgent, model: activeModel };
+      useMemoryStore.getState().setShowDreamConsent(true);
+      return;
+    }
+
     isDreamRunningRef.current = true;
     useMemoryStore.getState().setIsDreamRunning(true);
     useUIStore.getState().showToast('🌙 Dream Cycle starting...');
@@ -2079,6 +2094,21 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       isDreamRunningRef.current = false;
     }
   }, []); // reads all state from stores at call time
+
+  // The user agreed on the consent modal: record it permanently (so we never ask again) and resume
+  // the exact run they triggered. runDreamCycle re-checks the flag and now proceeds past the gate.
+  const confirmDreamConsent = useCallback(() => {
+    void db.set('dreamConsentAt', Date.now());
+    useMemoryStore.getState().setShowDreamConsent(false);
+    const pending = pendingDreamRunRef.current;
+    pendingDreamRunRef.current = null;
+    void runDreamCycle(pending?.agent, pending?.model);
+  }, [runDreamCycle]);
+
+  const cancelDreamConsent = useCallback(() => {
+    pendingDreamRunRef.current = null;
+    useMemoryStore.getState().setShowDreamConsent(false);
+  }, []);
 
   const dismissDreamBanner = useCallback(async () => {
     const mem = useMemoryStore.getState();
@@ -3598,6 +3628,14 @@ if (isSpotlight) {
           isRunning={isDreamRunning}
           onRun={() => { dismissFirstDreamPrompt(); runDreamCycle(); }}
           onDismiss={dismissFirstDreamPrompt}
+        />
+      )}
+
+      {showDreamConsent && (
+        <DreamConsentModal
+          model={pendingDreamRunRef.current?.model ?? selectedModel}
+          onConfirm={confirmDreamConsent}
+          onCancel={cancelDreamConsent}
         />
       )}
 
