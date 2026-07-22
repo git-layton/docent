@@ -87,6 +87,7 @@ export function ChatInputBar({
   const slashHighlight = useUIStore(s => s.slashHighlight);
   const generationMode = useUIStore(s => s.generationMode);
   const pinnedTools = useUIStore(s => s.pinnedTools);
+  const isChatNearBottom = useUIStore(s => s.isChatNearBottom);
   const { setInput: setStoreInput, setForcedTool, setIsPlanMode,
     setAttachedDocs: setStoreAttachedDocs, setIsModelDropdownOpen, setSlashHighlight, setGenerationMode, setPinnedTools } = useUIStore.getState();
 
@@ -187,7 +188,7 @@ export function ChatInputBar({
   // frosting is what lifts its small icons off a busy sky enough to be legible. Clear glass here was
   // tried and the icons vanished into the wallpaper.
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-white/10 dark:bg-black/5 backdrop-blur-xl border-t border-edge/50 shadow-[0_-8px_32px_rgba(0,0,0,0.1)] pt-4 pb-3 px-3 lg:px-4 z-10">
+    <div className={`absolute bottom-0 left-0 right-0 bg-white/10 dark:bg-black/5 backdrop-blur-xl border-t border-edge/50 shadow-[0_-8px_32px_rgba(0,0,0,0.1)] pt-4 pb-3 px-3 lg:px-4 z-10 transition-opacity duration-300 ${isChatNearBottom ? 'opacity-100' : 'opacity-30 hover:opacity-100'}`}>
       <div className="max-w-3xl mx-auto">
 
         {/* Error Display */}

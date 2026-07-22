@@ -1352,9 +1352,20 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         const newHist = curHist.slice(0, curIdx + 1); newHist.push({ timestamp: Date.now(), content: finalCanvas.content });
         finalCanvas.history = newHist; finalCanvas.historyIndex = newHist.length - 1;
     }
-    const item = { ...finalCanvas, id, title: _saveAppData.title || finalCanvas.title || 'Untitled', updatedAt: Date.now() };
+    const title = _saveAppData.title || finalCanvas.title || 'Untitled';
+    const item = { ...finalCanvas, id, title, updatedAt: Date.now() };
     const exists = _savedApps.some((a: any) => a.id === id);
     ui.setSavedApps((prev: any[]) => exists && !asNew ? prev.map((a: any) => a.id === id ? item : a) : [item, ...prev]);
+    
+    // If it's a doc, also save it to the actual Knowledge Base so it appears on the Notes shelf
+    if (item.type === 'doc') {
+      const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const slug = `${safeTitle}-${id.split('-').pop()}`;
+      const mdContent = `---\ntitle: "${title.replace(/"/g, '\\"')}"\n---\n\n${item.content}`;
+      invoke('safe_write_file', { path: `library/${slug}.md`, content: mdContent })
+        .catch(e => console.error("Failed to write to knowledge base", e));
+    }
+
     ui.setCanvasContent(item); ui.setShowSaveModal(false); ui.showToast('Saved to Archives!');
   };
   // Image Library: every image (generated OR attached) lands here — tagged with its Space + a vision
@@ -3328,13 +3339,13 @@ const handleSendMessage = async () => {
       return <DayPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'inbox') {
-      return <MailInboxPanel />;
+      return <MailInboxPanel tabId={tab.id} />;
     }
     if (tab.type === 'tool' && tab.toolId === 'desktop') {
       return <DesktopViewerPanel />;
     }
     if (tab.type === 'tool' && tab.toolId === 'messages') {
-      return <MessagesPanel />;
+      return <MessagesPanel tabId={tab.id} />;
     }
     if (tab.type === 'tool' && tab.toolId === 'notes') {
       return <NotesPanel />;

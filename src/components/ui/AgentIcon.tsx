@@ -1,4 +1,4 @@
-import { Globe, Database, CalendarDays, MessageSquare, Mail, FolderOpen, Layers, CalendarClock, Glasses } from 'lucide-react';
+import { Globe, Database, CalendarDays, MessageSquare, Mail, FolderOpen, Layers, CalendarClock } from 'lucide-react';
 import { DocentMark } from './DocentMark';
 
 export const AVAILABLE_TOOLS = [
@@ -33,18 +33,20 @@ export const BOT_COLORS = [
 ];
 
 export const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
-  if (agent?.id === 'docent' || agent?.name === 'Docent') {
-    // text-on-ink, NOT text-panel: panel is a surface token and inside an ambient pane it's a
-    // 0.08 whisper, which rendered the mark invisible on its own chip.
+  if (agent?.id === 'docent' || agent?.name === 'Docent' || !agent?.avatar) {
     return (
       <div className={`${containerClass} bg-ink text-on-ink flex items-center justify-center shrink-0`}>
         <DocentMark className={sizeClass} />
       </div>
     );
   }
-  if (agent?.avatar?.type === 'image' && agent?.avatar?.value) {
-    return <img src={agent.avatar.value} alt={agent.name} className={`${containerClass} p-0 object-cover`} style={{ width: '2.25rem', height: '2.25rem' }} />;
-  }
+  
   const bg = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.bg ?? 'bg-accent';
-  return <div className={`${containerClass} ${bg} flex items-center justify-center shrink-0`}><Glasses className={`${sizeClass} text-white dark:text-black`} /></div>;
+  const text = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.text ?? 'text-white';
+  
+  return (
+    <div className={`${containerClass} ${bg} flex items-center justify-center shrink-0`}>
+      <DocentMark className={`${sizeClass} ${text}`} />
+    </div>
+  );
 };

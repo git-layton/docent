@@ -29,7 +29,7 @@ fn open_db() -> Result<rusqlite::Connection, String> {
             "No Messages database found on this Mac (~/Library/Messages/chat.db).".to_string(),
         );
     }
-    rusqlite::Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
+    rusqlite::Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| {
         format!(
             "Could not open the Messages database — grant Agent Forge Full Disk Access in \
              System Settings → Privacy & Security → Full Disk Access, then reopen the app. ({e})"
@@ -371,6 +371,22 @@ pub async fn imessage_unread_count() -> Result<u32, String> {
             |r| r.get(0),
         )
         .map_err(|e| format!("unread count failed: {e}"))
+    })
+    .await
+    .map_err(|e| format!("imessage task failed: {e}"))?
+}
+
+/// Mark all incoming messages in a conversation as read.
+#[tauri::command]
+pub async fn imessage_set_read(chat_id: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = open_db()?;
+        conn.execute(
+            "UPDATE message SET is_read = 1 WHERE is_from_me = 0 AND is_read = 0 AND ROWID IN (SELECT message_id FROM chat_message_join WHERE chat_id = ?1)",
+            rusqlite::params![chat_id],
+        )
+        .map_err(|e| format!("failed to mark chat as read: {e}"))?;
+        Ok(())
     })
     .await
     .map_err(|e| format!("imessage task failed: {e}"))?

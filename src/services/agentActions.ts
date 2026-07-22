@@ -8,6 +8,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getCalendar, getTasks, getNotes } from './connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
+import { useSpaceStore } from '../store/useSpaceStore';
+import { generateId } from '../lib/id';
 import { validateAgentAction } from './modelBlocks';
 import { useReceiptStore, type ReceiptSurface } from './receipts';
 
@@ -177,7 +180,7 @@ export function describeAction(a: AgentAction): string {
   }
 }
 
-const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 
 /** Which ledger surface an action's tool belongs to. */
 const TOOL_SURFACE: Record<string, ReceiptSurface> = {
@@ -202,9 +205,16 @@ export async function executeAgentAction(a: AgentAction): Promise<string> {
 async function executeInner(a: AgentAction): Promise<{ result: string; undo?: () => Promise<void> }> {
   switch (`${a.tool}.${a.op}`) {
     case 'note.create': {
-      const body = `<div>${escapeHtml(String(a.body ?? '')).split('\n').join('</div><div>')}</div>`;
-      const id = await getNotes().createNote(a.folder, String(a.title ?? 'Untitled'), body);
-      return { result: `Created note “${a.title ?? 'Untitled'}”`, undo: () => getNotes().deleteNote(id) };
+      const title = String(a.title ?? 'Untitled');
+      const body = String(a.body ?? '');
+      useUIStore.getState().setCanvasContent({
+        id: generateId('doc'),
+        type: 'doc',
+        title,
+        content: body
+      });
+      useSpaceStore.getState().openTab({ type: 'doc', label: title });
+      return { result: `Created note “${title}” on canvas` };
     }
     case 'task.create': {
       const id = await getTasks().createTask({ title: String(a.title ?? ''), dueDate: a.dueDate, details: a.details, location: a.location });

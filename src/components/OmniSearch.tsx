@@ -73,6 +73,7 @@ export interface OmniSearchProps {
   agentName?: string;
   placeholder?: string;
   autoFocus?: boolean;
+  focusKey?: number;
   className?: string;
   /** Notified when the query goes non-empty / empty, so a parent can hide content behind results. */
   onActiveChange?: (active: boolean) => void;
@@ -81,12 +82,18 @@ export interface OmniSearchProps {
 }
 
 export function OmniSearch({
-  scope, onAsk, onRun, extraDocs, iconFor, includeWebHistory, agentName, placeholder, autoFocus, className, onActiveChange, onWebSearch,
+  scope, onAsk, onRun, extraDocs, iconFor, includeWebHistory, agentName, placeholder, autoFocus, focusKey, className, onActiveChange, onWebSearch,
 }: OmniSearchProps) {
   const [query, setQuery] = useState('');
   // Intent set by clicking a chip. A typed prefix overrides it for that query.
   const [sticky, setSticky] = useState<OmniIntent>('auto');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (focusKey !== undefined && focusKey > 0) {
+      inputRef.current?.focus();
+    }
+  }, [focusKey]);
 
   const parsed = parseIntent(query);
   const intent: OmniIntent = parsed.hadPrefix ? parsed.intent : sticky;

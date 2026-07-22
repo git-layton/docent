@@ -14,10 +14,33 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // source's data under another's label.
 
 const registry = new Map<string, unknown>();
+const stateRegistry = new Map<string, unknown>();
 
 /** Test hook: drop all cached panel data. */
 export function __clearPanelCache() {
   registry.clear();
+  stateRegistry.clear();
+}
+
+/** 
+ * Drop-in replacement for useState that persists UI state (like selected item, text drafts)
+ * across panel remounts. State lives as long as the app session.
+ */
+export function usePanelState<T>(key: string, initial: T | (() => T)): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [state, setState] = useState<T>(() => {
+    if (stateRegistry.has(key)) return stateRegistry.get(key) as T;
+    return typeof initial === 'function' ? (initial as () => T)() : initial;
+  });
+
+  const setPersistedState = useCallback((val: React.SetStateAction<T>) => {
+    setState(prev => {
+      const next = typeof val === 'function' ? (val as (prev: T) => T)(prev) : val;
+      stateRegistry.set(key, next);
+      return next;
+    });
+  }, [key]);
+
+  return [state, setPersistedState];
 }
 
 export interface PanelResource<T> {

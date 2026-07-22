@@ -145,6 +145,20 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const chats = useChatStore((s) => s.chats);
   const assistants = useAgentStore((s) => s.assistants);
   const activeSpace = useSpaceStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
+  const activeOmniTabId = useSpaceStore((s) => s.activeOmniTabId);
+
+  const isActive = activeOmniTabId === tabId;
+  const [focusKey, setFocusKey] = useState(0);
+
+  useEffect(() => {
+    if (isActive) setFocusKey((k) => k + 1);
+  }, [isActive, tabId]);
+
+  useEffect(() => {
+    const onFocus = () => { if (isActive) setFocusKey((k) => k + 1); };
+    window.addEventListener('forge:focus-omni', onFocus);
+    return () => window.removeEventListener('forge:focus-omni', onFocus);
+  }, [isActive]);
 
   // Gallery is "openable, auto-shown when images exist": only surface its tile when this scope has
   // images (global Home → any image; a Space → that Space's images).
@@ -402,6 +416,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             iconFor={iconForDoc}
             agentName={agentName}
             autoFocus
+            focusKey={focusKey}
             placeholder={agentName ? `Search apps & docs, or ask ${agentName} anything…` : 'Search apps & docs, or ask your agent…'}
             onAsk={ask}
             onRun={runSearchDoc}

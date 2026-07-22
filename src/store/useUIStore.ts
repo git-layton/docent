@@ -7,6 +7,7 @@ interface UIStore {
   isSidebarOpen: boolean;
   isAgentDropdownOpen: boolean;
   isModelDropdownOpen: boolean;
+  isChatNearBottom: boolean;
 
   // Debug console
   showConsole: boolean;
@@ -110,6 +111,7 @@ interface UIStore {
   setForcedTool: (v: string | null | ((prev: string | null) => string | null)) => void;
   setIsPlanMode: (v: boolean | ((prev: boolean) => boolean)) => void;
   setPinnedTools: (v: string[] | ((prev: string[]) => string[])) => void;
+  setIsChatNearBottom: (v: boolean) => void;
   setIsDragging: (v: boolean) => void;
   setUploadError: (v: string) => void;
   setProposedRoutine: (v: import('../services/routines').ProposedRoutine | null) => void;
@@ -153,6 +155,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isSidebarOpen: true,
   isAgentDropdownOpen: false,
   isModelDropdownOpen: false,
+  isChatNearBottom: true,
   showConsole: false,
   logs: [],
   showNewSpace: false,
@@ -198,6 +201,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set(s => ({ isAgentDropdownOpen: typeof v === 'function' ? v(s.isAgentDropdownOpen) : v })),
   setIsModelDropdownOpen: (v) =>
     set(s => ({ isModelDropdownOpen: typeof v === 'function' ? v(s.isModelDropdownOpen) : v })),
+  setIsChatNearBottom: (v: boolean) => set({ isChatNearBottom: v }),
+  toggleSidebar: () => set(state => ({ isSidebarOpen: !state.isSidebarOpen })),
   setShowConsole: (v) =>
     set(s => ({ showConsole: typeof v === 'function' ? v(s.showConsole) : v })),
   setShowNewSpace: (v) => set(v ? { showNewSpace: true } : { showNewSpace: false, newSpaceEditId: null }),

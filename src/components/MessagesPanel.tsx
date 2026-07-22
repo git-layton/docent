@@ -7,7 +7,7 @@ import { useUIStore } from '../store/useUIStore';
 import { MessagesSetupWizard } from './MessagesSetupWizard';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForImessage } from '../services/voice';
-import { usePanelResource } from '../lib/panelCache';
+import { usePanelResource, usePanelState } from '../lib/panelCache';
 import { buildVoiceCard, buildRelationshipVoiceCard, draftReply } from '../services/voiceRuntime';
 import { generateTextResponse } from '../services/llm';
 
@@ -75,11 +75,11 @@ function looksLikeNoAccess(err: string): boolean {
   return /Full Disk Access|could not open|Privacy/i.test(err);
 }
 
-export function MessagesPanel() {
-  const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<ImessageChat | null>(null);
+export function MessagesPanel({ tabId }: { tabId?: string }) {
+  const [search, setSearch] = usePanelState(`msg:search:${tabId}`, '');
+  const [selected, setSelected] = usePanelState<ImessageChat | null>(`msg:selected:${tabId}`, null);
 
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = usePanelState(`msg:draft:${tabId}`, '');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -106,7 +106,7 @@ export function MessagesPanel() {
   // Conversation list — state-alive across tab switches: hydrates instantly from the panel
   // cache on remount, revalidates silently, and polls so previews stay fresh. Gated behind
   // setup so we don't probe (and error) behind the wizard.
-  const { data: chats = [], loading, error, refresh: refreshChats } = usePanelResource<ImessageChat[]>({
+  const { data: chats = [], loading, error, refresh: refreshChats, mutate: mutateChats } = usePanelResource<ImessageChat[]>({
     key: 'imessage:chats',
     fetch: () => invoke<ImessageChat[]>('imessage_list_chats', { limit: 40 }),
     enabled: setupComplete,
@@ -489,7 +489,18 @@ export function MessagesPanel() {
           filteredChats.map(c => (
             <button
               key={c.chatId}
-              onClick={() => { setSelected(c); setDraft(''); setSendError(null); }}
+              onClick={() => {
+                if (c.unread > 0) {
+                  invoke('imessage_set_read', { chatId: c.chatId }).catch(console.error);
+                  if (chats) {
+                    const next = chats.map(x => x.chatId === c.chatId ? { ...x, unread: 0 } : x);
+                    mutateChats(() => next);
+                  }
+                }
+                setSelected(c);
+                setDraft('');
+                setSendError(null);
+              }}
               className="w-full flex items-start gap-2.5 px-4 py-3 border-b border-edge hover:bg-wash transition-colors text-left"
             >
               {/* Reserved unread slot keeps avatars aligned whether or not the dot is shown. */}

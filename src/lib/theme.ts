@@ -21,13 +21,13 @@ export const ACCENT_OPTIONS: AccentOption[] = [
 ];
 
 export const DEFAULT_ACCENT = 'lavender';
-export const DEFAULT_THEME: ThemeMode = 'system';
+export const DEFAULT_THEME: ThemeMode = 'dark';
 
 const media = () => window.matchMedia('(prefers-color-scheme: dark)');
 
-export function resolveTheme(mode: ThemeMode): 'light' | 'dark' {
-  if (mode === 'system') return media().matches ? 'dark' : 'light';
-  return mode;
+export function resolveTheme(_mode: ThemeMode): 'light' | 'dark' {
+  // Enforcing Dark Mode as requested in the Phase 1 plan
+  return 'dark';
 }
 
 /** Stamp [data-theme] and [data-accent] on <html>; index.css does the rest. */

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, Search, Edit2, User, Plus, Wifi, WifiOff, Settings } from 'lucide-react';
+import { Bot, Search, Edit2, User, Plus, Wifi, WifiOff, Settings, Database } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../store/useChatStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -178,6 +178,28 @@ export function AppSidebar(_: AppSidebarProps) {
                   <p className="text-[9px] text-ink-3">you</p>
                 </div>
                 <Settings className="w-3 h-3 text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+              </button>
+              
+              {/* Knowledge Base */}
+              <button
+                onClick={() => {
+                  const { omniTabs } = useSpaceStore.getState();
+                  const existing = omniTabs.find((t: any) => t.type === 'tool' && t.toolId === 'knowledge-graph');
+                  if (existing) {
+                    useSpaceStore.getState().setActiveTab(existing.id);
+                  } else {
+                    useSpaceStore.getState().openTab({ type: 'tool', toolId: 'knowledge-graph', label: 'Knowledge Base' });
+                  }
+                }}
+                className="group w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-wash transition-all"
+              >
+                <div className="p-1.5 rounded-lg bg-wash shrink-0">
+                  <Database className="w-3.5 h-3.5 text-ink-3" />
+                </div>
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="text-xs truncate text-ink">Knowledge Base</p>
+                  <p className="text-[9px] text-ink-3">library & notes</p>
+                </div>
               </button>
 
               {/* Local people from settings */}

@@ -33,16 +33,16 @@
 }
 
 [data-theme='dark'] {
-  --af-base: #0a0b0e;
-  --af-panel: #12141a;
-  --af-panel-2: #171920;
-  --af-inset: #0e1014;
-  --af-wash: rgba(255, 255, 255, 0.05);
-  --af-edge: rgba(255, 255, 255, 0.06);
-  --af-edge-2: rgba(255, 255, 255, 0.11);
-  --af-ink: #f1f0ec;
-  --af-ink-2: rgba(255, 255, 255, 0.64);
-  --af-ink-3: rgba(255, 255, 255, 0.40);
+  --af-base: rgba(10, 11, 14, 0.45);
+  --af-panel: rgba(18, 20, 26, 0.55);
+  --af-panel-2: rgba(23, 25, 32, 0.65);
+  --af-inset: rgba(14, 16, 20, 0.40);
+  --af-wash: rgba(255, 255, 255, 0.08);
+  --af-edge: rgba(255, 255, 255, 0.12);
+  --af-edge-2: rgba(255, 255, 255, 0.20);
+  --af-ink: #fdfdfc;
+  --af-ink-2: rgba(255, 255, 255, 0.75);
+  --af-ink-3: rgba(255, 255, 255, 0.50);
 
   --af-danger: #f09595;
   --af-danger-soft: #3a1a1a;
@@ -365,6 +365,15 @@
   --text-tiny--line-height: 1.2;
   --text-mini: 11px;
   --text-mini--line-height: 1.4;
+}
+
+/* Apply glassmorphism blur to all semantic background surfaces in dark mode */
+[data-theme='dark'] .bg-base,
+[data-theme='dark'] .bg-panel,
+[data-theme='dark'] .bg-panel-2,
+[data-theme='dark'] .bg-inset {
+  backdrop-filter: blur(32px) saturate(150%);
+  -webkit-backdrop-filter: blur(32px) saturate(150%);
 }
 
 [data-accent='emerald'] {

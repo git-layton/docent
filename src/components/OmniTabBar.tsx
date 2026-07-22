@@ -200,8 +200,8 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
         // deliberate rather than as a normal tab with its close button mysteriously missing. It
         // widens on hover to reveal unpin + close, so pinning is never a one-way door.
         tab.isPinned
-          ? 'px-2 basis-[44px] max-w-[44px] min-w-[44px] hover:basis-[116px] hover:max-w-[116px]'
-          : 'px-3 basis-[168px] max-w-[220px] min-w-[44px]',
+          ? 'px-2 basis-[44px] max-w-[44px] min-w-[44px] hover:basis-[116px] hover:max-w-[116px] shrink-0'
+          : 'px-3 basis-[168px] max-w-[220px] min-w-[140px] shrink-0',
         isActive
           ? 'bg-panel border border-b-0 border-edge-2 text-ink shadow-[inset_0_2px_0_0_var(--af-accent)]'
           : 'text-ink-3 hover:text-ink-2 hover:bg-wash',
@@ -322,11 +322,9 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
 // NewTabButton
 // ---------------------------------------------------------------------------
 function NewTabButton() {
-  // Home is a pinned singleton per space, so `+` focuses it rather than opening another one —
-  // openTab() always appends, which used to stack a fresh "Start" tab on every click.
   const handleNewTab = useCallback(() => {
     const st = useSpaceStore.getState();
-    st.setActiveTab(st.ensureHomeTab());
+    st.openTab({ type: 'home', label: 'Start', isPinned: false });
   }, []);
 
   return (

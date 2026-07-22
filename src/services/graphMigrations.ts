@@ -26,7 +26,7 @@ import { isEntityLabel } from './knowledgeLibrary';
  */
 
 const MIGRATION_KEY = 'graphMigrationVersion';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 /** Bounded so a first run can't spend an unbounded number of model calls in one sitting. Anything
  *  left over is picked up by the next run, because completed work is detectable (the node exists). */
@@ -71,7 +71,7 @@ async function retypeMemoryStubs(nodes: GraphNodeRow[]): Promise<number> {
 async function backfillFiles(
   existingIds: Set<string>,
   modelConfig: Record<string, unknown> | null,
-): Promise<number> {
+): Promise<{ done: number; remaining: number }> {
   const listed = await Promise.all([
     invoke<{ files: KnowledgeFile[] }>('list_agent_memory_files', { agentId: 'default', spaceId: 'space-home' })
       .catch(() => ({ files: [] as KnowledgeFile[] })),
@@ -112,7 +112,8 @@ async function backfillFiles(
       console.warn('[graphMigrations] backfill failed for', f.path, e);
     }
   }
-  return done;
+  const remaining = Math.max(0, candidates.length - MAX_BACKFILL_PER_RUN);
+  return { done, remaining };
 }
 
 export async function runGraphMigrations(modelConfig?: Record<string, unknown> | null): Promise<void> {
@@ -131,10 +132,12 @@ export async function runGraphMigrations(modelConfig?: Record<string, unknown> |
     const junk = nodes.filter(n => !isEntityLabel(n.label)).length;
 
     const existingIds = new Set(nodes.map(n => n.id));
-    const backfilled = await backfillFiles(existingIds, modelConfig ?? null);
+    const { done: backfilled, remaining } = await backfillFiles(existingIds, modelConfig ?? null);
 
-    await db.set(MIGRATION_KEY, CURRENT_VERSION);
-    console.info(`[graphMigrations] v${CURRENT_VERSION}: retyped ${retyped}, back-filled ${backfilled}, ${junk} legacy labels kept but reshelved`);
+    if (remaining === 0) {
+      await db.set(MIGRATION_KEY, CURRENT_VERSION);
+    }
+    console.info(`[graphMigrations] v${CURRENT_VERSION}: retyped ${retyped}, back-filled ${backfilled}, ${remaining} candidates remaining for next run, ${junk} legacy labels kept but reshelved`);
   } catch (e) {
     // Deliberately not re-thrown and the version key is NOT written, so a failed run retries next
     // launch rather than being silently marked done.

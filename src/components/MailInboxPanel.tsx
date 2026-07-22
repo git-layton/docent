@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Inbox, RotateCw, Mail, Settings as SettingsIcon, ArrowLeft, Reply, ReplyAll, Trash2, Send, Pencil, X, Wand2, Star, Plus, Sparkles } from 'lucide-react';
+import { Inbox, RotateCw, Mail, Settings as SettingsIcon, ArrowLeft, Reply, ReplyAll, Trash2, Send, Pencil, X, Wand2, Star, Plus, Sparkles, Search } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -10,7 +10,7 @@ import { db } from '../services/database';
 import { invalidateUnreadCache } from '../lib/mailUnread';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForEmail } from '../services/voice';
-import { usePanelResource } from '../lib/panelCache';
+import { usePanelResource, usePanelState } from '../lib/panelCache';
 import {
   classifyAllHeuristic, buildTriagePrompt, parseTriageResponse,
   applyModelUpgrade, planSweep, type MailQueue,
@@ -103,56 +103,58 @@ function quoteBody(body: MailBodyData, sel: MailRow): string {
   return `\n\n\nOn ${date}, ${who} wrote:\n${q}`;
 }
 
-export function MailInboxPanel() {
+export function MailInboxPanel({ tabId }: { tabId?: string }) {
   const integrations = useSettingsStore(s => s.integrations);
   const accounts = ((integrations as any).mailAccounts ?? []) as Array<{ id: string; provider: 'gmail' | 'icloud'; email: string }>;
   const accountsKey = accounts.map(a => a.email).join(',');
   const models = useSettingsStore(s => s.models);
   const selectedModelId = useSettingsStore(s => s.selectedModelId);
 
-  const [sort, setSort] = useState<SortMode>('newest');
+  const [sort, setSort] = usePanelState<SortMode>(`mail:sort:${tabId}`, 'newest');
+  const [search, setSearch] = usePanelState(`mail:search:${tabId}`, '');
 
   // ── Smart filters: natural-language, persisted, re-evaluated when mail reloads ──
-  const [aiQuery, setAiQuery] = useState('');
+  const [aiQuery, setAiQuery] = usePanelState(`mail:aiQuery:${tabId}`, '');
   const [savedFilters, setSavedFilters] = useState<SmartFilter[]>([]);
-  const [activeFilter, setActiveFilter] = useState<SmartFilter | null>(null); // saved OR ad-hoc (ad-hoc id = '')
-  const [filterKeys, setFilterKeys] = useState<Set<string> | null>(null);     // matches for activeFilter
+  const [activeFilter, setActiveFilter] = usePanelState<SmartFilter | null>(`mail:activeFilter:${tabId}`, null); // saved OR ad-hoc (ad-hoc id = '')
+  const [filterKeys, setFilterKeys] = usePanelState<Set<string> | null>(`mail:filterKeys:${tabId}`, null);     // matches for activeFilter
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [starredOnly, setStarredOnly] = useState(false);
+  const [starredOnly, setStarredOnly] = usePanelState(`mail:starredOnly:${tabId}`, false);
   const matchRunId = useRef(0);
 
   // Load + persist saved filters
   useEffect(() => { db.get('mailSmartFilters', []).then((f: SmartFilter[]) => setSavedFilters(Array.isArray(f) ? f : [])); }, []);
   const persistFilters = (next: SmartFilter[]) => { setSavedFilters(next); void db.set('mailSmartFilters', next); };
 
-  const [selected, setSelected] = useState<MailRow | null>(null);
-  const [body, setBody] = useState<MailBodyData | null>(null);
+  const [selected, setSelected] = usePanelState<MailRow | null>(`mail:selected:${tabId}`, null);
+  const [body, setBody] = usePanelState<MailBodyData | null>(`mail:body:${tabId}`, null);
   const [bodyLoading, setBodyLoading] = useState(false);
   const [bodyError, setBodyError] = useState<string | null>(null);
 
-  const [compose, setCompose] = useState<ComposeState | null>(null);
+  const [compose, setCompose] = usePanelState<ComposeState | null>(`mail:compose:${tabId}`, null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false); // "write like me" drafting in progress
 
-  const [activeQueue, setActiveQueue] = useState<MailQueue>('needs-reply');
+  const [activeQueue, setActiveQueue] = usePanelState<MailQueue>(`mail:queue:${tabId}`, 'needs-reply');
   const [upgrades, setUpgrades] = useState<Map<number, MailQueue>>(new Map());
   const [isSweeping, setIsSweeping] = useState(false);
 
   // Inbox rows — state-alive across tab switches (instant reopen, silent revalidate). Keyed by
   // the account set so adding/removing an account can never paint another set's cached rows.
   const { data: rows = [], loading, error, refresh: load, mutate: mutateRows } = usePanelResource<MailRow[]>({
-    key: `mail:rows:${accountsKey}`,
+    key: `mail:rows:${accountsKey}:${search.trim()}`,
     fetch: async () => {
       if (accounts.length === 0) return [];
+      const sq = search.trim();
       const per = await Promise.all(
         accounts.map(async (acct): Promise<MailRow[]> => {
           if (!(await hasSavedPassword(acct.email))) return [];
-          const headers = await invoke<MailHeader[]>('mail_fetch_recent', {
-            provider: acct.provider, email: acct.email, limit: 30,
-          }).catch(() => [] as MailHeader[]);
+          const headers = sq
+            ? await invoke<MailHeader[]>('mail_search', { provider: acct.provider, email: acct.email, query: sq, limit: 30 }).catch(() => [] as MailHeader[])
+            : await invoke<MailHeader[]>('mail_fetch_recent', { provider: acct.provider, email: acct.email, limit: 30 }).catch(() => [] as MailHeader[]);
           return headers.map(h => ({ ...h, account: acct.email, provider: acct.provider }));
         }),
       );
@@ -199,8 +201,9 @@ export function MailInboxPanel() {
     let r = sortedRows.filter(x => x.queue === activeQueue);
     if (starredOnly) r = r.filter(x => x.flagged);
     if (activeFilter && filterKeys) r = r.filter(x => filterKeys.has(rowKey(x)));
+    
     return r;
-  }, [sortedRows, activeQueue, starredOnly, activeFilter, filterKeys]);
+  }, [sortedRows, activeQueue, starredOnly, activeFilter, filterKeys, search]);
 
   // Background LLM classification pass
   useEffect(() => {
@@ -713,6 +716,16 @@ export function MailInboxPanel() {
 
       {accounts.length > 0 && (
         <div className="border-b border-edge shrink-0">
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-edge">
+            <Search className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search emails by sender or subject"
+              className="flex-1 bg-transparent text-xs text-ink-2 outline-none placeholder:text-ink-3"
+            />
+            {search && <button onClick={() => setSearch('')}><X className="w-3.5 h-3.5 text-ink-3" /></button>}
+          </div>
           <div className="flex items-center gap-2 px-4 py-2">
             <Wand2 className="w-3.5 h-3.5 text-accent shrink-0" />
             <input

@@ -79,7 +79,9 @@ export function MessageList({
     const el = scrollContainerRef.current;
     if (!el) return;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setIsNearBottom(distFromBottom < 120);
+    const nearBottom = distFromBottom < 120;
+    setIsNearBottom(nearBottom);
+    useUIStore.getState().setIsChatNearBottom(nearBottom);
     setShowScrollTop(el.scrollTop > 300);
   }, []);
 
@@ -182,6 +184,9 @@ export function MessageList({
                           {msg.role === 'bot' && !isGenerating && <button onClick={() => onToggleSpeak(msg.id, msg.content, msg.agentId)} className={`p-1.5 rounded-md transition-all ${speakingId === msg.id ? 'text-danger bg-danger-soft' : 'text-ink-3 hover:text-accent hover:bg-wash'}`} title={speakingId === msg.id ? "Stop Reading" : "Read Aloud"}>{speakingId === msg.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>}
                           <button onClick={() => { onAddTask(msg.content.slice(0, 100)); setShowPlanner(true); }} className="p-1.5 text-ink-3 hover:text-accent hover:bg-wash rounded-md transition-all" title="Turn into task"><ListTodo className="w-3.5 h-3.5" /></button>
                           <button onClick={() => onBookmark(msg)} className={`p-1.5 rounded-md transition-all ${globalPins.some(p => p.msgId === msg.id) ? 'text-warning bg-warning-soft' : 'text-ink-3 hover:text-warning hover:bg-warning-soft'}`} title={globalPins.some(p => p.msgId === msg.id) ? 'Saved to Library' : 'Save to Library'}><Bookmark className="w-3.5 h-3.5" /></button>
+                          <span className="text-[9px] font-bold text-ink-3/60 tracking-wider mx-1.5">
+                            {new Date(msg.timestamp || msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toLowerCase()}
+                          </span>
                        </div>
                      )}
                   </div>
