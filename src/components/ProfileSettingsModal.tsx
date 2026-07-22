@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link,
   MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
-  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User, AlertCircle
+  Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User, AlertCircle, Telescope
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
@@ -1541,13 +1541,30 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                   <div className="flex flex-col">
                     <span className="text-sm font-black uppercase tracking-widest ">Daily Dream Cycle</span>
                     <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Once a day, Docent consolidates this assistant's memory, saves what it learned, and flags loose ends. Only runs while Docent is open.</span>
-                    <span className="text-tiny text-ink-3 mt-0.5">Off by default — every change is undoable from the digest.</span>
+                    <span className="text-tiny text-ink-3 mt-0.5">You're asked once before the first run — every change is undoable from the digest.</span>
                   </div>
                 </div>
                 <button
                   onClick={() => setAppSettings((prev: any) => ({ ...prev, dreamAutoEnabled: !prev.dreamAutoEnabled }))}
                   className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${appSettings?.dreamAutoEnabled ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-wash text-ink-3 hover:bg-inset'}`}
                 >{appSettings?.dreamAutoEnabled ? 'On' : 'Off'}</button>
+              </div>
+
+              {/* Background research — sits beside the Dream control because they're the two things
+                  Docent does while you aren't watching, and both deserve to be found in one place. */}
+              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-wash rounded-xl shadow-sm border border-edge-2"><Telescope className="w-5 h-5 text-ink-3" /></div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest">Background Research</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Looks up topics you talk about — products, places, technologies — and writes what it finds into your Knowledge Base, with sources.</span>
+                    <span className="text-tiny text-ink-3 mt-0.5">Public topics only. Never researches people, and never anything from a private note. Uses Wikipedia — no API key, no cost.</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAppSettings((prev: any) => ({ ...prev, backgroundResearchEnabled: !(prev.backgroundResearchEnabled !== false) }))}
+                  className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm shrink-0 ${appSettings?.backgroundResearchEnabled !== false ? 'bg-[#DCE7E1] text-success dark:bg-[#2C3E35]/30 dark:text-[#B5CDBF]' : 'bg-wash text-ink-3 hover:bg-inset'}`}
+                >{appSettings?.backgroundResearchEnabled !== false ? 'On' : 'Off'}</button>
               </div>
 
               {/* Local Planner */}

@@ -51,6 +51,8 @@ interface SettingsStore {
     visionModelId: string;
     visionEndpoint: string;
     dreamAutoEnabled?: boolean;
+    /** Quiet background research on entities you talk about. Public topics only, never people. */
+    backgroundResearchEnabled?: boolean;
     showContextWindowLine?: boolean;
     forgeInstanceId?: string;
     inboxOwners?: Array<{ id: string; label: string }>;
@@ -200,6 +202,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     // while a default of true with a hard consent stop means everyone is asked exactly once, in
     // context, with the cost stated. Do not remove the gate and leave this true.
     dreamAutoEnabled: true,
+    // On by default, unlike dreaming, because the cost profile is different in kind: this reads
+    // keyless Wikipedia, not an LLM, so it spends no tokens and needs no consent gate. It also
+    // never touches `person` nodes or anything sourced from a private memory.
+    backgroundResearchEnabled: true,
     showContextWindowLine: false,
     developerMode: false,
     fileAccessGrants: {},

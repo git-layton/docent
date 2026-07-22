@@ -34,6 +34,7 @@ import { buildGatekeeperMemoryWrite, evaluateMemoryGate, extractMemoryCandidateT
 import { generateNodeId, upsertGraphNode } from './services/graphEntityExtractor';
 import { ingestMemoryIntoGraph } from './services/conversationGraph';
 import { runGraphMigrations } from './services/graphMigrations';
+import { runEntityEnrichment } from './services/entityEnrichment';
 import { assessConversationMemory } from './services/memoryPolicy';
 import { buildPlaybookRecord, parsePlaybook, retrievePlaybooks, reinforcePlaybook, readPlaybookByTrigger } from './services/appliedMemory';
 import { distillCandidate, observeCompletion, composeSkillContext, shouldPropose, isStale, DEFAULT_SKILL_POLICY, type LearnedSkill, type CompletedAction } from './services/organicSkills';
@@ -425,6 +426,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const evaluatedContextRef = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() });
   const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const routineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const researchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Routes the previous turn took, per chat, so a follow-up can inherit an intent it plainly
   // continues (see previousRoutes in memoryGatekeeper). A ref, not state: nothing renders from it,
   // and it must not trigger a re-render mid-turn. Per-chat so switching conversations can't leak
@@ -632,6 +634,21 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       void runGraphMigrations(selectedModelRef.current as any);
     }, 20 * 1000);
 
+    // Background research — give the entities you actually talk about a dossier. Silent by design:
+    // no toast, no modal, nothing to dismiss; it surfaces on the entity's own card and dossier. Ten
+    // minutes after boot so it never competes with a cold start, then every six hours.
+    const RESEARCH_WARMUP_MS = 10 * 60 * 1000;
+    const RESEARCH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const runResearch = () => {
+      const { appSettings: s } = useSettingsStore.getState();
+      if (s.backgroundResearchEnabled === false) return; // absent ⇒ on
+      void runEntityEnrichment(useMemoryStore.getState().agentForgePath);
+    };
+    const researchWarmup = setTimeout(() => {
+      runResearch();
+      researchTimerRef.current = setInterval(runResearch, RESEARCH_INTERVAL_MS);
+    }, RESEARCH_WARMUP_MS);
+
     // Auto-schedule Dream Cycle — 30min warm-up, then every 24h.
     // Declared here (not inside boot) so the cleanup return can reach warmupTimeout.
     const DREAM_WARMUP_MS = 30 * 60 * 1000;
@@ -654,6 +671,8 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     return () => {
       clearTimeout(warmupTimeout);
       clearTimeout(migrationTimeout);
+      clearTimeout(researchWarmup);
+      if (researchTimerRef.current) clearInterval(researchTimerRef.current);
       if (dreamTimerRef.current) clearInterval(dreamTimerRef.current);
       if (routineTimerRef.current) clearInterval(routineTimerRef.current);
     };
