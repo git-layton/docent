@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, Glasses } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, Glasses, MessageSquareHeart } from 'lucide-react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -462,6 +463,8 @@ export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): R
       
       <div className="flex items-center gap-2 pl-3 ml-auto">
         <WeatherEffectBadge />
+
+        <FeedbackButton />
         
         {onToggleCopilot && (
           <button
@@ -475,6 +478,57 @@ export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): R
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FeedbackButton — a quiet way to say something is wrong, from wherever you are.
+//
+// Prefills the app version and macOS build into the body. A report reading "the chat is blurry" is
+// nearly unactionable without knowing which version it came from, and nobody pastes that by hand —
+// so the mail is composed with it already there, above the user's own text rather than below it,
+// where it would be lost under a mail client's quoted signature.
+// ---------------------------------------------------------------------------
+
+const FEEDBACK_EMAIL = 'help@amplifiedintelligence.net';
+
+function FeedbackButton() {
+  const [version, setVersion] = useState<string>('');
+
+  useEffect(() => {
+    // Read the real bundled version rather than a hardcoded constant, which would drift from
+    // tauri.conf.json on every release and quietly mislabel every report.
+    import('@tauri-apps/api/app')
+      .then(m => m.getVersion())
+      .then(setVersion)
+      .catch(() => setVersion(''));
+  }, []);
+
+  const send = useCallback(() => {
+    const subject = `Docent feedback${version ? ` (v${version})` : ''}`;
+    const body = [
+      '',
+      '',
+      '---',
+      `Docent ${version || 'unknown version'}`,
+      `Platform: ${navigator.userAgent.includes('Mac') ? 'macOS' : navigator.platform || 'unknown'}`,
+      '',
+      'What happened:',
+      '',
+    ].join('\n');
+    const url = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    openUrl(url).catch(err => console.warn('[Feedback] could not open mail client:', err));
+  }, [version]);
+
+  return (
+    <button
+      onClick={send}
+      title={`Send feedback to ${FEEDBACK_EMAIL}`}
+      aria-label="Send feedback"
+      className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors shrink-0"
+    >
+      <MessageSquareHeart className="w-4 h-4" />
+    </button>
   );
 }
 
