@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import {
   SHELVES,
   buildEntityItems,
+  withoutFileMirrors,
   mergeSearchHits,
   matchesQuery,
   rankItems,
@@ -69,7 +70,14 @@ export function KnowledgeLibraryView({
     return () => { cancelled = true; clearTimeout(timer); };
   }, [query, agentId]);
 
-  const entityItems = useMemo(() => buildEntityItems(nodes, edges), [nodes, edges]);
+  // Memory nodes mirror a file that is already listed from disk with a better title and a snippet,
+  // so the node is dropped as a card (it still exists in the graph, anchoring its edges). Only
+  // visible once memory nodes are typed `note` rather than `concept` — before that the mirror and
+  // the file sat on different shelves and the duplication was hidden.
+  const entityItems = useMemo(
+    () => withoutFileMirrors(buildEntityItems(nodes, edges), noteItems),
+    [nodes, edges, noteItems],
+  );
 
   const grouped = useMemo(() => {
     const all = mergeSearchHits([...entityItems, ...noteItems], hits);

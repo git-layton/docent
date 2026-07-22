@@ -41,7 +41,8 @@ export interface LibraryItem {
   shelf: ShelfId;
   /** Raw graph node_type — entities only. */
   nodeType?: string;
-  /** Knowledge Core path — notes only. */
+  /** Knowledge Core path. The file itself for notes; for entities, the file the node was extracted
+   *  from, when it had one — which is what identifies a node as a mirror of a note. */
   path?: string;
   sourceUrl?: string;
   /** Preview text: note body opening, or a search snippet. */
@@ -228,11 +229,32 @@ export function buildEntityItems(nodes: GraphNodeLike[], edges: GraphEdgeLike[])
       shelf: shelfForNodeType(n.node_type),
       nodeType: n.node_type,
       sourceUrl: n.source_url,
+      // Carried so a node that merely mirrors a file can be recognised as one — see
+      // withoutFileMirrors below.
+      path: n.source_path,
       connections: degrees.get(n.id) ?? 0,
       aliases,
       curated,
     };
   });
+}
+
+/**
+ * Drop entity cards that are just mirrors of a file already on a shelf.
+ *
+ * Every saved memory writes both a markdown file AND a graph node pointing at it. The node exists to
+ * anchor edges — extracted entities hang off it — but as a *library card* it is strictly worse than
+ * the file's own: it is labelled with the raw node label rather than the frontmatter title, and it
+ * carries no snippet. While memory nodes were typed `concept` this never showed, because the node
+ * landed on Topics and the file on Notes. Retyping them to `note` (which is what they are) puts both
+ * on the same shelf, and every memory would appear twice.
+ *
+ * Keyed on source_path, which is exactly the "this node IS that file" relationship.
+ */
+export function withoutFileMirrors(entityItems: LibraryItem[], noteItems: LibraryItem[]): LibraryItem[] {
+  const filePaths = new Set((noteItems ?? []).map(n => n.path).filter(Boolean) as string[]);
+  if (filePaths.size === 0) return entityItems ?? [];
+  return (entityItems ?? []).filter(e => !(e.path && filePaths.has(e.path)));
 }
 
 export interface NoteFile { path: string; name: string; content?: string }

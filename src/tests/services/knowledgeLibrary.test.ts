@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isEntityLabel,
+  withoutFileMirrors,
   shelfForNodeType,
   frontmatterValue,
   noteTitle,
@@ -369,5 +370,46 @@ describe('isEntityLabel', () => {
   it('rejects labels with no letters', () => {
     expect(isEntityLabel('2026')).toBe(false)
     expect(isEntityLabel('--')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// withoutFileMirrors — a memory writes BOTH a file and a graph node pointing at
+// it. While memory nodes were typed `concept` the two landed on different
+// shelves (Topics vs Notes) and the duplication was invisible. Retyping them to
+// `note` puts both on Notes, so every memory would appear twice.
+// ---------------------------------------------------------------------------
+
+describe('withoutFileMirrors', () => {
+  const noteItem = (path: string): LibraryItem =>
+    ({ id: path, kind: 'note', label: 'Deploy checklist', shelf: 'notes', path })
+
+  const mirror = (id: string, path?: string): LibraryItem =>
+    ({ id, kind: 'entity', label: 'Do it', shelf: 'notes', nodeType: 'note', path })
+
+  it('drops the node that mirrors a listed file', () => {
+    const out = withoutFileMirrors(
+      [mirror('memory-abc', 'memory/spaces/space-home/gatekeeper/do-it.md')],
+      [noteItem('memory/spaces/space-home/gatekeeper/do-it.md')],
+    )
+    expect(out).toHaveLength(0)
+  })
+
+  it('keeps real entities, which have no file path', () => {
+    const out = withoutFileMirrors(
+      [{ id: 'e1', kind: 'entity', label: "Baldur's Gate 3", shelf: 'topics' }],
+      [noteItem('memory/a.md')],
+    )
+    expect(out).toHaveLength(1)
+  })
+
+  it('keeps a node whose source file is not listed', () => {
+    const out = withoutFileMirrors([mirror('memory-x', 'memory/other.md')], [noteItem('memory/a.md')])
+    expect(out).toHaveLength(1)
+  })
+
+  it('is a no-op when there are no notes', () => {
+    const items = [mirror('memory-x', 'memory/a.md')]
+    expect(withoutFileMirrors(items, [])).toHaveLength(1)
   })
 })
