@@ -239,7 +239,12 @@ export const DynamicBackground: React.FC = () => {
           style={{
             top: ss.top,
             left: ss.left,
-            transform: `rotate(${ss.angle}deg)`,
+            // `rotate`, not `transform: rotate()`. The keyframe animates `transform`, which
+            // overrides an inline transform completely — so the star snapped upright the instant
+            // the animation applied and then flew flat sideways instead of along its angle. As an
+            // independent property the rotation composes with the animated translate, and the
+            // streak finally travels in the direction it points.
+            rotate: `${ss.angle}deg`,
             animation: `shootingStar ${ss.duration} ${ss.delay} infinite`,
           }}
         >
@@ -258,7 +263,9 @@ export const DynamicBackground: React.FC = () => {
           className="absolute pointer-events-none"
           style={{
             top: cloud.top,
-            transform: `scale(${cloud.scale * cloudDensity})`,
+            // `scale`, not `transform: scale()` — the drift animation owns `transform`, and an
+            // animated transform overrides an inline one outright rather than composing with it.
+            scale: `${cloud.scale * cloudDensity}`,
             opacity: timeOfDay === 'day' ? cloud.opacity * cloudDensity : cloud.opacity * 0.5,
             animation: `drift ${cloud.duration} ${cloud.delay} linear infinite`,
           }}
@@ -356,7 +363,8 @@ export const DynamicBackground: React.FC = () => {
           style={{
             top: bird.top,
             animation: `drift ${bird.duration} ${bird.delay} linear infinite`,
-            transform: `scale(${bird.scale})`,
+            // See the cloud above: independent `scale` so drift's transform doesn't clobber it.
+            scale: `${bird.scale}`,
           }}
         >
           <svg width="20" height="8" viewBox="0 0 20 8" fill="none"
@@ -407,9 +415,14 @@ export const DynamicBackground: React.FC = () => {
           98% { opacity: 0.8; transform: translateX(180px); }
           100% { opacity: 0; transform: translateX(220px); }
         }
+        /* translateX, never left. Animating \`left\` recalculates layout on EVERY frame, for every
+           cloud and every bird simultaneously — which is what made the sky stutter and periodically
+           freeze. transform is composited off the main thread, so the same motion costs nothing.
+           Elements using this set \`scale\`/\`rotate\` via the independent CSS properties rather than
+           \`transform: scale()\`, so their sizing composes with this instead of being clobbered. */
         @keyframes drift {
-          0% { left: -15%; }
-          100% { left: 110%; }
+          0% { transform: translateX(-15vw); }
+          100% { transform: translateX(110vw); }
         }
         @keyframes flap {
           0% { transform: scaleY(1); }
