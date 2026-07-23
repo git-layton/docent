@@ -428,9 +428,6 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
               <p className="mt-2 w-fit text-[11px] text-ink-3">
                 Search your apps, docs, tasks &amp; history · press <span className="text-ink-2">↵</span> to ask your agent
               </p>
-              <p className="mt-1 w-fit text-[10px] text-ink-3 opacity-80">
-                Docent is an experimental AI and may not always have accurate details. Please double check.
-              </p>
             </>
           )}
         </div>
