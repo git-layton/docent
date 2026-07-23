@@ -390,7 +390,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
               {dateStr} · <span className="tabular-nums">{clock}{meridiem ? ` ${meridiem.toLowerCase()}` : ''}</span>
               {weatherCode !== null && (
                 <button
-                  onClick={() => launch(tabId, { type: 'web', url: `https://duckduckgo.com/?q=${encodeURIComponent('local weather warning')}`, label: 'Local Weather Warning' })}
+                  onClick={() => launch(tabId, { type: 'web', url: `https://start.duckduckgo.com/?q=${encodeURIComponent('local weather warning')}`, label: 'Local Weather Warning' })}
                   className={clsx(
                     "flex items-center gap-1.5 ml-2 px-2 py-1 rounded-md transition-colors cursor-pointer",
                     isSevereWeather 

@@ -16,17 +16,17 @@ describe('resolveQuery', () => {
   });
 
   it('searches for plain prose', () => {
-    expect(resolveQuery('best coffee in berlin')).toBe('https://duckduckgo.com/?q=best%20coffee%20in%20berlin');
+    expect(resolveQuery('best coffee in berlin')).toBe('https://start.duckduckgo.com/?q=best%20coffee%20in%20berlin');
   });
 
   // The dot alone can't decide — these all contain one and are all questions, not addresses.
   it('searches for prose that happens to contain a dot', () => {
-    expect(resolveQuery('what is a .gitignore')).toContain('duckduckgo.com/?q=');
-    expect(resolveQuery('is 3.5 better than 4')).toContain('duckduckgo.com/?q=');
+    expect(resolveQuery('what is a .gitignore')).toContain('start.duckduckgo.com/?q=');
+    expect(resolveQuery('is 3.5 better than 4')).toContain('start.duckduckgo.com/?q=');
   });
 
   it('escapes characters that would corrupt the search url', () => {
-    expect(resolveQuery('a&b=c')).toBe('https://duckduckgo.com/?q=a%26b%3Dc');
+    expect(resolveQuery('a&b=c')).toBe('https://start.duckduckgo.com/?q=a%26b%3Dc');
   });
 
   it('trims surrounding whitespace before deciding', () => {

@@ -19,14 +19,14 @@ import { BrowserPasswordBar } from './BrowserPasswordBar';
 import { BrowserStartPage } from './BrowserStartPage';
 import { useSpaceStore } from '../store/useSpaceStore';
 
-const HOME_URL = 'https://duckduckgo.com';
+const HOME_URL = 'https://start.duckduckgo.com';
 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return HOME_URL;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^[^\s]+\.[^\s]+/.test(trimmed) && !trimmed.includes(' ')) return `https://${trimmed}`;
-  return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
+  return `https://start.duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
 
@@ -604,7 +604,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
             const text = await navigator.clipboard.readText();
             if (text.trim()) {
               setInputUrl(text.trim());
-              const dest = text.trim().startsWith('http') ? text.trim() : `https://duckduckgo.com/?q=${encodeURIComponent(text.trim())}`;
+              const dest = text.trim().startsWith('http') ? text.trim() : `https://start.duckduckgo.com/?q=${encodeURIComponent(text.trim())}`;
               setIsLoading(true);
               setUrl(dest);
               setInputUrl(dest);

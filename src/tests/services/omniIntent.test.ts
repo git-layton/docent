@@ -60,7 +60,7 @@ describe('specFor', () => {
 
 describe('webSearchUrl', () => {
   it('builds an encoded DuckDuckGo query and trims', () => {
-    expect(webSearchUrl('  hello world  ')).toBe('https://duckduckgo.com/?q=hello%20world');
-    expect(webSearchUrl('a&b=c')).toBe('https://duckduckgo.com/?q=a%26b%3Dc');
+    expect(webSearchUrl('  hello world  ')).toBe('https://start.duckduckgo.com/?q=hello%20world');
+    expect(webSearchUrl('a&b=c')).toBe('https://start.duckduckgo.com/?q=a%26b%3Dc');
   });
 });

@@ -11,14 +11,14 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useMemoryStore } from '../store/useMemoryStore';
 import { generatePageDigest } from '../services/pageDigest';
 
-const HOME_URL = 'https://duckduckgo.com';
+const HOME_URL = 'https://start.duckduckgo.com';
 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return HOME_URL;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^[^\s]+\.[^\s]+/.test(trimmed) && !trimmed.includes(' ')) return `https://${trimmed}`;
-  return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
+  return `https://start.duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
 

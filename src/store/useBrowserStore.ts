@@ -29,7 +29,7 @@ export interface Favorite {
 }
 
 const DEFAULT_FAVORITES: Favorite[] = [
-  { id: 'fav-ddg', url: 'https://duckduckgo.com', title: 'DuckDuckGo' },
+  { id: 'fav-ddg', url: 'https://start.duckduckgo.com', title: 'DuckDuckGo' },
   { id: 'fav-gh', url: 'https://github.com', title: 'GitHub' },
   { id: 'fav-hn', url: 'https://news.ycombinator.com', title: 'Hacker News' },
 ];

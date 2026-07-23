@@ -96,7 +96,7 @@ export function BrowserStartPage({ onNavigate }: { onNavigate: (url: string) => 
 export function resolveQuery(raw: string): string {
   const q = raw.trim();
   const looksLikeUrl = /^https?:\/\//i.test(q) || (!/\s/.test(q) && /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(q));
-  return looksLikeUrl ? q : `https://duckduckgo.com/?q=${encodeURIComponent(q)}`;
+  return looksLikeUrl ? q : `https://start.duckduckgo.com/?q=${encodeURIComponent(q)}`;
 }
 
 function hostOf(url: string): string {

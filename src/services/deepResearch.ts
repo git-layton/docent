@@ -9,7 +9,7 @@ export async function launchDeepResearch(topic: string, modelConfig: any, chatId
   try {
     const result = await runBrowserAgent({
       task: `Deep research the following topic: ${topic}. Browse the web to find comprehensive information.`,
-      startUrl: `https://duckduckgo.com/?q=${encodeURIComponent(topic)}`,
+      startUrl: `https://start.duckduckgo.com/?q=${encodeURIComponent(topic)}`,
       modelConfig,
       maxSteps: 15,
       onProgress: (p) => {

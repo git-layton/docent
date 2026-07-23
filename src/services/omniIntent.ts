@@ -69,5 +69,5 @@ export function cycleIntent(current: OmniIntent): OmniIntent {
 
 // Web-intent ↵ (and StartPage's onWebSearch) open a DuckDuckGo search for the typed text.
 export function webSearchUrl(text: string): string {
-  return `https://duckduckgo.com/?q=${encodeURIComponent(text.trim())}`;
+  return `https://start.duckduckgo.com/?q=${encodeURIComponent(text.trim())}`;
 }
