@@ -226,17 +226,23 @@ export function ChatPanel({
 
       {/* Chat input footer */}
       {docked ? (
-        <div className="shrink-0 p-2 border-t border-edge">
+        <div className="shrink-0 p-2 border-t border-edge flex flex-col items-center">
           <ContextPill />
           <ChatInputBar {...chatInputBarProps} />
+          <div className="mt-1 pb-1 text-center text-[10px] text-ink-3 opacity-80">
+            Docent is an experimental AI and may not always have accurate details. Please double check.
+          </div>
         </div>
       ) : (
-        <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 flex justify-center z-20 pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 flex flex-col items-center z-20 pointer-events-none">
           {/* Frosted, like the input bar it wraps — a control surface, not part of the clear
               conversation glass. Dialled back from blur-3xl (64px), which was the most frosted
               thing in the app. */}
           <div className="w-[min(720px,calc(100%-1rem))] bg-white/10 dark:bg-black/10 backdrop-blur-xl rounded-3xl border border-edge-2 shadow-xl p-1 pointer-events-auto">
             <ChatInputBar {...chatInputBarProps} />
+          </div>
+          <div className="mt-2 text-center text-[10px] text-ink-3 opacity-80 drop-shadow-sm">
+            Docent is an experimental AI and may not always have accurate details. Please double check.
           </div>
         </div>
       )}

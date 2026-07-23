@@ -188,7 +188,7 @@ export function ChatInputBar({
   // frosting is what lifts its small icons off a busy sky enough to be legible. Clear glass here was
   // tried and the icons vanished into the wallpaper.
   return (
-    <div className={`absolute bottom-0 left-0 right-0 bg-white/10 dark:bg-black/5 backdrop-blur-xl border-t border-edge/50 shadow-[0_-8px_32px_rgba(0,0,0,0.1)] pt-4 pb-3 px-3 lg:px-4 z-10 transition-opacity duration-300 ${isChatNearBottom ? 'opacity-100' : 'opacity-30 hover:opacity-100'}`}>
+    <div className={`relative w-full bg-white/10 dark:bg-black/5 backdrop-blur-xl border-t border-edge/50 shadow-[0_-8px_32px_rgba(0,0,0,0.1)] pt-4 pb-3 px-3 lg:px-4 z-10 transition-opacity duration-300 ${isChatNearBottom ? 'opacity-100' : 'opacity-30 hover:opacity-100'}`}>
       <div className="max-w-3xl mx-auto">
 
         {/* Error Display */}
@@ -437,9 +437,6 @@ export function ChatInputBar({
           </div>
         </div>
         </div>{/* end relative wrapper for slash palette */}
-        <div className="mt-2 text-center text-[10px] text-ink-3 opacity-80">
-          Docent is an experimental AI and may not always have accurate details. Please double check.
-        </div>
       </div>
     </div>
   );
