@@ -4007,18 +4007,18 @@ if (isSpotlight) {
       )}
 
       {/* Onboarding wizard */}
-      {/* showOnboarding && (
+      {showOnboarding && (
         <OnboardingWizard onClose={() => {
           const ss = useSettingsStore.getState();
           ss.setShowOnboarding(false);
           ss.setOnboardingInitialStep(1);
         }} initialStep={onboardingInitialStep} />
-      ) */}
+      )}
 
       {/* Lock screen for background downloads (if onboarding is skipped/dismissed) */}
-      {/* !showOnboarding && models.length === 0 && (
+      {!showOnboarding && models.length === 0 && (
         <LockedSetupScreen />
-      ) */}
+      )}
 
       {/* Agent action approval — sends/deletes the agent wants to run (local writes auto-applied) */}
       {pendingActions.length > 0 && (
