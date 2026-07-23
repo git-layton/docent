@@ -437,6 +437,9 @@ export function ChatInputBar({
           </div>
         </div>
         </div>{/* end relative wrapper for slash palette */}
+        <div className="mt-2 text-center text-[10px] text-ink-3 opacity-80">
+          Docent is an experimental AI and may not always have accurate details. Please double check.
+        </div>
       </div>
     </div>
   );
