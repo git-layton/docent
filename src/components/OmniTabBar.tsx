@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, Glasses, MessageSquareHeart } from 'lucide-react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMessagesStore } from '../store/useMessagesStore';
+import { FeedbackModal } from './FeedbackModal';
 
 import type { OmniTab } from '../types/omniTab';
 import { TabOverflowMenu } from './TabOverflowMenu';
@@ -488,53 +488,21 @@ export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): R
 // where it would be lost under a mail client's quoted signature.
 // ---------------------------------------------------------------------------
 
-const FEEDBACK_EMAIL = 'help@amplifiedintelligence.net';
-
 function FeedbackButton() {
-  const [version, setVersion] = useState<string>('');
-
-  useEffect(() => {
-    // Read the real bundled version rather than a hardcoded constant, which would drift from
-    // tauri.conf.json on every release and quietly mislabel every report.
-    import('@tauri-apps/api/app')
-      .then(m => m.getVersion())
-      .then(setVersion)
-      .catch(() => setVersion(''));
-  }, []);
-
-  const send = useCallback(() => {
-    const subject = `Docent feedback${version ? ` (v${version})` : ''}`;
-    // Two prompts, in this order. "What happened" on its own gets a bug title with no bug in it;
-    // the gap between what someone expected and what they got is the actual report, and it is the
-    // one thing they can't reconstruct later once they've moved on.
-    const body = [
-      '',
-      'What I was trying to do:',
-      '',
-      '',
-      'What I expected to happen:',
-      '',
-      '',
-      'What actually happened:',
-      '',
-      '',
-      '---',
-      `Docent ${version || 'unknown version'}`,
-      `Platform: ${navigator.userAgent.includes('Mac') ? 'macOS' : navigator.platform || 'unknown'}`,
-    ].join('\n');
-    const url = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    openUrl(url).catch(err => console.warn('[Feedback] could not open mail client:', err));
-  }, [version]);
+  const [showModal, setShowModal] = useState(false);
 
   return (
-    <button
-      onClick={send}
-      title={`Send feedback to ${FEEDBACK_EMAIL}`}
-      aria-label="Send feedback"
-      className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors shrink-0"
-    >
-      <MessageSquareHeart className="w-4 h-4" />
-    </button>
+    <>
+      <button
+        onClick={() => setShowModal(true)}
+        title="Send feedback"
+        aria-label="Send feedback"
+        className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors shrink-0"
+      >
+        <MessageSquareHeart className="w-4 h-4" />
+      </button>
+      {showModal && <FeedbackModal onClose={() => setShowModal(false)} />}
+    </>
   );
 }
 

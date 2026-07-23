@@ -139,6 +139,10 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     invoke('set_developer_mode', { on: !!appSettings.developerMode }).catch(() => {});
     document.documentElement.dataset.glass = appSettings.glassEnabled ? 'true' : 'false';
   }, [appSettings.developerMode, appSettings.glassEnabled]);
+  // Sync the local Knowledge Base on boot so the vector index catches files added externally.
+  useEffect(() => {
+    invoke('sync_knowledge_core_index').catch(err => console.warn('Knowledge sync failed:', err));
+  }, []);
   // Live weather — fetch when the user sets a location (zip code or city)
   useEffect(() => {
     const loc = appSettings.weatherLocation?.trim();
@@ -282,7 +286,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   // web page / received mail / messages). When true (trust §3 rule 2) NOTHING auto-applies: agent
   // self-memory + playbook capture/run are skipped (agent-initiated, the prime injection target) and
   // every user-facing tool write routes to the approval queue instead of running silently.
-  const handleAgentActions = async (text: string, chatId: string, botId: string, turnIngestedUntrusted = false) => {
+  const handleAgentActions = async (text: string, chatId: string, botId: string, turnIngestedUntrusted = false, signal?: AbortSignal) => {
     const actions = parseAgentActions(text);
     if (actions.length === 0) return;
     // Mark the top of the receipt ledger before anything runs. Every receipt appended past this
@@ -351,7 +355,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         if (a.tool === 'web' && a.op === 'search') {
           // Execute web search autonomously and trigger a follow-up turn so the agent can read the results.
           const { webSearchCapability } = await import('./services/capabilities/builtins/webSearch');
-          const mockCtx: any = { userMsg: { content: String(a.query || '') }, integrations: useSettingsStore.getState().integrations, setStatus: showToast };
+          const mockCtx: any = { userMsg: { content: String(a.query || '') }, integrations: useSettingsStore.getState().integrations, setStatus: showToast, signal };
           const res = await webSearchCapability.execute(mockCtx);
           
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({
@@ -2611,7 +2615,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
           trustOfToolSource(_toolContext?.source) === 'untrusted-external' ||
           !!_webRecall;
         useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: (prev[chatId] ?? []).map((m: any) => m.id === botId ? { ...m, content: response, isStreaming: false, untrustedTurn: turnIngestedUntrusted } : m) }));
-        void handleAgentActions(response, chatId, botId, turnIngestedUntrusted);
+        await handleAgentActions(response, chatId, botId, turnIngestedUntrusted, _controller.signal);
         if (!isImageRequest && !turnIngestedUntrusted) void persistConversationMemory(chatId, userMsg, response, _activeAssistant, gatekeeperDecision, 'dm');
 
         if (_generationMode === 'code' || _generationMode === 'doc') {

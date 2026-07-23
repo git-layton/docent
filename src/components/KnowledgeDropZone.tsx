@@ -3,6 +3,7 @@ import { Upload, Loader2, FileText } from 'lucide-react';
 import { extractTextFromPDF } from '../services/pdfParser';
 import { extractAndWriteGraph, generateNodeId, upsertGraphNode } from '../services/graphEntityExtractor';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -105,8 +106,10 @@ export function KnowledgeDropZone({ agentForgePath, onFileIngested, onError }: P
       });
 
       if (result.blocked) {
-        onError('Nuke Shield blocked this write.');
+        useUIStore.getState().showToast(`Failed to ingest ${file.name}: ${JSON.stringify(result)}`);
       } else {
+        invoke('sync_knowledge_core_index').catch(() => {});
+        useUIStore.getState().showToast(`Added ${file.name} to Library`);
         onFileIngested(baseName);
         // Mirror the ingested file into the knowledge graph. With a configured model this also
         // extracts entities (which upserts the file node itself); without one, just record the

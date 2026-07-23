@@ -41,7 +41,8 @@ export const webSearchCapability: Capability = {
                                 include_answer: true
                             })
                         },
-                        1
+                        1,
+                        ctx.signal
                     );
                     if (tvData.results) {
                         tvData.results.forEach((r: any) => foundSources.push({ title: r.title, url: r.url, snippet: r.content }));
@@ -76,7 +77,8 @@ export const webSearchCapability: Capability = {
                             'X-Subscription-Token': _integrations.brave.apiKey,
                         },
                     },
-                    1
+                    1,
+                    ctx.signal
                 );
                 if (braveData?.web?.results) {
                     const braveNew = braveData.web.results.slice(0, 5).filter((r: any) => !foundSources.some((x: any) => x.url === r.url));
@@ -102,7 +104,8 @@ export const webSearchCapability: Capability = {
                 const wikiData = await fetchWithRetry(
                     `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&utf8=&format=json&origin=*`,
                     { method: 'GET' },
-                    1
+                    1,
+                    ctx.signal
                 );
                 if (wikiData?.query?.search) {
                     const wikiNew = wikiData.query.search.slice(0, 2).filter((s: any) => !foundSources.some((x: any) => x.url === `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, '_'))}`));

@@ -654,9 +654,10 @@ pub async fn mail_send(
     subject: String,
     body: String,
     in_reply_to: Option<String>,
+    attachment_b64: Option<String>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        use lettre::message::Mailbox;
+        use lettre::message::{Mailbox, MultiPart, SinglePart, Attachment, header::ContentType};
         use lettre::transport::smtp::authentication::Credentials;
         use lettre::{Message, SmtpTransport, Transport};
 
@@ -689,8 +690,17 @@ pub async fn mail_send(
             };
             builder = builder.in_reply_to(id.clone()).references(id);
         }
+        let mut multipart = MultiPart::mixed().singlepart(SinglePart::plain(body));
+        if let Some(b64) = attachment_b64.filter(|s| !s.is_empty()) {
+            use base64::{engine::general_purpose, Engine as _};
+            if let Ok(bytes) = general_purpose::STANDARD.decode(b64) {
+                let attachment = Attachment::new("screenshot.png".to_string())
+                    .body(bytes, ContentType::parse("image/png").unwrap());
+                multipart = multipart.singlepart(attachment);
+            }
+        }
         let message = builder
-            .body(body)
+            .multipart(multipart)
             .map_err(|e| format!("could not build message: {e}"))?;
 
         let password = mail_password(&email)?;

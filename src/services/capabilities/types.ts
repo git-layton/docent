@@ -35,7 +35,7 @@ export interface CapabilityContext {
   hwProfile: any;
   integrations: any;
   model: any;
-  signal: AbortSignal | undefined;
+  signal?: AbortSignal;
   /** Tabs open in the active Space/DM — the basis for surface scoping (G2). */
   openTabs: OmniTab[];
   /** Live-update the status chip while the capability runs (e.g. browse progress). */
