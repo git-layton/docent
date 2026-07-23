@@ -3879,7 +3879,10 @@ async fn start_local_model(
         "-c".into(),
         ctx_tokens.to_string(),
         "--threads".into(),
-        "4".into(),
+        "8".into(), // M-series performance cores
+        "-ngl".into(),
+        "99".into(), // Full Metal GPU offload
+        "-fa".into(), // Flash Attention
         "--host".into(),
         "127.0.0.1".into(),
     ];

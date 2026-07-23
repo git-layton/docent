@@ -40,6 +40,7 @@ const URGENT_SUBJECT = /\b(urgent|asap|action required|deadline|today|by (eod|en
 /** Deterministic classification — the floor every install gets, model or not. */
 export function classifyHeaderHeuristic(h: TriageHeader): MailQueue {
   const from = h.fromEmail.trim();
+  if (h.flagged) return 'needs-reply';
   if (RECEIPT_SUBJECT.test(h.subject)) return 'receipt';
   if (AUTOMATED_SENDER.test(from) || NEWSLETTER_SUBJECT.test(h.subject)) return 'newsletter';
   // A human sender: unread mail is a reply candidate; read mail rests in Everything else.

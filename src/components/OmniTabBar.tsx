@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, Glasses, MessageSquareHeart } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, MessageSquareHeart, Database } from 'lucide-react';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -7,6 +7,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMessagesStore } from '../store/useMessagesStore';
 import { FeedbackModal } from './FeedbackModal';
+import { DocentMark } from './ui/DocentMark';
 
 import type { OmniTab } from '../types/omniTab';
 import { TabOverflowMenu } from './TabOverflowMenu';
@@ -324,7 +325,12 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
 function NewTabButton() {
   const handleNewTab = useCallback(() => {
     const st = useSpaceStore.getState();
-    st.openTab({ type: 'home', label: 'Start', isPinned: false });
+    const existingHome = st.omniTabs.find(t => t.type === 'home');
+    if (existingHome) {
+      st.setActiveTab(existingHome.id);
+    } else {
+      st.openTab({ type: 'home', label: 'Start', isPinned: false });
+    }
   }, []);
 
   return (
@@ -435,6 +441,26 @@ export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): R
             </div>
           </>
         )}
+        <div className="w-px h-4 bg-edge mx-1 opacity-50 shrink-0" />
+        <button
+          onClick={() => {
+            const { omniTabs } = useSpaceStore.getState();
+            const existing = omniTabs.find((t: any) => t.type === 'tool' && t.toolId === 'knowledge-graph');
+            if (existing) {
+              useSpaceStore.getState().setActiveTab(existing.id);
+            } else {
+              useSpaceStore.getState().openTab({
+                type: 'tool',
+                toolId: 'knowledge-graph',
+                label: 'Knowledge Base',
+              });
+            }
+          }}
+          className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-wash transition-colors"
+          title="Knowledge Base"
+        >
+          <Database className="w-4 h-4 shrink-0" />
+        </button>
       </div>
       <div
         ref={stripRef}
@@ -470,7 +496,7 @@ export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): R
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors border shadow-sm ${copilotOpen ? 'bg-accent border-accent text-on-accent' : 'bg-inset border-edge text-ink hover:bg-wash'}`}
             title="Ask Docent"
           >
-            <Glasses className="w-4 h-4" />
+            <DocentMark className="w-4 h-4" />
             <span className="text-xs font-semibold">Ask Docent</span>
           </button>
         )}

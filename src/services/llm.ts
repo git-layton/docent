@@ -1,6 +1,7 @@
 import { renderAmbientContext } from './context/ambient';
 import { trustOfToolSource } from './trust';
 import { renderVoiceBlock } from './voice';
+import { logInfo } from '../lib/log';
 
 // Token context windows used to auto-detect a limit from a model id (substring match, first hit
 // wins — keep specific keys ABOVE their generic prefixes). Fallback only: an explicit
@@ -346,7 +347,7 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
   const now = new Date();
   const dateStr = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const timeStr = now.toLocaleTimeString(undefined, { timeZoneName: 'short' });
-  let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: Today is ${dateStr}. The current time is ${timeStr}. Use this precise temporal grounding for all time-related requests.${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n\n[PROACTIVE RESEARCH]\nCRITICAL INSTRUCTION: DO NOT use the web search tool unless the user EXPLICITLY asks you to search the web, or if it is strictly necessary to retrieve real-time facts you cannot answer. NEVER search the web for general knowledge or coding questions. You must prioritize using your local knowledge or internal reasoning first.\n`;
+  let prompt = (agent.prompt ?? '') + driveBlock + `\n\n[SYSTEM CONTEXT]\nCurrent Date/Time: Today is ${dateStr}. The current time is ${timeStr}. Use this precise temporal grounding for all time-related requests. DO NOT use ANY tools to answer questions about the current time or date; answer them immediately using this context.${_userName ? `\nThe user's name is ${_userName}. Address them by name naturally.` : ''}\n\n[PROACTIVE RESEARCH]\nCRITICAL INSTRUCTION: DO NOT use the web search tool unless the user EXPLICITLY asks you to search the web, or if it is strictly necessary to retrieve real-time facts you cannot answer. NEVER search the web for general knowledge or coding questions. You must prioritize using your local knowledge or internal reasoning first.\nWhen answering using provided context (memory, web recall, or knowledge base), you MUST cite your sources inline using bracketed numbers (e.g. [1], [2]). ONLY pull in and cite context that is strictly necessary to answer the user's specific question. Ignore irrelevant context.\n`;
   if (agent.role) prompt += `[YOUR ROLE]\nIn this workspace you are acting as the "${agent.role}". Lean into that specialty when deciding what to contribute.\n\n`;
   if (goal) prompt += `[YOUR STANDING GOAL IN THIS SPACE]\n${goal}\nKeep steering toward this across the conversation.\n\n`;
 
@@ -603,6 +604,8 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   const attachedContext = textDocs.length > 0 ? '\n\n' + textDocs.map((d: any) => `[ATTACHED DOC: ${d.name}]\n${d.content}`).join('\n\n') : '';
   const fullSystem = systemPrompt + attachedContext;
+  
+  logInfo('llm', `--- EXACT PROMPT SENT TO MODEL ---\n${fullSystem}\n----------------------------------`);
 
   const formatMessage = (m: any, targetProvider: string) => {
     const textContent = String(m.content ?? '');

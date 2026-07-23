@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Camera, Loader2, Send } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -14,14 +14,12 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
 
   const smtp = useSettingsStore(s => s.integrations.smtp);
 
-  import('react').then(React => {
-    React.useEffect(() => {
-      import('@tauri-apps/api/app')
-        .then(m => m.getVersion())
-        .then(setVersion)
-        .catch(() => setVersion('unknown'));
-    }, []);
-  });
+  useEffect(() => {
+    import('@tauri-apps/api/app')
+      .then(m => m.getVersion())
+      .then(setVersion)
+      .catch(() => setVersion('unknown'));
+  }, []);
   
   const handleCapture = async () => {
     setCapturing(true);

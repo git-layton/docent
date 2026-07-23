@@ -139,7 +139,7 @@ export function MessageList({
         </button>
       )}
 
-      <div ref={scrollContainerRef} onScroll={checkScroll} className="flex-1 overflow-y-auto p-3 lg:p-4 no-scrollbar scroll-smooth">
+      <div ref={scrollContainerRef} onScroll={checkScroll} className="flex-1 overflow-y-auto p-3 lg:p-4 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_bottom,black_0%,black_calc(100%-144px),transparent_calc(100%-16px))]">
         {activeChatId && activeMessages.length > 0 ? (
           <div className="max-w-3xl mx-auto space-y-3 pb-36">
             {activeMessages.flatMap((msg, idx) => {

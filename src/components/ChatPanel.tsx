@@ -231,11 +231,11 @@ export function ChatPanel({
           <ChatInputBar {...chatInputBarProps} />
         </div>
       ) : (
-        <div className="shrink-0 px-4 pb-4 flex justify-center">
+        <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 flex justify-center z-20 pointer-events-none">
           {/* Frosted, like the input bar it wraps — a control surface, not part of the clear
               conversation glass. Dialled back from blur-3xl (64px), which was the most frosted
               thing in the app. */}
-          <div className="w-[min(720px,calc(100%-1rem))] bg-white/10 dark:bg-black/10 backdrop-blur-xl rounded-3xl border border-edge-2 shadow-xl p-1">
+          <div className="w-[min(720px,calc(100%-1rem))] bg-white/10 dark:bg-black/10 backdrop-blur-xl rounded-3xl border border-edge-2 shadow-xl p-1 pointer-events-auto">
             <ChatInputBar {...chatInputBarProps} />
           </div>
         </div>

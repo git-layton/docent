@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Settings, X, ImageIcon, ShieldCheck, Loader2, Wand2, Globe, Database, CalendarDays, Link,
-  MessageSquare, MessageCircle, Mail, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
+  MessageSquare, MessageCircle, CheckCircle2, Layers, Plus, Trash2, Eye, Upload, ExternalLink,
   Sun, Moon, Monitor, Check, ListTodo, Volume2, StickyNote, Sparkles, User, AlertCircle, Telescope
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -20,7 +20,6 @@ import { listPlaybooks, reinforcePlaybook, type Playbook } from '../services/app
 import { invoke } from '@tauri-apps/api/core';
 import { MODEL_CATALOG, fitOnMac } from '../data/modelCatalog';
 import { ModelStorePanel } from './ModelStorePanel';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { db } from '../services/database';
 import { migrateLocalCalendarToEventkit, localCalendarMigrationCount, migrateLocalTasksToEventkit, localTasksMigrationCount } from '../services/connectors/migrate';
 import { getCalendar, getTasks, getNotes } from '../services/connectors';
@@ -35,9 +34,10 @@ interface ProfileSettingsModalProps {
   fetchImageModels: () => void;
   testImageEngine: () => void;
   viewImageInCanvas: (src: string) => void;
+  onCloseAction?: () => void;
 }
 
-export function ProfileSettingsModal({ embedded = false, fetchImageModels, testImageEngine, viewImageInCanvas }: ProfileSettingsModalProps) {
+export function ProfileSettingsModal({ embedded = false, fetchImageModels, testImageEngine, viewImageInCanvas, onCloseAction }: ProfileSettingsModalProps) {
   const userName = useSettingsStore(s => s.userName);
   const userProfile = useSettingsStore(s => s.userProfile);
   const userAvatar = useSettingsStore(s => s.userAvatar);
@@ -159,51 +159,6 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
     const v = rec ? list.find(x => x.voiceURI === rec) : undefined;
     return v ? `Auto — ${v.name}` : 'Auto (recommended)';
   })();
-
-  // Mail (IMAP) connection probe — app-password login, no OAuth/web-login. Verifies we can read
-  // the mailbox before we build the native inbox on top of it.
-  const [mailProvider, setMailProvider] = useState<'gmail' | 'icloud'>('gmail');
-  const [mailEmail, setMailEmail] = useState('');
-  const [mailPassword, setMailPassword] = useState('');
-  const [mailStatus, setMailStatus] = useState<{ state: 'idle' | 'testing' | 'ok' | 'error'; msg?: string }>({ state: 'idle' });
-  const [addingMail, setAddingMail] = useState(false);
-
-  // Connected mail accounts: metadata only (no secret) — passwords live in the Keychain.
-  const mailAccounts: Array<{ id: string; provider: 'gmail' | 'icloud'; email: string }> = (integrations as any).mailAccounts ?? [];
-
-  const handleMailConnect = async () => {
-    const email = mailEmail.trim();
-    // Gmail shows the app password as 4 space-separated groups; IMAP wants it joined.
-    const password = mailPassword.replace(/\s+/g, '');
-    if (!email || !password) return;
-    setMailStatus({ state: 'testing' });
-    try {
-      // SEC-KEYCHAIN: validate with the just-typed password BEFORE writing the Keychain, so a typo when
-      // re-adding an existing account can never clobber a previously-good saved credential. Persist only
-      // after the test passes — and verify the Keychain write actually succeeded.
-      const count = await invoke<number>('mail_test_connection', { provider: mailProvider, email, password });
-      const saved = await invoke<{ ok: boolean; error?: string }>('keychain_save', { host: `mail:${email}`, username: email, password });
-      if (!saved.ok) throw new Error(saved.error ?? 'Could not save the password to the Keychain.');
-      setIntegrations((prev: any) => {
-        const rest = (prev.mailAccounts ?? []).filter((a: any) => a.email !== email);
-        return { ...prev, mailAccounts: [...rest, { id: `mail-${Date.now()}`, provider: mailProvider, email }] };
-      });
-      // Persist immediately so the account survives a reload (don't rely only on the autosave subscribe).
-      await useSettingsStore.getState().persist();
-      setMailStatus({ state: 'ok', msg: `Connected — ${count.toLocaleString()} messages` });
-      setMailEmail('');
-      setMailPassword('');
-      setAddingMail(false);
-    } catch (e) {
-      setMailStatus({ state: 'error', msg: String(e) });
-    }
-  };
-
-  const handleMailRemove = async (email: string) => {
-    await invoke('keychain_delete', { host: `mail:${email}` }).catch(() => {});
-    setIntegrations((prev: any) => ({ ...prev, mailAccounts: (prev.mailAccounts ?? []).filter((a: any) => a.email !== email) }));
-    await useSettingsStore.getState().persist();
-  };
 
   // iMessage — there are no credentials; it reads the local Messages database, which needs Full Disk
   // Access. "Connecting" = probing that we can open chat.db. We flip `imessage.enabled` once verified.
@@ -384,7 +339,15 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
     }
   };
 
-  const onClose = () => { setShowProfileSettings(false); setImageTestState({ loading: false, error: null, successUrl: null }); setVisionTestState({ loading: false, error: null, successUrl: null }); };
+  const onClose = () => {
+    if (onCloseAction) {
+      onCloseAction();
+    } else {
+      setShowProfileSettings(false);
+    }
+    setImageTestState({ loading: false, error: null, successUrl: null });
+    setVisionTestState({ loading: false, error: null, successUrl: null });
+  };
 
   // ── Master-detail navigation (settings IA redesign) ──
   // Normalize legacy tab values that other code still deep-links with.
@@ -1116,129 +1079,6 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
                         <CheckCircle2 className="w-3.5 h-3.5" /> Token saved
                       </div>
                     )}
-                  </div>
-                )}
-              </div>
-
-              {/* Email accounts — multi-account, app-password, no web login.
-                  Replaces the old Google Workspace OAuth card. */}
-              <div className="p-6 rounded-3xl border border-edge bg-panel shadow-sm flex flex-col gap-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-inset rounded-xl shadow-sm border border-edge-2">
-                      <Mail className="w-5 h-5 text-secondary" />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-black uppercase tracking-widest block">Email</span>
-                      <span className="text-xs text-ink-3 font-medium mt-0.5">Gmail &amp; iCloud — a one-time app password, no web login. Add as many as you like.</span>
-                    </div>
-                  </div>
-                  {!addingMail && (
-                    <button
-                      onClick={() => { setAddingMail(true); setMailStatus({ state: 'idle' }); setMailEmail(''); setMailPassword(''); }}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0"
-                    ><Plus className="w-3.5 h-3.5" /> Add account</button>
-                  )}
-                </div>
-
-                {/* Connected accounts */}
-                {mailAccounts.length === 0 && !addingMail && (
-                  <p className="text-tiny text-ink-3 text-center py-2">No mail accounts yet. Click "Add account" to connect Gmail or iCloud.</p>
-                )}
-                {mailAccounts.map(acct => (
-                  <div key={acct.id} className="flex items-center gap-3 pt-4 border-t border-edge ">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: acct.provider === 'gmail' ? '#D85A30' : '#378ADD' }} />
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <span className="text-sm font-bold truncate ">{acct.email}</span>
-                      <span className="text-tiny font-medium text-ink-3">{acct.provider === 'gmail' ? 'Gmail' : 'iCloud'} · IMAP connected</span>
-                    </div>
-                    <CheckCircle2 className="w-4 h-4 text-success-light shrink-0" />
-                    <button onClick={() => handleMailRemove(acct.email)} className="p-2 text-ink-3 hover:text-error transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                ))}
-
-                {/* Add-account flow */}
-                {addingMail && (
-                  <div className="pt-4 border-t border-edge flex flex-col gap-4 animate-in slide-in-from-top-2">
-                    <div className="flex gap-2">
-                      {(['gmail', 'icloud'] as const).map(p => (
-                        <button
-                          key={p}
-                          onClick={() => { setMailProvider(p); setMailStatus({ state: 'idle' }); }}
-                          className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${mailProvider === p ? 'bg-accent-soft border-accent/30 text-accent-soft-ink' : 'border-edge-2 text-ink-3 hover:text-ink-2'}`}
-                        >{p === 'gmail' ? 'Gmail' : 'iCloud'}</button>
-                      ))}
-                    </div>
-
-                    {/* Step 1 — generate the app password in the real browser (the in-app login is what's blocked) */}
-                    <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
-                      <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Step 1 · Get your app password</span>
-                      <ol className="text-xs text-ink-3 leading-relaxed list-decimal pl-4 flex flex-col gap-1">
-                        {mailProvider === 'gmail' ? (
-                          <>
-                            <li>Open the page below — it signs in with your real browser.</li>
-                            <li>Name it <span className="font-bold">Docent</span>, then click <span className="font-bold">Create</span>.</li>
-                            <li>Copy the 16-character password — <span className="font-bold">save it</span>, you only see it once.</li>
-                            <li>Paste it into Step 2 below.</li>
-                          </>
-                        ) : (
-                          <>
-                            <li>Open the page below and sign in.</li>
-                            <li><span className="font-bold">App-Specific Passwords</span> → <span className="font-bold">+</span> → name it <span className="font-bold">Docent</span>.</li>
-                            <li>Copy the password — <span className="font-bold">save it</span>, you only see it once.</li>
-                            <li>Paste it into Step 2 below.</li>
-                          </>
-                        )}
-                      </ol>
-                      <button
-                        onClick={() => openUrl(mailProvider === 'gmail' ? 'https://myaccount.google.com/apppasswords' : 'https://account.apple.com').catch(() => {})}
-                        className="self-start flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm"
-                      ><ExternalLink className="w-3.5 h-3.5" /> {mailProvider === 'gmail' ? 'Open Gmail app passwords' : 'Open Apple ID page'}</button>
-                      {mailProvider === 'gmail' && (
-                        <p className="text-tiny text-ink-3 leading-relaxed">Page says it's unavailable? Switch on 2-Step Verification in your Google account first, then reopen it.</p>
-                      )}
-                    </div>
-
-                    {/* Step 2 — paste it back and connect */}
-                    <div className="rounded-2xl border border-edge bg-inset p-4 flex flex-col gap-3">
-                      <span className="text-tiny font-black uppercase tracking-widest text-ink-3">Step 2 · Connect</span>
-                      <input
-                        type="email"
-                        value={mailEmail}
-                        onChange={e => setMailEmail(e.target.value)}
-                        placeholder={mailProvider === 'gmail' ? 'you@gmail.com' : 'you@icloud.com'}
-                        className="w-full bg-white border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
-                      />
-                      <input
-                        type="password"
-                        value={mailPassword}
-                        onChange={e => setMailPassword(e.target.value)}
-                        placeholder="Paste the app password (spaces ok)"
-                        className="w-full bg-white border border-edge-2 rounded-xl px-4 py-3 text-sm outline-none focus:border-secondary font-mono transition-all"
-                      />
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <button
-                          onClick={handleMailConnect}
-                          disabled={!mailEmail.trim() || !mailPassword || mailStatus.state === 'testing'}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-primary text-white hover:bg-primary-hover transition-all shadow-sm shrink-0 disabled:opacity-40"
-                        >
-                          {mailStatus.state === 'testing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />}
-                          {mailStatus.state === 'testing' ? 'Connecting…' : 'Connect & save'}
-                        </button>
-                        <button
-                          onClick={() => { setAddingMail(false); setMailStatus({ state: 'idle' }); }}
-                          className="px-4 py-2.5 rounded-xl text-xs font-bold text-ink-3 hover:text-ink-2 transition-all"
-                        >Cancel</button>
-                      </div>
-                      {mailStatus.state === 'error' && (
-                        <div className="text-tiny font-bold text-error break-words flex flex-col gap-1">
-                          <span>✗ {mailStatus.msg}</span>
-                          {/application-specific|app password|app-specific|185833/i.test(mailStatus.msg ?? '') && (
-                            <span className="text-ink-3 font-medium">↑ That looks like your normal password. Use the app password from Step 1.</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
                   </div>
                 )}
               </div>

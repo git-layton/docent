@@ -179,8 +179,8 @@ export function ChatInputBar({
   const modelHears = modelSupportsAudio(liveSelectedModel);
   const canAttachImages = modelSees || hasVisionProvider(appSettings, integrations, models);
   const DOC_ACCEPT = 'text/*,application/pdf,.md,.markdown,.csv,.tsv,.json,.xml,.yml,.yaml,.log,.rtf';
-  // Accept filter widens with the model's senses: docs always, images when it sees, audio when it hears.
-  const attachAccept = [DOC_ACCEPT, canAttachImages ? 'image/*' : '', modelHears ? 'audio/*' : '']
+  // Accept filter widens with the model's senses: docs always, images always, audio when it hears.
+  const attachAccept = [DOC_ACCEPT, 'image/*', modelHears ? 'audio/*' : '']
     .filter(Boolean).join(',');
 
   // The input bar IS frosted, deliberately — it's the one exception to the chat's clear glass. The

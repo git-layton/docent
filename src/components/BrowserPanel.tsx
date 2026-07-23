@@ -21,9 +21,10 @@ function normalizeUrl(input: string): string {
   return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
-const BROWSER_LABEL = 'browser-panel';
+
 
 export interface BrowserPanelProps {
+  tabId: string;
   proactiveEnabled?: boolean;
 }
 
@@ -71,7 +72,8 @@ function makeTab(url = HOME_URL, title = ''): BrowserTabState {
   return { id: `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, url, title: title || new URL(url).hostname };
 }
 
-export function BrowserPanel({ proactiveEnabled: _proactiveEnabled = false }: BrowserPanelProps) {
+export function BrowserPanel({ tabId, proactiveEnabled: _proactiveEnabled = false }: BrowserPanelProps) {
+  const BROWSER_LABEL = `browser-panel-${tabId}`;
   const initialTabRef = useRef(makeTab());
   const [tabs, setTabs] = useState<BrowserTabState[]>([initialTabRef.current]);
   const [activeTabId, setActiveTabId] = useState<string>(initialTabRef.current.id);

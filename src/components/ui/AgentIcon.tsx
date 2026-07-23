@@ -32,21 +32,10 @@ export const BOT_COLORS = [
   { id: 'plum', bg: 'bg-[#DDA0DD]', border: 'border-[#DDA0DD]', text: 'text-[#DDA0DD]' },
 ];
 
-export const AgentIcon = ({ agent, sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
-  if (agent?.id === 'docent' || agent?.name === 'Docent' || !agent?.avatar) {
-    return (
-      <div className={`${containerClass} bg-ink text-on-ink flex items-center justify-center shrink-0`}>
-        <DocentMark className={sizeClass} />
-      </div>
-    );
-  }
-  
-  const bg = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.bg ?? 'bg-accent';
-  const text = BOT_COLORS.find(c => c.id === agent?.avatar?.color)?.text ?? 'text-white';
-  
+export const AgentIcon = ({ sizeClass = 'w-5 h-5', containerClass = 'p-2 rounded-xl shadow-md' }: any) => {
   return (
-    <div className={`${containerClass} ${bg} flex items-center justify-center shrink-0`}>
-      <DocentMark className={`${sizeClass} ${text}`} />
+    <div className={`${containerClass} bg-ink text-on-ink flex items-center justify-center shrink-0`}>
+      <DocentMark className={sizeClass} />
     </div>
   );
 };

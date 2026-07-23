@@ -16,7 +16,7 @@ import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 import { useJobStore } from './store/useJobStore';
 
-import { getContextLimit, charBudget, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, modelSupportsVision, modelSupportsAudio, supportsVision, hasVisionProvider, resolveVisionRoute, describeImage } from './services/llm';
+import { getContextLimit, charBudget, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, modelSupportsAudio, supportsVision, resolveVisionRoute, describeImage } from './services/llm';
 import { assessContextHealth } from './services/contextHealth';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
@@ -107,7 +107,7 @@ import { PermissionsBootstrapper } from './components/managers/PermissionsBootst
 
 // ─── Constants & Configurations ───────────────────────────────────────────────
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB Limit
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB Limit
 
 // Cosine cutoff for collapsing a near-identical memory in place (findDuplicateMemoryPath) — set well
 // above the 0.35 relevance threshold so only true restatements dedup, not merely related memories.
@@ -1251,7 +1251,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     const ui = useUIStore.getState();
     ui.setUploadError('');
     if (file.size > MAX_FILE_SIZE) {
-      ui.setUploadError(`File is too large. Max 5MB allowed.`);
+      ui.setUploadError(`File is too large. Max 100MB allowed.`);
       ui.showToast("File is too large.");
       e.target.value = '';
       return;
@@ -1273,16 +1273,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
     const reader = new FileReader();
     if (file.type.startsWith('image/')) {
-      // Backstop for drag-drop / paste paths that bypass the composer's docs-only accept filter.
-      // Allowed when the model sees natively OR a Vision Provider can read the image into text.
-      const ss = useSettingsStore.getState();
-      const sel = ss.models.find(m => m.id === ss.selectedModelId) ?? ss.models[0] ?? null;
-      if (!modelSupportsVision(sel) && !hasVisionProvider(ss.appSettings, ss.integrations, ss.models)) {
-        ui.setUploadError(`${sel?.name ?? 'This model'} can't read images. Turn on Image Understanding in Settings (Gemini's free tier works), or pick a vision model.`);
-        ui.showToast("This model can't read images.");
-        e.target.value = '';
-        return;
-      }
       reader.onloadend = () => ui.setAttachedDocs((prev: any[]) => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: true }]);
       reader.readAsDataURL(file);
     } else if (file.type.startsWith('audio/')) {
@@ -3350,6 +3340,7 @@ const handleSendMessage = async () => {
           fetchImageModels={fetchImageModels}
           testImageEngine={testImageEngine}
           viewImageInCanvas={viewImageInCanvas}
+          onCloseAction={() => useSpaceStore.getState().closeTab(tab.id)}
         />
       );
     }

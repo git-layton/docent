@@ -11,6 +11,7 @@ import {
   Moon,
   Settings,
   TriangleAlert,
+  ShieldAlert,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -424,9 +425,17 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
             onActiveChange={setSearchActive}
           />
           {!searchActive && (
-            <p className="mt-2 w-fit text-[11px] text-ink-3">
-              Search your apps, docs, tasks &amp; history · press <span className="text-ink-2">↵</span> to ask your agent
-            </p>
+            <>
+              <p className="mt-2 w-fit text-[11px] text-ink-3">
+                Search your apps, docs, tasks &amp; history · press <span className="text-ink-2">↵</span> to ask your agent
+              </p>
+              <div className="mt-6 flex items-start gap-2 max-w-sm text-left">
+                <ShieldAlert className="w-4 h-4 text-ink-3 shrink-0 mt-0.5" />
+                <p className="text-[10px] font-medium text-ink-3 leading-relaxed">
+                  <strong className="text-ink-2">Privacy &amp; Context:</strong> Docent only sees the context you explicitly share or save in this space—it does not monitor your live screen or applications.
+                </p>
+              </div>
+            </>
           )}
         </div>
 

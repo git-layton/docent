@@ -29,12 +29,15 @@ fn open_db() -> Result<rusqlite::Connection, String> {
             "No Messages database found on this Mac (~/Library/Messages/chat.db).".to_string(),
         );
     }
-    rusqlite::Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| {
+    let conn = rusqlite::Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| {
         format!(
             "Could not open the Messages database — grant Agent Forge Full Disk Access in \
              System Settings → Privacy & Security → Full Disk Access, then reopen the app. ({e})"
         )
-    })
+    })?;
+    conn.busy_timeout(std::time::Duration::from_millis(5000))
+        .map_err(|e| format!("Could not set busy timeout: {e}"))?;
+    Ok(conn)
 }
 
 /// Apple's Core Data timestamps count from 2001-01-01 UTC. Modern macOS stores nanoseconds; very

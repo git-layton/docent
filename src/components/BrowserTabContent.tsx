@@ -29,13 +29,13 @@ function normalizeUrl(input: string): string {
   return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
-const BROWSER_LABEL = 'browser-panel';
+
 
 // Present a genuine desktop Chrome identity to bypass Google's strict anti-bot and embedded webview blocks.
 // Paired with a document-start mask (see the Rust `browser_create` command) that fills in `window.chrome`, 
 // which is required for Google Sign-In to trust the environment.
 const BROWSER_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
 
 function tryHostname(rawUrl: string): string {
   try { return new URL(rawUrl).hostname; } catch { return rawUrl; }
@@ -189,7 +189,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   const updateZoom = useCallback((factor: number) => {
     const clamped = Math.max(0.25, Math.min(5.0, Math.round(factor * 100) / 100));
     setZoom(clamped);
-    invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+    invoke('browser_set_zoom', { label: `browser-${tabId}`, factor: clamped }).catch(() => {});
   }, []);
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -206,7 +206,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   const syncUrlFromWebview = useCallback(async () => {
     if (!mountedRef.current) return;
     try {
-      const currentUrl = await invoke<string>('browser_get_url', { label: BROWSER_LABEL });
+      const currentUrl = await invoke<string>('browser_get_url', { label: `browser-${tabId}` });
       if (!mountedRef.current) return;
       if (currentUrl && currentUrl !== urlRef.current) {
         setUrl(currentUrl);
@@ -250,7 +250,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
       // Close any stale webview with this label (HMR / mode-switch cleanup)
       try {
-        const stale = await Webview.getByLabel(BROWSER_LABEL);
+        const stale = await Webview.getByLabel(`browser-${tabId}`);
         if (stale) {
           await stale.close();
           await new Promise(r => setTimeout(r, 80));
@@ -267,7 +267,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       // bounds/navigation/close.
       await invoke('browser_create', {
         windowLabel: win.label,
-        label: BROWSER_LABEL,
+        label: `browser-${tabId}`,
         // urlRef, not startUrl: when the webview is being created because the user just left the
         // start page, the destination they picked is in `url`, and startUrl is still the stale
         // mount-time default. Using startUrl here would silently send every start-page click to
@@ -278,13 +278,13 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         width: Math.round(rect.width),
         height: Math.round(rect.height),
         userAgent: BROWSER_UA,
-        incognito: !useBrowserStore.getState().adminMode,
+        incognito: false, // Let the webview keep cookies/sessions. Docent's 'adminMode' governs AI memory, not OS cookies.
       });
 
       // The webview registers asynchronously on the main thread; poll briefly for its handle.
       let wv: Webview | null = null;
       for (let i = 0; i < 20 && mountedRef.current && !wv; i++) {
-        wv = await Webview.getByLabel(BROWSER_LABEL);
+        wv = await Webview.getByLabel(`browser-${tabId}`);
         if (!wv) await new Promise(r => setTimeout(r, 50));
       }
       if (!wv || !mountedRef.current) return;
@@ -304,7 +304,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       if (pollInterval !== null) clearInterval(pollInterval);
       webviewRef.current = null;
       // Close async after cleanup — don't await
-      Webview.getByLabel(BROWSER_LABEL).then(wv => wv?.close()).catch(() => {});
+      Webview.getByLabel(`browser-${tabId}`).then(wv => wv?.close()).catch(() => {});
     };
   // showStart is the only added dep: leaving the start page must build the webview that was
   // deliberately skipped on mount.
@@ -431,7 +431,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     if (!url) return;
     const t = setTimeout(() => {
       invoke('browser_eval', {
-        label: BROWSER_LABEL,
+        label: `browser-${tabId}`,
         script: `(function(){
         if(window.__popupHandled)return;
         window.__popupHandled=true;
@@ -455,7 +455,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   useEffect(() => {
     const t = setTimeout(() => {
       invoke('browser_eval', {
-        label: BROWSER_LABEL,
+        label: `browser-${tabId}`,
         script: `(function(){
         if(window.__dlHandled)return;
         window.__dlHandled=true;
@@ -481,7 +481,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       if (/(^|\.)(google\.com|gmail\.com|accounts\.google\.com|youtube\.com)$/.test(h)) return;
     } catch { /* fall through */ }
     const t = setTimeout(() => {
-      invoke('browser_eval', { label: BROWSER_LABEL, script: AD_BLOCK_SCRIPT }).catch(() => {});
+      invoke('browser_eval', { label: `browser-${tabId}`, script: AD_BLOCK_SCRIPT }).catch(() => {});
     }, 900);
     return () => clearTimeout(t);
   }, [url]);
@@ -490,7 +490,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
   useEffect(() => {
     if (!url || url === HOME_URL) return;
     const t = setTimeout(() => {
-      invoke('browser_eval', { label: BROWSER_LABEL, script: PIP_SCRIPT }).catch(() => {});
+      invoke('browser_eval', { label: `browser-${tabId}`, script: PIP_SCRIPT }).catch(() => {});
     }, 1100);
     return () => clearTimeout(t);
   }, [url]);
@@ -503,7 +503,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
     if (/(^|\.)(google\.com|gmail\.com|youtube\.com)$/.test(tryHostname(url))) return;
     const t = setTimeout(() => {
       invoke('browser_eval', {
-        label: BROWSER_LABEL,
+        label: `browser-${tabId}`,
         script: `(function(){
         if(window.__agfPwDetect)return;
         window.__agfPwDetect=true;
@@ -584,7 +584,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       setShowStart(false);
       return;
     }
-    invoke('browser_navigate', { label: BROWSER_LABEL, url: dest }).catch(() => setIsLoading(false));
+    invoke('browser_navigate', { label: `browser-${tabId}`, url: dest }).catch(() => setIsLoading(false));
   }, [inputUrl, showStart]);
 
   const openNewTab = useCallback(() => {
@@ -608,7 +608,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
               setIsLoading(true);
               setUrl(dest);
               setInputUrl(dest);
-              invoke('browser_navigate', { label: BROWSER_LABEL, url: dest }).catch(() => {});
+              invoke('browser_navigate', { label: `browser-${tabId}`, url: dest }).catch(() => {});
             }
           } catch (_) {}
         }},
@@ -622,19 +622,19 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
 
   const handleBack = () => {
     setIsLoading(true);
-    invoke('browser_go_back', { label: BROWSER_LABEL }).catch(() => {});
+    invoke('browser_go_back', { label: `browser-${tabId}` }).catch(() => {});
     setTimeout(() => { if (mountedRef.current) setIsLoading(false); }, 3000);
   };
 
   const handleForward = () => {
     setIsLoading(true);
-    invoke('browser_go_forward', { label: BROWSER_LABEL }).catch(() => {});
+    invoke('browser_go_forward', { label: `browser-${tabId}` }).catch(() => {});
     setTimeout(() => { if (mountedRef.current) setIsLoading(false); }, 3000);
   };
 
   const handleReload = useCallback(() => {
     setIsLoading(true);
-    invoke('browser_reload', { label: BROWSER_LABEL }).catch(() => {});
+    invoke('browser_reload', { label: `browser-${tabId}` }).catch(() => {});
     setTimeout(() => { if (mountedRef.current) setIsLoading(false); }, 2000);
   }, []);
 
@@ -662,7 +662,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
       fill(pw,${JSON.stringify(result.password)});
       fill(u,${JSON.stringify(result.username ?? '')});
     })();`;
-    invoke('browser_eval', { label: BROWSER_LABEL, script }).catch(() => {});
+    invoke('browser_eval', { label: `browser-${tabId}`, script }).catch(() => {});
     setPwMode(null);
   }, [pwHost]);
 
@@ -733,7 +733,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         setZoom(prev => {
           const next = Math.round((prev + 0.1) * 100) / 100;
           const clamped = Math.min(5.0, next);
-          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+          invoke('browser_set_zoom', { label: `browser-${tabId}`, factor: clamped }).catch(() => {});
           return clamped;
         });
       } else if (e.key === '-' || e.key === 'Minus') {
@@ -741,7 +741,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         setZoom(prev => {
           const next = Math.round((prev - 0.1) * 100) / 100;
           const clamped = Math.max(0.25, next);
-          invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: clamped }).catch(() => {});
+          invoke('browser_set_zoom', { label: `browser-${tabId}`, factor: clamped }).catch(() => {});
           return clamped;
         });
       } else if (e.key === '0') {
@@ -870,7 +870,7 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
         {/* Right controls */}
         {zoom !== 1.0 && (
           <button
-            onClick={() => { setZoom(1.0); invoke('browser_set_zoom', { label: BROWSER_LABEL, factor: 1.0 }).catch(() => {}); }}
+            onClick={() => { setZoom(1.0); invoke('browser_set_zoom', { label: `browser-${tabId}`, factor: 1.0 }).catch(() => {}); }}
             className="text-[10px] font-semibold text-ink-2 hover:text-ink px-1.5 py-0.5 rounded-md bg-inset hover:bg-wash shrink-0 transition-colors"
             title="Reset zoom"
           >
@@ -1002,14 +1002,14 @@ export function BrowserTabContent({ tabId, initialUrl }: BrowserTabContentProps)
             value={findQuery}
             onChange={e => setFindQuery(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: !e.shiftKey }).catch(() => {});
+              if (e.key === 'Enter') invoke('browser_find', { label: `browser-${tabId}`, query: findQuery, forward: !e.shiftKey }).catch(() => {});
               if (e.key === 'Escape') { setFindOpen(false); setFindQuery(''); }
             }}
             placeholder="Find in page…"
             className="flex-1 text-xs bg-inset rounded-full px-3 h-6 outline-none focus:ring-1 ring-accent/30 text-ink placeholder:text-ink-3"
           />
-          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: false }).catch(() => {})} className="text-[10px] text-ink-2 hover:text-ink px-1.5 py-0.5 rounded hover:bg-wash" title="Previous">↑</button>
-          <button onClick={() => invoke('browser_find', { label: BROWSER_LABEL, query: findQuery, forward: true }).catch(() => {})} className="text-[10px] text-ink-2 hover:text-ink px-1.5 py-0.5 rounded hover:bg-wash" title="Next">↓</button>
+          <button onClick={() => invoke('browser_find', { label: `browser-${tabId}`, query: findQuery, forward: false }).catch(() => {})} className="text-[10px] text-ink-2 hover:text-ink px-1.5 py-0.5 rounded hover:bg-wash" title="Previous">↑</button>
+          <button onClick={() => invoke('browser_find', { label: `browser-${tabId}`, query: findQuery, forward: true }).catch(() => {})} className="text-[10px] text-ink-2 hover:text-ink px-1.5 py-0.5 rounded hover:bg-wash" title="Next">↓</button>
           <button onClick={() => { setFindOpen(false); setFindQuery(''); }} className="p-1 rounded text-ink-3 hover:text-ink-2 hover:bg-wash">
             <X className="w-3.5 h-3.5" />
           </button>

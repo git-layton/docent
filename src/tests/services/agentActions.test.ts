@@ -183,11 +183,11 @@ describe('parseAgentActions — card ops validate through the same grammar', () 
 // ---------------------------------------------------------------------------
 
 describe('agentActions — fence drift', () => {
-  const DRIFTED = 'Searching now.\n```json\n{\n"tool": "web_search",\n"query": "Hilary Duff Ruoff Music Center"\n}\n```';
+  const DRIFTED = 'Searching now.\n```json\n{\n"tool": "make_pizza",\n"query": "pepperoni"\n}\n```';
 
   it('never shows invented tool JSON to the user, whatever fence it arrived in', () => {
     const out = stripActionBlocks(DRIFTED);
-    expect(out).not.toContain('web_search');
+    expect(out).not.toContain('make_pizza');
     expect(out).not.toContain('{');
     expect(out).toContain('Searching now.');
   });

@@ -108,7 +108,13 @@ const AGENT_ACTION_OP_SCHEMAS: Record<string, z.ZodType<unknown>> = {
 /** Validate one raw forge:action entry. Returns the (loosely typed) action or null. */
 export function validateAgentAction(raw: unknown): Record<string, any> | null {
   const base = AgentActionBase.safeParse(raw);
-  if (!base.success) return null;
+  if (!base.success) {
+    // LLMs commonly hallucinate {"tool":"web_search"} instead of {"tool":"web","op":"search"}
+    if (typeof raw === 'object' && raw !== null && (raw as any).tool === 'web_search') {
+      return validateAgentAction({ ...(raw as any), tool: 'web', op: 'search' });
+    }
+    return null;
+  }
   const opSchema = AGENT_ACTION_OP_SCHEMAS[`${base.data.tool}.${base.data.op}`];
   if (!opSchema) return base.data;
   const checked = opSchema.safeParse(raw);
