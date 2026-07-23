@@ -71,3 +71,15 @@ export function cycleIntent(current: OmniIntent): OmniIntent {
 export function webSearchUrl(text: string): string {
   return `https://start.duckduckgo.com/?q=${encodeURIComponent(text.trim())}`;
 }
+
+// Very basic heuristic: if it contains no spaces and looks like a domain (e.g. "foo.com", "localhost:3000")
+// or starts with http/https, we treat it as a URL intent.
+export function isLikelyUrl(text: string): boolean {
+  const t = text.trim();
+  if (t.includes(' ')) return false;
+  if (/^https?:\/\//i.test(t)) return true;
+  // match things like newegg.com, 127.0.0.1:8080, localhost:3000
+  if (/^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?(\/.*)?$/.test(t)) return true;
+  if (/^(localhost|127\.0\.0\.1)(:\d+)?(\/.*)?$/.test(t)) return true;
+  return false;
+}

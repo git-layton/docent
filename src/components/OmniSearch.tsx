@@ -11,7 +11,7 @@ import { searchWebHistory } from '../services/webHistory';
 import { quickSearchAnswer, hasSearchModel, type AnswerBasis } from '../services/searchAnswer';
 import { searchKnowledgeDocs, mergeRanked, isKnowledgeDoc } from '../services/semanticDocs';
 import { useMemoryStore } from '../store/useMemoryStore';
-import { INTENTS, cycleIntent, parseIntent, specFor, type OmniIntent } from '../services/omniIntent';
+import { type OmniIntent, INTENTS, cycleIntent, parseIntent, specFor, isLikelyUrl } from '../services/omniIntent';
 
 // ---------------------------------------------------------------------------
 // OmniSearch — the search-as-you-type bar shared by the global Home and each
@@ -268,6 +268,14 @@ export function OmniSearch({
     }
     // App intent runs the top app hit when there is one; otherwise fall through to the agent.
     if (topApp) { onRun(topApp); return; }
+    
+    // Smart heuristic: if it looks like a URL, default to opening it in the browser
+    if (intent === 'auto' && isLikelyUrl(t)) {
+      if (onWebSearch) onWebSearch(t);
+      else ask(t);
+      return;
+    }
+    
     ask(t);
   };
 
@@ -346,7 +354,7 @@ export function OmniSearch({
         />
         <kbd className="hidden items-center gap-1 rounded-md border border-edge px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:flex">
           <CornerDownLeft className="h-3 w-3" />
-          {activeIndex > 0 ? 'open' : intent === 'web' ? 'search' : intent === 'app' ? 'open' : intent === 'knowledge' ? 'browse' : 'ask'}
+          {activeIndex > 0 ? 'open' : intent === 'web' ? 'search' : intent === 'app' ? 'open' : intent === 'knowledge' ? 'browse' : (intent === 'auto' && isLikelyUrl(queryText || '')) ? 'open web' : 'ask'}
         </kbd>
         <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[11px] font-bold text-on-accent">
           {intent === 'auto' ? 'Ask' : activeSpec.label}
