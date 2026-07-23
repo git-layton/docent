@@ -77,9 +77,18 @@ export function webSearchUrl(text: string): string {
 export function isLikelyUrl(text: string): boolean {
   const t = text.trim();
   if (t.includes(' ')) return false;
+  
+  // Explicit protocols are definitely URLs
   if (/^https?:\/\//i.test(t)) return true;
-  // match things like newegg.com, 127.0.0.1:8080, localhost:3000
+  
+  // IP addresses (e.g., 192.168.1.1, 10.0.0.1:8080)
+  if (/^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/.*)?$/.test(t)) return true;
+  
+  // Domains (e.g., newegg.com, api.test.co.uk:3000)
   if (/^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?(\/.*)?$/.test(t)) return true;
-  if (/^(localhost|127\.0\.0\.1)(:\d+)?(\/.*)?$/.test(t)) return true;
+  
+  // Localhost (e.g., localhost, localhost:3000/api)
+  if (/^localhost(:\d+)?(\/.*)?$/.test(t)) return true;
+  
   return false;
 }
