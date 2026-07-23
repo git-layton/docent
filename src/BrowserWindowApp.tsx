@@ -786,7 +786,7 @@ export function BrowserWindowApp() {
       `}</style>
 
       {/* Tab bar */}
-      <div className="h-9 flex items-center gap-0.5 px-1.5 bg-inset shrink-0 overflow-x-auto no-scrollbar">
+      <div className="h-9 flex items-center gap-0.5 pl-[72px] pr-1.5 bg-inset shrink-0 overflow-x-auto no-scrollbar" data-tauri-drag-region>
         {tabs.map(tab => (
           <button
             key={tab.id}

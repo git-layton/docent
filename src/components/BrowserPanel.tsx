@@ -378,7 +378,7 @@ export function BrowserPanel({ tabId, proactiveEnabled: _proactiveEnabled = fals
       </div>
 
       {/* Nav bar — rendered ABOVE the native webview overlay */}
-      <div className="h-11 flex items-center gap-1.5 px-3 border-b border-edge shrink-0 z-10 bg-panel">
+      <div className="h-11 flex items-center gap-1.5 pl-[72px] pr-3 border-b border-edge shrink-0 z-10 bg-panel" data-tauri-drag-region>
         <button
           onClick={handleBack}
           className="p-1.5 rounded-lg transition-colors text-ink-3 hover:bg-wash hover:text-ink"
