@@ -71,6 +71,8 @@ import { AssistantSettingsModal } from './components/AssistantSettingsModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { NewSpaceModal } from './components/NewSpaceModal';
 import { ModelWizardModal } from './components/ModelWizardModal';
+import { OnboardingWizard } from './components/OnboardingWizard';
+import { LockedSetupScreen } from './components/LockedSetupScreen';
 import { AppSidebar } from './components/AppSidebar';
 import { CanvasPanel } from './components/CanvasPanel';
 import { PlannerPanel } from './components/PlannerPanel';
@@ -163,6 +165,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const showNewSpace = useUIStore(s => s.showNewSpace);
   const showModelWizard = useSettingsStore(s => s.showModelWizard);
   const showOnboarding = useSettingsStore(s => s.showOnboarding);
+  const onboardingInitialStep = useSettingsStore(s => s.onboardingInitialStep);
 
   const globalPins = useMemoryStore(s => s.globalPins);
   const dreamLog = useMemoryStore(s => s.dreamLog);
