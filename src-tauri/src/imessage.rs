@@ -317,9 +317,8 @@ pub struct ImessageChat {
     last_text: String,
     last_date: i64,
     last_from_me: bool,
-    /// Unread incoming messages in this chat (is_from_me=0 AND is_read=0) — mirrors Messages.app, so the
-    /// list can show the same read/unread state instead of treating every conversation as new.
-    unread: i64,
+    /// The ID of the latest message in this chat, used by the frontend to compare against a local watermark.
+    latest_msg_id: i64,
 }
 
 /// One message inside a thread.
@@ -363,37 +362,7 @@ pub fn imessage_open_fda_settings() -> Result<(), String> {
         .map_err(|e| format!("could not open System Settings: {e}"))
 }
 
-/// Count unread incoming messages — the badge number (mirrors what Messages.app shows).
-#[tauri::command]
-pub async fn imessage_unread_count() -> Result<u32, String> {
-    tauri::async_runtime::spawn_blocking(|| -> Result<u32, String> {
-        let conn = open_db()?;
-        conn.query_row(
-            "SELECT COUNT(*) FROM message WHERE is_from_me = 0 AND is_read = 0",
-            [],
-            |r| r.get(0),
-        )
-        .map_err(|e| format!("unread count failed: {e}"))
-    })
-    .await
-    .map_err(|e| format!("imessage task failed: {e}"))?
-}
 
-/// Mark all incoming messages in a conversation as read.
-#[tauri::command]
-pub async fn imessage_set_read(chat_id: i64) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let conn = open_db()?;
-        conn.execute(
-            "UPDATE message SET is_read = 1 WHERE is_from_me = 0 AND is_read = 0 AND ROWID IN (SELECT message_id FROM chat_message_join WHERE chat_id = ?1)",
-            rusqlite::params![chat_id],
-        )
-        .map_err(|e| format!("failed to mark chat as read: {e}"))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("imessage task failed: {e}"))?
-}
 
 /// List the most recent `limit` conversations, each with a one-line preview of its latest message.
 #[tauri::command]
@@ -410,9 +379,7 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
                         m.is_from_me, m.date, \
                         (SELECT GROUP_CONCAT(h.id, ', ') FROM chat_handle_join chj \
                            JOIN handle h ON h.ROWID = chj.handle_id WHERE chj.chat_id = c.ROWID), \
-                        (SELECT COUNT(*) FROM chat_message_join cmj3 \
-                           JOIN message m3 ON m3.ROWID = cmj3.message_id \
-                           WHERE cmj3.chat_id = c.ROWID AND m3.is_from_me = 0 AND m3.is_read = 0) \
+                        m.ROWID \
                  FROM chat c \
                  JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID \
                  JOIN message m ON m.ROWID = cmj.message_id \
@@ -439,7 +406,7 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
                 let from_me: i64 = row.get(8)?;
                 let date: i64 = row.get(9)?;
                 let participants: Option<String> = row.get(10)?;
-                let unread: i64 = row.get(11)?;
+                let latest_msg_id: i64 = row.get(11)?;
 
                 let is_group = style == 43;
                 let name = if !display_name.trim().is_empty() {
@@ -465,7 +432,7 @@ pub async fn imessage_list_chats(limit: u32) -> Result<Vec<ImessageChat>, String
                     last_text: message_text(&text, body.as_ref()),
                     last_date: apple_date_to_unix_ms(date),
                     last_from_me: from_me != 0,
-                    unread,
+                    latest_msg_id,
                 })
             })
             .map_err(|e| format!("query failed: {e}"))?;

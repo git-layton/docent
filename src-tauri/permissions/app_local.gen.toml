@@ -93,8 +93,6 @@ allow = [
   "imessage_open_fda_settings",
   "imessage_send",
   "imessage_send_new",
-  "imessage_set_read",
-  "imessage_unread_count",
   "init_file_watcher",
   "init_knowledge_core",
   "inject_click",

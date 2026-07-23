@@ -11,7 +11,6 @@ import {
   Moon,
   Settings,
   TriangleAlert,
-  ShieldAlert,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -191,7 +190,7 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
 
   // Unread iMessage count — shared store, kept fresh app-wide by OmniTabBar's poller. Refresh on
   // open too so the Home card is immediate. Gated on completed Messages setup.
-  const msgUnread = useMessagesStore(s => s.unread);
+  const msgUnread = useMessagesStore(s => s.unreadChats);
   const refreshMsgUnread = useMessagesStore(s => s.refreshUnread);
   const imessageReady = !!(integrations as any)?.imessage?.setupComplete;
   useEffect(() => {

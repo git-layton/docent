@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
+import { useMessagesStore } from '../store/useMessagesStore';
 import { MessagesSetupWizard } from './MessagesSetupWizard';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { normalizeVoiceProfile, relKeyForImessage } from '../services/voice';
@@ -22,7 +23,7 @@ interface ImessageChat {
   lastText: string;
   lastDate: number; // unix ms
   lastFromMe: boolean;
-  unread: number; // unread incoming messages — mirrors Messages.app read state
+  latestMsgId: number; // Replaces unread, used with local watermarks
 }
 interface ImessageMessage {
   id: number;
@@ -106,7 +107,7 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
   // Conversation list — state-alive across tab switches: hydrates instantly from the panel
   // cache on remount, revalidates silently, and polls so previews stay fresh. Gated behind
   // setup so we don't probe (and error) behind the wizard.
-  const { data: chats = [], loading, error, refresh: refreshChats, mutate: mutateChats } = usePanelResource<ImessageChat[]>({
+  const { data: chats = [], loading, refresh: refreshChats, error } = usePanelResource<ImessageChat[]>({
     key: 'imessage:chats',
     fetch: () => invoke<ImessageChat[]>('imessage_list_chats', { limit: 40 }),
     enabled: setupComplete,
@@ -145,18 +146,24 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
     return () => useToolContextStore.getState().clearToolContext();
   }, [selected, messages, chats]);
 
+  const watermarks = useMessagesStore(s => s.watermarks);
+  
   // Extract the unread incoming messages accurately by scanning backwards.
   const unreadMessages = useMemo(() => {
-    if (!selected || selected.unread <= 0 || messages.length === 0) return [];
+    if (!selected || messages.length === 0) return [];
+    const wm = watermarks[selected.chatId.toString()] || 0;
     const unread = [];
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (!messages[i].fromMe) {
+      if (!messages[i].fromMe && messages[i].id > wm) {
         unread.push(messages[i]);
-        if (unread.length >= selected.unread) break;
+      } else if (messages[i].id <= wm) {
+        // Since messages are ordered oldest to newest, if we hit a message older than watermark, we can stop.
+        // Wait, the API returns oldest -> newest, so messages.length - 1 is the NEWEST. We scan backwards.
+        break;
       }
     }
     return unread.reverse();
-  }, [selected, messages]);
+  }, [selected, messages, watermarks]);
 
   const firstUnreadId = unreadMessages.length > 0 ? unreadMessages[0].id : null;
 
@@ -486,16 +493,15 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
         ) : filteredChats.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-ink-3">{search ? 'No matching conversations.' : 'No conversations yet.'}</div>
         ) : (
-          filteredChats.map(c => (
+          filteredChats.map(c => {
+            const wm = watermarks[c.chatId.toString()] || 0;
+            const isUnread = !c.lastFromMe && c.latestMsgId > wm;
+            return (
             <button
               key={c.chatId}
               onClick={() => {
-                if (c.unread > 0) {
-                  invoke('imessage_set_read', { chatId: c.chatId }).catch(console.error);
-                  if (chats) {
-                    const next = chats.map(x => x.chatId === c.chatId ? { ...x, unread: 0 } : x);
-                    mutateChats(() => next);
-                  }
+                if (isUnread) {
+                  useMessagesStore.getState().markChatRead(c.chatId.toString(), c.latestMsgId);
                 }
                 setSelected(c);
                 setDraft('');
@@ -504,8 +510,8 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
               className="w-full flex items-start gap-2.5 px-4 py-3 border-b border-edge hover:bg-wash transition-colors text-left"
             >
               {/* Reserved unread slot keeps avatars aligned whether or not the dot is shown. */}
-              <span className="w-2 shrink-0 self-center flex justify-center" title={c.unread > 0 ? `${c.unread} unread` : undefined}>
-                {c.unread > 0 && <span className="w-2 h-2 rounded-full bg-accent" />}
+              <span className="w-2 shrink-0 self-center flex justify-center" title={isUnread ? 'Unread' : undefined}>
+                {isUnread && <span className="w-2 h-2 rounded-full bg-accent" />}
               </span>
               <div className="relative shrink-0">
                 <div className="w-9 h-9 rounded-full bg-inset flex items-center justify-center text-xs font-semibold text-ink-2">
@@ -515,17 +521,17 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className={clsx('text-sm truncate', c.unread > 0 ? 'font-bold text-ink' : 'font-semibold text-ink')}>{c.name || c.identifier}</span>
+                  <span className={clsx('text-sm truncate', isUnread ? 'font-bold text-ink' : 'font-semibold text-ink')}>{c.name || c.identifier}</span>
                   <div className="flex-1" />
-                  <span className={clsx('text-xs shrink-0', c.unread > 0 ? 'text-accent font-semibold' : 'text-ink-3')}>{formatListDate(c.lastDate)}</span>
+                  <span className={clsx('text-xs shrink-0', isUnread ? 'text-accent font-semibold' : 'text-ink-3')}>{formatListDate(c.lastDate)}</span>
                 </div>
-                <div className={clsx('text-sm truncate', c.unread > 0 ? 'text-ink font-medium' : 'text-ink-2')}>
+                <div className={clsx('text-sm truncate', isUnread ? 'text-ink font-medium' : 'text-ink-2')}>
                   {c.lastFromMe && <span className="text-ink-3">You: </span>}
                   {c.lastText || <span className="italic text-ink-3">Attachment</span>}
                 </div>
               </div>
             </button>
-          ))
+          )})
         )}
       </div>
     </div>

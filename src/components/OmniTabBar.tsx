@@ -142,8 +142,8 @@ interface TabPillProps {
 }
 
 function TabPill({ tab, isActive, isSplit }: TabPillProps) {
-  const unread = useMessagesStore(s => s.unread);
-  const showUnread = tab.type === 'tool' && tab.toolId === 'messages' && unread > 0;
+  const unreadChats = useMessagesStore(s => s.unreadChats);
+  const showUnread = tab.type === 'tool' && tab.toolId === 'messages' && unreadChats > 0;
   const inboxAlerts = useUIStore(s => s.inboxAlerts);
   const showInboxAlerts = tab.type === 'tool' && tab.toolId === 'inbox' && inboxAlerts > 0;
 
@@ -220,12 +220,12 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
         </span>
       )}
       {showUnread && (
-        <span
-          className="shrink-0 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-on-accent text-[9px] font-bold flex items-center justify-center leading-none"
-          title={`${unread} unread message${unread !== 1 ? 's' : ''}`}
+        <div
+          className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-accent flex items-center justify-center text-[9px] font-bold text-panel border border-panel shadow-sm animate-in zoom-in"
+          title={`${unreadChats} unread conversation${unreadChats !== 1 ? 's' : ''}`}
         >
-          {unread > 99 ? '99+' : unread}
-        </span>
+          {unreadChats > 99 ? '99+' : unreadChats}
+        </div>
       )}
       {/* Star — pins this tab into the sidebar FAVORITES section. Favorites stay independent of
           pinning, so this shows on pinned chips too (the hover expansion leaves room). */}
