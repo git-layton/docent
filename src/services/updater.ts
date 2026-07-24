@@ -17,7 +17,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { ask, message } from '@tauri-apps/plugin-dialog';
 import { useUIStore } from '../store/useUIStore';
 
-const SIX_HOURS = 6 * 60 * 60 * 1000;
+const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
 let startupRan = false;
 let inFlight = false; // guard against overlapping downloads (startup + interval + 'online' can race)
@@ -130,7 +130,7 @@ export function checkForUpdatesOnStartup(): void {
   // Always-open machines pick up new releases without ever restarting first.
   setInterval(() => {
     void applyUpdatesInBackground();
-  }, SIX_HOURS);
+  }, FIFTEEN_MINUTES);
 
   // Launched offline, or connection dropped and came back → grab it as soon as we're online.
   if (typeof window !== 'undefined') {
