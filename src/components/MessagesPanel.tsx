@@ -495,12 +495,11 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
         ) : (
           filteredChats.map(c => {
             const wm = watermarks[c.chatId.toString()] || 0;
-            const isUnread = !c.lastFromMe && c.latestMsgId > wm;
             return (
             <button
               key={c.chatId}
               onClick={() => {
-                if (isUnread) {
+                if (!c.lastFromMe && c.latestMsgId > wm) {
                   useMessagesStore.getState().markChatRead(c.chatId.toString(), c.latestMsgId);
                 }
                 setSelected(c);
@@ -509,10 +508,6 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
               }}
               className="w-full flex items-start gap-2.5 px-4 py-3 border-b border-edge hover:bg-wash transition-colors text-left"
             >
-              {/* Reserved unread slot keeps avatars aligned whether or not the dot is shown. */}
-              <span className="w-2 shrink-0 self-center flex justify-center" title={isUnread ? 'Unread' : undefined}>
-                {isUnread && <span className="w-2 h-2 rounded-full bg-accent" />}
-              </span>
               <div className="relative shrink-0">
                 <div className="w-9 h-9 rounded-full bg-inset flex items-center justify-center text-xs font-semibold text-ink-2">
                   {c.isGroup ? <Users className="w-4 h-4" /> : initials(c.name)}
@@ -521,11 +516,11 @@ export function MessagesPanel({ tabId }: { tabId?: string }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className={clsx('text-sm truncate', isUnread ? 'font-bold text-ink' : 'font-semibold text-ink')}>{c.name || c.identifier}</span>
+                  <span className="text-sm font-semibold text-ink truncate">{c.name || c.identifier}</span>
                   <div className="flex-1" />
-                  <span className={clsx('text-xs shrink-0', isUnread ? 'text-accent font-semibold' : 'text-ink-3')}>{formatListDate(c.lastDate)}</span>
+                  <span className="text-xs shrink-0 text-ink-3">{formatListDate(c.lastDate)}</span>
                 </div>
-                <div className={clsx('text-sm truncate', isUnread ? 'text-ink font-medium' : 'text-ink-2')}>
+                <div className="text-sm truncate text-ink-2">
                   {c.lastFromMe && <span className="text-ink-3">You: </span>}
                   {c.lastText || <span className="italic text-ink-3">Attachment</span>}
                 </div>
