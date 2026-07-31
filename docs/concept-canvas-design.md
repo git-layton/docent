@@ -4,10 +4,21 @@
 
 ## The one sentence
 
-> Docent is a canvas where any concept unfolds to the depth you need — grounded in what
-> you've actually read — with an assistant that can see what you're looking at.
+> Docent watches what you're actually doing, remembers it accurately, and lets you unfold
+> anything it saw to whatever depth you need — always saying what it knows from your own
+> sources versus what it's only guessing.
 
 Everything below serves that sentence. Anything that doesn't is a candidate for deletion.
+
+**Ordering note, corrected July 2026.** Earlier drafts of this document treated the concept
+canvas as the product and perception as its supply line. That is backwards, and it was
+corrected by the owner three times before it stuck. **Perception is the primary surface.**
+Seeing the screen accurately and keeping a faithful record of it is the thing being built;
+the canvas is what you do with what it saw. Where the two compete for effort, perception wins.
+
+This inverts one earlier decision explicitly: the June note "perception = on-demand capture,
+not continuous" no longer holds. Continuous, window-scoped capture is the direction — see
+§The screen log.
 
 ---
 
@@ -307,6 +318,34 @@ That loop is the payoff, and it is the "quick capture" strength wired into the g
 
 Nothing is filed deliberately. The log catches it; later, the thing you keep returning to gets
 promoted into the library and starts grounding claims.
+
+#### Open decision: where frames are stored
+
+The `observed` tier promises a frame you can look at — that is what makes it checkable rather
+than merely labelled. Storing those frames is unresolved, and the obvious path is wrong:
+
+**`fs_write` cannot be used.** It calls `commit_workspace()` on every write, so a log capturing
+every few seconds would produce thousands of git commits a day in the user's Knowledge Core.
+That behaviour is correct for notes — auditable, versioned — and disqualifying for a
+high-frequency binary log.
+
+Three candidates:
+
+1. **A new Rust command writing to the app-data dir** (outside the git workspace), with
+   companion read and delete so retention's orphan list can actually be acted on. Cleanest;
+   costs a Rust command plus its ACL entry, and must be denied to the remote browser webview
+   like every other capture surface.
+2. **Thumbnails inline in the KV store.** No Rust, but ~40–80 KB of base64 per entry against a
+   20k-entry cap is over a gigabyte in a key-value blob. Only viable with a far smaller cap
+   (~500 entries), which weakens the "what was I looking at last week" case the log exists for.
+3. **Text-only entries, no frames.** Cheapest, and it changes what `observed` means: a
+   timestamped mechanical OCR reading rather than something visually verifiable. Still stronger
+   than `generated`, but the `Block` variant would have to drop `frameId`, and the honesty of
+   the tier weakens.
+
+Recommendation: **(1)**. The frame is the evidence, and a tier that promises evidence it cannot
+produce is the exact failure mode this design exists to prevent. (3) is an acceptable interim
+only if `frameId` is genuinely removed from the type rather than filled with a placeholder.
 
 #### Exclusions are built first, not retrofitted
 
