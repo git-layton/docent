@@ -15,6 +15,7 @@ mod notes;
 mod oauth;
 mod permissions;
 mod pty;
+mod screen_log;
 mod screenshot;
 
 // ─── App State ───────────────────────────────────────────────────────────────
@@ -5340,6 +5341,13 @@ pub fn run() {
             screenshot::capture_screen,
             screenshot::capture_screen_text,
             screenshot::preview_screen_thumb,
+            // Screen-log frame storage. Like every capture surface these are auto-granted to
+            // LOCAL windows via allow-app-local and must never reach allow-browser-remote.
+            screen_log::screen_log_write_frame,
+            screen_log::screen_log_read_frame,
+            screen_log::screen_log_delete_frames,
+            screen_log::screen_log_frames_bytes,
+            screen_log::screen_log_clear_frames,
             screenshot::screen_capture_authorized,
             screenshot::request_screen_capture_access,
             screenshot::open_screen_recording_settings,
