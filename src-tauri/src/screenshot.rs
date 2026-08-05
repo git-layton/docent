@@ -466,6 +466,67 @@ pub async fn capture_window(
     Err("capture_window is only available on macOS".into())
 }
 
+/// On-device OCR of ONE window — the screen log's read path.
+///
+/// SEC-SCOPE: this exists because `capture_screen_text` grabs the WHOLE DISPLAY. The screen log
+/// applies its exclusion policy to the window the user selected, so pairing a window-scoped frame
+/// with full-display text would file text from every other visible window — including apps the
+/// policy explicitly refuses (password managers, private-browsing windows) — under an entry that
+/// claims to be about the allowed one. The exclusion promise is only meaningful if the TEXT is
+/// scoped the same way the frame is.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn capture_window_text(
+    window_id: u32,
+    window: tauri::WebviewWindow,
+) -> Result<serde_json::Value, String> {
+    if !matches!(window.label(), "main" | "spotlight") {
+        return Err("screen capture not permitted from this window".into());
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("docent-winocr-{stamp}.png"));
+
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x")
+        .arg("-t")
+        .arg("png")
+        .arg("-l")
+        .arg(window_id.to_string())
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("could not run screencapture: {e}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return Err("screencapture failed".into());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+    if bytes.is_empty() {
+        return Err("window capture was empty".into());
+    }
+
+    // Vision is synchronous; run it off the async runtime. Capped like every other OCR path.
+    let text = tauri::async_runtime::spawn_blocking(move || ocr_png(&bytes))
+        .await
+        .map_err(|e| format!("ocr task failed: {e}"))??;
+    let capped: String = text.chars().take(12000).collect();
+    Ok(serde_json::json!({ "text": capped }))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn capture_window_text(
+    _window_id: u32,
+    _window: tauri::WebviewWindow,
+) -> Result<serde_json::Value, String> {
+    Err("capture_window_text is only available on macOS".into())
+}
+
 /// Capture the current screen as a PNG, returned as a base64 `data:` URL ready for `describeImage`.
 #[cfg(target_os = "macos")]
 #[tauri::command]

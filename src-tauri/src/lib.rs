@@ -5358,6 +5358,7 @@ pub fn run() {
             screenshot::browser_snapshot_text,
             screenshot::list_windows,
             screenshot::capture_window,
+            screenshot::capture_window_text,
             screenshot::capture_screen,
             screenshot::capture_screen_text,
             screenshot::preview_screen_thumb,

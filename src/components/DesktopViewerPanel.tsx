@@ -95,15 +95,23 @@ export function DesktopViewerPanel() {
               }
 
               // ── Screen log ────────────────────────────────────────────────────────────
-              // Everything the log needs was already being computed and thrown away: the
-              // frame, the OCR text, and mesh.isDelta from hasFrameChanged(). This is the
-              // only place that persists any of it.
+              // The frame and mesh.isDelta (from hasFrameChanged) were already being computed
+              // and thrown away; this is the only place that persists them. The OCR text is
+              // fetched separately and window-scoped — see SEC-SCOPE below.
               const win = windowsRef.current.find(w => w.id === currentId);
-              const text = mesh.elements.map(e => e.text).filter(Boolean).join('\n').trim();
 
               // Exclusion policy runs BEFORE anything is written, and again inside
               // makeEntry() at the point of persistence.
-              if (win && shouldCapture(win).capture === true) {
+              if (win && currentId !== null && shouldCapture(win).capture === true) {
+                // SEC-SCOPE: OCR the SELECTED WINDOW, not the display. `mesh` above comes from
+                // capture_screen_text, which grabs the whole screen — filing that text under a
+                // window-scoped entry would smuggle in text from every other visible window,
+                // including ones the exclusion policy just refused. The frame and the text must
+                // be scoped identically or the promise is hollow.
+                const winOcr = await invoke<{ text: string }>('capture_window_text', {
+                  windowId: currentId,
+                }).catch(() => null);
+                const text = (winOcr?.text ?? '').trim();
                 const decision = shouldStore({
                   isDelta: mesh.isDelta,
                   text,
