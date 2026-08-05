@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { Monitor, AlertTriangle, Settings, X, ChevronLeft, ChevronRight, LayoutTemplate, Eye, RotateCw } from 'lucide-react';
 import { captureDesktopContextMesh, executeSemanticClick } from '../services/desktopVision';
+import { shouldCapture, shouldStore, makeEntry } from '../services/screenLog';
+import { saveEntry } from '../services/screenLogStore';
 import { useToolContextStore } from '../store/useToolContextStore';
 import { useUIStore } from '../store/useUIStore';
 
@@ -29,6 +31,14 @@ export function DesktopViewerPanel() {
     selectedWindowIdRef.current = selectedWindowId;
   }, [selectedWindowId]);
 
+  // The capture effect runs once ([] deps), so it would close over the initial empty window
+  // list forever. The screen log needs the CURRENT window's app + title to apply its exclusion
+  // policy — mirroring the selectedWindowIdRef pattern above.
+  const windowsRef = useRef<WindowInfo[]>([]);
+  useEffect(() => {
+    windowsRef.current = windows;
+  }, [windows]);
+
   useEffect(() => {
     let active = true;
     let timer: any;
@@ -53,18 +63,24 @@ export function DesktopViewerPanel() {
         }
 
         let isFetching = false;
-        
+
         let lastMeshTime = 0;
+        // Screen-log bookkeeping. The viewer polls at 500ms for a live picture; the LOG is a
+        // separate, far slower thing gated on real change (screenLog.shouldStore) so a static
+        // window doesn't write the same row forever.
+        let lastEntryAt: number | null = null;
+        let lastEntryText: string | null = null;
         const fetchFrame = async () => {
           if (isFetching || !active) return;
           isFetching = true;
           try {
             const currentId = selectedWindowIdRef.current;
+            let dataUrl: string | null = null;
             if (currentId !== null) {
-              const dataUrl = await invoke<string>('capture_window', { windowId: currentId });
+              dataUrl = await invoke<string>('capture_window', { windowId: currentId });
               if (active) setFrameSrc(dataUrl);
             }
-            
+
             // Periodically capture mesh every 3 seconds for agent context
             const now = Date.now();
             if (now - lastMeshTime > 3000) {
@@ -76,6 +92,59 @@ export function DesktopViewerPanel() {
                   text: mesh.markdownMesh,
                   source: 'screen'
                 });
+              }
+
+              // ── Screen log ────────────────────────────────────────────────────────────
+              // The frame and mesh.isDelta (from hasFrameChanged) were already being computed
+              // and thrown away; this is the only place that persists them. The OCR text is
+              // fetched separately and window-scoped — see SEC-SCOPE below.
+              const win = windowsRef.current.find(w => w.id === currentId);
+
+              // Exclusion policy runs BEFORE anything is written, and again inside
+              // makeEntry() at the point of persistence.
+              if (win && currentId !== null && shouldCapture(win).capture === true) {
+                // SEC-SCOPE: OCR the SELECTED WINDOW, not the display. `mesh` above comes from
+                // capture_screen_text, which grabs the whole screen — filing that text under a
+                // window-scoped entry would smuggle in text from every other visible window,
+                // including ones the exclusion policy just refused. The frame and the text must
+                // be scoped identically or the promise is hollow.
+                const winOcr = await invoke<{ text: string }>('capture_window_text', {
+                  windowId: currentId,
+                }).catch(() => null);
+                const text = (winOcr?.text ?? '').trim();
+                const decision = shouldStore({
+                  isDelta: mesh.isDelta,
+                  text,
+                  lastEntryAt,
+                  lastEntryText,
+                  now,
+                });
+                if (decision.store && dataUrl) {
+                  // Store the frame first: an entry whose evidence failed to write must not
+                  // exist at all, since `observed` promises a frame you can actually look at.
+                  const frameId = await invoke<string>('screen_log_write_frame', {
+                    dataUrl,
+                    maxPx: 1280,
+                  }).catch(() => null);
+
+                  if (frameId) {
+                    const entry = makeEntry(win, text, frameId, now);
+                    if (entry) {
+                      const orphaned = await saveEntry(entry, now);
+                      lastEntryAt = now;
+                      lastEntryText = text;
+                      // Retention dropped older entries — delete their frames too, or the
+                      // images outlive the index that justified keeping them.
+                      if (orphaned.length > 0) {
+                        void invoke('screen_log_delete_frames', { frameIds: orphaned }).catch(() => {});
+                      }
+                    } else {
+                      // makeEntry refused (policy or floor). The frame has no entry to belong
+                      // to, so it must not linger on disk.
+                      void invoke('screen_log_delete_frames', { frameIds: [frameId] }).catch(() => {});
+                    }
+                  }
+                }
               }
             }
           } catch (err) {

@@ -13,7 +13,7 @@ export type MemoryType =
   | 'none';
 export type EvidenceState = 'first_party' | 'source_backed' | 'inferred' | 'needs_verification' | 'conflicting';
 export type ConfidenceLabel = 'low' | 'medium' | 'high';
-export type ToolRoute = 'memory_search' | 'web_search' | 'browser' | 'integrations' | 'files' | 'calendar' | 'another_agent' | 'preview' | 'none';
+export type ToolRoute = 'memory_search' | 'web_search' | 'browser' | 'integrations' | 'files' | 'calendar' | 'another_agent' | 'preview' | 'screen_recall' | 'none';
 export type PrivacyLabel = 'normal' | 'personal' | 'sensitive';
 
 export interface MemoryGatekeeperInput {
@@ -70,7 +70,7 @@ const DESTINATIONS = ['agent_memory', 'channel_memory', 'library', 'task', 'inbo
 const MEMORY_TYPES = ['preference', 'decision', 'fact', 'project_context', 'medical', 'research', 'todo', 'playbook', 'voice_card', 'none'] as const;
 const EVIDENCE_STATES = ['first_party', 'source_backed', 'inferred', 'needs_verification', 'conflicting'] as const;
 const CONFIDENCE_LABELS = ['low', 'medium', 'high'] as const;
-const TOOL_ROUTES = ['memory_search', 'web_search', 'browser', 'integrations', 'files', 'calendar', 'another_agent', 'preview', 'none'] as const;
+const TOOL_ROUTES = ['memory_search', 'web_search', 'browser', 'integrations', 'files', 'calendar', 'another_agent', 'preview', 'screen_recall', 'none'] as const;
 const PRIVACY_LABELS = ['normal', 'personal', 'sensitive'] as const;
 
 const TRIVIAL_RE = /^(lol|lmao|haha|thanks|thank you|thx|ok|okay|yes|no|yep|nah|cool|nice|got it|sounds good|perfect)[.!?\s]*$/i;
@@ -104,6 +104,10 @@ const MEMORY_SEARCH_RE = /\b(notes?|memos?|memory|knowledge base|goals?|decision
 const WEB_SEARCH_RE = /\b(search for|look up|google|web search|current (weather|news|price|score)|today'?s (weather|news)|latest (news|update)|breaking news|weather (in|for)|stock (price|market)|news about|what'?s happening)\b/i;
 const BROWSER_RE = /\b(browser|open (the )?(site|page|url)|current page|web page|navigate to|inspect this page)\b/i;
 const FILES_RE = /\b(file|folder|document|pdf|screenshot|attached|attachment|download|upload)\b/i;
+// The screen log — "what was I looking at", not "what do I know". Deliberately anchored on
+// PAST-TENSE LOOKING: `MEMORY_SEARCH_RE` already owns "recall" and "what do you remember", so
+// this matches the seeing verbs plus an explicit backward reference, and stays out of its way.
+const SCREEN_RECALL_RE = /\b(what was i (looking at|reading|doing)|what were we (looking at|reading)|earlier (today|on screen)|on (my|the) screen|screen log|i (was|had) (looking at|reading|open)|that (page|window|thing) i (saw|had open))\b/i;
 const INTEGRATIONS_RE = /\b(slack|gmail|email|google drive|drive|gus|work item|calendar event|spreadsheet|sheet)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s)>\]]+/gi;
 
@@ -168,6 +172,9 @@ function routeToolCandidates(input: MemoryGatekeeperInput, text: string, isExpli
   if (forced) return routes.length > 0 ? routes : ['none'];
 
   if ((enabled.calendar_sync || enabled.google_calendar) && TASK_RE.test(text)) routes.push('calendar');
+  // Checked BEFORE memory_search: "what was I looking at earlier" is a question about the screen
+  // log, and letting the broader knowledge-base regex claim it first would answer the wrong question.
+  if (SCREEN_RECALL_RE.test(text)) routes.push('screen_recall');
   if (enabled.local_workspace && !isExplicitMemory && MEMORY_SEARCH_RE.test(text)) routes.push('memory_search');
   if (WEB_SEARCH_RE.test(text)) {
     // User requested to search knowledge base first before web search as a fallback
