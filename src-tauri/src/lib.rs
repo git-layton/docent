@@ -3583,24 +3583,44 @@ struct GgufModel {
 }
 
 #[tauri::command]
+/// Chat models on disk.
+///
+/// Excludes `mmproj-*.gguf`: those are VISION PROJECTORS, companion files passed to llama-server
+/// via `--mmproj` alongside a real model (see `launch_model`), never loadable as a chat model
+/// themselves. Every caller of this command treats the list as "models you can select" —
+/// `LockedSetupScreen` auto-registers `downloaded[0]` on first run — so returning a projector
+/// here meant setup could silently pick a file that cannot answer anything.
+///
+/// Sorted by size ascending, and the ordering is load-bearing rather than cosmetic:
+/// `read_dir` yields arbitrary filesystem order, so "the first model" was previously whichever
+/// one the OS happened to return. Smallest-first makes first-run auto-selection deterministic AND
+/// picks the model that loads fastest, instead of potentially committing a new user to a 42 GB
+/// download-sized load on launch.
 fn list_gguf_models() -> Vec<GgufModel> {
     let dir = models_dir();
     let mut result = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.ends_with(".gguf") {
-                let size_mb = entry
-                    .metadata()
-                    .map(|m| m.len() / (1024 * 1024))
-                    .unwrap_or(0);
-                result.push(GgufModel {
-                    filename: name,
-                    size_mb,
-                });
+            if !name.ends_with(".gguf") {
+                continue;
             }
+            // Projector, not a chat model. Matched on the conventional prefix used by every
+            // publisher and by `MODEL_CATALOG.mmprojFilename`.
+            if name.to_ascii_lowercase().starts_with("mmproj") {
+                continue;
+            }
+            let size_mb = entry
+                .metadata()
+                .map(|m| m.len() / (1024 * 1024))
+                .unwrap_or(0);
+            result.push(GgufModel {
+                filename: name,
+                size_mb,
+            });
         }
     }
+    result.sort_by(|a, b| a.size_mb.cmp(&b.size_mb).then_with(|| a.filename.cmp(&b.filename)));
     result
 }
 
