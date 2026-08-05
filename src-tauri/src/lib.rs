@@ -3903,7 +3903,13 @@ async fn start_local_model(
         "8".into(), // M-series performance cores
         "-ngl".into(),
         "99".into(), // Full Metal GPU offload
-        "-fa".into(), // Flash Attention
+        // Flash Attention. The VALUE IS MANDATORY: llama.cpp b9821 changed this from a bare
+        // boolean flag to `-fa [on|off|auto]`. Passing bare `-fa` makes the parser swallow the
+        // NEXT argument as its value — it consumed `--host`, rejected it, and the engine exited 1
+        // before ever touching the model. The user then saw "the model may be too large for this
+        // Mac's memory" on a 64 GB machine with 53 GB free on Metal. Never pass `-fa` alone.
+        "-fa".into(),
+        "on".into(),
         "--host".into(),
         "127.0.0.1".into(),
     ];
@@ -3920,10 +3926,38 @@ async fn start_local_model(
         server_args.push(mmproj);
     }
 
+    // Capture stderr so a startup failure reports what ACTUALLY went wrong.
+    //
+    // This existed as a guess before: any non-zero exit was reported as "the model may be too
+    // large for this Mac's memory". That message sent the user hunting for a memory problem on a
+    // 64 GB machine when the real cause was an argument the engine rejected in microseconds. A
+    // diagnostic that invents a cause is worse than one that says nothing.
+    //
+    // The pipe is drained on a thread rather than read at the end: llama-server logs continuously,
+    // and an undrained pipe fills its buffer and deadlocks the child. The buffer is capped, keeping
+    // the tail, because the last lines are the ones that explain an exit.
     let mut child = std::process::Command::new(&sidecar_path)
         .args(&server_args)
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to spawn llama-server: {}", e))?;
+
+    let engine_log: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+    if let Some(stderr) = child.stderr.take() {
+        let sink = engine_log.clone();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Ok(mut buf) = sink.lock() {
+                    if buf.len() >= 40 {
+                        buf.pop_front();
+                    }
+                    buf.push_back(line);
+                }
+            }
+        });
+    }
 
     let pid = child.id();
     *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
@@ -3938,9 +3972,27 @@ async fn start_local_model(
         // up to ~10 minutes (1200 × 500ms)
         if let Ok(Some(status)) = child.try_wait() {
             *llama_state.pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            return Err(format!(
-                "The model engine quit while loading ({status}). The model may be too large for this Mac's memory — try a smaller one."
-            ));
+            // Give the drain thread a moment to flush the lines that explain the exit.
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            let tail: Vec<String> = engine_log
+                .lock()
+                .map(|b| b.iter().rev().take(6).rev().cloned().collect())
+                .unwrap_or_default();
+            let detail = tail
+                .iter()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            // Only fall back to the memory guess when the engine said nothing at all. An engine
+            // that DID explain itself must be quoted rather than second-guessed.
+            return Err(if detail.is_empty() {
+                format!(
+                    "The model engine quit while loading ({status}) without reporting a reason. If this model is very large, try a smaller one."
+                )
+            } else {
+                format!("The model engine quit while loading ({status}):\n{detail}")
+            });
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         if let Ok(resp) = client.get(&health_url).send().await {
