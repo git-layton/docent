@@ -11,6 +11,7 @@ import { SlashCommandPalette, SLASH_COMMANDS } from './SlashCommandPalette';
 import type { SlashCommand } from './SlashCommandPalette';
 import { invoke } from '@tauri-apps/api/core';
 import { useUIStore } from '../store/useUIStore';
+import { useChatStore } from '../store/useChatStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { AVAILABLE_TOOLS } from './ui/AgentIcon';
 import { RoutineProposalBar } from './RoutineProposalBar';
@@ -82,6 +83,7 @@ export function ChatInputBar({
   const forcedTool = useUIStore(s => s.forcedTool);
   const isPlanMode = useUIStore(s => s.isPlanMode);
   const storeAttachedDocs = useUIStore(s => s.attachedDocs);
+  const queueLength = useChatStore(s => s.messageQueue.length);
   const uploadError = useUIStore(s => s.uploadError);
   const isModelDropdownOpen = useUIStore(s => s.isModelDropdownOpen);
   const slashHighlight = useUIStore(s => s.slashHighlight);
@@ -203,7 +205,7 @@ export function ChatInputBar({
 
         {attachedDocs.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2 px-2">
-            {attachedDocs.map((doc, idx) => (
+            {attachedDocs.map((doc: any, idx: number) => (
               <div key={idx} className="relative group flex items-center gap-2 px-3 py-1.5 bg-panel-2 border border-edge rounded-xl text-tiny font-black text-ink shadow-sm animate-in slide-in-from-bottom-2">
                 {doc.isImage ? <img src={doc.content} alt={doc.name} className="w-6 h-6 object-cover rounded-md" /> : <FileText className="w-4 h-4 text-accent" />}
                 <span className="max-w-[100px] truncate">{doc.name}</span>
@@ -286,7 +288,7 @@ export function ChatInputBar({
               }
               // Enter sends only when idle. While a response streams the composer stays editable (so you
               // can write the next message), but Enter is swallowed rather than starting/aborting a run.
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) onSend(); }
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
             }}
             placeholder={models.length === 0 ? 'Connect a model to start chatting →' : `Message ${activeAssistant?.name ?? 'Assistant'}... or type / for commands`}
             className="w-full bg-transparent p-3 min-h-[52px] max-h-40 resize-none outline-none text-ink placeholder-ink-3 text-sm font-medium custom-scrollbar" rows={1} disabled={(llamaServerPid !== null && llamaPaused) || models.length === 0} />
@@ -428,14 +430,22 @@ export function ChatInputBar({
               </div>
             )}
             {!isGenerating && models.length > 0 && <button onClick={onEnhancePrompt} disabled={isEnhancing || !input.trim()} className={`p-2 rounded-full transition-all ${input.trim() ? 'text-accent hover:bg-accent-soft' : 'text-ink-3 opacity-50 cursor-default'} ${isEnhancing ? 'animate-spin' : ''}`} title="Enhance Prompt"><Wand2 className="w-3.5 h-3.5" /></button>}
-            <button
-              onClick={isGenerating ? onStop : onSend}
-              disabled={(llamaServerPid !== null && llamaPaused) || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0)) || (!isGenerating && !!selectedModel && modelValidation[selectedModel.id] === 'fail')}
-              className={`p-2 rounded-full transition-all ${isGenerating ? 'bg-danger text-on-accent shadow-sm animate-pulse' : 'bg-accent text-on-accent shadow-sm hover:bg-accent-strong active:scale-90 disabled:opacity-50'}`}>
-              {isGenerating ? <Square className="w-3.5 h-3.5 fill-current" /> : <Send className="w-3.5 h-3.5" />}
-            </button>
+            
+            <div className="relative">
+              {queueLength > 0 && (
+                <span className="absolute -top-2 -right-2 bg-accent text-on-accent text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm z-10 animate-in zoom-in">
+                  {queueLength}
+                </span>
+              )}
+              <button
+                onClick={isGenerating && !input.trim() && attachedDocs.length === 0 ? onStop : onSend}
+                disabled={(llamaServerPid !== null && llamaPaused) || (!isGenerating && ((!input.trim() && attachedDocs.length === 0) || models.length === 0)) || (!isGenerating && !!selectedModel && modelValidation[selectedModel.id] === 'fail')}
+                className={`p-2 rounded-full transition-all ${isGenerating && !input.trim() && attachedDocs.length === 0 ? 'bg-danger text-on-accent shadow-sm animate-pulse' : 'bg-accent text-on-accent shadow-sm hover:bg-accent-strong active:scale-90 disabled:opacity-50'}`}>
+                {isGenerating && !input.trim() && attachedDocs.length === 0 ? <Square className="w-3.5 h-3.5 fill-current" /> : <Send className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
-        </div>
+          </div>
         </div>{/* end relative wrapper for slash palette */}
       </div>
     </div>
