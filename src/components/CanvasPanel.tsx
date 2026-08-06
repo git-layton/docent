@@ -1,11 +1,13 @@
 import React from 'react';
 import {
   Menu, X, FileEdit, ImageIcon, Code, ChevronLeft, ChevronRight, RefreshCw, List,
-  Check, PencilLine,
+  Check, PencilLine, StickyNote,
 } from 'lucide-react';
 import { WysiwygEditor } from './ui/WysiwygEditor';
 import { diffWords, diffLines, htmlToComparableText, diffStats } from '../lib/textDiff';
 import { useUIStore } from '../store/useUIStore';
+import { getNotes } from '../services/connectors';
+import { invalidateNotesCache } from './NotesPanel';
 
 // SEC-CANVAS: agent-generated preview HTML runs with allow-scripts in a NULL-origin sandbox (so it
 // can't touch app cookies / the Tauri IPC bridge / parent DOM), but it could still beacon the canvas
@@ -58,6 +60,28 @@ export function CanvasPanel({
   // SEC-CANVAS: previews are network-blocked by default; the user can opt a trusted preview into
   // network access so legitimately-interactive generated apps aren't silently broken.
   const [allowPreviewNetwork, setAllowPreviewNetwork] = React.useState(false);
+  const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saving' | 'saved'>('idle');
+  const noteId = canvasContent?.source === 'notes' ? canvasContent?.sourceNoteId : null;
+  const noteContent = canvasContent?.content;
+
+  React.useEffect(() => {
+    if (!noteId || typeof noteContent !== 'string') return;
+    setSaveStatus('saving');
+    const timer = setTimeout(() => {
+      getNotes().updateNote(noteId, noteContent)
+        .then(() => {
+          invalidateNotesCache(noteId, noteContent);
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
+        })
+        .catch((e) => {
+          console.error('Failed to save note:', e);
+          setSaveStatus('idle');
+        });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [noteId, noteContent]);
+
   return (
     <div className={`${canvasContent.isStandalone ? 'w-full' : 'w-1/2'} h-full flex flex-col bg-panel z-50 min-w-0 transition-all duration-300 relative overflow-hidden shadow-2xl border-l border-edge`}>
       <div className="h-16 border-b border-edge flex items-center justify-between px-4 bg-panel-2 shrink-0">
@@ -78,7 +102,26 @@ export function CanvasPanel({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {canvasContent.id && savedApps.some(a => a.id === canvasContent.id) ? (
+          {canvasContent.source === 'notes' ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-inset rounded-xl border border-edge text-[10px] font-black uppercase tracking-widest text-ink-2">
+              {saveStatus === 'saving' ? (
+                <>
+                  <RefreshCw className="w-3 h-3 animate-spin text-accent" />
+                  <span>Saving...</span>
+                </>
+              ) : saveStatus === 'saved' ? (
+                <>
+                  <Check className="w-3 h-3 text-success" />
+                  <span className="text-success">Saved to Notes</span>
+                </>
+              ) : (
+                <>
+                  <StickyNote className="w-3 h-3 text-accent" />
+                  <span>Note</span>
+                </>
+              )}
+            </div>
+          ) : canvasContent.id && savedApps.some(a => a.id === canvasContent.id) ? (
             <div className="flex gap-1">
               <button onClick={() => onSaveToLibrary(false)} className="px-3 py-2 bg-accent text-on-accent rounded-xl text-[10px] font-black uppercase hover:bg-accent-strong transition-all">Update</button>
               <button onClick={() => { setSaveAppData({ title: canvasContent.title + ' (Copy)' }); setShowSaveModal(true); }} className="px-3 py-2 bg-inset text-ink-2 rounded-xl text-[10px] font-black uppercase hover:bg-wash hidden lg:block">Save Copy</button>

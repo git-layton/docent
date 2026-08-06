@@ -1,44 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { StickyNote, RotateCw, Plus, ArrowLeft, Pencil, Trash2, Share2, X, Send, Mail, MessageCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { StickyNote, RotateCw, Plus, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
-import { invoke } from '@tauri-apps/api/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
+
+
 import { getNotes } from '../services/connectors';
 import type { NoteItem } from '../services/connectors';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { ConnectorAccessGate } from './ui/ConnectorAccessGate';
 import { useToolContextStore } from '../store/useToolContextStore';
-
-interface ImChat { guid: string; name: string }
-
-// HTML ↔ plaintext, used for sharing and tool context only. Editing no longer round-trips
+import { useUIStore } from '../store/useUIStore';
 // through plaintext — that path silently flattened bold/lists/images on the first edit.
-function htmlToText(html: string): string {
-  const el = document.createElement('div');
-  el.innerHTML = html;
-  return (el.textContent || '').trim();
-}
 function textToHtml(text: string): string {
   const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc.split('\n').map(l => `<div>${l || '<br>'}</div>`).join('');
-}
-// Notes render in a sandboxed iframe (bodies are arbitrary HTML). Wrap the body in a consistent light
-// "paper" document — the same surface the editor uses — so saving doesn't flash from the dark editor to
-// a bare white frame, and so note content (which assumes a light background) stays readable in dark mode.
-const NOTE_PAPER = '#fcfcfa';
-const NOTE_INK = '#1c1b17';
-// Placeholder paragraph for empty notes; carries an id so edit mode can remove exactly it.
-const EMPTY_NOTE_HTML = '<p id="__empty" style="color:#9a988f">(empty note)</p>';
-function paperNoteDoc(html: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-    html,body{margin:0;background:${NOTE_PAPER};color:${NOTE_INK};
-      font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-      padding:20px 26px;-webkit-font-smoothing:antialiased;}
-    body{box-sizing:border-box;min-height:100vh;caret-color:${NOTE_INK};}
-    body:focus{outline:none;}
-    body[contenteditable="true"]:empty::before{content:"Write your note…";color:#9a988f;}
-    img{max-width:100%;height:auto;} a{color:#534ab7;} *{max-width:100%;}
-  </style></head><body>${html || EMPTY_NOTE_HTML}</body></html>`;
 }
 function relativeTime(ts: number): string {
   if (!ts) return '';
@@ -61,6 +35,14 @@ const notesCache: {
   bodies: Record<string, string>;
 } = { backend: '', folders: [], byFolder: {}, bodies: {} };
 
+export function invalidateNotesCache(id?: string, newBody?: string) {
+  if (id && newBody !== undefined) {
+    notesCache.bodies[id] = newBody;
+  }
+  notesCache.byFolder = {};
+}
+
+
 export function NotesPanel() {
   const notesBackend: string = useSettingsStore(s => (s.integrations as any).notes?.backend ?? 'local');
   // A backend change invalidates the cache before first paint.
@@ -75,19 +57,6 @@ export function NotesPanel() {
   const [notes, setNotes] = useState<NoteItem[]>(() => notesCache.byFolder['Notes'] ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [selected, setSelected] = useState<NoteItem | null>(null);
-  const [body, setBody] = useState<string>(''); // HTML of the open note
-  const [bodyLoading, setBodyLoading] = useState(false);
-
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const editingRef = useRef(false);
-
-  const [sharing, setSharing] = useState(false);
-  const [chats, setChats] = useState<ImChat[]>([]);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const loadFolders = useCallback(async () => {
     try {
@@ -126,14 +95,12 @@ export function NotesPanel() {
     loadNotes(folder);
   }, [folder, loadNotes]);
 
-  // Publish the current notes view to the docked agent (open note's text, or the list of titles).
+  // Publish the current notes view to the docked agent (the list of titles).
   useEffect(() => {
-    const text = selected
-      ? `Open note "${selected.title || '(untitled)'}":\n${htmlToText(body)}`
-      : (notes.slice(0, 40).map(n => `• ${n.title || '(untitled)'}`).join('\n') || '(no notes)');
-    useToolContextStore.getState().setToolContext({ label: selected ? `Note: ${selected.title || 'untitled'}` : 'Notes', text, source: 'notes' });
+    const text = notes.slice(0, 40).map(n => `• ${n.title || '(untitled)'}`).join('\n') || '(no notes)';
+    useToolContextStore.getState().setToolContext({ label: 'Notes', text, source: 'notes' });
     return () => useToolContextStore.getState().clearToolContext();
-  }, [selected, body, notes]);
+  }, [notes]);
 
   // Retry after the Automation prompt (Apple Notes backend) — the first list call triggers it.
   const reconnect = useCallback(async () => {
@@ -148,78 +115,34 @@ export function NotesPanel() {
     s.setShowProfileSettings(true);
   };
 
-  useEffect(() => {
-    if (!actionMsg) return;
-    const t = setTimeout(() => setActionMsg(null), 4000);
-    return () => clearTimeout(t);
-  }, [actionMsg]);
-
   const openNote = async (n: NoteItem) => {
-    setSelected(n);
-    setEditing(false);
-    // Show the cached body instantly (no flash), then refresh it in the background.
-    const cached = notesCache.bodies[n.id];
-    setBody(cached ?? '');
-    setBodyLoading(!cached);
-    try {
-      const full = await getNotes().readNote(n.id);
-      notesCache.bodies[n.id] = full.body;
-      // Never clobber the paper surface mid-edit — a reloaded srcDoc would drop the user's changes.
-      if (!editingRef.current) setBody(full.body);
-    } catch (e) {
-      if (!cached) setError(String(e));
-    } finally {
-      setBodyLoading(false);
+    let html = notesCache.bodies[n.id] ?? '';
+    
+    if (!html) {
+      setLoading(true);
+      try {
+        const full = await getNotes().readNote(n.id);
+        html = full.body;
+        notesCache.bodies[n.id] = full.body;
+      } catch (e) {
+        setError(String(e));
+        return;
+      } finally {
+        setLoading(false);
+      }
     }
-  };
 
-  // Edit the note's real HTML in place (contentEditable on the paper iframe's body) so whatever
-  // formatting the backend gave us survives untouched wherever the user didn't type. The iframe is
-  // sandboxed without allow-scripts, so nothing in the note can run — allow-same-origin only lets
-  // us reach contentDocument.
-  const applyEditable = useCallback((on: boolean) => {
-    const doc = iframeRef.current?.contentDocument;
-    if (!doc?.body) return;
-    if (on) {
-      doc.getElementById('__empty')?.remove();
-      doc.body.contentEditable = 'true';
-      doc.body.focus();
-    } else {
-      doc.body.contentEditable = 'false';
-    }
-  }, []);
-
-  useEffect(() => {
-    editingRef.current = editing;
-    applyEditable(editing);
-  }, [editing, applyEditable]);
-
-  const startEdit = () => setEditing(true);
-
-  const cancelEdit = () => {
-    setEditing(false);
-    const doc = iframeRef.current?.contentDocument;
-    if (doc?.body) doc.body.innerHTML = body || EMPTY_NOTE_HTML;
-  };
-
-  const saveEdit = async () => {
-    if (!selected) return;
-    const doc = iframeRef.current?.contentDocument;
-    if (!doc?.body) return;
-    setSaving(true);
-    try {
-      const html = doc.body.innerHTML;
-      await getNotes().updateNote(selected.id, html);
-      notesCache.bodies[selected.id] = html; // keep the cached body in step with the save
-      setBody(html);
-      setEditing(false);
-      // Title may have changed (Notes derives it from the first line) — refresh the list.
-      loadNotes(folder);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
+    useUIStore.getState().setCanvasContent({
+      id: n.id,
+      title: n.title || 'Untitled Note',
+      type: 'doc',
+      content: html,
+      source: 'notes',
+      sourceNoteId: n.id,
+      history: [{ timestamp: Date.now(), content: html }],
+      historyIndex: 0
+    });
+    useUIStore.getState().setCanvasTab('preview');
   };
 
   const createNote = async () => {
@@ -228,7 +151,6 @@ export function NotesPanel() {
       await loadNotes(folder);
       const fresh = { id, folder, title: 'New Note', body: '', updatedAt: Date.now(), source: 'local' as const };
       await openNote(fresh);
-      startEdit();
     } catch (e) {
       setError(String(e));
     }
@@ -238,113 +160,11 @@ export function NotesPanel() {
     if (!window.confirm(`Delete "${n.title || 'this note'}"?`)) return;
     try {
       await getNotes().deleteNote(n.id);
-      if (selected?.id === n.id) { setSelected(null); setBody(''); }
       loadNotes(folder);
     } catch (e) {
       setError(String(e));
     }
   };
-
-  // ── Share ──
-  const openShare = async () => {
-    setSharing(true);
-    if (chats.length === 0) {
-      const list = await invoke<ImChat[]>('imessage_list_chats', { limit: 30 }).catch(() => [] as ImChat[]);
-      setChats(list);
-    }
-  };
-  const shareText = () => `${selected?.title ? selected.title + '\n\n' : ''}${htmlToText(body)}`.trim();
-  const shareToChat = async (guid: string) => {
-    try {
-      await invoke('imessage_send', { chatGuid: guid, text: shareText() });
-      setSharing(false);
-      setActionMsg('Sent via Messages');
-    } catch (e) {
-      setActionMsg(`Couldn't send: ${String(e)}`);
-    }
-  };
-  const shareToMail = () => {
-    const subject = encodeURIComponent(selected?.title || 'Note');
-    const bodyParam = encodeURIComponent(htmlToText(body));
-    openUrl(`mailto:?subject=${subject}&body=${bodyParam}`).catch(() => {});
-    setSharing(false);
-  };
-
-  // ── Reading / editing view ──
-  if (selected) {
-    return (
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel">
-        <div className="h-12 flex items-center gap-1 px-3 border-b border-edge shrink-0">
-          <button onClick={() => { setSelected(null); setBody(''); setEditing(false); }} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Back">
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm font-semibold text-ink truncate flex-1 px-1">{selected.title || '(untitled)'}</span>
-          {editing ? (
-            <>
-              <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-on-accent hover:bg-accent-strong transition-opacity disabled:opacity-40">
-                {saving ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />} Save
-              </button>
-              <button onClick={cancelEdit} disabled={saving} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors disabled:opacity-40" title="Cancel editing">
-                <X className="w-4 h-4" />
-              </button>
-            </>
-          ) : (
-            <>
-              <button onClick={startEdit} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-              <button onClick={openShare} className="p-1.5 rounded-lg text-ink-3 hover:bg-wash hover:text-ink transition-colors" title="Share"><Share2 className="w-4 h-4" /></button>
-              <button onClick={() => deleteNote(selected)} className="p-1.5 rounded-lg text-ink-3 hover:bg-danger-soft hover:text-danger transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
-            </>
-          )}
-        </div>
-
-        {actionMsg && <div className="px-4 py-1.5 text-[11px] font-medium text-ink-2 border-b border-edge shrink-0">{actionMsg}</div>}
-
-        <div className="flex-1 overflow-y-auto">
-          {bodyLoading ? (
-            <div className="h-full flex items-center justify-center gap-2 text-ink-3"><RotateCw className="w-5 h-5 animate-spin" /> <span className="text-sm">Loading note…</span></div>
-          ) : (
-            <iframe
-              ref={iframeRef}
-              title="note"
-              sandbox="allow-same-origin"
-              referrerPolicy="no-referrer"
-              srcDoc={paperNoteDoc(body)}
-              onLoad={() => applyEditable(editingRef.current)}
-              className="w-full h-full border-0"
-              style={{ background: NOTE_PAPER }}
-            />
-          )}
-        </div>
-
-        {/* Share picker */}
-        {sharing && (
-          <div className="absolute inset-0 z-40 bg-black/40 flex items-center justify-center p-6" onClick={() => setSharing(false)}>
-            <div className="bg-panel-2 w-full max-w-sm rounded-2xl border border-edge shadow-2xl p-4 flex flex-col gap-3" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-ink">Share note</span>
-                <button onClick={() => setSharing(false)} className="text-ink-3 hover:text-ink"><X className="w-4 h-4" /></button>
-              </div>
-              <button onClick={shareToMail} className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-edge hover:bg-wash transition-colors text-left">
-                <Mail className="w-4 h-4 text-accent shrink-0" /> <span className="text-sm font-medium text-ink">Email it</span>
-              </button>
-              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-ink-3 px-1 pt-1"><MessageCircle className="w-3.5 h-3.5" /> Send via Messages</div>
-              <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
-                {chats.length === 0 ? (
-                  <span className="text-xs text-ink-3 px-1 py-2">No conversations available.</span>
-                ) : chats.map(c => (
-                  <button key={c.guid} onClick={() => shareToChat(c.guid)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-wash transition-colors text-left">
-                    <Send className="w-3.5 h-3.5 text-ink-3 shrink-0" /> <span className="text-sm text-ink-2 truncate">{c.name || c.guid}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── List view ──
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-panel">
       <div className="h-12 flex items-center gap-3 px-4 border-b border-edge shrink-0">
