@@ -414,6 +414,7 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
             >
               <ExternalLink className="w-4 h-4 shrink-0" /> <span className="truncate">Per-agent settings</span>
             </button>
+            <VersionFooter />
           </nav>
 
           {/* Right pane — active section content */}
@@ -1632,6 +1633,69 @@ function InstalledModels() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Which version am I running?
+ *
+ * Until now the app never showed this anywhere: `getVersion()` was called only inside
+ * FeedbackModal (to staple onto a report) and flashed transiently in update dialogs. With more
+ * than one person on the app, "which build are you on?" is the first question of every support
+ * conversation and there was no way to answer it.
+ *
+ * Click to copy, because the answer is usually being pasted into a message to someone else.
+ */
+function VersionFooter() {
+  const [version, setVersion] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    import('@tauri-apps/api/app')
+      .then(m => m.getVersion())
+      .then(setVersion)
+      .catch(() => setVersion(null));
+  }, []);
+
+  // In a browser (no Tauri) there is no version to report; showing "unknown" would be noise.
+  if (!version) return null;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`Docent v${version}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch { /* clipboard blocked — the number is on screen either way */ }
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-edge flex flex-col gap-1">
+      <button
+        onClick={copy}
+        title="Copy version"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-tiny font-bold text-ink-3 hover:text-ink hover:bg-wash transition-all text-left"
+      >
+        {copied ? <Check className="w-3 h-3 shrink-0 text-success" /> : <Telescope className="w-3 h-3 shrink-0" />}
+        <span className="truncate">{copied ? 'Copied' : `Docent v${version}`}</span>
+      </button>
+      <button
+        onClick={async () => {
+          setChecking(true);
+          try {
+            const { checkForUpdates } = await import('../services/updater');
+            await checkForUpdates({ silent: false });
+          } finally {
+            setChecking(false);
+          }
+        }}
+        disabled={checking}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-tiny font-bold text-ink-3 hover:text-ink hover:bg-wash transition-all text-left disabled:opacity-50"
+      >
+        {checking ? <Loader2 className="w-3 h-3 shrink-0 animate-spin" /> : <Sparkles className="w-3 h-3 shrink-0" />}
+        <span className="truncate">{checking ? 'Checking…' : 'Check for updates'}</span>
+      </button>
     </div>
   );
 }
