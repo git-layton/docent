@@ -28,6 +28,11 @@ export const MODEL_SPECS: Record<string, number> = {
   'gemini-2.5-pro': 2000000,
   'gemini-2.5-flash': 1000000,
   'gemini-2.0-flash': 1000000,
+  // Moonshot's Kimi line. K3 quadrupled the window to 1M; the k2.x family stays at 256K.
+  // Without these a Kimi model added from the fetched /models list falls back to 32K and
+  // we'd throw away 97% of the window the user is paying for.
+  'kimi-k3': 1000000,
+  'kimi-k2': 262144,
   'dall-e-3': 4000,
 };
 
@@ -56,7 +61,8 @@ export const supportsVision = (modelId: string) => {
          id.includes('claude-sonnet-4') || id.includes('claude-opus-4') ||
          id.includes('gemini-2.5') || id.includes('gemini-2.0') || id.includes('gemini-1.5') ||
          id.includes('llava') || id.includes('vision') || id.includes('pixtral') ||
-         id.includes('llama-3.2') || id.includes('qwen2-vl') || id.includes('qwen2.5-vl');
+         id.includes('llama-3.2') || id.includes('qwen2-vl') || id.includes('qwen2.5-vl') ||
+         id.includes('kimi-k3');
 };
 
 // Live, model-object-aware wrapper — the single source of truth used by the UI to decide

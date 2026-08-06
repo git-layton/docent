@@ -1,7 +1,7 @@
 import './index.css';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { relaunch } from "@tauri-apps/plugin-process";
-import { X, Bot, Glasses, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search, Info, Eye, EyeOff } from 'lucide-react';
+import { X, Bot, Glasses, Code, FileText, Clock, ListTodo, AlignLeft, MapPin, Workflow, AlertTriangle, Loader2, Activity, UserPlus, Bookmark, MessageSquare, Mail, Layers, Send, CheckCircle2, Monitor, ChevronDown, RefreshCw, ExternalLink, RotateCw, Settings, Search, Info } from 'lucide-react';
 
 import { db } from './services/database';
 import { checkForUpdatesOnStartup } from './services/updater';
@@ -119,7 +119,7 @@ const MEMORY_DEDUP_MIN_SCORE = 0.88;
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
-export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) {
+export default function App({ isSpotlight = false, isPopOut = false, popOutTabId }: { isSpotlight?: boolean; isPopOut?: boolean; popOutTabId?: string | null }) {
   // ── Store subscriptions (reactive reads) ────────────────────────────────────
   const messages = useChatStore(s => s.messages);
   const chats = useChatStore(s => s.chats);
@@ -450,6 +450,9 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
   const evaluatedContextRef = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() });
   const dreamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const routineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // True while a routines tick is in flight, so the 60s interval can't start a second overlapping
+  // tick when one runs long (a slow mail fetch / LLM call can outlast the interval).
+  const routineTickingRef = useRef(false);
   const researchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Routes the previous turn took, per chat, so a follow-up can inherit an intent it plainly
   // continues (see previousRoutes in memoryGatekeeper). A ref, not state: nothing renders from it,
@@ -616,6 +619,10 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
       // autonomy by design: see services/routines.ts.
       {
         const tickRoutines = async () => {
+          // Skip if the previous tick is still running — prevents two ticks racing on the same
+          // routines array (which used to double-run routines and double-write the store).
+          if (routineTickingRef.current) return;
+          routineTickingRef.current = true;
           try {
             const routines: Routine[] = await db.get('routines', []);
             const due = routines.filter(r => isDue(r, Date.now()));
@@ -628,7 +635,6 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
             };
             for (const r of due) {
               r.lastRunAt = Date.now(); // mark BEFORE running so a failing routine can't hot-loop
-              await db.set('routines', routines);
               try {
                 const res = await runRoutine(r, deps);
                 if (res.filedTitle) {
@@ -637,9 +643,12 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
                   invoke('notify_user', { title: 'Docent', body: `${res.filedTitle} — waiting in your Inbox` }).catch(() => {});
                 }
               } catch (e) { console.warn(`[routines] ${r.name} failed:`, e); }
-              await db.set('routines', routines); // persist seenUids bookkeeping
+              // One write per routine (lastRunAt + seenUids), not two — halves the full-array
+              // serializations while still persisting incremental progress if the batch is interrupted.
+              await db.set('routines', routines);
             }
           } catch (e) { console.warn('[routines] tick skipped:', e); }
+          finally { routineTickingRef.current = false; }
         };
         void tickRoutines();
         routineTimerRef.current = setInterval(tickRoutines, 60_000);
@@ -1777,8 +1786,11 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
     if (provider === 'lmstudio') endpoint = 'http://127.0.0.1:1234/v1';
     if (provider === 'native') endpoint = 'http://127.0.0.1:8080/v1';
     if (provider === 'huggingface') endpoint = 'https://api-inference.huggingface.co/v1';
+    // Moonshot (Kimi) is OpenAI-compatible — pre-fill its base URL so the chat/fetch paths route to
+    // Moonshot instead of falling back to the OpenAI default.
+    if (provider === 'moonshot') endpoint = 'https://api.moonshot.ai/v1';
     const existingKey = ss.models.find((m: any) => m.provider === provider && m.apiKey)?.apiKey || '';
-    ss.setEditingModel({ name: provider === 'native' ? 'Docent Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
+    ss.setEditingModel({ name: provider === 'native' ? 'Docent Engine' : provider === 'ollama' ? 'Local Ollama' : provider === 'lmstudio' ? 'LM Studio Engine' : provider === 'moonshot' ? 'Kimi' : 'Custom Model', provider, modelId: '', endpoint, apiKey: existingKey, contextLimit: 32000 });
     ss.setFetchedModels([]); ss.setPendingModelSelections([]); ss.setFetchModelsError(null); ss.setModelSearchQuery('');
   };
 
@@ -1802,7 +1814,7 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         url = `https://api-inference.huggingface.co/v1/models`;
         if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
       } else {
-        const defaultEndpoint = provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : provider === 'native' ? 'http://127.0.0.1:8080/v1' : 'https://api.openai.com/v1';
+        const defaultEndpoint = provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : provider === 'native' ? 'http://127.0.0.1:8080/v1' : provider === 'moonshot' ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1';
         url = `${(endpoint || defaultEndpoint).replace(/\/chat\/completions$/, '')}/models`;
         if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
       }
@@ -2412,14 +2424,13 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
 
           // Inject channel context directly into the user message — message-level context wins over
           // system-prompt context when strong character personas are in play.
-          // Always inject the group header (even for the first agent), plus prior responses if any.
-          const channelMsgHeader = `[GROUP CHANNEL: "${normalizedCurrentChat.name}" | ${allParticipants.map((a: any) => a.name).join(', ')}]`;
+          // Always inject prior responses if any.
           const priorResponsesNote = previousResponses.length > 0
             ? `\n\n[Other agents have already responded this turn]\n${previousResponses.map((r: any) => `${r.agentName}: ${r.content}`).join('\n\n')}`
             : '';
           const agentMessages = messagesForLLM.map((m: any) =>
-            m.id === userMsg.id
-              ? { ...m, content: channelMsgHeader + '\n' + m.content + priorResponsesNote }
+            m.id === userMsg.id && priorResponsesNote
+              ? { ...m, content: m.content + priorResponsesNote }
               : m
           );
 
@@ -2654,6 +2665,16 @@ export default function App({ isSpotlight = false }: { isSpotlight?: boolean }) 
         setChatGenerating(chatId, false);
         abortControllersRef.current.delete(chatId);
       }
+      
+      // Process next queued message if any
+      const nextMsg = useChatStore.getState().dequeueMessage();
+      if (nextMsg) {
+        queueMicrotask(() => {
+          const freshMsgs = useChatStore.getState().messages[nextMsg.chatId] ?? [];
+          const historyToPass = freshMsgs.filter((m: any) => m.id !== nextMsg.userMsg.id);
+          void processChatRequest(nextMsg.chatId, nextMsg.userMsg, historyToPass);
+        });
+      }
     }
   };
 
@@ -2793,8 +2814,6 @@ const handleSendMessage = async () => {
     const _agentPinnedMessagesForPrompt = useMemoryStore.getState().globalPins
       .filter((p: any) => p.agentId === (useAgentStore.getState().assistants.find((a: any) => a.id === _activeFolderId) ?? useAgentStore.getState().assistants[0])?.id)
       .map((p: any) => p.content);
-
-    if (isChatGenerating(_activeChatId)) return;
     if (!_input.trim() && _attachedDocs.length === 0) return;
     // Single, central no-model flag: any agent action (composer, Home chips, programmatic
     // sends all route through here) nudges into the recommend-a-model flow instead of failing silently.
@@ -2877,7 +2896,12 @@ const handleSendMessage = async () => {
           useUIStore.getState().setIsPlanMode(false);
         }
 
-        await processChatRequest(chatId, msgForProcessing, currentHistory);
+        if (isChatGenerating(chatId)) {
+          useChatStore.getState().enqueueMessage({ chatId, userMsg: msgForProcessing, currentHistory });
+          useUIStore.getState().showToast('Message queued');
+        } else {
+          await processChatRequest(chatId, msgForProcessing, currentHistory);
+        }
     }
   };
 
@@ -2923,6 +2947,7 @@ const handleSendMessage = async () => {
     const target = id ?? useChatStore.getState().activeChatId;
     if (!target) return;
     abortControllersRef.current.get(target)?.abort();
+    useChatStore.getState().clearMessageQueue();
     // Respond instantly instead of waiting for the AbortError to unwind the fetch/await chain (which is
     // what made Stop feel laggy): drop the generating flag and finalize the in-flight bubble now. The
     // run's own AbortError path is idempotent, so this just front-runs it.
@@ -3030,9 +3055,19 @@ const handleSendMessage = async () => {
           const fop = fopP.data;
           const opKey = `${msg.id}:${match.index}`;
           elements.push(
-            fop.action === 'command'
-              ? <CommandActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} forcePreview={!!msg.untrustedTurn} />
-              : <FileActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} forcePreview={!!msg.untrustedTurn} />
+            <div key={`fop-wrap-${match.index}`} className="my-2 group/tool">
+              <details className="bg-panel-2 border border-edge rounded-xl shadow-sm overflow-hidden" open={isStreaming}>
+                 <summary className="cursor-pointer px-4 py-2.5 text-xs font-black uppercase tracking-widest text-accent flex items-center justify-between select-none hover:bg-inset transition-colors outline-none">
+                    <span className="flex items-center gap-2"><Workflow className="w-4 h-4" /> System Action: {fop.action}</span>
+                    <ChevronDown className="w-4 h-4 transition-transform group-open/tool:rotate-180" />
+                 </summary>
+                 <div className="p-3 border-t border-edge bg-inset">
+                   {fop.action === 'command'
+                     ? <CommandActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} forcePreview={!!msg.untrustedTurn} />
+                     : <FileActionCard key={`fop-${match.index}`} op={fop} opKey={opKey} streaming={!!isStreaming} onToast={showToast} forcePreview={!!msg.untrustedTurn} />}
+                 </div>
+              </details>
+            </div>
           );
         } catch {
           // Incomplete while streaming — render nothing until the block closes and parses.
@@ -3638,6 +3673,20 @@ if (isSpotlight) {
     );
   }
 
+  // ── Pop-Out Mode ──────────────────────────────────────────────────────────
+  if (isPopOut && popOutTabId) {
+    const tab = useSpaceStore.getState().omniTabs.find(t => t.id === popOutTabId);
+    if (!tab) return <div className="flex h-screen items-center justify-center text-ink-3">Loading...</div>;
+    return (
+      <div className="flex h-screen overflow-hidden w-full font-sans text-ink relative" data-tauri-drag-region>
+        <DynamicBackground />
+        <div className="flex-1 flex flex-col relative z-10 w-full h-full bg-white/10 dark:bg-black/10 backdrop-blur-xl">
+          {renderTabContent(tab)}
+        </div>
+      </div>
+    );
+  }
+
   return (
     // No `bg-base` here on purpose. That token resolves to --af-base, which is
     // rgba(255,255,255,.40) in light and rgba(10,11,14,.35) in dark — a film painted
@@ -3834,30 +3883,7 @@ if (isSpotlight) {
             className={`relative overflow-hidden min-w-0 flex flex-col rounded-xl border border-edge/50 ${primaryIsAmbient ? '' : 'bg-white/10 dark:bg-black/10 shadow-lg backdrop-blur-xl'}`}
             style={{ flex: splitTab ? `0 0 ${splitRatio * 100}%` : '1 1 100%' }}
           >
-            {activeOmniTab && activeOmniTab.type !== 'home' && activeOmniTab.type !== 'space-log' && (
-              <>
-                <button
-                  onClick={() => useSpaceStore.getState().closeTab(activeOmniTab.id)}
-                  className="absolute top-2 left-2 z-[100] pointer-events-auto p-1.5 group outline-none focus:outline-none"
-                  title="Close"
-                >
-                  <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
-                    <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
-                  </div>
-                </button>
-                <button
-                  onClick={() => useSpaceStore.getState().toggleTabTracking(activeOmniTab.id)}
-                  className={`absolute top-2 right-2 z-[60] p-1.5 rounded-full border shadow-sm transition-all backdrop-blur-md flex items-center justify-center group ${
-                    activeOmniTab.trackingDisabled
-                      ? 'bg-wash/80 border-edge text-ink-3 hover:bg-wash'
-                      : 'bg-accent/10 border-accent/20 text-accent hover:bg-accent/20'
-                  }`}
-                  title={activeOmniTab.trackingDisabled ? "AI tracking disabled for this app" : "AI is watching this app"}
-                >
-                  {activeOmniTab.trackingDisabled ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
-              </>
-            )}
+            {activeOmniTab && activeOmniTab.type !== 'home' && activeOmniTab.type !== 'space-log' && null}
             {renderTabContent(activeOmniTab)}
           </div>
 
@@ -3873,30 +3899,7 @@ if (isSpotlight) {
                 data-ambient={splitIsAmbient ? 'true' : undefined}
                 className={`relative overflow-hidden min-w-0 flex flex-col flex-1 rounded-xl border border-edge/50 ${splitIsAmbient ? '' : 'bg-white/10 dark:bg-black/10 shadow-lg backdrop-blur-xl'}`}
               >
-                {splitTab.type !== 'home' && splitTab.type !== 'space-log' && (
-                  <>
-                    <button
-                      onClick={() => useUIStore.getState().setSplitTabId(null)}
-                      className="absolute top-2 left-2 z-[100] pointer-events-auto p-1.5 group outline-none focus:outline-none"
-                      title="Close split"
-                    >
-                      <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] flex items-center justify-center shadow-sm">
-                        <X className="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => useSpaceStore.getState().toggleTabTracking(splitTab.id)}
-                      className={`absolute top-2 right-2 z-[60] p-1.5 rounded-full border shadow-sm transition-all backdrop-blur-md flex items-center justify-center group ${
-                        splitTab.trackingDisabled
-                          ? 'bg-wash/80 border-edge text-ink-3 hover:bg-wash'
-                          : 'bg-accent/10 border-accent/20 text-accent hover:bg-accent/20'
-                      }`}
-                      title={splitTab.trackingDisabled ? "AI tracking disabled for this app" : "AI is watching this app"}
-                    >
-                      {splitTab.trackingDisabled ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    </button>
-                  </>
-                )}
+                {splitTab.type !== 'home' && splitTab.type !== 'space-log' && null}
                 {renderTabContent(splitTab)}
               </div>
             </>

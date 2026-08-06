@@ -21,6 +21,7 @@ const CLOUD_PROVIDERS = [
   { value: 'openai',      label: 'OpenAI' },
   { value: 'anthropic',   label: 'Anthropic (Claude)' },
   { value: 'google',      label: 'Google (Gemini)' },
+  { value: 'moonshot',    label: 'Moonshot (Kimi)' },
   { value: 'huggingface', label: 'Hugging Face' },
 ];
 
@@ -43,6 +44,15 @@ const RECOMMENDED_MODELS: Record<string, RecModel[]> = {
     { id: 'gemini-2.5-pro',        name: 'Gemini 2.5 Pro',        context: 1000000, badge: 'Most capable' },
     { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', context: 1000000, badge: 'Fastest' },
   ],
+  // Moonshot AI's Kimi line — OpenAI-compatible API at https://api.moonshot.ai/v1. kimi-k3 (shipped
+  // 2026-07-16) is the 2.8T-param, 1M-context, natively-multimodal flagship; the k2.x ids trail it.
+  // Cloud-only — even K2/K3 weights are far too large to run locally on a Mac. Model ids verified
+  // against platform.moonshot.ai/docs; context for the k2.x entries is the family's documented ~256K.
+  moonshot: [
+    { id: 'kimi-k3',        name: 'Kimi K3',        context: 1000000, badge: 'Newest · 1M · vision' },
+    { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', context: 262144,  badge: 'Coder' },
+    { id: 'kimi-k2.6',      name: 'Kimi K2.6',      context: 262144,  badge: '' },
+  ],
   huggingface: [
     { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B',   context: 128000, badge: '' },
     { id: 'mistralai/Mistral-7B-Instruct-v0.3',    name: 'Mistral 7B',     context: 32000,  badge: '' },
@@ -54,6 +64,7 @@ const PROVIDER_KEY_URLS: Record<string, string> = {
   openai:      'https://platform.openai.com/api-keys',
   anthropic:   'https://console.anthropic.com/settings/keys',
   google:      'https://aistudio.google.com/apikey',
+  moonshot:    'https://platform.moonshot.ai/console/api-keys',
   huggingface: 'https://huggingface.co/settings/tokens',
 };
 

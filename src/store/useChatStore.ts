@@ -13,6 +13,7 @@ interface ChatStore {
   editingMessageContent: string;
   speakingId: string | null;
   chatSearchQuery: string;
+  messageQueue: any[];
 
   setChats: (fn: ((prev: any[]) => any[]) | any[]) => void;
   setMessages: (fn: ((prev: Record<string, any[]>) => Record<string, any[]>) | Record<string, any[]>) => void;
@@ -23,6 +24,9 @@ interface ChatStore {
   setEditingMessageContent: (content: string) => void;
   setSpeakingId: (id: string | null) => void;
   setChatSearchQuery: (q: string) => void;
+  enqueueMessage: (msg: any) => void;
+  dequeueMessage: () => any | undefined;
+  clearMessageQueue: () => void;
 
   hydrate: () => Promise<void>;
   persist: () => Promise<void>;
@@ -38,6 +42,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   editingMessageContent: '',
   speakingId: null,
   chatSearchQuery: '',
+  messageQueue: [],
 
   setChats: (fn) =>
     set(s => ({ chats: typeof fn === 'function' ? fn(s.chats) : fn })),
@@ -50,6 +55,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setEditingMessageContent: (content) => set({ editingMessageContent: content }),
   setSpeakingId: (id) => set({ speakingId: id }),
   setChatSearchQuery: (q) => set({ chatSearchQuery: q }),
+  enqueueMessage: (msg) => set(s => ({ messageQueue: [...s.messageQueue, msg] })),
+  dequeueMessage: () => {
+    let nextMsg;
+    set(s => {
+      if (s.messageQueue.length === 0) return {};
+      nextMsg = s.messageQueue[0];
+      return { messageQueue: s.messageQueue.slice(1) };
+    });
+    return nextMsg;
+  },
+  clearMessageQueue: () => set({ messageQueue: [] }),
 
   hydrate: async () => {
     const storedChats = await db.get('chats', []);
