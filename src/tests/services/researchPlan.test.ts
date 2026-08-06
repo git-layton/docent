@@ -39,6 +39,19 @@ describe('planResearch', () => {
     expect(plan.questions[0]).toContain('prompt injection')
   })
 
+  it('fallback angles must generalise to ANY subject, not just products', () => {
+    // The rejected-taxonomy trap, guarded: an earlier draft had "best practices" and "compared
+    // to alternatives", which silently assumed the topic was a practice or a product and
+    // produced nonsense like "grief best practices". Every fallback angle must read sensibly
+    // for a feeling, an event, and a technology alike.
+    for (const topic of ['grief', 'the French Revolution', 'prompt injection']) {
+      for (const q of planResearch(topic).questions) {
+        expect(q).not.toMatch(/best practices|compared to alternatives|recent developments/i)
+        expect(q).toContain(topic)
+      }
+    }
+  })
+
   it('ALWAYS includes a dissent angle', () => {
     // Without one, a run reads only sources that agree and `contested` provenance can never
     // be produced — the library would record every topic as settled.

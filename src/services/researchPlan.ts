@@ -73,26 +73,27 @@ export type StopReason =
 // ── Angles ──────────────────────────────────────────────────────────────────
 
 /**
- * Search angles used when no model is available to generate better ones.
+ * MINIMAL fallback angles, used only when no model is available to generate real ones.
  *
- * This IS a fixed taxonomy, which the concept canvas explicitly rejected for PRESENTATION —
- * so the distinction matters. A fixed grid is wrong for showing knowledge, because every
- * subject decomposes differently. Query diversification is a different job: it is a search
- * strategy, it is standard IR practice, and it is deterministic, which makes it testable and
- * makes it work with no model at all. `planResearch` accepts generated questions and prefers
- * them; these are the floor, not the ceiling.
+ * An earlier draft had six templates — best practices, compared to alternatives, recent
+ * developments — and that was the fixed grid the concept canvas explicitly rejected, smuggled
+ * back in. It fails on its own terms: "grief best practices" and "the French Revolution
+ * compared to alternatives" are nonsense. Four of those six silently assumed the topic was a
+ * practice or a product.
  *
- * The DISSENT angle is not optional. Without it a run reads only sources that agree, and
- * `contested` provenance can never be produced — the library would record every topic as
- * settled because it never looked for an argument.
+ * What survives is only what genuinely generalises. Every subject has an identity and a
+ * dispute; not every subject has competitors or a release cycle. Generated questions are the
+ * PRIMARY path — these exist so a run degrades rather than fails when no model is configured.
+ *
+ * The DISSENT angle is the one thing that is not optional, and it is here on evidence rather
+ * than symmetry: without it a run reads only sources that agree, and `contested` provenance
+ * can never be produced — the library would record every topic as settled because it never
+ * went looking for an argument.
  */
 export const ANGLES: Array<(topic: string) => string> = [
   t => `what is ${t}`,
-  t => `how does ${t} work`,
+  t => `${t} explained in detail`,
   t => `criticism of ${t} limitations problems`,   // the dissent angle — load-bearing
-  t => `${t} best practices`,
-  t => `${t} compared to alternatives`,
-  t => `${t} recent developments`,
 ];
 
 const clean = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -104,9 +105,10 @@ export function planResearch(
   const t = clean(topic);
   const budget = { ...DEFAULT_BUDGET, ...(opts.budget ?? {}) };
 
-  // Model-generated questions are better than templates when available, but the dissent angle
-  // is appended regardless: a model asked to research something reliably proposes angles that
-  // confirm it, and nothing else in the pipeline will go looking for the counter-argument.
+  // Generated questions are the PRIMARY path — a model can decompose a topic on its own terms,
+  // which is exactly what a fixed template list cannot do. The dissent angle is appended
+  // regardless: a model asked to research something reliably proposes angles that confirm it,
+  // and nothing else in the pipeline will go looking for the counter-argument.
   const generated = (opts.questions ?? []).map(clean).filter(Boolean);
   const questions = generated.length > 0
     ? dedupe([...generated, ANGLES[2](t)])
