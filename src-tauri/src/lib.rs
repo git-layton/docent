@@ -5819,8 +5819,21 @@ mod tests {
         let registered: std::collections::BTreeSet<String> = src[start..start + len]
             .split(',')
             .filter_map(|raw| {
-                let token = raw.split("//").next().unwrap_or("").trim();
-                let name = token.rsplit("::").next().unwrap_or("").trim();
+                // Strip line comments PER LINE — must stay identical to build.rs's parser.
+                // Splitting the whole comma-chunk on the first `//` drops any command PRECEDED
+                // by a comment line, and because THIS test shared that exact defect it agreed
+                // with the ACL the same bug produced: `screen_log_write_frame` was registered,
+                // omitted from allow-app-local, and the test passed. A checker that reproduces
+                // the bug it checks for is worse than no checker, because it certifies the fault.
+                let code: String = raw
+                    .lines()
+                    .filter_map(|l| {
+                        let c = l.split("//").next().unwrap_or("").trim();
+                        if c.is_empty() { None } else { Some(c) }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let name = code.rsplit("::").next().unwrap_or("").trim();
                 let mut b = name.bytes();
                 let ok = match b.next() {
                     Some(c) => {

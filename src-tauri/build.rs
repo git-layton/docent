@@ -70,9 +70,25 @@ fn parse_handler_commands(src: &str) -> Result<BTreeSet<String>, String> {
 
     let mut commands = BTreeSet::new();
     for raw in body.split(',') {
-        // Drop trailing line comments, then take the final path segment (mail::mail_send -> mail_send).
-        let token = raw.split("//").next().unwrap_or("").trim();
-        let name = token.rsplit("::").next().unwrap_or("").trim();
+        // Strip line comments PER LINE, then take the final path segment
+        // (mail::mail_send -> mail_send).
+        //
+        // This used to be `raw.split("//").next()` over the whole comma-chunk, which silently
+        // dropped any command PRECEDED by a comment line: the chunk begins with the comment, so
+        // everything after the first `//` — including the command itself — was discarded. It cost
+        // `screen_log_write_frame` its ACL entry while its four siblings were fine, and the
+        // symptom would have been the screen log failing to store a single frame with no error
+        // anywhere. A registered-but-unpermitted command is a silent failure by construction, so
+        // this parser has to tolerate comments wherever a person would naturally write them.
+        let code: String = raw
+            .lines()
+            .filter_map(|l| {
+                let c = l.split("//").next().unwrap_or("").trim();
+                if c.is_empty() { None } else { Some(c) }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let name = code.rsplit("::").next().unwrap_or("").trim();
         let mut bytes = name.bytes();
         let valid = match bytes.next() {
             Some(b) => {
