@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, MessageSquareHeart, Database } from 'lucide-react';
+import { Globe, MessageSquare, MessageCircle, FileText, Code, Cpu, X, Plus, Home, Star, SplitSquareHorizontal, Share2, CheckSquare, Mail, CalendarDays, StickyNote, Images, Monitor, Activity, Layers, Settings, CloudFog, CloudRain, CloudSnow, CloudLightning, CalendarCheck, ChevronDown, PinOff, MessageSquareHeart, Database, Eye, EyeOff, ExternalLink } from 'lucide-react';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
@@ -8,6 +8,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useMessagesStore } from '../store/useMessagesStore';
 import { FeedbackModal } from './FeedbackModal';
 import { DocentMark } from './ui/DocentMark';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 import type { OmniTab } from '../types/omniTab';
 import { TabOverflowMenu } from './TabOverflowMenu';
@@ -294,6 +295,44 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
           <PinOff className="w-3 h-3" />
         </span>
       )}
+      {/* AI Watch Toggle */}
+      {tab.type !== 'home' && tab.type !== 'space-log' && (
+        <span
+          role="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            useSpaceStore.getState().toggleTabTracking(tab.id);
+          }}
+          className={clsx(
+            'transition-opacity shrink-0',
+            tab.trackingDisabled
+              ? 'opacity-0 group-hover:opacity-60 hover:!opacity-100 text-ink-3'
+              : 'opacity-100 text-accent hover:text-accent-strong'
+          )}
+          title={tab.trackingDisabled ? 'AI tracking disabled' : 'AI is watching this tab'}
+        >
+          {tab.trackingDisabled ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+        </span>
+      )}
+      {/* Pop-out window */}
+      <span
+        role="button"
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          new WebviewWindow(`popout-${tab.id}`, {
+            url: `/?window=popout&tabId=${tab.id}`,
+            title: tab.label,
+            width: 800,
+            height: 600,
+          });
+        }}
+        className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
+        title="Pop out to new window"
+      >
+        <ExternalLink className="w-3 h-3" />
+      </span>
       {/* Close. Pinned tabs close too; only the Space's own Chat is permanent. */}
       {tab.type !== 'space-log' && (
         <span

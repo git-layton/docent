@@ -7,7 +7,7 @@
 // layer is owned by a separate effort (the Rust index behind webHistory's searchWebHistory) —
 // when that lands it composes with this, it doesn't replace it.
 
-export type SearchKind = 'App' | 'Doc' | 'Bookmark' | 'Task' | 'Chat' | 'Web' | 'Image';
+export type SearchKind = 'App' | 'Doc' | 'Bookmark' | 'Task' | 'Chat' | 'Web' | 'Image' | 'Space' | 'Agent';
 
 export interface SearchDoc {
   kind: SearchKind;

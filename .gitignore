@@ -30,3 +30,18 @@ src-tauri/target
 *.sln
 *.sw?
 .claude/launch.json
+
+# One-off scratch / patch scripts — kept on disk, never committed. Historical patch scripts
+# that were already committed now live in scripts/archive/.
+/patch_*.py
+/update_*.py
+/replace_*.py
+/fix_*.py
+/cleanup.py
+/remove_*.py
+/test*.js
+/testUrl.js
+/test_lettre.rs
+/src-tauri/scratch.rs
+/src-tauri/src/*test*.rs
+/src-tauri/src/lettre_test.rs

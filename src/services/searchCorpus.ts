@@ -12,6 +12,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
+import { useAgentStore } from '../store/useAgentStore';
 import type { SearchDoc } from './universalSearch';
 
 export type SearchScope = { kind: 'global' } | { kind: 'space'; spaceId: string };
@@ -101,6 +102,27 @@ export function buildSearchCorpus(scope: SearchScope): SearchDoc[] {
         body: t.details || undefined,
         sub: t.dueDate ? `Due ${t.dueDate}` : 'To-Do',
         timestamp: t.updatedAt ?? t.createdAt,
+      });
+    }
+    for (const sp of spaces ?? []) {
+      out.push({
+        kind: 'Space',
+        id: `space-${sp.id}`,
+        title: sp.name || 'Untitled Space',
+        sub: 'Space',
+        timestamp: sp.updatedAt,
+      });
+    }
+    const { assistants } = useAgentStore.getState();
+    for (const a of assistants ?? []) {
+      if (a.id === 'forge-guide' || a.id === 'f-default') continue;
+      out.push({
+        kind: 'Agent',
+        id: `agent-${a.id}`,
+        title: a.name || 'Assistant',
+        body: a.description || undefined,
+        sub: 'Agent',
+        timestamp: a.updatedAt,
       });
     }
   }

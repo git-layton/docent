@@ -65,6 +65,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       {windowParam === 'spotlight' ? <App isSpotlight /> :
        windowParam === 'glow'      ? <GlowOverlay /> :
        windowParam === 'browser'   ? <BrowserWindowShim /> :
+       windowParam === 'popout'    ? <App isPopOut popOutTabId={new URLSearchParams(window.location.search).get('tabId')} /> :
        <App />}
     </RootErrorBoundary>
   </React.StrictMode>,
