@@ -78,7 +78,11 @@ const AGENT_ACTION_OP_SCHEMAS: Record<string, z.ZodType<unknown>> = {
   'task.create': z.looseObject({ title: z.string().min(1), dueDate: looseDate }),
   'task.complete': z.looseObject({ id: requiredId }),
   'task.delete': z.looseObject({ id: requiredId }),
-  'note.update': z.looseObject({ id: requiredId, body: z.string().min(1) }),
+  // note.update targets the note open in the canvas, so `id` is OPTIONAL — requiring it dropped
+  // every update the model emitted, because note.create never surfaces the canvas doc id for the
+  // model to echo back. Only `body` is load-bearing. (note.create intentionally has NO schema entry:
+  // it falls through to the permissive base so a note the user asked for is never silently dropped.)
+  'note.update': z.looseObject({ body: z.string().min(1) }),
   'note.delete': z.looseObject({ id: requiredId }),
   'calendar.create': z.looseObject({ title: z.string().min(1), start: z.string().min(1) }),
   'calendar.delete': z.looseObject({ id: requiredId }),

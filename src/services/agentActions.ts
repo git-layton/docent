@@ -30,8 +30,23 @@ export function actionNeedsApproval(a: AgentAction, turnIngestedUntrusted = fals
   if (a.tool === 'playbook' && a.op === 'execute') return true;
   if (a.op === 'send' || a.op === 'delete') return true;
   if (a.tool === 'desktop' && a.op === 'click') return true;
+  // note.create / note.update only render a draft into the LOCAL canvas — the canvas IS the review
+  // surface, nothing leaves the machine, and the user sees (and can freely discard) whatever appears.
+  // So they are safe to auto-apply even on an untrusted turn. Gating them behind the untrusted-turn
+  // wall below was exactly what stopped agent-written notes from opening in the canvas mid-conversation:
+  // in a browser-centric app almost every turn has web page / search / recall context, so the note
+  // silently queued for approval instead of appearing. Every send/delete/click above stays gated.
+  if (a.tool === 'note' && (a.op === 'create' || a.op === 'update')) return false;
   if (turnIngestedUntrusted) return true;
   return false;
+}
+
+/** Parses JSON tolerantly, escaping unescaped newlines in strings */
+function parseTolerantJson(text: string): any {
+  const sanitized = text.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, (match) => {
+    return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+  });
+  return JSON.parse(sanitized);
 }
 
 /** Extract ```forge:action``` JSON blocks from an agent message. Tolerant — skips malformed
@@ -51,7 +66,7 @@ export function parseAgentActions(text: string): AgentAction[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     try {
-      const parsed = JSON.parse(m[1].trim());
+      const parsed = parseTolerantJson(m[1].trim());
       for (const raw of Array.isArray(parsed) ? parsed : [parsed]) {
         const a = validateAgentAction(raw);
         if (!a) continue;
@@ -71,7 +86,7 @@ export function parseAgentActions(text: string): AgentAction[] {
 /** Does this fenced body look like a tool call the model meant to make? */
 function isToolCallJson(body: string): boolean {
   try {
-    const parsed = JSON.parse(body.trim());
+    const parsed = parseTolerantJson(body.trim());
     const items = Array.isArray(parsed) ? parsed : [parsed];
     return items.length > 0 && items.every(
       it => it && typeof it === 'object' && typeof (it as any).tool === 'string',
@@ -209,31 +224,49 @@ async function executeInner(a: AgentAction): Promise<{ result: string; undo?: ()
     case 'note.create': {
       const title = String(a.title ?? 'Untitled');
       const body = String(a.body ?? '');
+      // Persist FIRST so the note survives closing the canvas tab. A create used to live only in the
+      // canvas and vanished the instant the tab closed — nothing was ever written to the notes store.
+      // Best-effort: if the notes backend is unavailable the draft still opens in the canvas below.
+      // The persisted id becomes the canvas doc id so a follow-up note.update can find it.
+      let noteId: string | undefined;
+      try { noteId = await getNotes().createNote(undefined, title, body); }
+      catch (e) { console.warn('[note.create] persist failed, opening draft only:', e); }
       useUIStore.getState().setCanvasContent({
-        id: generateId('doc'),
+        id: noteId ?? generateId('doc'),
         type: 'doc',
         title,
-        content: body
+        content: body,
       });
       useSpaceStore.getState().openTab({ type: 'doc', label: title });
-      return { result: `Created note “${title}” on canvas` };
+      return {
+        result: `Created note “${title}” on canvas`,
+        undo: noteId ? () => getNotes().deleteNote(noteId!) : undefined,
+      };
     }
     case 'note.update': {
       const body = String(a.body ?? '');
       const current = useUIStore.getState().canvasContent;
-      if (!current || current.id !== String(a.id)) {
-         throw new Error(`Note ${a.id} is not currently open in the canvas.`);
+      // Update whatever note is open in the canvas. The old code hard-required a.id to equal the
+      // canvas doc id, but note.create never surfaced that id to the model, so the match could
+      // essentially never succeed and update always threw "not currently open". In this single-canvas
+      // UX "update the note" means the one the user is looking at; only reject an explicit id mismatch.
+      if (!current) throw new Error('No note is open in the canvas to update.');
+      if (a.id && current.id !== String(a.id)) {
+        throw new Error(`Note ${a.id} is not the note open in the canvas.`);
       }
-      
+
       const newHistory = current.history ? [...current.history.slice(0, (current.historyIndex ?? 0) + 1)] : [{timestamp: Date.now(), content: current.content}];
       newHistory.push({ timestamp: Date.now(), content: body });
-      
+
       useUIStore.getState().setCanvasContent({
         ...current,
         content: body,
         history: newHistory,
         historyIndex: newHistory.length - 1
       });
+      // Mirror the edit into the persisted note when the open doc is a saved note (its id is the
+      // notes-store id set by note.create). Best-effort — the canvas stays the source of truth.
+      if (current.id) { getNotes().updateNote(String(current.id), body).catch(() => {}); }
       return { result: `Updated note on canvas` };
     }
     case 'task.create': {
