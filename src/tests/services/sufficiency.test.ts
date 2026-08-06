@@ -3,6 +3,8 @@ import {
   assessSufficiency,
   shouldOfferToRead,
   contentTerms,
+  isRetrievalRoute,
+  blocksFromSources,
   COVERAGE_FLOOR,
 } from '../../services/sufficiency'
 import type { Block } from '../../services/provenance'
@@ -195,5 +197,61 @@ describe('assessSufficiency — contract', () => {
       query: undefined as unknown as string,
       passages: undefined as unknown as Block[],
     })).not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Scoping — the product decision
+// ---------------------------------------------------------------------------
+
+describe('isRetrievalRoute — the gate must not speak on every turn', () => {
+  it('fires for routes where the user asked Docent to find something out', () => {
+    for (const r of ['memory_search', 'screen_recall', 'web_search', 'browser', 'files']) {
+      expect(isRetrievalRoute(r)).toBe(true)
+    }
+  })
+
+  it('stays silent on action routes — they DO something, they do not claim to know', () => {
+    expect(isRetrievalRoute('calendar')).toBe(false)
+    expect(isRetrievalRoute('integrations')).toBe(false)
+    expect(isRetrievalRoute('another_agent')).toBe(false)
+  })
+
+  it('stays silent when no tool ran at all', () => {
+    // "Rewrite this paragraph" makes no claim on the library. Answering it with
+    // "nothing in your library covers this" would be wrong and insulting.
+    expect(isRetrievalRoute('none')).toBe(false)
+    expect(isRetrievalRoute(null)).toBe(false)
+    expect(isRetrievalRoute(undefined)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Source adaptation
+// ---------------------------------------------------------------------------
+
+describe('blocksFromSources', () => {
+  it('treats a local path as read, with the snippet as the quote', () => {
+    const [b] = blocksFromSources([{ title: 'Trust model', path: 'trust.md', snippet: 'Untrusted content escalates writes.' }])
+    expect(b.origin).toBe('read')
+    expect((b as Extract<Block, { origin: 'read' | 'authored' }>).sourcePath).toBe('trust.md')
+  })
+
+  it('treats a URL as read too — it was ingested', () => {
+    const [b] = blocksFromSources([{ title: 'OWASP', url: 'https://owasp.org/llm01', snippet: 'Prompt injection is ranked first.' }])
+    expect(b.origin).toBe('read')
+  })
+
+  it('treats a source with no path or url as grounding nothing', () => {
+    const [b] = blocksFromSources([{ title: 'Something the model offered', snippet: 'A claim with no origin.' }])
+    expect(b.origin).toBe('generated')
+  })
+
+  it('drops empty sources rather than counting them as evidence', () => {
+    expect(blocksFromSources([{ path: 'a.md' }, { snippet: '  ' }, {}])).toHaveLength(0)
+  })
+
+  it('survives a malformed list', () => {
+    expect(() => blocksFromSources(undefined as unknown as [])).not.toThrow()
   })
 })

@@ -169,3 +169,58 @@ export function assessSufficiency(input: SufficiencyInput): SufficiencyVerdict {
 export function shouldOfferToRead(v: SufficiencyVerdict): boolean {
   return v.level === 'insufficient';
 }
+
+// ── When the question is worth asking at all ────────────────────────────────
+
+/**
+ * Routes where "did we find enough?" is meaningful.
+ *
+ * SCOPING IS A PRODUCT DECISION, not a technicality. "Rewrite this paragraph", "what's 2+2",
+ * "make that shorter" need no retrieval and make no claim on the library — running the gate
+ * there would answer a rewrite request with "nothing in your library covers this", which is
+ * both wrong and insulting. The gate speaks only when the user actually asked Docent to find
+ * something out.
+ *
+ * Action routes (calendar, integrations) are excluded for the same reason: they DO something,
+ * they don't claim to know something.
+ */
+const RETRIEVAL_ROUTES = new Set([
+  'memory_search', 'screen_recall', 'web_search', 'browser', 'files',
+]);
+
+export function isRetrievalRoute(route: string | null | undefined): boolean {
+  return !!route && RETRIEVAL_ROUTES.has(route);
+}
+
+/**
+ * The shape the app's capability layer returns for a source. Declared structurally rather than
+ * imported so this module stays free of app types and testable on its own.
+ */
+export interface RetrievedSourceLike {
+  title?: string;
+  path?: string;
+  url?: string;
+  snippet?: string;
+}
+
+/**
+ * Adapt retrieved sources into blocks the gate can weigh.
+ *
+ * A source with a path or a URL is something that was actually ingested — `read`, and its
+ * snippet is the text being relied on. A source with neither is the model's own contribution
+ * and grounds nothing, which is exactly what `generated` means.
+ */
+export function blocksFromSources(sources: readonly RetrievedSourceLike[]): Block[] {
+  const out: Block[] = [];
+  for (const s of sources ?? []) {
+    const text = String(s?.snippet ?? s?.title ?? '').trim();
+    if (!text) continue;
+    const origin = s?.path ?? s?.url;
+    if (origin) {
+      out.push({ origin: 'read', text, sourcePath: String(origin), quote: text });
+    } else {
+      out.push({ origin: 'generated', text });
+    }
+  }
+  return out;
+}

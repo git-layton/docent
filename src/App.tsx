@@ -41,6 +41,7 @@ import { distillCandidate, observeCompletion, composeSkillContext, shouldPropose
 import { buildVoiceCard } from './services/voiceRuntime';
 import { normalizeVoiceProfile } from './services/voice';
 import { capabilityForRoute, type CapabilityContext } from './services/capabilities';
+import { assessSufficiency, blocksFromSources, isRetrievalRoute } from './services/sufficiency';
 import { evaluateDroppedMessages } from './services/contextEvaluator';
 import { computePinProfile } from './services/pinPersonalization';
 import { invoke } from '@tauri-apps/api/core';
@@ -2360,6 +2361,24 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
         } else {
           await new Promise(r => setTimeout(r, 800));
           useChatStore.getState().setMessages((prev: Record<string, any[]>) => ({ ...prev, [chatId]: prev[chatId].filter((m: any) => m.id !== toolMsgId) }));
+        }
+
+        // ── Evidence check ────────────────────────────────────────────────────────────
+        // Retrieval makes a model LESS willing to abstain: adding context raises confidence,
+        // so a model handed insufficient context hallucinates more than one handed none.
+        // Surfacing more is only safer when paired with knowing whether what was surfaced is
+        // enough — so before composing an answer, weigh the evidence and say what it supports.
+        //
+        // Scoped to retrieval routes on purpose: "rewrite this paragraph" makes no claim on
+        // the library, and answering it with "nothing in your library covers this" would be
+        // both wrong and insulting.
+        if (isRetrievalRoute(primaryToolRoute)) {
+          const verdict = assessSufficiency({
+            query: String(userMsg.content ?? ''),
+            passages: blocksFromSources(foundSources as any[]),
+          });
+          toolData += `\n\n[SYSTEM NOTE: EVIDENCE CHECK — ${verdict.level.toUpperCase()}]\n${verdict.directive}\n[END EVIDENCE CHECK]`;
+          console.info(`[sufficiency] ${verdict.level} — ${verdict.detail}`);
         }
 
         if (toolData) {
