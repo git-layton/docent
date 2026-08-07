@@ -23,6 +23,8 @@
 //
 // Pure and network-free, so the strategy is testable before any page is fetched.
 
+import { contentTerms } from './sufficiency';
+
 export interface ResearchBudget {
   /** Hard ceiling. A run never reads more than this, however unsatisfied it is. */
   maxSources: number;
@@ -32,6 +34,11 @@ export interface ResearchBudget {
   minSources: number;
   /** Never declare "ready" from fewer domains than this — see decision ②. */
   minDistinctDomains: number;
+  /**
+   * Fraction of the topic's own words that must actually appear in what was read.
+   * Guards against a run that gathers plenty of good sources about the wrong thing.
+   */
+  minTopicCoverage: number;
 }
 
 export const DEFAULT_BUDGET: ResearchBudget = {
@@ -39,7 +46,16 @@ export const DEFAULT_BUDGET: ResearchBudget = {
   maxMinutes: 12,
   minSources: 6,
   minDistinctDomains: 4,
+  minTopicCoverage: 0.6,
 };
+
+/** Share of the topic's content words that showed up in what was read. */
+export function topicCoverage(plan: ResearchPlan, p: ResearchProgress): number {
+  const terms = contentTerms(plan.topic);
+  if (terms.length === 0) return 1;
+  const seen = new Set((p.topicTermsSeen ?? []).map(t => t.toLowerCase()));
+  return terms.filter(t => seen.has(t)).length / terms.length;
+}
 
 export interface ResearchPlan {
   topic: string;
@@ -59,6 +75,17 @@ export interface ResearchProgress {
   contestedFound: number;
   /** Angles already pursued, so the planner doesn't repeat itself. */
   asked: string[];
+  /**
+   * Distinct content words OF THE TOPIC that actually appeared in what was read.
+   *
+   * Without this the run measures quantity, spread and quotability — and never whether the
+   * material is ABOUT the thing. Proven necessary by a live run: researching an invented topic
+   * ("zblorxian quantum flumeflarbing protocol") returned six real, diverse, quotable pages
+   * about quantum computing and the run declared the knowledge base READY. Valid links,
+   * plausible relevance, no answer — the exact failure mode deep-research agents are measured
+   * to have (>94% link validity against 39–77% factual accuracy).
+   */
+  topicTermsSeen: string[];
   startedAt: number;
   now: number;
 }
@@ -188,8 +215,13 @@ export function shouldStop(plan: ResearchPlan, p: ResearchProgress): StopDecisio
   const enough = p.sourcesRead >= budget.minSources;
   const spread = distinct >= budget.minDistinctDomains && !isDominatedByOneDomain(p.domains);
   const usable = p.groundedBlocks >= budget.minSources;
+  // RELEVANCE. Quantity, spread and quotability say nothing about whether the material is
+  // about the topic — a search engine will happily return six excellent pages adjacent to a
+  // subject that does not exist.
+  const coverage = topicCoverage(plan, p);
+  const onTopic = coverage >= budget.minTopicCoverage;
 
-  if (enough && spread && usable) {
+  if (enough && spread && usable && onTopic) {
     return {
       stop: true, reason: 'ready',
       detail: `The start of a knowledge base on ${plan.topic} is ready — ${p.sourcesRead} sources across ${distinct} sites.`,
@@ -198,12 +230,27 @@ export function shouldStop(plan: ResearchPlan, p: ResearchProgress): StopDecisio
 
   // Nothing left to try. Reported honestly rather than dressed up as ready: a run that ran out
   // of angles has NOT covered the topic, and saying so is what lets the user decide to push.
-  if (p.asked.length >= plan.questions.length && p.sourcesRead > 0) {
+  //
+  // This deliberately does NOT require sourcesRead > 0. An earlier version did, which left a
+  // hole: a topic where every search came back empty asked every angle, found nothing, and
+  // never reported a stop at all — the run ended while still claiming to be in progress.
+  // Finding nothing is a real, honest outcome and has to be sayable.
+  if (p.asked.length >= plan.questions.length) {
+    const missing = contentTerms(plan.topic).filter(
+      t => !new Set((p.topicTermsSeen ?? []).map(x => x.toLowerCase())).has(t),
+    );
     return {
       stop: true, reason: 'exhausted',
-      detail: enough
-        ? `Followed every angle — ${p.sourcesRead} sources, but only ${distinct} distinct sites. Thin on independent corroboration.`
-        : `Followed every angle and only found ${p.sourcesRead} usable sources. This topic is thinly covered where I can reach.`,
+      detail: p.sourcesRead === 0
+        ? `Followed every angle and found nothing usable on ${plan.topic}. Either it's not covered where I can reach, or the topic needs different words.`
+        : !onTopic
+          // The dangerous case: plenty of good sources that are not about the thing asked for.
+          // Naming the words nobody wrote about is what tells the user their term is wrong,
+          // obscure, or invented — rather than handing them a confident pile of near-misses.
+          ? `Read ${p.sourcesRead} sources but almost none of them are actually about ${plan.topic}${missing.length ? ` — nothing mentioned ${missing.slice(0, 3).join(', ')}` : ''}. Either the term is wrong, or there's nothing out there under that name.`
+          : enough
+            ? `Followed every angle — ${p.sourcesRead} sources, but only ${distinct} distinct sites. Thin on independent corroboration.`
+            : `Followed every angle and only found ${p.sourcesRead} usable sources. This topic is thinly covered where I can reach.`,
     };
   }
 

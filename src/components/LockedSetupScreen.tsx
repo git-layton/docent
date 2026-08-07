@@ -40,18 +40,40 @@ export function LockedSetupScreen() {
       try {
         const downloaded = await invoke<{ filename: string; size_mb: number }[]>('list_gguf_models');
         if (downloaded.length > 0) {
-          // Find the first downloaded model and auto-add it if we have 0 models
+          // Find the first downloaded model and auto-add it if we have 0 models.
+          // `list_gguf_models` returns chat models only (projectors excluded) sorted smallest
+          // first, so [0] is the fastest thing on disk to get the user talking.
           const ss = useSettingsStore.getState();
           if (ss.models.length === 0) {
             const first = downloaded[0];
+
+            // ACTUALLY LAUNCH IT. This used to register the model with `endpoint: 'local'` —
+            // not a server URL — and a hardcoded `contextLimit: 8192`, without ever starting
+            // the engine. Two failures followed: chat had no server to talk to, and the app
+            // believed the window was 8K while buildSystemPrompt alone spends ~8–13k tokens,
+            // so every single message overflowed before the user had typed anything.
+            //
+            // ModelStorePanel's own comment states the invariant this violated: "the stored
+            // contextLimit must match what was actually launched, otherwise the app would
+            // silently overflow the server's window."
+            const dir = await invoke<string>('get_models_dir');
+            const endpoint = await invoke<string>('start_local_model', {
+              modelPath: `${dir}/${first.filename}`,
+              port: 8080,
+              mmprojPath: null,
+            });
+
             const newModel = {
               id: `m-${Date.now()}`,
               name: first.filename.replace('.gguf', ''),
               provider: 'native',
-              modelId: first.filename,
-              endpoint: 'local',
+              modelId: first.filename.replace('.gguf', ''),
+              endpoint,
               apiKey: '',
-              contextLimit: 8192,
+              // No catalog entry here, so no fit-derived context — the engine launches at its
+              // 32K default and reports its own OOM if the model is too big for this Mac.
+              // Mirrors ModelStorePanel's import path exactly.
+              contextLimit: 32768,
               canImage: false,
               isLocal: true,
             };

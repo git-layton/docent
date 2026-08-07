@@ -14,12 +14,18 @@ import {
 
 const NOW = 1_800_000_000_000
 
+/**
+ * Defaults to ON-TOPIC ('prompt injection' is the plan used throughout), so each test isolates
+ * the condition it is actually about. The off-topic case gets its own test rather than
+ * silently weakening every other one.
+ */
 const progress = (over: Partial<ResearchProgress> = {}): ResearchProgress => ({
   sourcesRead: 0,
   domains: [],
   groundedBlocks: 0,
   contestedFound: 0,
   asked: [],
+  topicTermsSeen: ['prompt', 'injection'],
   startedAt: NOW,
   now: NOW,
   ...over,
@@ -185,6 +191,43 @@ describe('shouldStop — ready is measured, not counted', () => {
   it('always terminates — every path either stops or has angles left', () => {
     const d = shouldStop(plan, progress({ sourcesRead: 1, asked: plan.questions, domains: ['a.com'] }))
     expect(d.stop).toBe(true)
+  })
+
+  it('is NOT ready when the sources are not actually ABOUT the topic', () => {
+    // Caught by a live run, not by reasoning: researching an invented topic returned six real,
+    // diverse, quotable pages about quantum computing and the loop declared the knowledge base
+    // READY. Valid links, plausible relevance, no answer — the measured deep-research failure.
+    const d = shouldStop(plan, progress({
+      sourcesRead: 8,
+      domains: spread(8),
+      groundedBlocks: 20,
+      asked: ['a'],
+      topicTermsSeen: [],           // nothing read mentioned the topic's own words
+    }))
+    expect(d.reason).not.toBe('ready')
+  })
+
+  it('names the words nobody wrote about when it gives up off-topic', () => {
+    const d = shouldStop(plan, progress({
+      sourcesRead: 8,
+      domains: spread(8),
+      groundedBlocks: 20,
+      asked: plan.questions,
+      topicTermsSeen: [],
+    }))
+    expect(d.reason).toBe('exhausted')
+    expect(d.detail).toContain('almost none of them are actually about')
+    expect(d.detail).toContain('nothing mentioned')
+    expect(d.detail).toMatch(/prompt|injection/)
+  })
+
+  it('reports a stop even when every angle found NOTHING', () => {
+    // An earlier version required sourcesRead > 0 here, which left a run that found nothing
+    // ending while still claiming to be in progress. Finding nothing is a real outcome.
+    const d = shouldStop(plan, progress({ sourcesRead: 0, asked: plan.questions }))
+    expect(d.stop).toBe(true)
+    expect(d.reason).toBe('exhausted')
+    expect(d.detail).toContain('nothing usable')
   })
 })
 
