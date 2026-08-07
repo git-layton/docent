@@ -3842,6 +3842,55 @@ fn cancel_download(filename: String, dl_state: tauri::State<'_, DownloadState>) 
         .insert(filename, true);
 }
 
+
+/// Build llama-server's argument vector.
+///
+/// Extracted so it can be TESTED AGAINST THE REAL BINARY. This vector shipped broken for a
+/// week: llama.cpp b9821 turned `-fa` from a bare boolean into `-fa [on|off|auto]`, the
+/// launcher still passed it bare, the parser swallowed `--host` as its value, and the engine
+/// exited before opening a model — while the UI blamed the model's size. No unit test could
+/// have caught that, because the contract that changed lives in the binary, not in this code.
+/// `llama_server_args_match_the_bundled_binary` now checks this vector against the actual
+/// `--help` output.
+pub(crate) fn build_llama_server_args(
+    model_path: &str,
+    port: u16,
+    ctx_tokens: u32,
+    kv8bit: bool,
+    mmproj_path: Option<&str>,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-m".into(),
+        model_path.to_string(),
+        "--port".into(),
+        port.to_string(),
+        "-c".into(),
+        ctx_tokens.to_string(),
+        "--threads".into(),
+        "8".into(), // M-series performance cores
+        "-ngl".into(),
+        "99".into(), // Full Metal GPU offload
+        // Flash Attention — THE VALUE IS MANDATORY since b9821. Never pass `-fa` alone.
+        "-fa".into(),
+        "on".into(),
+        "--host".into(),
+        "127.0.0.1".into(),
+    ];
+    if kv8bit {
+        args.push("-ctk".into());
+        args.push("q8_0".into());
+        args.push("-ctv".into());
+        args.push("q8_0".into());
+    }
+    // Multimodal: load the CLIP projector so the model can see images (llama.cpp libmtmd / MTMD).
+    // Only passed when present, so text-only models are unaffected.
+    if let Some(mmproj) = mmproj_path {
+        args.push("--mmproj".into());
+        args.push(mmproj.to_string());
+    }
+    args
+}
+
 #[tauri::command]
 async fn start_local_model(
     model_path: String,
@@ -3892,50 +3941,14 @@ async fn start_local_model(
         .to_string(),
     );
 
-    let mut server_args: Vec<String> = vec![
-        "-m".into(),
-        model_path,
-        "--port".into(),
-        port.to_string(),
-        "-c".into(),
-        ctx_tokens.to_string(),
-        "--threads".into(),
-        "8".into(), // M-series performance cores
-        "-ngl".into(),
-        "99".into(), // Full Metal GPU offload
-        // Flash Attention. The VALUE IS MANDATORY: llama.cpp b9821 changed this from a bare
-        // boolean flag to `-fa [on|off|auto]`. Passing bare `-fa` makes the parser swallow the
-        // NEXT argument as its value — it consumed `--host`, rejected it, and the engine exited 1
-        // before ever touching the model. The user then saw "the model may be too large for this
-        // Mac's memory" on a 64 GB machine with 53 GB free on Metal. Never pass `-fa` alone.
-        "-fa".into(),
-        "on".into(),
-        "--host".into(),
-        "127.0.0.1".into(),
-    ];
-    if kv8bit.unwrap_or(false) {
-        server_args.push("-ctk".into());
-        server_args.push("q8_0".into());
-        server_args.push("-ctv".into());
-        server_args.push("q8_0".into());
-    }
-    // Multimodal: load the CLIP projector so the model can see images (llama.cpp libmtmd / MTMD).
-    // Only passed when present, so text-only models are unaffected.
-    if let Some(mmproj) = mmproj_path.filter(|p| !p.is_empty()) {
-        server_args.push("--mmproj".into());
-        server_args.push(mmproj);
-    }
+    let server_args = build_llama_server_args(
+        &model_path,
+        port,
+        ctx_tokens,
+        kv8bit.unwrap_or(false),
+        mmproj_path.as_deref().filter(|p| !p.is_empty()),
+    );
 
-    // Capture stderr so a startup failure reports what ACTUALLY went wrong.
-    //
-    // This existed as a guess before: any non-zero exit was reported as "the model may be too
-    // large for this Mac's memory". That message sent the user hunting for a memory problem on a
-    // 64 GB machine when the real cause was an argument the engine rejected in microseconds. A
-    // diagnostic that invents a cause is worse than one that says nothing.
-    //
-    // The pipe is drained on a thread rather than read at the end: llama-server logs continuously,
-    // and an undrained pipe fills its buffer and deadlocks the child. The buffer is capped, keeping
-    // the tail, because the last lines are the ones that explain an exit.
     let mut child = std::process::Command::new(&sidecar_path)
         .args(&server_args)
         .stderr(std::process::Stdio::piped())
@@ -5809,6 +5822,142 @@ mod tests {
     // every registered command (incl. anything newly built) is callable by the local UI/agents
     // without hand-editing the ACL. This test fails loudly if that sync ever drifts — e.g. a
     // command got registered but the generated allow-list wasn't refreshed.
+
+    /// Validate the launch arguments against the REAL bundled llama-server.
+    ///
+    /// This is the test that would have caught the week-long outage. `-fa` became
+    /// `-fa [on|off|auto]` in llama.cpp b9821; the launcher kept passing it bare, the parser
+    /// consumed `--host` as its value, and every local model failed to load while the UI
+    /// reported "the model may be too large for this Mac's memory".
+    ///
+    /// No pure unit test could have found that: the contract that changed lives in the binary.
+    /// So this parses `llama-server --help` — instant, no model loaded, no server started — and
+    /// asserts every flag we pass that REQUIRES a value actually has one, and that no flag we
+    /// pass is unknown to the binary.
+    ///
+    /// Skips (rather than fails) when the sidecar isn't present, so a checkout without a built
+    /// bundle still runs the suite.
+    #[test]
+    fn llama_server_args_match_the_bundled_binary() {
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+
+        let candidates = [
+            PathBuf::from("/Applications/Docent.app/Contents/MacOS/llama-server"),
+            PathBuf::from("binaries/llama-server"),
+            PathBuf::from("target/release/llama-server"),
+        ];
+        let Some(bin) = candidates.into_iter().find(|p| p.exists()) else {
+            eprintln!("llama-server not found — skipping binary contract check");
+            return;
+        };
+
+        let out = match std::process::Command::new(&bin).arg("--help").output() {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("could not run llama-server --help ({e}) — skipping");
+                return;
+            }
+        };
+        let help = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        if help.trim().is_empty() {
+            eprintln!("llama-server --help produced nothing — skipping");
+            return;
+        }
+
+        // Map every documented flag to whether it takes a value. A help line looks like:
+        //   -fa,   --flash-attn [on|off|auto]   set Flash Attention use
+        //   -c,    --ctx-size N                 size of the prompt context
+        //   --version                           show version
+        // A token after the flag names that is not itself a flag means a value is expected.
+        let mut takes_value: HashMap<String, bool> = HashMap::new();
+        for line in help.lines() {
+            let t = line.trim_start();
+            if !t.starts_with('-') {
+                continue;
+            }
+            // Flag NAMES are themselves separated by runs of spaces ("-t,    --threads N"),
+            // so the cluster cannot be split off by whitespace width. Walk tokens instead:
+            // leading `-` tokens are names, and a value is expected only when the first
+            // non-flag token is a PLACEHOLDER — uppercase (N, TYPE, FNAME) or bracketed
+            // ([on|off|auto]). Descriptions start in lowercase, which is what distinguishes
+            // "--threads N  number of CPU threads" from "--version  show version".
+            let mut names: Vec<String> = Vec::new();
+            let mut expects = false;
+            for tok in t.split_whitespace() {
+                let tok = tok.trim_end_matches(',');
+                if tok.starts_with('-') && names.len() == names.len() && !expects {
+                    if tok.len() > 1 {
+                        names.push(tok.to_string());
+                    }
+                    continue;
+                }
+                if names.is_empty() {
+                    break;
+                }
+                let placeholder = tok.starts_with('[')
+                    || tok.starts_with('{')
+                    || (tok.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                        && tok.chars().any(|c| c.is_ascii_uppercase()));
+                expects = placeholder;
+                break;
+            }
+            for n in names {
+                takes_value.entry(n).or_insert(expects);
+            }
+        }
+        assert!(
+            takes_value.len() > 20,
+            "parsed too few flags from --help ({}) — parser is wrong, not the args",
+            takes_value.len()
+        );
+
+        let args = build_llama_server_args("/tmp/model.gguf", 8080, 32768, true, Some("/tmp/mm.gguf"));
+
+        let mut i = 0usize;
+        while i < args.len() {
+            let a = &args[i];
+            if !a.starts_with('-') {
+                i += 1;
+                continue;
+            }
+            let expects = match takes_value.get(a.as_str()) {
+                Some(v) => *v,
+                None => panic!(
+                    "we pass `{a}`, which the bundled llama-server does not document. \
+                     Flag renamed or removed upstream."
+                ),
+            };
+            if expects {
+                let next = args.get(i + 1);
+                assert!(
+                    next.is_some() && !next.unwrap().starts_with('-'),
+                    "`{a}` requires a value but the next argument is {:?}. This is exactly the \
+                     `-fa` outage: the parser consumes the following FLAG as the value and the \
+                     engine exits before opening the model.",
+                    next
+                );
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn kv8bit_and_mmproj_are_opt_in() {
+        let plain = build_llama_server_args("/m.gguf", 8080, 32768, false, None);
+        assert!(!plain.iter().any(|a| a == "-ctk"), "kv8bit must be opt-in");
+        assert!(!plain.iter().any(|a| a == "--mmproj"), "projector must be opt-in");
+
+        let full = build_llama_server_args("/m.gguf", 8080, 32768, true, Some("/mm.gguf"));
+        assert!(full.windows(2).any(|w| w[0] == "-ctk" && w[1] == "q8_0"));
+        assert!(full.windows(2).any(|w| w[0] == "--mmproj" && w[1] == "/mm.gguf"));
+    }
     #[test]
     fn allow_app_local_covers_every_registered_command() {
         // Commands registered in the single generate_handler![ ... ] block.
