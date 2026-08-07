@@ -347,7 +347,7 @@ export const getSystemPromptBreakdown = (params: {
   return { systemChars, pinsChars, docsChars, browserChars, total: systemChars + pinsChars + docsChars + browserChars };
 };
 
-export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
+export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEvents, canvasContent, contextLimit, mode, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   const _userName = userName || appSettings?.userName || '';
   const driveBlock = (agent.driveEnabled !== false && agent.drive) ? `\n\n[CORE DRIVE]\n${agent.drive}` : '';
   const now = new Date();
@@ -369,7 +369,32 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
   if (activeTools.length > 0) prompt += `[ACTIVE TOOLS]\n${activeTools.join(', ')}\n\n`;
 
   if (canvasContent?.content) {
-    prompt += `[OPEN ARTIFACT: ${canvasContent.title}]\n\`\`\`\n${canvasContent.content}\n\`\`\`\nIf asked to modify it, output the ENTIRE updated artifact in a SINGLE codeblock.\n\n`;
+    // The open artifact used to go in WHOLE, every turn, with no cap. That is the single
+    // biggest source of "exceeds the context limit": a long generated app — or, since notes
+    // began opening in the canvas, a long Apple Note — is re-sent on every message and can
+    // blow a 32K window on the system prompt alone before the user has typed anything.
+    //
+    // Capped at a quarter of the model's window so the artifact can never crowd out the
+    // conversation it is supposed to support.
+    const artifactBudget = Math.max(4000, Math.floor(charBudget(contextLimit) * 0.25));
+    const body = String(canvasContent.content);
+
+    if (body.length <= artifactBudget) {
+      prompt += `[OPEN ARTIFACT: ${canvasContent.title}]\n\`\`\`\n${body}\n\`\`\`\nIf asked to modify it, output the ENTIRE updated artifact in a SINGLE codeblock.\n\n`;
+    } else {
+      // DATA-LOSS GUARD. A truncated view must never be paired with "output the ENTIRE updated
+      // artifact" — the model would faithfully emit the shortened version, and accepting that
+      // proposal would silently delete everything it never saw. When the artifact doesn't fit,
+      // whole-file rewrites are forbidden outright.
+      const head = body.slice(0, Math.floor(artifactBudget * 0.6));
+      const tail = body.slice(-Math.floor(artifactBudget * 0.2));
+      const hidden = body.length - head.length - tail.length;
+      prompt += `[OPEN ARTIFACT: ${canvasContent.title} — TRUNCATED, ${hidden.toLocaleString()} characters hidden]\n` +
+        `\`\`\`\n${head}\n\n…[${hidden.toLocaleString()} characters not shown]…\n\n${tail}\n\`\`\`\n` +
+        `You are seeing only PART of this artifact. Do NOT output a full replacement — you would ` +
+        `delete the hidden portion. Describe the change you would make, or ask the user to narrow ` +
+        `the scope to a section you can see.\n\n`;
+    }
   }
 
   const pending = tasks.filter((t: any) => !t.completed);
@@ -569,7 +594,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     ? await runIntegrationTools(agent, lastUserMessage, integrations).catch(() => '')
     : '';
 
-  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile })
+  const systemPrompt = buildSystemPrompt({ agent, profile, userName, tasks, recurringEvents, canvasContent, contextLimit, mode, isDeepThinking, agentPinnedMessages, appSettings, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile })
     + (integrationContext ? `\n\n${integrationContext}` : '');
   const textDocs = (attachedDocs ?? []).filter((d: any) => !d.isImage);
   const imageDocs = (attachedDocs ?? []).filter((d: any) => d.isImage);
