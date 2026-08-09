@@ -767,6 +767,73 @@ fn ocr_png(bytes: &[u8]) -> Result<String, String> {
     }
     Ok(out)
 }
+/// Recognized text WITH its position — the same Vision pass, keeping the rectangle it already
+/// computes instead of throwing it away.
+///
+/// `ocr_png` above returns only strings, which starves everything downstream that needs to know
+/// WHERE something is: `resolveSemanticTarget` (desktopVision.ts) can only click blocks that have
+/// real bounds, and the annotation layer cannot draw a highlight around a thing it cannot locate.
+/// Vision hands the bounding box back for free on every observation; dropping it was pure loss.
+///
+/// Coordinates are Vision's normalized space — origin BOTTOM-left, 0..1 on both axes. Callers
+/// convert to screen points; keeping them normalized here means the result stays correct
+/// regardless of the capture's pixel size or the display's scale factor.
+#[cfg(target_os = "macos")]
+fn ocr_png_boxed(bytes: &[u8]) -> Result<Vec<serde_json::Value>, String> {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::AllocAnyThread;
+    use objc2_foundation::{NSArray, NSData, NSDictionary};
+    use objc2_vision::{
+        VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
+        VNRequestTextRecognitionLevel,
+    };
+
+    let data = NSData::with_bytes(bytes);
+    let options: Retained<NSDictionary<VNImageOption, AnyObject>> = NSDictionary::new();
+    let handler = VNImageRequestHandler::initWithData_options(
+        VNImageRequestHandler::alloc(),
+        &data,
+        &options,
+    );
+
+    let request = VNRecognizeTextRequest::new();
+    request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
+
+    let request_ref: &VNRequest = &request;
+    let requests = NSArray::from_slice(&[request_ref]);
+    handler
+        .performRequests_error(&requests)
+        .map_err(|e| e.localizedDescription().to_string())?;
+
+    let mut blocks = Vec::new();
+    if let Some(results) = request.results() {
+        for i in 0..results.count() {
+            let obs = results.objectAtIndex(i);
+            let candidates = obs.topCandidates(1);
+            if candidates.count() == 0 {
+                continue;
+            }
+            let top = candidates.objectAtIndex(0);
+            let text = top.string().to_string();
+            if text.trim().is_empty() {
+                continue;
+            }
+            let bb = unsafe { obs.boundingBox() };
+            blocks.push(serde_json::json!({
+                "text": text,
+                "confidence": top.confidence(),
+                // Normalized, bottom-left origin — see the note above.
+                "x": bb.origin.x,
+                "y": bb.origin.y,
+                "width": bb.size.width,
+                "height": bb.size.height,
+            }));
+        }
+    }
+    Ok(blocks)
+}
+
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
@@ -774,6 +841,77 @@ pub async fn capture_screen_text(
     _window: tauri::WebviewWindow,
 ) -> Result<serde_json::Value, String> {
     Err("capture_screen_text is only available on macOS".into())
+}
+
+
+/// Capture ONE window and return its recognized text WITH positions, ready to draw highlights over.
+///
+/// This is the missing half of "point at what you mean". `capture_window_text` answers WHAT is on
+/// screen; this answers WHERE, which is what an annotation layer and `resolveSemanticTarget` both
+/// need. Boxes come back in Vision's normalized bottom-left space along with the captured image's
+/// pixel size, so the caller can map to screen points without guessing the scale factor.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn capture_window_boxes(
+    window_id: u32,
+    window: tauri::WebviewWindow,
+) -> Result<serde_json::Value, String> {
+    if !matches!(window.label(), "main" | "spotlight") {
+        return Err("screen capture not permitted from this window".into());
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("docent-winbox-{stamp}.png"));
+
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x").arg("-t").arg("png").arg("-l").arg(window_id.to_string())
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("could not run screencapture: {e}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return Err("screencapture failed".into());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+    if bytes.is_empty() {
+        return Err("window capture was empty".into());
+    }
+
+    // Pixel dimensions of what we actually captured — the caller needs these to turn normalized
+    // boxes into screen points, and they are NOT the window's logical size on a retina display.
+    let (w, h) = image_pixel_size(&bytes);
+
+    let blocks = tauri::async_runtime::spawn_blocking(move || ocr_png_boxed(&bytes))
+        .await
+        .map_err(|e| format!("ocr task failed: {e}"))??;
+
+    Ok(serde_json::json!({ "blocks": blocks, "imageWidth": w, "imageHeight": h }))
+}
+
+/// PNG pixel dimensions, read from the IHDR header — no decode, no AppKit.
+#[cfg(target_os = "macos")]
+fn image_pixel_size(png: &[u8]) -> (u32, u32) {
+    // 8-byte signature, then a 4-byte length + "IHDR", then width/height as big-endian u32s.
+    if png.len() < 24 || &png[12..16] != b"IHDR" {
+        return (0, 0);
+    }
+    let w = u32::from_be_bytes([png[16], png[17], png[18], png[19]]);
+    let h = u32::from_be_bytes([png[20], png[21], png[22], png[23]]);
+    (w, h)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn capture_window_boxes(
+    _window_id: u32,
+    _window: tauri::WebviewWindow,
+) -> Result<serde_json::Value, String> {
+    Err("capture_window_boxes is only available on macOS".into())
 }
 
 // ─── Screen Recording permission flow ────────────────────────────────────────────────────────────

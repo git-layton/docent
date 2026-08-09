@@ -36,9 +36,20 @@ export interface Routine {
    *  (the file watcher indexes knowledge_root/memory into semantic search). Inbox is the delivery
    *  surface; memory is the durable-knowledge surface — opt-in so we don't bloat memory by default. */
   saveToMemory?: boolean;
-  /** For mailFlag: substrings matched case-insensitively against sender and subject. */
+  /** Substrings matched case-insensitively against sender and subject.
+   *  Used by mailFlag to decide what to flag, and by digest to decide what to GATHER — an
+   *  unfiltered digest is a briefing over everything; a filtered one follows one thing. */
   fromContains?: string;
   subjectContains?: string;
+  /**
+   * Where a saved run lands.
+   *   'latest'  — one file per routine, each run supersedes the last. Right for a daily
+   *               briefing: yesterday's is noise once today's exists.
+   *   'archive' — one file per run under the routine's folder. Right for a SOURCE you are
+   *               following (a newsletter), where issue 47 must not erase issue 46.
+   * Defaults to 'latest', which is the behaviour that shipped.
+   */
+  filing?: 'latest' | 'archive';
   ownerId: string;          // inbox owner the results are filed under (an agent id)
   ownerLabel?: string;
   enabled: boolean;
@@ -180,6 +191,82 @@ export function matchesWatch(r: Routine, h: { fromName: string; fromEmail: strin
   return fromHit && subjHit;
 }
 
+
+/** PURE — does this routine narrow its mail to something specific? */
+export function hasMailFilter(r: Pick<Routine, 'fromContains' | 'subjectContains'>): boolean {
+  return !!((r.fromContains ?? '').trim() || (r.subjectContains ?? '').trim());
+}
+
+/**
+ * PURE — which mail a DIGEST should gather.
+ *
+ * Deliberately the opposite default to `matchesWatch`: an unconfigured WATCHER must flag
+ * nothing (flagging the whole inbox would be destructive), while an unconfigured DIGEST is a
+ * briefing and should see everything. Same fields, opposite empty-case, so they cannot share
+ * a predicate.
+ */
+export function filterMailForDigest<T extends { fromName: string; fromEmail: string; subject: string }>(
+  r: Pick<Routine, 'fromContains' | 'subjectContains'>,
+  headers: readonly T[],
+): T[] {
+  if (!hasMailFilter(r)) return [...(headers ?? [])];
+  const from = (r.fromContains ?? '').trim().toLowerCase();
+  const subj = (r.subjectContains ?? '').trim().toLowerCase();
+  return (headers ?? []).filter(h => {
+    const fromHit = !from || `${h.fromName} ${h.fromEmail}`.toLowerCase().includes(from);
+    const subjHit = !subj || (h.subject ?? '').toLowerCase().includes(subj);
+    return fromHit && subjHit;
+  });
+}
+
+/**
+ * PURE — the ones not seen on a previous run.
+ *
+ * A mailWatch routine polls every few minutes. Without this an archiving routine would write
+ * the same newsletter to a new file on every tick — 96 identical files a day at 15-minute
+ * polling — and a briefing would re-summarise mail it already reported.
+ */
+export function unseenHeaders<T extends { uid: number }>(
+  r: Pick<Routine, 'seenUids'>,
+  headers: readonly T[],
+): T[] {
+  const seen = new Set(r.seenUids ?? []);
+  return (headers ?? []).filter(h => Number.isFinite(h.uid) && !seen.has(h.uid));
+}
+
+/**
+ * PURE — where a saved run is written.
+ *
+ * 'latest' keeps one stable path so each run supersedes the last. 'archive' derives a path from
+ * the run time, so issues accumulate. The timestamp is sortable and filename-safe; the folder is
+ * the routine's slug so an archive stays self-contained and can be deleted as a unit.
+ */
+export function memoryPathFor(r: Pick<Routine, 'name' | 'filing'>, at: Date = new Date()): string {
+  const slug = String(r.name ?? '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'routine-briefing';
+  if (r.filing !== 'archive') return `routines/${slug}.md`;
+  const iso = at.toISOString();               // 2026-08-08T21:04:11.000Z
+  const stamp = `${iso.slice(0, 10)}-${iso.slice(11, 13)}${iso.slice(14, 16)}`;
+  return `routines/${slug}/${stamp}.md`;
+}
+
+/**
+ * PURE — should this run be written to memory at all?
+ *
+ * An archiving routine that found nothing new must write NOTHING; otherwise every empty poll
+ * files an "I found nothing" document and the knowledge base fills with the absence of news.
+ * A 'latest' briefing still writes, because superseding yesterday with "quiet today" is
+ * information.
+ */
+export function shouldWriteMemory(
+  r: Pick<Routine, 'saveToMemory' | 'filing'>,
+  foundSomethingNew: boolean,
+): boolean {
+  if (!r.saveToMemory) return false;
+  if (r.filing === 'archive') return foundSomethingNew;
+  return true;
+}
+
 /** PURE — cap the seen-uid list so it can't grow forever. */
 export function rememberUids(existing: number[] | undefined, add: number[], cap = 500): number[] {
   return [...(existing ?? []), ...add].slice(-cap);
@@ -217,18 +304,58 @@ async function fileToInbox(r: Routine, deps: RoutineDeps, title: string, bodyTex
 
 // ── digest sources — each gathers READ-ONLY data as fenced text sections ────────────────────────
 
-async function gatherMail(deps: RoutineDeps): Promise<string[]> {
+/** How many matched messages a filtered routine will read in full on one run. */
+const MAX_BODIES_PER_RUN = 5;
+/** Per-message body cap — a newsletter is long, and several must still fit a local model. */
+const BODY_CHARS = 6000;
+
+interface MailGather { sections: string[]; capturedUids: number[] }
+
+/**
+ * Gather mail for a digest.
+ *
+ * Two modes, because "brief me on my inbox" and "follow this newsletter" want opposite things:
+ *
+ *  - UNFILTERED (a briefing): subject lines only, exactly as before. Reading 25 bodies to say
+ *    "you have mail from Sam" would be slow and pointless.
+ *  - FILTERED (following a source): the matched messages are read IN FULL. This is the whole
+ *    point of "capture that data" — a subject line is not the newsletter. Only messages not
+ *    seen on a previous run are read, so a watch that polls every few minutes doesn't re-fetch
+ *    the same issue, and the run reports which uids it consumed so the caller can remember them.
+ */
+async function gatherMail(deps: RoutineDeps, r?: Routine): Promise<MailGather> {
   const sections: string[] = [];
+  const capturedUids: number[] = [];
+  const filtered = !!r && hasMailFilter(r);
+
   for (const acct of deps.mailAccounts) {
     const headers = await invoke<MailHeader[]>('mail_fetch_recent', {
-      provider: acct.provider, email: acct.email, limit: 25,
+      provider: acct.provider, email: acct.email, limit: filtered ? 60 : 25,
     }).catch(() => [] as MailHeader[]);
-    if (headers.length) {
+    if (!headers.length) continue;
+
+    if (!filtered) {
       sections.push(`MAIL — ${acct.email}:\n` + headers.map(h =>
         `- ${h.seen ? '' : '[UNREAD] '}${h.fromName || h.fromEmail}: ${h.subject}`).join('\n'));
+      continue;
+    }
+
+    const matches = unseenHeaders(r!, filterMailForDigest(r!, headers)).slice(0, MAX_BODIES_PER_RUN);
+    for (const h of matches) {
+      // A body that fails to fetch costs that message, not the run — the others still land.
+      const body = await invoke<{ text?: string; html?: string }>('mail_fetch_body', {
+        provider: acct.provider, email: acct.email, uid: h.uid,
+      }).catch(() => null);
+      const text = String(body?.text ?? '')
+        || String(body?.html ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+      if (!text.trim()) continue;
+      capturedUids.push(h.uid);
+      sections.push(
+        `MAIL — ${h.fromName || h.fromEmail} — "${h.subject}" (${h.date}):\n${text.slice(0, BODY_CHARS)}`,
+      );
     }
   }
-  return sections;
+  return { sections, capturedUids };
 }
 
 async function gatherCalendar(): Promise<string[]> {
@@ -257,7 +384,8 @@ async function runDigest(r: Routine, deps: RoutineDeps): Promise<RoutineResult> 
   // mailReport is the legacy mail-only preset of the same machinery.
   const src = r.action === 'mailReport' ? { mail: true } : (r.sources ?? { mail: true });
   const sections: string[] = [];
-  if (src.mail) sections.push(...await gatherMail(deps));
+  const mail = src.mail ? await gatherMail(deps, r) : { sections: [], capturedUids: [] as number[] };
+  sections.push(...mail.sections);
   if (src.calendar) sections.push(...await gatherCalendar());
   if (src.notes) sections.push(...await gatherNotes());
   if (!sections.length) { await fileToInbox(r, deps, r.name, 'No new data found in the selected sources.'); return { filedTitle: r.name }; }
@@ -283,15 +411,24 @@ async function runDigest(r: Routine, deps: RoutineDeps): Promise<RoutineResult> 
 
   // Opt-in: persist as referenceable knowledge. A stable slug per routine means each run UPDATES
   // the same memory file (today's briefing supersedes yesterday's) rather than piling up.
-  if (r.saveToMemory) {
-    const slug = r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'routine-briefing';
-    const frontmatter = `---\ntitle: "${r.name.replace(/"/g, "'")}"\nsource: "routine"\ndate: "${new Date().toISOString()}"\n---\n\n`;
+  // Filing is the difference between a briefing and a source. 'latest' supersedes — today's
+  // briefing replaces yesterday's. 'archive' accumulates — issue 47 must not erase issue 46 —
+  // and writes NOTHING when a poll found nothing new, so the library never fills with the
+  // absence of news.
+  if (shouldWriteMemory(r, mail.capturedUids.length > 0)) {
+    const at = new Date();
+    const frontmatter =
+      `---\ntitle: "${r.name.replace(/"/g, "'")}"\nsource: "routine"\ndate: "${at.toISOString()}"\n---\n\n`;
     await writeMemory({
-      path: `routines/${slug}.md`,
+      path: memoryPathFor(r, at),
       content: frontmatter + summary,
       commitMessage: `routine: ${r.name}`,
       agentId: r.ownerId,
     }).catch(e => console.warn(`[routines] memory save failed for ${r.name}:`, e));
+  }
+  // Remember what was consumed so the next poll doesn't re-capture it. Capped by rememberUids.
+  if (mail.capturedUids.length) {
+    r.seenUids = rememberUids(r.seenUids, mail.capturedUids);
   }
   return { filedTitle: r.name };
 }

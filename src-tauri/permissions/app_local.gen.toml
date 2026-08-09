@@ -36,6 +36,7 @@ allow = [
   "capture_screen",
   "capture_screen_text",
   "capture_window",
+  "capture_window_boxes",
   "capture_window_text",
   "check_page_is_private",
   "complete_task",

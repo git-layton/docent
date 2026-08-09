@@ -6,8 +6,8 @@ import {
 import { WysiwygEditor } from './ui/WysiwygEditor';
 import { diffWords, diffLines, htmlToComparableText, diffStats } from '../lib/textDiff';
 import { useUIStore } from '../store/useUIStore';
-import { getNotes } from '../services/connectors';
-import { invalidateNotesCache } from './NotesPanel';
+import { boundIdFor, bindingFor, saveBound } from '../services/canvasBindings';
+import '../services/canvasBindings.builtins';
 
 // SEC-CANVAS: agent-generated preview HTML runs with allow-scripts in a NULL-origin sandbox (so it
 // can't touch app cookies / the Tauri IPC bridge / parent DOM), but it could still beacon the canvas
@@ -61,26 +61,34 @@ export function CanvasPanel({
   // network access so legitimately-interactive generated apps aren't silently broken.
   const [allowPreviewNetwork, setAllowPreviewNetwork] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saving' | 'saved'>('idle');
-  const noteId = canvasContent?.source === 'notes' ? canvasContent?.sourceNoteId : null;
-  const noteContent = canvasContent?.content;
+  // The canvas is ONE editing surface with many bridges — it does not know what a note is.
+  // Which source owns this content, and how it saves, lives in canvasBindings; adding
+  // "edit a calendar event here" is a registration, not another branch in this file.
+  const boundId = boundIdFor(canvasContent);
+  const boundLabel = bindingFor(canvasContent)?.label ?? 'Saved';
+  const editedContent = canvasContent?.content;
 
   React.useEffect(() => {
-    if (!noteId || typeof noteContent !== 'string') return;
+    if (!boundId || typeof editedContent !== 'string') return;
     setSaveStatus('saving');
     const timer = setTimeout(() => {
-      getNotes().updateNote(noteId, noteContent)
-        .then(() => {
-          invalidateNotesCache(noteId, noteContent);
+      void saveBound(canvasContent, editedContent).then(res => {
+        if (res.saved) {
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus('idle'), 2000);
-        })
-        .catch((e) => {
-          console.error('Failed to save note:', e);
+        } else {
+          // saveBound reports rather than throws: this runs in a debounced effect, where an
+          // unhandled rejection would be invisible and the chip would sit on "saving" forever.
+          if (res.error) console.error('[canvas] save failed:', res.error);
           setSaveStatus('idle');
-        });
+        }
+      });
     }, 800);
     return () => clearTimeout(timer);
-  }, [noteId, noteContent]);
+    // canvasContent is intentionally not a dep — it changes identity on every keystroke, and
+    // the id + content pair is what actually determines the save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boundId, editedContent]);
 
   return (
     <div className={`${canvasContent.isStandalone ? 'w-full' : 'w-1/2'} h-full flex flex-col bg-panel z-50 min-w-0 transition-all duration-300 relative overflow-hidden shadow-2xl border-l border-edge`}>
@@ -102,7 +110,7 @@ export function CanvasPanel({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {canvasContent.source === 'notes' ? (
+          {boundId ? (
             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-inset rounded-xl border border-edge text-[10px] font-black uppercase tracking-widest text-ink-2">
               {saveStatus === 'saving' ? (
                 <>
@@ -112,12 +120,12 @@ export function CanvasPanel({
               ) : saveStatus === 'saved' ? (
                 <>
                   <Check className="w-3 h-3 text-success" />
-                  <span className="text-success">Saved to Notes</span>
+                  <span className="text-success">{boundLabel}</span>
                 </>
               ) : (
                 <>
                   <StickyNote className="w-3 h-3 text-accent" />
-                  <span>Note</span>
+                  <span>{boundLabel.replace(/^Saved to /, '')}</span>
                 </>
               )}
             </div>
