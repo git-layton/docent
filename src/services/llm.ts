@@ -568,6 +568,21 @@ export const buildSystemPrompt = ({ agent, profile, userName, tasks, recurringEv
 export const stripThinkingTags = (text: string): string =>
   text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
+
+/**
+ * Base64 payload of an attachment, safely.
+ *
+ * `f.content.split(',')[1]` shipped in three provider branches and failed two ways: an
+ * attachment whose content never loaded threw on `.split` and killed the entire send, and a
+ * BARE base64 string (no `data:` prefix) produced `undefined` — which was then posted to the
+ * API as the image data, silently, with no error anywhere.
+ */
+const base64Payload = (content: unknown): string => {
+  const s = String(content ?? '');
+  const comma = s.indexOf(',');
+  return comma >= 0 ? s.slice(comma + 1) : s;
+};
+
 export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
@@ -669,7 +684,7 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   const formatMessage = (m: any, targetProvider: string) => {
     const textContent = String(m.content ?? '');
-    const imageFiles = (m.attachedFiles || []).filter((f: any) => f.isImage);
+    const imageFiles = (m.attachedFiles || []).filter((f: any) => f.isImage && base64Payload(f?.content));
     // Audio only rides the OpenAI-compatible/local path (our llama-server with a Gemma-4 audio
     // projector). Google/Anthropic image formats don't carry it here, so it's local-only for now.
     const audioFiles = targetProvider === 'google' || targetProvider === 'anthropic'
@@ -684,13 +699,13 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     if (targetProvider === 'google') {
       return {
         role: m.role === 'bot' ? 'model' : 'user',
-        parts: [ { text: textContent }, ...imageFiles.map((f: any) => ({ inlineData: { mimeType: f.type || 'image/png', data: f.content.split(',')[1] } })) ]
+        parts: [ { text: textContent }, ...imageFiles.map((f: any) => ({ inlineData: { mimeType: f.type || 'image/png', data: base64Payload(f.content) } })) ]
       };
     } else if (targetProvider === 'anthropic') {
       return {
         role: m.role === 'bot' ? 'assistant' : 'user',
         content: [
-          ...imageFiles.map((f: any) => ({ type: 'image', source: { type: 'base64', media_type: f.type || 'image/png', data: f.content.split(',')[1] } })),
+          ...imageFiles.map((f: any) => ({ type: 'image', source: { type: 'base64', media_type: f.type || 'image/png', data: base64Payload(f.content) } })),
           { type: 'text', text: textContent }
         ]
       };
