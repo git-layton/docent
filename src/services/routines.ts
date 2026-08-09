@@ -70,6 +70,10 @@ export interface ProposedRoutine {
   fromContains?: string;
   subjectContains?: string;
   trigger: RoutineTrigger;
+  /** Following a source keeps every issue; a briefing supersedes. See Routine.filing. */
+  filing?: 'latest' | 'archive';
+  /** Following a source files into the knowledge base — that is the point of following it. */
+  saveToMemory?: boolean;
   summary: string; // human-readable "what this will do", shown on the proposal card
 }
 
@@ -77,6 +81,13 @@ export interface ProposedRoutine {
 // "summarize this email" never triggers a routine card (miss rather than nag, like the topic nudge).
 const RECURRENCE = /\b(every ?day|everyday|each (morning|day|evening)|daily|each week|weekly|every (morning|evening|week|hour)|from now on|whenever)\b/i;
 const WATCH = /\b(watch|flag|alert me|let me know|notify me|keep an eye)\b/i;
+// Following a SOURCE — "capture the Breaking Points newsletter into my knowledge base".
+// Distinct from WATCH: watching is about being told, following is about KEEPING.
+const FOLLOW = /\b(follow|track|capture|collect|archive|save (?:every|all|each)|keep (?:every|all|each)|ingest)\b/i;
+// Only these justify polling more often than daily. A newsletter does not need 288 checks a
+// day; a poller that runs constantly costs battery, network and inbox connections to learn
+// something that changed once. Daily is the default and urgency is opt-in, by saying so.
+const URGENT = /\b(immediately|right away|as soon as|the moment|instantly|urgent|asap)\b/i;
 
 /** Parse a clock time like "8am", "8:30", "at 7" → {hour, minute}, defaulting to 08:00. */
 function parseTime(text: string): { hour: number; minute: number } {
@@ -106,7 +117,9 @@ function parseWatchTarget(text: string): { fromContains?: string; subjectContain
 export function detectRoutineIntent(text: string): ProposedRoutine | null {
   const t = (text || '').trim();
   if (t.length < 8) return null;
-  const mentionsMail = /\b(mail|email|inbox|messages?)\b/i.test(t);
+  // Plurals matter: `\bemail\b` does NOT match "emails", so "follow the emails from X"
+  // was never recognised as mail at all and no routine was ever proposed for it.
+  const mentionsMail = /\b(e?mails?|inbox|messages?)\b/i.test(t);
   const mentionsCal = /\b(calendar|schedule|events?|meetings?|agenda)\b/i.test(t);
   const mentionsNotes = /\bnotes?\b/i.test(t);
   if (!mentionsMail && !mentionsCal && !mentionsNotes) return null;
@@ -114,6 +127,36 @@ export function detectRoutineIntent(text: string): ProposedRoutine | null {
   // Reject explicit requests to create/add items so they don't get misclassified as a digest routine.
   const isCreateIntent = /\b(add|create|new|book|schedule)\b.*?\b(event|meeting|reminder|task)\b/i.test(t);
   if (isCreateIntent) return null;
+
+  // Follow a source — capture it into the knowledge base, keeping every issue.
+  // Checked BEFORE watch: "capture everything from X" is about keeping, not about being
+  // interrupted, and the watch branch would otherwise claim it and merely flag the mail.
+  if (FOLLOW.test(t) && mentionsMail) {
+    const target = parseWatchTarget(t);
+    if (target.fromContains || target.subjectContains) {
+      const label = target.fromContains ? `from “${target.fromContains}”` : `about “${target.subjectContains}”`;
+      const { hour, minute } = parseTime(t);
+      // DAILY unless the user actually asked for immediacy. Following a newsletter is not a
+      // reason to open an IMAP connection every five minutes.
+      const trigger: RoutineTrigger = URGENT.test(t)
+        ? { kind: 'mailWatch', everyMinutes: 15 }
+        : { kind: 'daily', hour, minute };
+      const cadence = URGENT.test(t)
+        ? 'Check every 15 min'
+        : `Check once a day at ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      return {
+        name: `Follow mail ${label}`,
+        action: 'digest',
+        sources: { mail: true },
+        fromContains: target.fromContains,
+        subjectContains: target.subjectContains,
+        trigger,
+        filing: 'archive',      // every issue kept — never supersede a source
+        saveToMemory: true,     // the whole point: it lands in the knowledge base
+        summary: `${cadence} for mail ${label}, read it in full, and file each one into your knowledge base.`,
+      };
+    }
+  }
 
   // Watch/flag — only makes sense for mail, and only with a target to match on.
   if (WATCH.test(t) && mentionsMail) {

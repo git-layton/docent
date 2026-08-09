@@ -21,6 +21,15 @@ export interface CanvasBinding {
   /** Shown on the save chip: "Saved to Notes". */
   label: string;
   /**
+   * Semantic icon name for the save chip — 'note' | 'calendar' | 'file' | 'mail'.
+   *
+   * A NAME rather than a component: this module must stay free of React so the resolution
+   * rules remain testable without a renderer, and so a binding can be registered from
+   * anywhere. CanvasPanel owns the mapping and falls back to a neutral glyph for anything
+   * it doesn't recognise — an unknown binding shows something sensible rather than nothing.
+   */
+  icon?: 'note' | 'calendar' | 'file' | 'mail';
+  /**
    * The durable id of the underlying item, or null when this content isn't bound to one.
    * Generated content (a draft app, an unsaved doc) legitimately has no id and must not be
    * written anywhere — returning null is how a binding declines.

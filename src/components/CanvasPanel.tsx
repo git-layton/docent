@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Menu, X, FileEdit, ImageIcon, Code, ChevronLeft, ChevronRight, RefreshCw, List,
-  Check, PencilLine, StickyNote,
+  Check, PencilLine, StickyNote, CalendarDays, FileText, Mail,
 } from 'lucide-react';
 import { WysiwygEditor } from './ui/WysiwygEditor';
 import { diffWords, diffLines, htmlToComparableText, diffStats } from '../lib/textDiff';
@@ -65,7 +65,11 @@ export function CanvasPanel({
   // Which source owns this content, and how it saves, lives in canvasBindings; adding
   // "edit a calendar event here" is a registration, not another branch in this file.
   const boundId = boundIdFor(canvasContent);
-  const boundLabel = bindingFor(canvasContent)?.label ?? 'Saved';
+  const binding = bindingFor(canvasContent);
+  const boundLabel = binding?.label ?? 'Saved';
+  // The chip's glyph comes from the binding, not from this file knowing what is open.
+  const BoundIcon = ({ note: StickyNote, calendar: CalendarDays, file: FileText, mail: Mail }
+    [binding?.icon ?? 'file'] ?? FileText);
   const editedContent = canvasContent?.content;
 
   React.useEffect(() => {
@@ -124,7 +128,7 @@ export function CanvasPanel({
                 </>
               ) : (
                 <>
-                  <StickyNote className="w-3 h-3 text-accent" />
+                  <BoundIcon className="w-3 h-3 text-accent" />
                   <span>{boundLabel.replace(/^Saved to /, '')}</span>
                 </>
               )}

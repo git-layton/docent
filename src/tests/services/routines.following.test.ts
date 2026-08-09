@@ -6,6 +6,7 @@ import {
   memoryPathFor,
   shouldWriteMemory,
   matchesWatch,
+  detectRoutineIntent,
   type Routine,
 } from '../../services/routines'
 
@@ -201,5 +202,54 @@ describe('"follow the Breaking Points newsletter into my knowledge base"', () =>
   it('never captures unrelated mail, however busy the inbox', () => {
     const noisy = [...INBOX, hdr(9, 'Newsletter Digest', 'breaking news roundup')]
     expect(filterMailForDigest(r, noisy).map(h => h.uid)).toEqual([1, 3])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Intent detection — and the cadence default
+// ---------------------------------------------------------------------------
+
+describe('detectRoutineIntent — following a source', () => {
+  it('proposes a daily, archiving, memory-filing digest', () => {
+    const p = detectRoutineIntent('capture the newsletter from Breaking Points in my email')!
+    expect(p).toBeTruthy()
+    expect(p.action).toBe('digest')
+    expect(p.fromContains).toMatch(/Breaking Points/i)
+    expect(p.filing).toBe('archive')
+    expect(p.saveToMemory).toBe(true)
+  })
+
+  it('defaults to ONCE A DAY, not a constant poll', () => {
+    // A newsletter does not need 288 IMAP connections a day to learn something that changed
+    // once. Daily is the default; urgency is opt-in.
+    const p = detectRoutineIntent('follow the emails from Breaking Points')!
+    expect(p.trigger.kind).toBe('daily')
+    expect(p.summary).toContain('once a day')
+  })
+
+  it('only polls frequently when the user actually asks for immediacy', () => {
+    const p = detectRoutineIntent('track email from Breaking Points and tell me immediately')!
+    expect(p.trigger.kind).toBe('mailWatch')
+  })
+
+  it('beats the watch branch — capturing is about KEEPING, not being interrupted', () => {
+    // "watch" appears, but the intent is capture; the watch branch would only flag the mail.
+    const p = detectRoutineIntent('watch my email and capture everything from Breaking Points')!
+    expect(p.action).toBe('digest')
+    expect(p.saveToMemory).toBe(true)
+  })
+
+  it('still proposes a plain flag when the user only wants to be told', () => {
+    const p = detectRoutineIntent('flag any email from my landlord')!
+    expect(p.action).toBe('mailFlag')
+  })
+
+  it('needs a target — "capture my email" is not a source to follow', () => {
+    const p = detectRoutineIntent('capture my email')
+    expect(p?.action).not.toBe('digest')
+  })
+
+  it('leaves one-off requests alone', () => {
+    expect(detectRoutineIntent('summarize this email for me')).toBeNull()
   })
 })

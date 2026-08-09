@@ -12,6 +12,7 @@ import { invalidateNotesCache } from '../components/NotesPanel';
 registerCanvasBinding({
   source: 'notes',
   label: 'Saved to Notes',
+  icon: 'note',
   idOf: (c) => (typeof c?.sourceNoteId === 'string' ? c.sourceNoteId : null),
   save: (id, content) => getNotes().updateNote(id, content),
   // The panel serves note bodies from a cache; without this it hands back the pre-edit body
