@@ -4,11 +4,12 @@ import { useSpaceStore } from '../store/useSpaceStore';
 import { writeMemory } from '../lib/ipc';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { emit, listen } from '@tauri-apps/api/event';
-import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound, Bookmark, StickyNote, Sparkles } from 'lucide-react';
+import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound, Bookmark, StickyNote, Sparkles, Telescope } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
 import { generateTextResponse } from '../services/llm';
 import { loadMemorySummary, retrieveRelevantMemory } from '../services/memoryContext';
+import { assessSufficiency, blocksFromSources, shouldOfferToRead, type SufficiencyVerdict } from '../services/sufficiency';
 import { retrievePlaybooks, formatProceduresBlock } from '../services/appliedMemory';
 import { createTopicTracker } from '../services/topicShift';
 import { db } from '../services/database';
@@ -37,7 +38,13 @@ function SpotlightMd({ text }: { text: string }) {
   return <>{parts}</>;
 }
 
-interface Msg { id: string; role: 'user' | 'assistant'; content: string; timestamp: number; }
+interface Msg {
+  id: string; role: 'user' | 'assistant'; content: string; timestamp: number;
+  /** What the library actually supported for this answer — drives the "go read" offer. */
+  sufficiency?: SufficiencyVerdict;
+  /** The question that produced it, so a research run knows what to go and learn. */
+  askedAbout?: string;
+}
 interface Chat { id: string; folderId: string; name: string; updatedAt: number; }
 
 const RECENT_COUNT = 5;
@@ -79,6 +86,8 @@ export default function SpotlightBar() {
   // Confirmed-action results, keyed by `${msgId}:${action}` -> 'busy' | 'done'. On error the key is
   // cleared so the button re-enables for a retry.
   const [actionState, setActionState] = useState<Record<string, string>>({});
+  /** Per-message line showing what a research run is doing, then what it found. */
+  const [readProgress, setReadProgress] = useState<Record<string, string>>({});
   const [input, setInput] = useState('');
   // Tab: keep last known value — cleared on focus, repopulated from Rust pre-fetch
   const [tab, setTab] = useState<{ title: string; url: string; browser?: string; hasText?: boolean } | null>(null);
@@ -574,12 +583,24 @@ export default function SpotlightBar() {
       historyMsgs.push({ id: userMsg.id, role: 'user' as const, content: command });
 
       let accumulated = '';
+      // ── Evidence check ──────────────────────────────────────────────────────────
+      // Retrieval makes a model LESS willing to abstain — handed thin context it grows more
+      // confident, not less. So weigh what the library actually returned BEFORE composing, and
+      // tell the model what it may claim. The verdict rides on the message so the reply can
+      // offer to go and read when the answer wasn't really there.
+      const verdict = assessSufficiency({
+        query: command,
+        passages: blocksFromSources(relevantMem.hits as any[]),
+      });
+      const systemPromptWithEvidence =
+        `${systemPrompt}\n\n[EVIDENCE CHECK — ${verdict.level.toUpperCase()}]\n${verdict.directive}`;
+
       const result = await generateTextResponse({
         messages: historyMsgs,
         modelConfig,
         profile: '',
         attachedDocs: [],
-        agent: { prompt: systemPrompt, tools: {}, trainingDocs: [] },
+        agent: { prompt: systemPromptWithEvidence, tools: {}, trainingDocs: [] },
         memorySummary,
         relevantMemory: relevantMem.text,
         knownProcedures: proceduresBlock,
@@ -604,7 +625,9 @@ export default function SpotlightBar() {
       const finalContent = accumulated || (typeof result === 'string' ? result : '') || '(no response)';
       const finalMsgs = {
         ...updatedMsgs,
-        [chatId]: (updatedMsgs[chatId] ?? []).map(m => m.id === assistantId ? { ...m, content: finalContent } : m),
+        [chatId]: (updatedMsgs[chatId] ?? []).map(m => m.id === assistantId
+          ? { ...m, content: finalContent, sufficiency: verdict, askedAbout: command }
+          : m),
       };
       setMessages(finalMsgs);
       await persistChats(updatedChats, finalMsgs);
@@ -688,6 +711,83 @@ export default function SpotlightBar() {
       setActionState(s => ({ ...s, [key]: 'done' }));
     } catch (e) {
       console.warn('[spotlight] save to notes failed:', e);
+      setActionState(s => { const n = { ...s }; delete n[key]; return n; });
+    }
+  };
+
+
+  /**
+   * "Go read about this" — the moment the whole knowledge layer becomes visible.
+   *
+   * The sufficiency gate already decided the library couldn't support an answer. This turns
+   * that admission into an action: run the research loop over the question, digest what it
+   * finds into the Knowledge Core, and report what the library now holds. Nothing here judges
+   * quality — researchPlan's stop predicate decides when it is genuinely ready, and says so
+   * honestly when it isn't.
+   */
+  const goRead = async (msg: Msg) => {
+    const key = `${msg.id}:read`;
+    if (actionState[key]) return;
+    const topic = (msg.askedAbout || questionFor(msg.id) || '').trim();
+    if (!topic) return;
+
+    const modelConfig = selectedModel ?? models[0] ?? null;
+    if (!modelConfig) {
+      setReadProgress(p => ({ ...p, [msg.id]: 'No model configured — open Docent settings first.' }));
+      return;
+    }
+
+    setActionState(s => ({ ...s, [key]: 'busy' }));
+    setReadProgress(p => ({ ...p, [msg.id]: 'Planning what to look for…' }));
+
+    try {
+      const { runResearch } = await import('../services/researchRun');
+      const { runBrowserAgent } = await import('../services/browserAgent');
+      const { generatePageDigest } = await import('../services/pageDigest');
+      const kc = await invoke<{ path: string }>('init_knowledge_core');
+
+      const out = await runResearch(topic, {
+        search: async (question, signal) => {
+          const res = await runBrowserAgent({
+            task: `Find pages that answer: ${question}`,
+            startUrl: `https://duckduckgo.com/?q=${encodeURIComponent(question)}`,
+            modelConfig,
+            signal,
+            maxSteps: 4,
+          });
+          return (res.sources ?? [])
+            .filter((x: any) => x?.url)
+            .map((x: any) => ({ url: x.url, title: x.title || x.url, text: x.snippet }));
+        },
+        digest: async (source) => {
+          // pageDigest is the SAME path a deliberate save uses — so what a research run files is
+          // indistinguishable from something the user read themselves, and grounds identically.
+          const text = String(source.text ?? '');
+          const r = await generatePageDigest(
+            {
+              url: source.url, title: source.title, cleanText: text,
+              wordCount: text.split(/\s+/).filter(Boolean).length,
+              capturedAt: Date.now(), isPrivate: false,
+            },
+            modelConfig,
+            kc.path,
+          );
+          return {
+            groundedBlocks: r.skipped ? 0 : 1,
+            text,
+            contested: /\b(however|critics?|disputed|controversial|debate)\b/i.test(text),
+          };
+        },
+        onEvent: e => {
+          if (e.phase !== 'digested') setReadProgress(p => ({ ...p, [msg.id]: e.message }));
+        },
+      });
+
+      setReadProgress(p => ({ ...p, [msg.id]: out.report }));
+      setActionState(s => ({ ...s, [key]: 'done' }));
+    } catch (e) {
+      console.warn('[spotlight] research failed:', e);
+      setReadProgress(p => ({ ...p, [msg.id]: `Couldn't finish reading: ${(e as Error)?.message ?? e}` }));
       setActionState(s => { const n = { ...s }; delete n[key]; return n; });
     }
   };
@@ -1078,10 +1178,36 @@ export default function SpotlightBar() {
               </div>
               {/* Confirmed actions — assistant replies only; explicit tap, reliable bridges, reversible */}
               {msg.role !== 'user' && msg.content && !isStreaming && (() => {
-                const memKey = `${msg.id}:mem`, noteKey = `${msg.id}:note`;
-                const mem = actionState[memKey], note = actionState[noteKey];
+                const memKey = `${msg.id}:mem`, noteKey = `${msg.id}:note`, readKey = `${msg.id}:read`;
+                const mem = actionState[memKey], note = actionState[noteKey], read = actionState[readKey];
+                // The library couldn't support this answer. Say so, and offer to fix it — the
+                // whole point of admitting a gap is that something can be done about it.
+                const offerRead = msg.sufficiency && shouldOfferToRead(msg.sufficiency);
+                const progress = readProgress[msg.id];
                 return (
-                  <div className="flex gap-1.5 mt-0.5">
+                  <div className="flex flex-col gap-1 mt-0.5">
+                  {offerRead && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => goRead(msg)}
+                        disabled={!!read}
+                        title={msg.sufficiency?.detail}
+                        className={`flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-full transition-all disabled:cursor-default ${read === 'done' ? 'text-success bg-success-light/10' : 'bg-accent text-on-accent hover:bg-accent-strong'}`}
+                      >
+                        {read === 'done' ? <Check className="w-3 h-3" />
+                          : read === 'busy' ? <RefreshCw className="w-3 h-3 animate-spin" />
+                          : <Telescope className="w-3 h-3" />}
+                        {read === 'done' ? 'Read and filed' : read === 'busy' ? 'Reading…' : 'Go read about this'}
+                      </button>
+                      {!read && (
+                        <span className="text-[10px] text-ink-3 truncate max-w-[220px]">{msg.sufficiency?.detail}</span>
+                      )}
+                    </div>
+                  )}
+                  {progress && (
+                    <div className="text-[10px] text-ink-3 leading-snug pl-0.5">{progress}</div>
+                  )}
+                  <div className="flex gap-1.5">
                     <button
                       onClick={() => saveToMemory(msg)}
                       disabled={!!mem}
@@ -1100,6 +1226,7 @@ export default function SpotlightBar() {
                       {note === 'done' ? <Check className="w-3 h-3" /> : <StickyNote className="w-3 h-3" />}
                       {note === 'done' ? 'Added to Notes' : note === 'busy' ? 'Adding…' : 'Save to Notes'}
                     </button>
+                  </div>
                   </div>
                 );
               })()}
