@@ -2754,7 +2754,20 @@ const handleSendMessage = async () => {
             const res = await invoke<{ text: string; thumb?: string }>('capture_screen_text').catch(() => null);
             unlistenCaptured();
             void win.show();
-            if (res && res.text && res.text.trim().length >= 3) {
+            // An empty read is NOT "nothing on screen" — macOS hands back a desktop-only frame
+            // when Screen Recording isn't effective for THIS binary (not granted, or granted
+            // without a relaunch — replacing the app bundle is enough to do it). Sending anyway
+            // meant the model got no screen context, was told nothing was wrong, and confabulated
+            // an explanation: "I'm blind to the room you're sitting in." The user sees the source
+            // selector saying "seeing • your screen" and a model insisting it cannot see.
+            //
+            // SpotlightBar has always surfaced the permission card here; this copy of the capture
+            // did not. Same failure, same remedy.
+            if (!res || !res.text || res.text.trim().length < 3) {
+              setScreenAccessNeeded(true);
+              return;
+            }
+            if (res.text.trim().length >= 3) {
               extraDocs.push({
                 title: 'Read your screen',
                 url: 'on-device OCR',
