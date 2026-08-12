@@ -660,7 +660,17 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
 
   const contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
   const limit = charBudget(contextLimit);
-  if (contextUsed > limit) throw new Error('Attached documents exceed the context limit of this model.');
+  if (contextUsed > limit) {
+    // Name the ACTUAL culprit. This message blamed attachments for years while the real cause
+    // was usually the prompt itself — an uncapped artifact, or a whole web page riding in the
+    // agent prompt — and it sent the user hunting through files they never attached.
+    const docChars = textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
+    const promptChars = systemPrompt.length;
+    const culprit = docChars > promptChars
+      ? `Attached documents are too large for this model (${Math.round(docChars / 1000)}k of ${Math.round(limit / 1000)}k).`
+      : `The context for this message is too large for this model — ${Math.round(promptChars / 1000)}k of ${Math.round(limit / 1000)}k before your message, and only ${Math.round(docChars / 1000)}k of that is attachments. Close the open artifact or the page being read, or use a model with a bigger window.`;
+    throw new Error(culprit);
+  }
 
   const historyBudget = Math.max(1000, limit - contextUsed);
   const safeMessages = trimHistoryChars(messages, historyBudget);

@@ -7,7 +7,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound, Bookmark, StickyNote, Sparkles, Telescope } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
-import { generateTextResponse } from '../services/llm';
+import { generateTextResponse, charBudget } from '../services/llm';
 import { loadMemorySummary, retrieveRelevantMemory } from '../services/memoryContext';
 import { assessSufficiency, blocksFromSources, shouldOfferToRead, type SufficiencyVerdict } from '../services/sufficiency';
 import { retrievePlaybooks, formatProceduresBlock } from '../services/appliedMemory';
@@ -432,6 +432,20 @@ export default function SpotlightBar() {
         retrievePlaybooks(command, selectedAgent?.id).catch(() => []),
       ] as const);
 
+      // The page text goes into agent.prompt, which buildSystemPrompt deliberately NEVER trims
+      // (it is the agent's own instructions). So the cap has to happen HERE — uncapped, one long
+      // article pushed the system prompt past the window and the guard reported "attached
+      // documents exceed the context limit" on a message with no attachments.
+      //
+      // A quarter of the window, matching the open-artifact share, and never more than the 12k
+      // the screen-OCR path is capped to in Rust — one page should not cost more than a whole
+      // screen read.
+      const _pageModel = selectedModel ?? models[0] ?? null;
+      const PAGE_BUDGET = Math.max(
+        2000,
+        Math.min(12000, Math.floor(charBudget(_pageModel?.contextLimit) * 0.25)),
+      );
+
       // Re-fetch tab with latest info
       let tabContext = '';
       let tabForCard: { title: string; url: string; text: string } | null = null;
@@ -454,7 +468,11 @@ export default function SpotlightBar() {
               `Title: ${tabResult.title}`,
               `URL: ${tabResult.url}`,
               `<<<UNTRUSTED_WEB_CONTENT>>>`,
-              tabResult.text ? tabResult.text : `(Page text not available — content may be protected or require login.)`,
+              tabResult.text
+                ? (tabResult.text.length > PAGE_BUDGET
+                    ? `${tabResult.text.slice(0, PAGE_BUDGET)}\n\n…[page truncated — ${(tabResult.text.length - PAGE_BUDGET).toLocaleString()} more characters not shown]`
+                    : tabResult.text)
+                : `(Page text not available — content may be protected or require login.)`,
               `<<<END_UNTRUSTED_WEB_CONTENT>>>`,
             ].join('\n');
           }

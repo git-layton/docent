@@ -177,13 +177,22 @@ describe('send path — the context guard', () => {
     // not accuse the user of something they did not do.
     const huge = { title: 'Huge', content: 'x'.repeat(900_000) }
     await expect(send({ canvasContent: huge, attachedDocs: [] })).resolves.toBeDefined()
+
+    // And when the prompt IS genuinely too big with no attachments, the error must say so
+    // rather than sending the user hunting through files they never attached.
+    await expect(send({
+      agent: { name: 'D', prompt: 'x'.repeat(400_000), tools: {}, trainingDocs: [] },
+      attachedDocs: [],
+    })).rejects.toThrow(/context for this message is too large/i)
   })
 
   it('still refuses when the ATTACHMENTS genuinely do not fit', async () => {
     // The guard must keep working — this is a real condition, just not the one that was firing.
+    // Asserts the MEANING, not the exact sentence: it refuses, and it correctly blames the
+    // attachments — which are genuinely the problem in this case.
     await expect(send({
       attachedDocs: [{ name: 'big.txt', content: 'y'.repeat(400_000), isImage: false }],
-    })).rejects.toThrow(/context limit/i)
+    })).rejects.toThrow(/attached documents/i)
   })
 })
 

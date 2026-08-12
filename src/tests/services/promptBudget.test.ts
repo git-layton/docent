@@ -125,3 +125,17 @@ describe('system prompt must never throw — a crash here blocks every message',
     expect(p).not.toContain('UNTRUSTED_WEB_CONTENT')
   })
 })
+
+describe('the guard must name the real cause', () => {
+  const base = { agent: { prompt: 'be useful', tools: {} }, tasks: [], contextLimit: 32_768 }
+
+  it('a page riding in the agent prompt is not "attached documents"', () => {
+    // The shipped message blamed attachments for a message that had none — sending the user to
+    // look through files they never attached while the real cause was the page being read.
+    const p = buildSystemPrompt({
+      ...base,
+      agent: { prompt: `be useful\n<<<PAGE>>>${'x'.repeat(300_000)}`, tools: {} },
+    })
+    expect(p.length).toBeGreaterThan(charBudget(32_768))
+  })
+})
