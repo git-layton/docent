@@ -45,6 +45,7 @@ import { assessSufficiency, blocksFromSources, isRetrievalRoute } from './servic
 import { evaluateDroppedMessages } from './services/contextEvaluator';
 import { computePinProfile } from './services/pinPersonalization';
 import { invoke } from '@tauri-apps/api/core';
+import { ensureLocalModelServing, fetchServingModel, isLocalModel } from './services/localEngine';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { writeMemory, restoreArchivedFile } from './lib/ipc';
 import { listen, emit } from '@tauri-apps/api/event';
@@ -281,6 +282,29 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
 
   // Store action shorthands (imperative, for use in callbacks/effects)
   const showToast = useUIStore.getState().showToast;
+
+  /**
+   * Load the picked local model into the engine, reporting what happened.
+   *
+   * One llama-server serves one model, and every local model shares its endpoint — so picking a
+   * model has to actually swap the engine or the badge lies about who is answering. Silent on the
+   * no-op path (right model already up, or a cloud model) so switching between cloud models stays
+   * quiet.
+   */
+  const switchLocalEngine = useCallback(async (model: any) => {
+    if (!isLocalModel(model)) return;
+    const result = await ensureLocalModelServing(model, {
+      invoke: (cmd, args) => invoke(cmd, args),
+      fetchServing: fetchServingModel,
+    });
+    if (result.switched) {
+      showToast(`Loaded ${model.name}`);
+    } else if (result.reason === 'file-missing') {
+      showToast(`${model.name} isn't installed — open the Model Store to download it.`);
+    } else if (result.reason === 'unavailable') {
+      showToast(`Couldn't load ${model.name} — the previous model is still answering.`);
+    }
+  }, [showToast]);
 
   // After an agent reply, run any forge:action blocks it emitted, and strip the raw blocks from the
   // message. `turnIngestedUntrusted` = this turn's context included untrusted-external content (a viewed
@@ -3607,6 +3631,11 @@ if (isSpotlight) {
                         <button key={m.id} onClick={() => {
                           useSettingsStore.getState().setSelectedModelId(m.id);
                           setShowSpotlightModelPicker(false);
+                          // Swapping the engine takes 30-60s for a large model. The send path
+                          // enforces this too, but doing it here means the load starts when the
+                          // user picks rather than when they hit send — and the toast is the only
+                          // signal that anything is happening.
+                          void switchLocalEngine(m);
                         }} className="w-full flex flex-col px-3 py-1.5 text-left hover:bg-wash">
                           <span className="text-xs font-bold text-ink truncate">{m.name}</span>
                           <span className="text-[10px] text-ink-3 truncate">{m.id}</span>

@@ -1,3 +1,4 @@
+import { ensureLocalModelServing, fetchServingModel, isLocalModel } from './localEngine';
 import { renderAmbientContext } from './context/ambient';
 import { trustOfToolSource } from './trust';
 import { renderVoiceBlock } from './voice';
@@ -690,6 +691,24 @@ const base64Payload = (content: unknown): string => {
 export const generateTextResponse = async ({ messages, modelConfig, profile, userName, attachedDocs, agent, tasks, recurringEvents, mode, canvasContent, isDeepThinking, agentPinnedMessages, onChunk, signal, appSettings, integrations, models, runIntegrationTools, browserContext, ambientContext, toolContext, memorySummary, relevantMemory, graphContext, knownProcedures, webRecall, goal, projectContext, voiceProfile }: any) => {
   if (!modelConfig) throw new Error('No model configured.');
   const { provider, endpoint, modelId, contextLimit, apiKey } = modelConfig;
+
+  // Every local model is registered at the same endpoint because one llama-server serves one
+  // model. Selecting a model only wrote `selectedModelId`, so the picker could say "Qwen3 32B"
+  // while the engine served Gemma — verified live, /v1/models reported a different file than the
+  // badge. This is the enforcement point rather than the picker: routines, the spotlight and the
+  // chat all funnel through here, so no path can send to the wrong engine.
+  //
+  // Non-blocking by design for cloud models (returns immediately) and a no-op when the right
+  // model is already up, so the common case costs one /models call.
+  if (isLocalModel(modelConfig)) {
+    await ensureLocalModelServing(modelConfig, {
+      invoke: async (cmd, args) => {
+        const { invoke } = await import('@tauri-apps/api/core');
+        return invoke(cmd, args);
+      },
+      fetchServing: fetchServingModel,
+    });
+  }
 
   const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop()?.content || '';
 
