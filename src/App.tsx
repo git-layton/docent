@@ -16,7 +16,7 @@ import { useUIStore } from './store/useUIStore';
 import { useBrowserStore } from './store/useBrowserStore';
 import { useJobStore } from './store/useJobStore';
 
-import { getContextLimit, charBudget, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, modelSupportsAudio, supportsVision, resolveVisionRoute, describeImage } from './services/llm';
+import { getContextLimit, charBudget, validateModel, buildSystemPrompt, getSystemPromptBreakdown, generateTextResponse, fetchWithRetry, humanizeLlmError, modelSupportsAudio, supportsVision, resolveVisionRoute, describeImage } from './services/llm';
 import { assessContextHealth } from './services/contextHealth';
 import { buildAmbientContext } from './services/context/ambient';
 import { useToolContextStore } from './store/useToolContextStore';
@@ -2666,7 +2666,7 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
     } catch (err: any) {
       // Only clear if a newer send on this chat hasn't already replaced our controller (edit/stop race).
       if (err.name === 'AbortError') { if (abortControllersRef.current.get(chatId) === _controller) setChatGenerating(chatId, false); return; }
-      const errMsg = err?.message || (typeof err === 'string' ? err : null) || 'An unexpected error occurred.';
+      const errMsg = humanizeLlmError(err?.message || (typeof err === 'string' ? err : null));
       useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
         const msgs = prev[chatId] ?? [];
         let streamingIdx = -1;
