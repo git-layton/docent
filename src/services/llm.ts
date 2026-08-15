@@ -249,6 +249,30 @@ export const describeImage = async (
   return text;
 };
 
+/**
+ * Is this a real turn of conversation, or app chrome that happens to live in the message list?
+ *
+ * Failure bubbles are stored as regular bot messages, so they were being replayed to the model as
+ * things it had "said". Watched live: after a run of CONTEXT_LIMIT_EXCEEDED errors, the model's
+ * reasoning read "considering the previous quota errors…" and it began explaining a Gemini quota
+ * problem that never happened — it was reading its own error bubbles and treating them as fact.
+ *
+ * A filter for this existed in SpotlightBar and never matched: it tested `startsWith('⚠️')` while
+ * the bubbles are written as `### ⚠️ Generation Failed`, which starts with `###`. So it silently
+ * did nothing, in one code path, while the main chat had no filter at all. Matching on the marker
+ * ANYWHERE in the first line survives that formatting difference.
+ *
+ * This costs twice: the wasted context of every past error, and a model reasoning from invented
+ * history — which is worse, because it looks like an answer.
+ */
+export const isConversationalMessage = (m: any): boolean => {
+  const content = String(m?.content ?? '');
+  if (!content.trim()) return false;
+  if (content === '_(stopped)_') return false;
+  const firstLine = content.split('\n', 1)[0];
+  return !firstLine.includes('⚠️');
+};
+
 export const trimHistoryChars = (msgs: any[], charLimit: number) => {
   if (!charLimit || charLimit <= 0) return msgs;
   const pinned = msgs.filter(m => m.isPinned);
@@ -796,7 +820,10 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
   }
 
   const historyBudget = Math.max(1000, limit - contextUsed);
-  const safeMessages = trimHistoryChars(messages, historyBudget);
+  // Drop error/stopped bubbles BEFORE trimming: they are app chrome, not conversation, and
+  // feeding them back makes the model reason from failures that never happened. Filtering here
+  // rather than at each call site means chat, spotlight and routines all get it.
+  const safeMessages = trimHistoryChars((messages ?? []).filter(isConversationalMessage), historyBudget);
 
   // A model must not receive raw parts it can't decode (it would error). Images are stripped when
   // the model can't see (and were described into text above); audio is stripped when it can't hear

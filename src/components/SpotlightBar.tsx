@@ -7,7 +7,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { Brain, Globe, X, Send, ChevronDown, Square, Plus, Clock, Pencil, Check, RefreshCw, Cpu, Copy, Volume2, VolumeX, Monitor, ExternalLink, RotateCw, Flame, KeyRound, Bookmark, StickyNote, Sparkles, Telescope } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 type Mode = 'text';
-import { generateTextResponse, charBudget } from '../services/llm';
+import { generateTextResponse, charBudget, isConversationalMessage } from '../services/llm';
 import { loadMemorySummary, retrieveRelevantMemory } from '../services/memoryContext';
 import { assessSufficiency, blocksFromSources, shouldOfferToRead, type SufficiencyVerdict } from '../services/sufficiency';
 import { retrievePlaybooks, formatProceduresBlock } from '../services/appliedMemory';
@@ -595,8 +595,12 @@ export default function SpotlightBar() {
       }
       // Exclude prior error/stopped bubbles from the LLM history — otherwise the model reads its own
       // "⚠️ API key" failures as conversation and parrots them forever (a real dogfood trap).
+      //
+      // This used to test startsWith('⚠️') and therefore matched NOTHING: the bubbles are written
+      // as `### ⚠️ Generation Failed`, so the marker is never at index 0. Shared predicate now, so
+      // the check cannot drift from the format again.
       const historyMsgs = (messages[chatId] ?? [])
-        .filter(m => m.content && !m.content.startsWith('⚠️') && m.content !== '_(stopped)_')
+        .filter(isConversationalMessage)
         .map(m => ({ id: m.id, role: m.role, content: m.content }));
       historyMsgs.push({ id: userMsg.id, role: 'user' as const, content: command });
 
