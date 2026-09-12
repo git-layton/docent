@@ -627,12 +627,99 @@ pub async fn preview_screen_thumb(_window: tauri::WebviewWindow) -> Result<Strin
     Err("preview_screen_thumb is only available on macOS".into())
 }
 
+/// The frontmost on-screen window that ISN'T ours: `(window id, owning app name)`.
+///
+/// "Do you see what I see" was answering about Docent. The overlay hides itself before capture,
+/// but the MAIN window does not — and it is usually near-fullscreen — so a whole-display grab read
+/// our own UI back to us. Verified 2026-08-12: OCR returned Docent's tiles and menu labels, and the
+/// model concluded, correctly for what it was given, "I can see the labels on the furniture, but I
+/// can't see the stuff on top of the tables."
+///
+/// Matched on PID, not on the owner name. The bundle is `com.gitlayton.agentforge`, its display
+/// name is "Agent Forge", and the menu bar says "Docent" — three spellings of us, and a name-based
+/// filter would have to guess which one CoreGraphics reports. `std::process::id()` cannot drift.
+///
+/// Windows are returned front-to-back, so the first match is the one the user is actually looking
+/// at. Layer 0 only — that skips the menu bar, Dock and other chrome, which are not "what I see"
+/// in any useful sense.
+#[cfg(target_os = "macos")]
+fn frontmost_foreign_window() -> Option<(u32, String)> {
+    use core_foundation::array::CFArray;
+    use core_foundation::base::TCFType;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_graphics::window::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+        CGWindowListCopyWindowInfo,
+    };
+
+    let our_pid = std::process::id() as i32;
+    unsafe {
+        let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+        let info = CGWindowListCopyWindowInfo(options, kCGNullWindowID);
+        if info.is_null() {
+            return None;
+        }
+        let array = CFArray::<CFDictionary>::wrap_under_create_rule(info);
+
+        let k_pid = CFString::new("kCGWindowOwnerPID");
+        let k_number = CFString::new("kCGWindowNumber");
+        let k_layer = CFString::new("kCGWindowLayer");
+        let k_owner_name = CFString::new("kCGWindowOwnerName");
+        let k_bounds = CFString::new("kCGWindowBounds");
+
+        let num = |dict: &CFDictionary, key: &CFString| -> Option<i32> {
+            dict.find(key.as_CFTypeRef() as *const _)
+                .and_then(|v| CFNumber::wrap_under_get_rule(*v as _).to_i32())
+        };
+
+        for i in 0..array.len() {
+            let dict = array.get(i).unwrap();
+
+            if num(&dict, &k_layer) != Some(0) {
+                continue;
+            }
+            if num(&dict, &k_pid) == Some(our_pid) {
+                continue; // ours — the whole point
+            }
+
+            // Skip slivers. Menu-bar extras and 1px helper windows sit at layer 0 and would
+            // otherwise win simply by being frontmost, capturing nothing readable.
+            if let Some(b) = dict.find(k_bounds.as_CFTypeRef() as *const _) {
+                let bounds = CFDictionary::<CFString, CFNumber>::wrap_under_get_rule(*b as _);
+                let get = |name: &str| -> f64 {
+                    bounds
+                        .find(&CFString::new(name))
+                        .and_then(|n| n.to_f64())
+                        .unwrap_or(0.0)
+                };
+                if get("Width") < 200.0 || get("Height") < 200.0 {
+                    continue;
+                }
+            }
+
+            let id = num(&dict, &k_number)? as u32;
+            let app = dict
+                .find(k_owner_name.as_CFTypeRef() as *const _)
+                .map(|a| CFString::wrap_under_get_rule(*a as _).to_string())
+                .unwrap_or_default();
+            return Some((id, app));
+        }
+    }
+    None
+}
+
 /// Capture the screen and return its recognized text (on-device OCR).
 ///
 /// Protocol with the TS side: the caller HIDES the overlay window before invoking (so the capture
 /// shows the app underneath, not our own chat). We wait a beat for the hide animation to leave the
 /// screen, grab the frame, then emit `screen-ocr:captured` so the overlay can re-show itself
 /// immediately — the (slower) OCR pass runs after that, off the UI's critical path.
+///
+/// The frame is scoped to the frontmost window that isn't ours, so Docent's own main window can't
+/// end up being the thing it reads back to the user. Falls back to the full display when nothing
+/// else is open — with only Docent on screen, "what I see" genuinely is Docent.
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn capture_screen_text(
@@ -649,16 +736,43 @@ pub async fn capture_screen_text(
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let path = std::env::temp_dir().join(format!("agentforge-ocr-{stamp}.png"));
-    let status = std::process::Command::new("/usr/sbin/screencapture")
-        .arg("-x")
-        .arg("-t")
-        .arg("png")
-        .arg(&path)
-        .status()
-        .map_err(|e| format!("could not run screencapture: {e}"))?;
-    if !status.success() {
-        let _ = std::fs::remove_file(&path);
-        return Err("screencapture failed".into());
+
+    // Window-scoped first, whole-display as the fallback.
+    //
+    // A window id is a racy handle: it is read from the window list and used a moment later, and
+    // the user can close, minimise or space-switch that window in between. Verified against the
+    // binary: `-l <missing id>` prints "could not create image from window", writes no file, and
+    // exits 1. Both signals agree, so this checks BOTH — a non-zero status or a missing/empty file
+    // means fall back rather than fail, because losing the user's whole message over a window that
+    // closed half a second ago would be a worse bug than the one this fixes.
+    let target = frontmost_foreign_window();
+    let mut captured = false;
+    if let Some((id, ref app)) = target {
+        eprintln!("[screen-ocr] reading frontmost window: {app} (id {id})");
+        // `-o` drops the drop-shadow: transparent padding that OCR reads as nothing and that
+        // skews the thumbnail. `-l <id>` IS accepted separated, despite `-h` printing `-l<windowid>`.
+        let ok = std::process::Command::new("/usr/sbin/screencapture")
+            .args(["-x", "-o", "-t", "png", "-l", &id.to_string()])
+            .arg(&path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        captured = ok && std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false);
+        if !captured {
+            eprintln!("[screen-ocr] window {id} vanished mid-capture — falling back to the display");
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    if !captured {
+        let status = std::process::Command::new("/usr/sbin/screencapture")
+            .args(["-x", "-t", "png"])
+            .arg(&path)
+            .status()
+            .map_err(|e| format!("could not run screencapture: {e}"))?;
+        if !status.success() {
+            let _ = std::fs::remove_file(&path);
+            return Err("screencapture failed".into());
+        }
     }
     let bytes = std::fs::read(&path).map_err(|e| format!("could not read capture: {e}"))?;
     // Downscaled thumbnail — the "preview receipt" the overlay shows so the user sees exactly what
@@ -970,4 +1084,68 @@ pub fn request_screen_capture_access() -> bool {
 #[tauri::command]
 pub fn open_screen_recording_settings() -> Result<(), String> {
     Err("screen recording settings are only available on macOS".into())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    /// The screen-read path shells out to `/usr/sbin/screencapture`, so its argument contract
+    /// lives in the BINARY, not in this crate — the same class of contract that broke the local
+    /// engine when llama.cpp changed `-fa` from a bare flag to `-fa <value>` and the launcher
+    /// silently fed it `--host`. Two assumptions are worth pinning:
+    ///
+    ///   1. `-h` prints `-l<windowid>`, concatenated. We pass `-l <id>` SEPARATED. If that form
+    ///      ever stops parsing, the id would be taken as the OUTPUT FILENAME and every screen read
+    ///      would silently capture the whole display again — the exact bug this replaced, back
+    ///      with no error to notice it by. This is the assertion that matters.
+    ///   2. A window that cannot be captured fails cleanly: non-zero exit AND no file. Both are
+    ///      checked at the call site, so a window the user closed mid-capture falls back to the
+    ///      display instead of erroring.
+    ///
+    /// Written after getting (2) backwards: a shell probe read `$?` after a pipe, so it reported
+    /// `sed`'s exit code and "proved" screencapture returns 0 on failure. It does not. Hence the
+    /// direct `.status()` here, with no pipe anywhere near it.
+    ///
+    /// Uses a deliberately impossible window id, so it needs no live window and is safe in CI.
+    #[test]
+    fn screencapture_takes_a_separated_window_id_and_fails_cleanly() {
+        use std::path::PathBuf;
+
+        let bin = PathBuf::from("/usr/sbin/screencapture");
+        if !bin.exists() {
+            eprintln!("skipping: {} not present", bin.display());
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("docent-screencap-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let out = dir.join("out.png");
+
+        let status = std::process::Command::new(&bin)
+            .args(["-x", "-o", "-t", "png", "-l", "999999999"])
+            .arg(&out)
+            .status()
+            .expect("screencapture should be runnable");
+
+        // (1) The id was consumed by -l, NOT treated as a filename. If the separated form ever
+        // stops parsing, a file literally named "999999999" appears next to the real output path.
+        let stray = dir.join("999999999");
+        assert!(
+            !stray.exists(),
+            "screencapture treated the window id as a FILENAME — `-l <id>` no longer parses \
+             separated, so window-scoped capture is silently grabbing the whole display again",
+        );
+
+        // (2) An uncapturable window fails loudly and leaves nothing behind.
+        assert!(
+            !status.success(),
+            "screencapture now SUCCEEDS for an impossible window id — the exit-status check in \
+             capture_screen_text no longer detects a vanished window",
+        );
+        assert!(
+            !out.exists() || std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0) == 0,
+            "screencapture produced a file for an impossible window id",
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
