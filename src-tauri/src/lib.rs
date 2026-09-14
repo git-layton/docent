@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tauri::{Emitter, Manager};
 
+#[cfg(target_os = "macos")]
+mod accessibility;
 mod calendar;
 mod imessage;
 mod input;
@@ -5470,6 +5472,8 @@ pub fn run() {
             permissions::open_privacy_settings,
             permissions::notify_user,
             permissions::accessibility_authorized,
+            #[cfg(target_os = "macos")]
+            accessibility::read_app_tree,
             permissions::accessibility_request_access,
             input::inject_click,
             get_active_tab,

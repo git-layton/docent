@@ -63,6 +63,10 @@ block2 = "0.6"
 # instability the plain-background setting exists to escape. Vibrancy is what makes see-through
 # readable, which is why macOS never ships one without the other.
 window-vibrancy = "0.5"
+# Accessibility (AX) reading — structured content from real apps: roles, values, bounds and
+# hierarchy, instead of OCR's flattened picture of text. Raw FFI bindings, so no dependency
+# conflict with the core-foundation 0.9 already in the tree.
+accessibility-sys = "0.2"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSDate", "NSCalendar", "NSArray", "NSError", "NSObject", "NSEnumerator", "NSData", "NSDictionary"] }
 objc2-event-kit = { version = "0.3", features = ["EKEventStore", "EKEvent", "EKReminder", "EKCalendar", "EKCalendarItem", "EKObject", "EKTypes", "EKRecurrenceRule", "EKRecurrenceEnd", "EKSource", "block2"] }
 # Codey's "LOOK" eyes — capture the live Preview iframe (WKWebView.takeSnapshot) so a vision model can
