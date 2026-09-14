@@ -3459,6 +3459,26 @@ const handleSendMessage = async () => {
   // shown full-width by default and splittable beside another.
   const renderTabContent = (tab: typeof activeOmniTab) => {
     if (!tab || tab.type === 'home' || tab.type === 'space-log') {
+      // Chat First: open into the conversation, not into a grid of apps.
+      //
+      // Until now the chat was never the surface — it was a side panel attached to StartPage,
+      // which meant the thing you came to use was hidden behind a tile grid advertising apps
+      // Docent shouldn't be recreating anyway. This makes the landing tab the chat itself; the
+      // tiles stay reachable, they just stop being the front door.
+      //
+      // Same ChatPanel and the same props the docked rail already uses, so there is one chat in
+      // the app rather than a second implementation that drifts.
+      if (appSettings.chatFirst) {
+        return (
+          <ChatPanel
+            mode="inline"
+            spaceLogProps={spaceLogProps}
+            chatInputBarProps={chatInputBarProps}
+            onSendPrompt={handleSendPrompt}
+            hideHeader={true}
+          />
+        );
+      }
       return <StartPage onAsk={handleSendPrompt} tabId={tab?.id ?? 'default'} />;
     }
     if (tab.type === 'web') {

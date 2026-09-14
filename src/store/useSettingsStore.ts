@@ -81,6 +81,8 @@ interface SettingsStore {
     plainBackground?: boolean;
     /** Spotlight panel shows the macOS frosted material instead of its own surface. */
     frostedPanel?: boolean;
+    /** Open into the conversation instead of the Start grid. The chat becomes the surface. */
+    chatFirst?: boolean;
   };
 
   // Profile settings modal

@@ -1445,6 +1445,16 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
 
                 <div className="flex items-center justify-between gap-4 border-t border-edge pt-5">
                   <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest">Chat First</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Open straight into the conversation instead of the Start grid. Apps stay reachable from the tab bar — they just stop being the front door.</span>
+                  </div>
+                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, chatFirst: !prev.chatFirst }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.chatFirst ? 'bg-primary' : 'bg-inset'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.chatFirst ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 border-t border-edge pt-5">
+                  <div className="flex flex-col">
                     <span className="text-sm font-black uppercase tracking-widest">Frosted Panel</span>
                     <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">The Docent panel (⌘⇧F) becomes see-through to your desktop, on the same frosted material macOS uses for Spotlight. Main window unchanged.</span>
                   </div>
