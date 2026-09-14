@@ -212,7 +212,7 @@ export const DynamicBackground: React.FC = () => {
   // A plain background means PLAIN: no clouds, birds, rain, snow, fog, lightning or stars drifting
   // over it. Leaving the animation on would keep the exact motion the flat backdrop exists to stop.
   const ambient = ambientWeatherEnabled && !plainBackground;
-  const isDark = !plainBackground && (timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
+  const isDark = timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
   const showClouds = ambient && (timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
   const showBirds = ambient && timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');
   const showShootingStars = ambient && timeOfDay === 'night' && condition === 'clear';
@@ -402,7 +402,7 @@ export const DynamicBackground: React.FC = () => {
       ))}
 
       {/* Sun / Moon */}
-      <div
+      {!plainBackground && <div
         className="absolute rounded-full transition-all duration-[3000ms]"
         style={{
           width: '80px', height: '80px',
@@ -418,17 +418,17 @@ export const DynamicBackground: React.FC = () => {
             : condition === 'fog' ? 0.3
             : 1,
         }}
-      />
+      />}
 
-      {/* Minimalist Mountains */}
-      <div className="absolute bottom-0 w-full h-[40vh] min-h-[300px]">
+      {/* Minimalist Mountains — scenery, not chrome. A plain background has no horizon. */}
+      {!plainBackground && <div className="absolute bottom-0 w-full h-[40vh] min-h-[300px]">
         <svg viewBox="0 0 1440 320" preserveAspectRatio="none" className="absolute bottom-0 w-full h-full transition-colors duration-[3000ms]">
           <path fill={isDark ? '#141829' : '#6b92c2'} d="M0,256L60,229.3C120,203,240,149,360,154.7C480,160,600,224,720,234.7C840,245,960,203,1080,186.7C1200,171,1320,181,1380,186.7L1440,192L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z" />
         </svg>
         <svg viewBox="0 0 1440 320" preserveAspectRatio="none" className="absolute bottom-0 w-full h-[80%] transition-colors duration-[3000ms]">
           <path fill={isDark ? '#0b0d18' : '#4d75a6'} d="M0,160L80,181.3C160,203,320,245,480,240C640,235,800,181,960,165.3C1120,149,1280,171,1360,181.3L1440,192L1440,320L1360,320C1280,320,1120,320,960,320C800,320,640,320,480,320C320,320,160,320,80,320L0,320Z" />
         </svg>
-      </div>
+      </div>}
 
       <style>{`
         @keyframes twinkle {
