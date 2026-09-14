@@ -361,3 +361,14 @@ mod live_probe {
         eprintln!("[ax] (• = carries a title or value of its own)");
     }
 }
+
+
+// Non-macOS stub. The command is registered unconditionally — the ACL codegen reads the
+// `generate_handler!` list line by line, so a `#[cfg]` attribute in there drops every command
+// after it from the generated local allow-list. That failure is invisible at compile time and
+// surfaces as a security test failing somewhere unrelated ("local main must reach keychain_get").
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn read_app_tree(_pid: i32) -> Result<serde_json::Value, String> {
+    Err("reading an app's accessibility tree is only available on macOS".into())
+}
