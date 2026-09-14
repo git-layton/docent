@@ -79,6 +79,8 @@ interface SettingsStore {
     ambientWeatherEnabled?: boolean;
     /** Flat, still backdrop instead of the time/weather sky. Glass stays on; only the motion goes. */
     plainBackground?: boolean;
+    /** Spotlight panel shows the macOS frosted material instead of its own surface. */
+    frostedPanel?: boolean;
   };
 
   // Profile settings modal

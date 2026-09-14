@@ -140,7 +140,16 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
   useEffect(() => {
     invoke('set_developer_mode', { on: !!appSettings.developerMode }).catch(() => {});
     document.documentElement.dataset.glass = appSettings.glassEnabled ? 'true' : 'false';
-  }, [appSettings.developerMode, appSettings.glassEnabled]);
+    // Frosted panel: let the window's own macOS material show through instead of painting a
+    // surface over it. Only meaningful in the spotlight window — the main window sits on the
+    // wallpaper, not on a transparent NSVisualEffectView, so going see-through there would show
+    // the desktop raw with nothing blurring it.
+    if (isSpotlight && appSettings.frostedPanel) {
+      document.documentElement.dataset.frosted = 'true';
+    } else {
+      delete document.documentElement.dataset.frosted;
+    }
+  }, [appSettings.developerMode, appSettings.glassEnabled, appSettings.frostedPanel, isSpotlight]);
   // Sync the local Knowledge Base on boot so the vector index catches files added externally.
   useEffect(() => {
     invoke('sync_knowledge_core_index').catch(err => console.warn('Knowledge sync failed:', err));

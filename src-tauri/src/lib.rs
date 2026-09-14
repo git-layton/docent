@@ -5295,6 +5295,34 @@ pub fn run() {
                 .resizable(true)
                 .build()?;
 
+            // Frosted, see-through panel — the macOS material, not a CSS approximation.
+            //
+            // The window has always been `transparent(true)`; what hid the desktop was the app
+            // painting an opaque surface over it. Attaching an NSVisualEffectView means that when
+            // the CSS surface goes transparent, what shows through is a real blurred material
+            // rather than the raw desktop. That distinction is the whole point: plain transparency
+            // puts body text on top of arbitrary moving windows, which is the same unstable
+            // contrast that made the animated sky tiring to read. The material blurs and tints
+            // whatever is behind it, so text keeps a predictable backdrop.
+            //
+            // Applied unconditionally, and harmless when unused: with the frosted look off, the
+            // app's own surface paints over it exactly as before. The toggle lives in CSS, so
+            // switching looks needs no window rebuild and no relaunch.
+            #[cfg(target_os = "macos")]
+            if let Some(spot) = app.get_webview_window("spotlight") {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                // HudWindow is the material Spotlight and Notification Center use — darker and
+                // more opaque than Sidebar, which is what keeps text legible over a bright
+                // desktop. `Active` so it stays frosted when the window is not focused; the
+                // default follows window activation and would flicker to clear mid-read.
+                let _ = apply_vibrancy(
+                    &spot,
+                    NSVisualEffectMaterial::HudWindow,
+                    Some(NSVisualEffectState::Active),
+                    Some(12.0), // matches the panel's corner radius; square corners bleed at the edges
+                );
+            }
+
             // The perception glow rides above everything but must never eat a click.
             // (Not expressible in tauri.conf.json — cursor passthrough is runtime-only API.)
             if let Some(glow) = app.get_webview_window("glow") {

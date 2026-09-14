@@ -411,3 +411,40 @@
   --af-accent: #fb7185; --af-accent-strong: #fda4af;
   --af-accent-soft: #4c0519; --af-accent-soft-ink: #ffe4e6; --af-on-accent: #221217;
 }
+
+/* ─── Frosted panel ────────────────────────────────────────────────────────────
+   The spotlight window is transparent and carries a real macOS NSVisualEffectView
+   (applied in lib.rs). These rules get the app's own surfaces OUT OF THE WAY so that
+   material is what you actually see, instead of being hidden behind an opaque plate.
+
+   Scoped to [data-frosted], which App.tsx sets only in the spotlight window. The main
+   window has no material behind it, so going see-through there would expose the raw
+   desktop with nothing blurring it — arbitrary moving windows under body text, which is
+   the contrast instability Plain Background exists to avoid.
+
+   Ink stays fixed rather than sky-derived: what's behind a vibrancy material is the
+   material itself, not the wallpaper, so the luminance probe doesn't apply here. */
+:root[data-frosted="true"] {
+  --af-base: transparent;
+  --af-panel: transparent;
+  --af-panel-2: rgba(127, 127, 127, 0.10);
+}
+
+:root[data-frosted="true"] body,
+:root[data-frosted="true"] .bg-base,
+:root[data-frosted="true"] .bg-panel {
+  background: transparent !important;
+  /* The material already blurs; a second backdrop-filter stacks and turns it to mud. */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* The wallpaper must not paint over the material — it would defeat the transparency. */
+:root[data-frosted="true"] .fixed.inset-0.z-\[-2\] { display: none !important; }
+
+/* Inputs and raised surfaces keep a faint plate so they read as controls rather than
+   floating text, but thin enough that the frost still reads through them. */
+:root[data-frosted="true"] .bg-inset,
+:root[data-frosted="true"] .bg-panel-2 {
+  background: rgba(127, 127, 127, 0.12) !important;
+}
