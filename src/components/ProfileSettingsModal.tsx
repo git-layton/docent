@@ -1445,6 +1445,16 @@ export function ProfileSettingsModal({ embedded = false, fetchImageModels, testI
 
                 <div className="flex items-center justify-between gap-4 border-t border-edge pt-5">
                   <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-widest">Plain Background</span>
+                    <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">A flat, still backdrop instead of the moving sky. Everything else — glass, accent, layout — stays as it is.</span>
+                  </div>
+                  <button onClick={() => setAppSettings((prev: any) => ({ ...prev, plainBackground: !prev.plainBackground }))} className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${appSettings.plainBackground ? 'bg-primary' : 'bg-inset'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${appSettings.plainBackground ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 border-t border-edge pt-5">
+                  <div className="flex flex-col">
                     <span className="text-sm font-black uppercase tracking-widest">Ambient Weather</span>
                     <span className="text-xs text-ink-3 font-medium mt-0.5 max-w-md">Enable dynamic weather effects (clouds, rain, snow) in the background.</span>
                   </div>

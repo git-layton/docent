@@ -164,7 +164,27 @@ export const DynamicBackground: React.FC = () => {
     },
   };
 
-  const activeSky = stormGradients[condition]?.[timeOfDay] ?? skyGradients[timeOfDay];
+  // Plain background: one flat, still colour instead of the sky.
+  //
+  // The sky is lovely and it is also the thing you read every message against — it moves with the
+  // clock and the weather, so body text never settles at one contrast ratio. That is tiring in a
+  // way a flat backdrop is not, which is the whole reason this switch exists. Glass stays on; only
+  // the moving wallpaper goes.
+  //
+  // Flat COLOURS, not a gradient, because the luminance probe below reads hex stops out of this
+  // string — keeping the same shape means the `data-sky` contract keeps working untouched.
+  const plainBackground = useSettingsStore(s => s.appSettings.plainBackground ?? false);
+  const theme = useSettingsStore(s => s.theme);
+  const prefersDark =
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  const plainIsDark = theme === 'dark' || (theme === 'system' && !!prefersDark);
+  const plainSky = plainIsDark
+    ? 'linear-gradient(to bottom, #17171a 0%, #17171a 100%)'
+    : 'linear-gradient(to bottom, #f4f4f6 0%, #f4f4f6 100%)';
+
+  const activeSky = plainBackground
+    ? plainSky
+    : (stormGradients[condition]?.[timeOfDay] ?? skyGradients[timeOfDay]);
 
   // Publish how bright the wallpaper currently is, so CSS can pick ink from the SKY
   // rather than from the theme. Every surface above the wallpaper is translucent, so
@@ -189,14 +209,17 @@ export const DynamicBackground: React.FC = () => {
     // sunrise falls back below AA.
     document.documentElement.setAttribute('data-sky', luminance > 0.25 ? 'bright' : 'dim');
   }, [activeSky]);
-  const isDark = timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
-  const showClouds = ambientWeatherEnabled && (timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
-  const showBirds = ambientWeatherEnabled && timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');
-  const showShootingStars = ambientWeatherEnabled && timeOfDay === 'night' && condition === 'clear';
-  const showRain = ambientWeatherEnabled && (condition === 'rain' || condition === 'drizzle' || condition === 'thunderstorm');
-  const showSnow = ambientWeatherEnabled && condition === 'snow';
-  const showFog = ambientWeatherEnabled && condition === 'fog';
-  const showLightning = ambientWeatherEnabled && condition === 'thunderstorm';
+  // A plain background means PLAIN: no clouds, birds, rain, snow, fog, lightning or stars drifting
+  // over it. Leaving the animation on would keep the exact motion the flat backdrop exists to stop.
+  const ambient = ambientWeatherEnabled && !plainBackground;
+  const isDark = !plainBackground && (timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
+  const showClouds = ambient && (timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
+  const showBirds = ambient && timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');
+  const showShootingStars = ambient && timeOfDay === 'night' && condition === 'clear';
+  const showRain = ambient && (condition === 'rain' || condition === 'drizzle' || condition === 'thunderstorm');
+  const showSnow = ambient && condition === 'snow';
+  const showFog = ambient && condition === 'fog';
+  const showLightning = ambient && condition === 'thunderstorm';
   // Extra clouds for overcast/rainy conditions
   const cloudDensity = (condition === 'cloudy' || condition === 'rain' || condition === 'thunderstorm') ? 1.6 : 1;
 
@@ -209,7 +232,10 @@ export const DynamicBackground: React.FC = () => {
       <div
         className="absolute inset-0 transition-opacity duration-[3000ms]"
         style={{
-          opacity: timeOfDay === 'night'
+          // Stars twinkle on their own timer, so they are motion even when nothing else is.
+          opacity: plainBackground
+            ? 0
+            : timeOfDay === 'night'
             ? (condition === 'clear' ? 1 : condition === 'cloudy' ? 0.3 : 0.1)
             : timeOfDay === 'sunrise' || timeOfDay === 'sunset' ? 0.4 : 0,
           background: 'transparent'

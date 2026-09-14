@@ -77,6 +77,8 @@ interface SettingsStore {
     weatherLocation?: string;
     // Toggle for ambient weather effects (fog/rain/snow)
     ambientWeatherEnabled?: boolean;
+    /** Flat, still backdrop instead of the time/weather sky. Glass stays on; only the motion goes. */
+    plainBackground?: boolean;
   };
 
   // Profile settings modal
