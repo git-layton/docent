@@ -3469,14 +3469,22 @@ const handleSendMessage = async () => {
       // Same ChatPanel and the same props the docked rail already uses, so there is one chat in
       // the app rather than a second implementation that drifts.
       if (appSettings.chatFirst) {
+        // A readable column, not the whole window. Stretched full-width, a conversation is
+        // mostly dead margin — worse than the grid it replaced, because at least the grid had
+        // something in the space. Capped at a measure that keeps lines scannable; the window can
+        // be as wide as you like and the text stays where your eyes already are.
         return (
-          <ChatPanel
-            mode="inline"
-            spaceLogProps={spaceLogProps}
-            chatInputBarProps={chatInputBarProps}
-            onSendPrompt={handleSendPrompt}
-            hideHeader={true}
-          />
+          <div className="h-full w-full flex justify-center overflow-hidden">
+            <div className="h-full w-full max-w-[720px]">
+              <ChatPanel
+                mode="inline"
+                spaceLogProps={spaceLogProps}
+                chatInputBarProps={chatInputBarProps}
+                onSendPrompt={handleSendPrompt}
+                hideHeader={true}
+              />
+            </div>
+          </div>
         );
       }
       return <StartPage onAsk={handleSendPrompt} tabId={tab?.id ?? 'default'} />;
