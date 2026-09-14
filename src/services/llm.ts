@@ -725,12 +725,27 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
   // Non-blocking by design for cloud models (returns immediately) and a no-op when the right
   // model is already up, so the common case costs one /models call.
   if (isLocalModel(modelConfig)) {
-    await ensureLocalModelServing(modelConfig, {
+    // Swapping engines means loading a multi-gigabyte model: 30-60s for a 32B, during which this
+    // await is silent and the user sees nothing but a spinner. That silence is indistinguishable
+    // from a hang — reported as "seemed to get stuck… forever loading bubbles that don't tell me
+    // if something is working." Announce it instead. A DOM event rather than a store import keeps
+    // this module free of UI dependencies, the way the rest of it is.
+    const announce = (name: string, detail: Record<string, unknown> = {}) => {
+      try {
+        window.dispatchEvent(new CustomEvent(name, { detail: { model: modelConfig.name, ...detail } }));
+      } catch { /* non-DOM host (tests) — never let telemetry break a send */ }
+    };
+    announce('docent:engine-checking');
+    const result = await ensureLocalModelServing(modelConfig, {
       invoke: async (cmd, args) => {
         const { invoke } = await import('@tauri-apps/api/core');
         return invoke(cmd, args);
       },
       fetchServing: fetchServingModel,
+    });
+    announce('docent:engine-ready', {
+      switched: result.switched,
+      reason: 'reason' in result ? result.reason : undefined,
     });
   }
 

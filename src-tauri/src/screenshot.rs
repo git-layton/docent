@@ -1149,3 +1149,158 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod screen_read_quality {
+    /// DIAGNOSTIC, not a pass/fail test — `#[ignore]`d so it never runs in CI.
+    ///
+    /// Runs the REAL screen-read pipeline (frontmost foreign window -> screencapture -> Apple
+    /// Vision OCR -> 12k cap) against whatever is on screen right now, and writes the recognised
+    /// text to $DOCENT_OCR_OUT so it can be diffed against ground truth from another source (a
+    /// page's DOM text, a connector's copy of a note). Answers "is the screen read good enough"
+    /// with measurements instead of impressions.
+    ///
+    ///   DOCENT_OCR_OUT=/tmp/ocr.txt cargo test --lib screen_read_quality -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn dump_screen_read() {
+        let out = match std::env::var("DOCENT_OCR_OUT") {
+            Ok(p) => p,
+            Err(_) => {
+                eprintln!("set DOCENT_OCR_OUT=/path/to/out.txt");
+                return;
+            }
+        };
+
+        // OCR a supplied PNG when given one: that makes the measurement repeatable, with ground
+        // truth I control, instead of depending on whatever happened to be frontmost.
+        if let Ok(src) = std::env::var("DOCENT_OCR_PNG") {
+            let bytes = std::fs::read(&src).expect("png should exist");
+            let text = super::ocr_png(&bytes).expect("ocr should run");
+            eprintln!(
+                "[quality] {} | {} bytes | ocr {} chars ({} words)",
+                src,
+                bytes.len(),
+                text.chars().count(),
+                text.split_whitespace().count(),
+            );
+            std::fs::write(&out, &text).expect("write output");
+            return;
+        }
+
+        let target = super::frontmost_foreign_window();
+        let png = std::env::temp_dir().join("docent-ocr-quality.png");
+        let _ = std::fs::remove_file(&png);
+
+        let mut cmd = std::process::Command::new("/usr/sbin/screencapture");
+        cmd.args(["-x", "-t", "png"]);
+        match &target {
+            Some((id, app)) => {
+                eprintln!("[quality] window: {app} (id {id})");
+                cmd.args(["-o", "-l", &id.to_string()]);
+            }
+            None => eprintln!("[quality] no foreign window — full display"),
+        }
+        let ok = cmd
+            .arg(&png)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(ok, "capture failed");
+
+        let bytes = std::fs::read(&png).expect("capture should exist");
+        let text = super::ocr_png(&bytes).expect("ocr should run");
+        let capped: String = text.chars().take(12000).collect();
+
+        eprintln!(
+            "[quality] png {} bytes | ocr {} chars ({} words) | capped at 12k: {}",
+            bytes.len(),
+            text.chars().count(),
+            text.split_whitespace().count(),
+            text.chars().count() > 12000,
+        );
+        std::fs::write(&out, &capped).expect("write output");
+        let _ = std::fs::remove_file(&png);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod occlusion_probe {
+    /// Does `screencapture -l <id>` read a window that is BEHIND other windows?
+    ///
+    /// This decides whether the overlay still has to hide itself before a screen read. The
+    /// hide/show dance is what makes the sidebar vanish and pop back on every send — if a
+    /// background window captures faithfully, the dance is pure cost and can go.
+    ///
+    /// Captures every foreign layer-0 window, frontmost first, and reports how much text each
+    /// yields. Windows after the first are occluded by definition.
+    ///
+    ///   cargo test --lib occlusion_probe -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn background_windows_still_capture() {
+        use core_foundation::array::CFArray;
+        use core_foundation::base::TCFType;
+        use core_foundation::dictionary::CFDictionary;
+        use core_foundation::number::CFNumber;
+        use core_foundation::string::CFString;
+        use core_graphics::window::{
+            kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+            CGWindowListCopyWindowInfo,
+        };
+
+        let our_pid = std::process::id() as i32;
+        let mut targets: Vec<(u32, String)> = Vec::new();
+        unsafe {
+            let opts = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+            let info = CGWindowListCopyWindowInfo(opts, kCGNullWindowID);
+            assert!(!info.is_null(), "window list unavailable");
+            let array = CFArray::<CFDictionary>::wrap_under_create_rule(info);
+            let k_pid = CFString::new("kCGWindowOwnerPID");
+            let k_num = CFString::new("kCGWindowNumber");
+            let k_layer = CFString::new("kCGWindowLayer");
+            let k_owner = CFString::new("kCGWindowOwnerName");
+            let num = |d: &CFDictionary, k: &CFString| -> Option<i32> {
+                d.find(k.as_CFTypeRef() as *const _)
+                    .and_then(|v| CFNumber::wrap_under_get_rule(*v as _).to_i32())
+            };
+            for i in 0..array.len() {
+                let d = array.get(i).unwrap();
+                if num(&d, &k_layer) != Some(0) || num(&d, &k_pid) == Some(our_pid) {
+                    continue;
+                }
+                let id = match num(&d, &k_num) { Some(v) => v as u32, None => continue };
+                let owner = d
+                    .find(k_owner.as_CFTypeRef() as *const _)
+                    .map(|a| CFString::wrap_under_get_rule(*a as _).to_string())
+                    .unwrap_or_default();
+                targets.push((id, owner));
+            }
+        }
+
+        eprintln!("[occlusion] {} foreign windows, front to back", targets.len());
+        for (rank, (id, app)) in targets.iter().take(6).enumerate() {
+            let png = std::env::temp_dir().join(format!("docent-occl-{id}.png"));
+            let _ = std::fs::remove_file(&png);
+            let ok = std::process::Command::new("/usr/sbin/screencapture")
+                .args(["-x", "-o", "-t", "png", "-l", &id.to_string()])
+                .arg(&png)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            let chars = if ok {
+                std::fs::read(&png)
+                    .ok()
+                    .and_then(|b| super::ocr_png(&b).ok())
+                    .map(|t| t.chars().count())
+                    .unwrap_or(0)
+            } else { 0 };
+            eprintln!(
+                "  #{rank} {:<22} id {id:<7} capture {} | ocr {chars} chars{}",
+                app, if ok { "ok " } else { "FAIL" },
+                if rank > 0 { "   <- occluded" } else { "   <- frontmost" },
+            );
+            let _ = std::fs::remove_file(&png);
+        }
+    }
+}

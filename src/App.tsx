@@ -507,6 +507,33 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
   // Auto-update: one silent check shortly after launch (no-op offline / in dev).
   useEffect(() => { checkForUpdatesOnStartup(); }, []);
 
+  // Say when the local engine is loading. One llama-server serves one model, so picking a
+  // different local model means a multi-gigabyte load before the first token — silent until now,
+  // which is exactly what reads as "it hung". Only announced when a swap ACTUALLY happens; the
+  // common case (right model already up) stays quiet.
+  useEffect(() => {
+    let loading = false;
+    const onChecking = (e: Event) => {
+      const name = (e as CustomEvent).detail?.model;
+      // Delayed: a no-op check resolves in milliseconds and a toast for that is just noise.
+      setTimeout(() => { if (loading) showToast(`Loading ${name ?? 'model'}… this takes a moment`); }, 700);
+      loading = true;
+    };
+    const onReady = (e: Event) => {
+      loading = false;
+      const { model, switched, reason } = (e as CustomEvent).detail ?? {};
+      if (switched) showToast(`${model} is ready`);
+      else if (reason === 'file-missing') showToast(`${model} isn't installed — open the Model Store`);
+      else if (reason === 'unavailable') showToast(`Couldn't load ${model} — the previous model is answering`);
+    };
+    window.addEventListener('docent:engine-checking', onChecking);
+    window.addEventListener('docent:engine-ready', onReady);
+    return () => {
+      window.removeEventListener('docent:engine-checking', onChecking);
+      window.removeEventListener('docent:engine-ready', onReady);
+    };
+  }, [showToast]);
+
   useEffect(() => {
     const boot = async () => {
       try {
@@ -2772,12 +2799,19 @@ const handleSendMessage = async () => {
         try {
           const authorized = await invoke<boolean>('screen_capture_authorized').catch(() => true);
           if (authorized) {
-            const win = getCurrentWindow();
-            const unlistenCaptured = await listen('screen-ocr:captured', () => { void win.show(); });
-            await win.hide();
-            const res = await invoke<{ text: string; thumb?: string }>('capture_screen_text').catch(() => null);
-            unlistenCaptured();
-            void win.show();
+            // No hide/show. The capture is scoped to the frontmost window that ISN'T ours, by
+            // window id, and macOS captures a window from its backing store whether or not it is
+            // covered — measured on 2026-09-13: Music, Chrome, TV and Messages all returned full
+            // text while buried behind other windows. Hiding the panel bought nothing and cost the
+            // thing Alex actually noticed, the sidebar vanishing and popping back on every send.
+            //
+            // Bounded, because this is the step that can stall: while macOS shows the Screen
+            // Recording prompt the capture just sits there, and an unbounded await is a spinner
+            // with no end. Timing out into the permission card says something true instead.
+            const res = await Promise.race([
+              invoke<{ text: string; thumb?: string }>('capture_screen_text'),
+              new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000)),
+            ]).catch(() => null);
             // An empty read is NOT "nothing on screen" — macOS hands back a desktop-only frame
             // when Screen Recording isn't effective for THIS binary (not granted, or granted
             // without a relaunch — replacing the app bundle is enough to do it). Sending anyway

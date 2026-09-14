@@ -511,29 +511,27 @@ export default function SpotlightBar() {
             return;
           } else {
             setScreenAccessNeeded(false);
-            // Hide the overlay so the capture shows the app underneath — NOT our own chat (otherwise
-            // the model reads its own conversation as "screen context" and the target app is
-            // occluded). Rust emits `screen-ocr:captured` the moment the frame is grabbed, so we
-            // re-show immediately while the slower OCR pass continues.
-            const win = getCurrentWindow();
-            // show() WITHOUT setFocus(): focusing would activate the whole Docent app and yank
-            // the user out of whatever they were reading. The overlay floats back in quietly; the
-            // hotkey re-focuses it if they want to type again.
-            const reappear = () => { void win.show(); };
-            const unlistenCaptured = await listen('screen-ocr:captured', reappear);
+            // The overlay used to hide itself here so the capture would show the app underneath
+            // rather than our own chat. It no longer needs to: the capture is scoped to the
+            // frontmost window that ISN'T ours, by window id, and macOS serves a window from its
+            // backing store whether or not it is covered — measured 2026-09-13, background Music,
+            // Chrome, TV and Messages windows all returned their full text while occluded.
+            //
+            // Removing it fixes the thing users actually see: the panel disappearing and popping
+            // back on every send, which reads as a glitch and loses your place in the thread.
+            //
+            // Rust still pulses the perception glow when the frame is grabbed — that stays as the
+            // "I just looked" receipt, and it no longer competes with a window animation.
             let seen = '';
             let thumb: string | undefined;
-            try {
-              await win.hide();
-              // Rust pulses the perception glow itself the moment the frame is grabbed
-              // (shutter-flash receipt) — nothing to orchestrate from here.
-              const res = await invoke<{ text: string; thumb?: string }>('capture_screen_text');
-              seen = res?.text ?? '';
-              thumb = res?.thumb;
-            } finally {
-              unlistenCaptured();
-              reappear(); // idempotent safety net — also covers the error path
-            }
+            // Bounded: while macOS is showing its Screen Recording prompt this call simply sits
+            // there, and an unbounded await is an endless spinner with nothing to act on.
+            const res = await Promise.race([
+              invoke<{ text: string; thumb?: string }>('capture_screen_text'),
+              new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000)),
+            ]).catch(() => null);
+            seen = res?.text ?? '';
+            thumb = res?.thumb;
             // ≥3 chars: enough to accept a genuinely sparse screen (the old >20 rejected those),
             // while 1-2 stray chars are near-certainly OCR noise — injecting them would wrap junk
             // in the whole untrusted-content preamble and show a "Read your screen" card for nothing.
