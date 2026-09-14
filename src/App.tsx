@@ -4034,7 +4034,13 @@ if (isSpotlight) {
               included: right-side consolidation prototype — chat is a companion, not a destination.
               Shows for the code canvas too — that's the space's group chat sitting beside Codey,
               uniform with every other space (Codey's own chat is the canvas center, a separate thread). */}
-          {activeOmniTab && activeOmniTab.type !== 'space-log' && (
+          {/* Chat First makes the HOME tab a conversation too, so the same rule has to follow it:
+              without this you get the identical thread twice, side by side, each with its own
+              composer. The rule was already written for space-log; it just did not know home
+              could become one. */}
+          {activeOmniTab
+            && activeOmniTab.type !== 'space-log'
+            && !(appSettings.chatFirst && activeOmniTab.type === 'home') && (
             <DockedAgentRail
               open={copilotOpen}
               onToggle={toggleCopilot}
