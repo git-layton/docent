@@ -285,6 +285,23 @@ fn walk(el: accessibility_sys::AXUIElementRef, depth: usize, budget: &mut usize)
     Some(node)
 }
 
+/// Walk + prune one app into nodes. The shared core: the Tauri command serialises this, and
+/// `structured_text` renders it. Returns empty when the grant is missing or the pid is gone —
+/// both are ordinary outcomes, not errors.
+#[cfg(target_os = "macos")]
+pub fn tree_for(pid: i32) -> Vec<AxNode> {
+    if !crate::permissions::accessibility_authorized() {
+        return Vec::new();
+    }
+    // SAFETY: returns a +1 AXUIElementRef for the app, or null for a pid that isn't running.
+    let app = unsafe { accessibility_sys::AXUIElementCreateApplication(pid) };
+    if app.is_null() {
+        return Vec::new();
+    }
+    let mut budget = MAX_ELEMENTS;
+    walk(app, 0, &mut budget).map(prune).unwrap_or_default()
+}
+
 /// Read a running app's accessibility tree as structured JSON.
 ///
 /// UNTRUSTED: this is the content of other people's mail, messages and web pages. Callers fence it
@@ -297,20 +314,9 @@ pub fn read_app_tree(pid: i32) -> Result<serde_json::Value, String> {
         // soft-ask chip turns this into an offer; nothing here prompts.
         return Ok(serde_json::json!({ "authorized": false, "nodes": [] }));
     }
-
-    // SAFETY: returns a +1 AXUIElementRef for the app, or null for a pid that isn't running.
-    let app = unsafe { accessibility_sys::AXUIElementCreateApplication(pid) };
-    if app.is_null() {
-        return Err(format!("no accessible application for pid {pid}"));
-    }
-
-    let mut budget = MAX_ELEMENTS;
-    let tree = walk(app, 0, &mut budget);
-    let pruned: Vec<AxNode> = tree.map(prune).unwrap_or_default();
-
+    let pruned = tree_for(pid);
     Ok(serde_json::json!({
         "authorized": true,
-        "truncated": budget == 0,
         "elements": count(&pruned),
         "nodes": pruned,
     }))
@@ -371,4 +377,57 @@ mod live_probe {
 #[tauri::command]
 pub fn read_app_tree(_pid: i32) -> Result<serde_json::Value, String> {
     Err("reading an app's accessibility tree is only available on macOS".into())
+}
+
+/// Render a pruned tree as indented text a model can read.
+///
+/// Indentation is doing real work here, not decoration: it is the structure OCR destroys. A mail
+/// row and the cells beneath it stay visibly one group, so "who sent the billing alert" is
+/// answerable from the shape rather than from counting columns and hoping the counts line up.
+#[cfg(target_os = "macos")]
+pub fn render(nodes: &[AxNode], depth: usize, out: &mut String) {
+    for n in nodes {
+        // Role alone says nothing to a reader — skip rows that carry no text of their own, but
+        // keep walking, because their children usually carry all of it.
+        let label = match (&n.title, &n.value) {
+            (Some(t), Some(v)) if t != v => format!("{t}: {v}"),
+            (Some(t), None) => t.clone(),
+            (None, Some(v)) => v.clone(),
+            (Some(t), Some(_)) => t.clone(),
+            (None, None) => String::new(),
+        };
+        if !label.trim().is_empty() {
+            out.push_str(&"  ".repeat(depth));
+            out.push_str(&label);
+            out.push('\n');
+            render(&n.children, depth + 1, out);
+        } else {
+            // Unlabeled but non-empty: don't spend a line on it, don't lose what's underneath.
+            render(&n.children, depth, out);
+        }
+    }
+}
+
+/// The frontmost app's content as structured text, or None when AX can't supply it.
+///
+/// None is a normal outcome, not a failure: no Accessibility grant, a canvas-drawn app that
+/// publishes no tree, a window whose contents are an image. Callers fall back to OCR — which reads
+/// words accurately and only loses the shape.
+#[cfg(target_os = "macos")]
+pub fn structured_text(pid: i32) -> Option<String> {
+    if !crate::permissions::accessibility_authorized() {
+        return None;
+    }
+    let parsed = tree_for(pid);
+    if parsed.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    render(&parsed, 0, &mut out);
+    // A couple of stray labels is worse than nothing — it reads as "I looked and saw almost
+    // nothing", which is a misleading thing for the model to believe about a full window.
+    if out.trim().chars().count() < 40 {
+        return None;
+    }
+    Some(out)
 }

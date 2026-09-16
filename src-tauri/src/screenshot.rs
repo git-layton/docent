@@ -643,7 +643,7 @@ pub async fn preview_screen_thumb(_window: tauri::WebviewWindow) -> Result<Strin
 /// at. Layer 0 only — that skips the menu bar, Dock and other chrome, which are not "what I see"
 /// in any useful sense.
 #[cfg(target_os = "macos")]
-fn frontmost_foreign_window() -> Option<(u32, String)> {
+fn frontmost_foreign_window() -> Option<(u32, String, i32)> {
     use core_foundation::array::CFArray;
     use core_foundation::base::TCFType;
     use core_foundation::dictionary::CFDictionary;
@@ -700,11 +700,12 @@ fn frontmost_foreign_window() -> Option<(u32, String)> {
             }
 
             let id = num(&dict, &k_number)? as u32;
+            let pid = num(&dict, &k_pid)?;
             let app = dict
                 .find(k_owner_name.as_CFTypeRef() as *const _)
                 .map(|a| CFString::wrap_under_get_rule(*a as _).to_string())
                 .unwrap_or_default();
-            return Some((id, app));
+            return Some((id, app, pid));
         }
     }
     None
@@ -746,8 +747,21 @@ pub async fn capture_screen_text(
     // means fall back rather than fail, because losing the user's whole message over a window that
     // closed half a second ago would be a worse bug than the one this fixes.
     let target = frontmost_foreign_window();
+
+    // STRUCTURE FIRST. The accessibility tree is what the app itself publishes — exact strings,
+    // roles, and the nesting that says which subject belongs to which sender. OCR reads the words
+    // just as well (98.5-100% measured) but flattens a table into column order, destroying the row
+    // associations and producing confident wrong pairings.
+    //
+    // A picture is still taken either way: the thumbnail is the receipt that shows the user what
+    // was read, and OCR remains the answer for anything with no tree to publish — canvas apps,
+    // PDFs, an image, a remote screen.
+    let structured = target
+        .as_ref()
+        .and_then(|(_, _, pid)| crate::accessibility::structured_text(*pid));
+
     let mut captured = false;
-    if let Some((id, ref app)) = target {
+    if let Some((id, ref app, _pid)) = target {
         eprintln!("[screen-ocr] reading frontmost window: {app} (id {id})");
         // `-o` drops the drop-shadow: transparent padding that OCR reads as nothing and that
         // skews the thumbnail. `-l <id>` IS accepted separated, despite `-h` printing `-l<windowid>`.
@@ -799,8 +813,14 @@ pub async fn capture_screen_text(
     let text = tauri::async_runtime::spawn_blocking(move || ocr_png(&bytes))
         .await
         .map_err(|e| format!("ocr task failed: {e}"))??;
-    let capped: String = text.chars().take(12000).collect();
-    Ok(serde_json::json!({ "text": capped, "thumb": thumb }))
+    // Prefer the app's own structure; fall back to the pixels it drew.
+    let (chosen, source) = match structured {
+        Some(tree) => (tree, "accessibility"),
+        None => (text, "ocr"),
+    };
+    let capped: String = chosen.chars().take(12000).collect();
+    eprintln!("[screen-read] source={source}, {} chars", capped.chars().count());
+    Ok(serde_json::json!({ "text": capped, "thumb": thumb, "source": source }))
 }
 
 /// Downscale a PNG (max 480px) via `sips` → base64 `data:` URL. None on any failure (non-fatal).
@@ -1195,7 +1215,7 @@ mod screen_read_quality {
         let mut cmd = std::process::Command::new("/usr/sbin/screencapture");
         cmd.args(["-x", "-t", "png"]);
         match &target {
-            Some((id, app)) => {
+            Some((id, app, _pid)) => {
                 eprintln!("[quality] window: {app} (id {id})");
                 cmd.args(["-o", "-l", &id.to_string()]);
             }
