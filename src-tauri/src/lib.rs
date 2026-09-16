@@ -6,6 +6,7 @@ use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tauri::{Emitter, Manager};
 
 mod accessibility;
+mod apps;
 mod calendar;
 mod imessage;
 mod input;
@@ -5509,6 +5510,8 @@ pub fn run() {
             permissions::open_privacy_settings,
             permissions::notify_user,
             rank_by_similarity,
+            apps::list_installed_apps,
+            apps::launch_app,
             permissions::accessibility_authorized,
             accessibility::read_app_tree,
             permissions::accessibility_request_access,
