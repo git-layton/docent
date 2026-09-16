@@ -8,6 +8,7 @@ import { calendarCapability } from './builtins/calendar';
 import { filesCapability } from './builtins/files';
 import { previewObserveCapability } from './builtins/previewObserve';
 import { screenRecallCapability } from './builtins/screenRecall';
+import { mailCapability } from './builtins/mail';
 
 // Register on first import. ES modules are singletons, so this runs exactly once.
 registerCapability(knowledgeSearchCapability);
@@ -17,6 +18,7 @@ registerCapability(calendarCapability);
 registerCapability(filesCapability);
 registerCapability(previewObserveCapability);
 registerCapability(screenRecallCapability);
+registerCapability(mailCapability);
 
 export * from './types';
 export * from './registry';

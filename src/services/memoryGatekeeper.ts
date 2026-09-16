@@ -13,7 +13,7 @@ export type MemoryType =
   | 'none';
 export type EvidenceState = 'first_party' | 'source_backed' | 'inferred' | 'needs_verification' | 'conflicting';
 export type ConfidenceLabel = 'low' | 'medium' | 'high';
-export type ToolRoute = 'memory_search' | 'web_search' | 'browser' | 'integrations' | 'files' | 'calendar' | 'another_agent' | 'preview' | 'screen_recall' | 'none';
+export type ToolRoute = 'memory_search' | 'web_search' | 'browser' | 'integrations' | 'files' | 'calendar' | 'mail' | 'another_agent' | 'preview' | 'screen_recall' | 'none';
 export type PrivacyLabel = 'normal' | 'personal' | 'sensitive';
 
 export interface MemoryGatekeeperInput {
