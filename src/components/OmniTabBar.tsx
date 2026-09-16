@@ -150,6 +150,17 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
 
   const didDrag = useRef(false);
 
+  // One definition for click and keypress. Two copies of a window-spawning call is how they drift
+  // apart, and a pop-out that behaves differently by mouse and keyboard is worse than neither.
+  const popOut = useCallback(() => {
+    new WebviewWindow(`popout-${tab.id}`, {
+      url: `/?window=popout&tabId=${tab.id}`,
+      title: tab.label,
+      width: 800,
+      height: 600,
+    });
+  }, [tab.id, tab.label]);
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (tab.isPinned || e.button !== 0) return;
@@ -315,21 +326,25 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
           {tab.trackingDisabled ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
         </span>
       )}
-      {/* Pop-out window */}
+      {/* Pop-out window. Already the mechanism for "open this in a real window" — it just lives
+          behind a hover, so almost nobody discovers it. */}
       <span
         role="button"
         tabIndex={-1}
         onClick={(e) => {
           e.stopPropagation();
-          new WebviewWindow(`popout-${tab.id}`, {
-            url: `/?window=popout&tabId=${tab.id}`,
-            title: tab.label,
-            width: 800,
-            height: 600,
-          });
+          popOut();
+        }}
+        onKeyDown={(e) => {
+          // The close button beside this one has always been keyboard-operable; this one was not,
+          // so a tab could be closed from the keyboard but never popped out.
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            popOut();
+          }
         }}
         className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
-        title="Pop out to new window"
+        title={`Open ${tab.label} in its own window`}
       >
         <ExternalLink className="w-3 h-3" />
       </span>
