@@ -14,6 +14,18 @@ on:
 jobs:
   release:
     name: Build & publish (macOS arm64)
+    # Only the repo that actually HAS the runner may claim this job.
+    #
+    # `npm run release` pushes the tag to both remotes: docent (the code) and agent-forge (which
+    # holds the self-hosted runner and every APPLE_* signing secret). Both then start a Release
+    # run, but only one can ever finish — and the other does not fail fast. It sits QUEUED waiting
+    # for a runner that will never appear, for exactly 24h0m1s, until GitHub's hard timeout
+    # cancels it. That cancellation is the recurring "release failed" notice; the release itself
+    # published fine.
+    #
+    # The workflow file still travels with the tag, so the version that runs on agent-forge is the
+    # one committed here — this guard only stops the duplicate from queueing.
+    if: github.repository == 'git-layton/agent-forge'
     runs-on: self-hosted
     permissions:
       contents: write # create the GitHub Release + upload assets

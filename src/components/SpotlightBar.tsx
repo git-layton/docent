@@ -523,7 +523,6 @@ export default function SpotlightBar() {
             // Rust still pulses the perception glow when the frame is grabbed — that stays as the
             // "I just looked" receipt, and it no longer competes with a window animation.
             let seen = '';
-            let thumb: string | undefined;
             // Bounded: while macOS is showing its Screen Recording prompt this call simply sits
             // there, and an unbounded await is an endless spinner with nothing to act on.
             const res = await Promise.race([
@@ -531,7 +530,7 @@ export default function SpotlightBar() {
               new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000)),
             ]).catch(() => null);
             seen = res?.text ?? '';
-            thumb = res?.thumb;
+            const thumb = res?.thumb;
             // ≥3 chars: enough to accept a genuinely sparse screen (the old >20 rejected those),
             // while 1-2 stray chars are near-certainly OCR noise — injecting them would wrap junk
             // in the whole untrusted-content preamble and show a "Read your screen" card for nothing.

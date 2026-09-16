@@ -68,8 +68,8 @@ export function CanvasPanel({
   const binding = bindingFor(canvasContent);
   const boundLabel = binding?.label ?? 'Saved';
   // The chip's glyph comes from the binding, not from this file knowing what is open.
-  const BoundIcon = ({ note: StickyNote, calendar: CalendarDays, file: FileText, mail: Mail }
-    [binding?.icon ?? 'file'] ?? FileText);
+  const BOUND_ICONS = { note: StickyNote, calendar: CalendarDays, file: FileText, mail: Mail };
+  const BoundIcon = BOUND_ICONS[binding?.icon ?? 'file'] ?? FileText;
   const editedContent = canvasContent?.content;
 
   React.useEffect(() => {
