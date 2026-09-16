@@ -132,6 +132,33 @@ export const mailCapability: Capability = {
       }
     }
 
+    // MEANING, not just substring. IMAP TEXT search is literal — it finds "Breaking Points" and
+    // has no idea which of those issues is about the debt ceiling. Rank what came back against the
+    // user's ACTUAL question using the local MiniLM that Knowledge Core search already keeps
+    // resident: one batched embedding pass, milliseconds, and no trip through the chat model
+    // (which on a local 32B would cost 30-60 seconds to answer a question nobody asked it).
+    //
+    // Ranking is an improvement, never a gate: if the embedder is unavailable the results still
+    // come back, just in the order IMAP gave them. Losing the ordering is a worse answer; losing
+    // the mail is a broken feature.
+    try {
+      const scores = await invoke<number[]>('rank_by_similarity', { query: raw, texts: lines });
+      if (Array.isArray(scores) && scores.length === lines.length) {
+        const order = lines
+          .map((line, i) => ({ line, source: sources[i], score: scores[i] ?? 0 }))
+          .sort((a, b) => b.score - a.score);
+        lines.length = 0;
+        sources.length = 0;
+        // Renumber so the [n] markers the model cites still line up with the chips shown.
+        order.forEach((o, i) => {
+          lines.push(o.line.replace(/^\[\d+\]/, `[${i + 1}]`));
+          sources.push(o.source);
+        });
+      }
+    } catch (e) {
+      console.warn('[mail] semantic ranking unavailable, keeping IMAP order:', e);
+    }
+
     if (lines.length === 0) {
       return {
         toolData:

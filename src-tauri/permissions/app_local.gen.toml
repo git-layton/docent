@@ -141,6 +141,7 @@ allow = [
   "pty_resize",
   "pty_spawn",
   "pty_write",
+  "rank_by_similarity",
   "read_app_tree",
   "read_dream_log",
   "read_inbox_attachment",

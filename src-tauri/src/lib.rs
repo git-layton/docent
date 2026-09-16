@@ -1553,6 +1553,44 @@ fn embed_text(text: String) -> Result<Vec<f32>, String> {
         .ok_or_else(|| "embed returned nothing".into())
 }
 
+/// Score candidate texts against a query by meaning, in ONE batched embedding pass.
+///
+/// The efficient half of "AI-driven search". A generation on a local 32B costs 30-60 seconds; an
+/// embedding pass over a few dozen short strings costs milliseconds, on a MiniLM that is already
+/// resident for Knowledge Core search. So relevance ranking should never go through the chat model.
+///
+/// The division of labour this enables: a cheap mechanical retriever (IMAP TEXT search, a chat.db
+/// query) casts a WIDE net on one obvious term, and this ranks what came back against what the
+/// user actually asked. "Breaking Points newsletters about the debt ceiling" — IMAP finds the
+/// sender, meaning finds the subject. Neither half can do that alone.
+///
+/// Query and candidates are embedded together in a single call so the model is loaded once and the
+/// batch is amortised.
+#[tauri::command]
+fn rank_by_similarity(query: String, texts: Vec<String>) -> Result<Vec<f32>, String> {
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let embedder = get_or_init_embedder()?;
+    let guard = embedder.lock().unwrap_or_else(|e| e.into_inner());
+
+    let mut batch: Vec<&str> = Vec::with_capacity(texts.len() + 1);
+    batch.push(query.as_str());
+    batch.extend(texts.iter().map(|t| t.as_str()));
+
+    let vectors = guard
+        .embed(batch, None)
+        .map_err(|e| format!("embed failed: {e}"))?;
+    if vectors.len() != texts.len() + 1 {
+        return Err("embedder returned a mismatched number of vectors".into());
+    }
+    let query_vec = &vectors[0];
+    Ok(vectors[1..]
+        .iter()
+        .map(|v| cosine_similarity(query_vec, v))
+        .collect())
+}
+
 #[tauri::command]
 fn search_knowledge_semantic(
     query: String,
@@ -5470,6 +5508,7 @@ pub fn run() {
             permissions::automation_grant,
             permissions::open_privacy_settings,
             permissions::notify_user,
+            rank_by_similarity,
             permissions::accessibility_authorized,
             accessibility::read_app_tree,
             permissions::accessibility_request_access,
