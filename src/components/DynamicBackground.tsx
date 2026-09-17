@@ -209,9 +209,16 @@ export const DynamicBackground: React.FC = () => {
     // sunrise falls back below AA.
     document.documentElement.setAttribute('data-sky', luminance > 0.25 ? 'bright' : 'dim');
   }, [activeSky]);
-  // A plain background means PLAIN: no clouds, birds, rain, snow, fog, lightning or stars drifting
-  // over it. Leaving the animation on would keep the exact motion the flat backdrop exists to stop.
-  const ambient = ambientWeatherEnabled && !plainBackground;
+  // Plain Background flattens the SKY. It does not strip the scene.
+  //
+  // First cut bundled the two and took the sun, moon and weather with it — Alex wanted a blank
+  // backdrop, not the loss of the time-of-day and weather signal he likes. The moving GRADIENT was
+  // the thing that made text tiring to read, because body copy sat on a substrate whose luminance
+  // shifted with the clock. A sun in the corner does not do that.
+  //
+  // So weather stays governed by `ambientWeatherEnabled`, which already exists for exactly this,
+  // and the two settings compose: flat sky with weather, flat sky without, or the full scene.
+  const ambient = ambientWeatherEnabled;
   const isDark = timeOfDay === 'night' || timeOfDay === 'sunrise' || timeOfDay === 'sunset';
   const showClouds = ambient && (timeOfDay === 'day' || timeOfDay === 'sunrise' || timeOfDay === 'sunset');
   const showBirds = ambient && timeOfDay === 'day' && (condition === 'clear' || condition === 'cloudy');
@@ -401,8 +408,8 @@ export const DynamicBackground: React.FC = () => {
         </div>
       ))}
 
-      {/* Sun / Moon */}
-      {!plainBackground && <div
+      {/* Sun / Moon — the time-of-day signal. Follows the weather switch, not the sky one. */}
+      {ambientWeatherEnabled && <div
         className="absolute rounded-full transition-all duration-[3000ms]"
         style={{
           width: '80px', height: '80px',
@@ -420,7 +427,7 @@ export const DynamicBackground: React.FC = () => {
         }}
       />}
 
-      {/* Minimalist Mountains — scenery, not chrome. A plain background has no horizon. */}
+      {/* Minimalist Mountains — scenery, and a flat backdrop has no horizon. Stays with the sky. */}
       {!plainBackground && <div className="absolute bottom-0 w-full h-[40vh] min-h-[300px]">
         <svg viewBox="0 0 1440 320" preserveAspectRatio="none" className="absolute bottom-0 w-full h-full transition-colors duration-[3000ms]">
           <path fill={isDark ? '#141829' : '#6b92c2'} d="M0,256L60,229.3C120,203,240,149,360,154.7C480,160,600,224,720,234.7C840,245,960,203,1080,186.7C1200,171,1320,181,1380,186.7L1440,192L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z" />
