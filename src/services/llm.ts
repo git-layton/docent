@@ -847,13 +847,14 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
     }
   }
 
-  const contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
+  const docChars0 = (d: any) => String(d.content ?? d.text ?? '').length;
+  const contextUsed = systemPrompt.length + textDocs.reduce((n: number, d: any) => n + docChars0(d), 0);
   const limit = charBudget(contextLimit);
   if (contextUsed > limit) {
     // Name the ACTUAL culprit. This message blamed attachments for years while the real cause
     // was usually the prompt itself — an uncapped artifact, or a whole web page riding in the
     // agent prompt — and it sent the user hunting through files they never attached.
-    const docChars = textDocs.reduce((n: number, d: any) => n + (d.content?.length ?? 0), 0);
+    const docChars = textDocs.reduce((n: number, d: any) => n + docChars0(d), 0);
     const promptChars = systemPrompt.length;
     const culprit = docChars > promptChars
       ? `Attached documents are too large for this model (${Math.round(docChars / 1000)}k of ${Math.round(limit / 1000)}k).`
@@ -879,7 +880,26 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
           (nativeVision || !f.isImage) && (nativeAudio || !f.isAudio)),
       }));
 
-  const attachedContext = textDocs.length > 0 ? '\n\n' + textDocs.map((d: any) => `[ATTACHED DOC: ${d.name}]\n${d.content}`).join('\n\n') : '';
+  // `name`/`content` OR `title`/`text` — both shapes are produced in this codebase and this line
+  // only ever read the first. The spotlight's screen read pushes {title, url, text, kind, thumb},
+  // so a screen capture arrived here and rendered as:
+  //
+  //     [ATTACHED DOC: undefined]
+  //     undefined
+  //
+  // The model then said, accurately, that it could not see the screen. No error, no crash, nothing
+  // to notice — the read ran, the OCR succeeded, and the text was dropped at the last step.
+  // Tolerating both shapes fixes every producer at once rather than one at a time.
+  const docLabel = (d: any) => d.name ?? d.title ?? 'attachment';
+  const docBody = (d: any) => d.content ?? d.text ?? '';
+  const attachedContext = textDocs.length > 0
+    ? '\n\n' + textDocs
+        // A doc with no body is noise: it announces an attachment the model cannot read, which is
+        // worse than silence because it invites the model to speculate about the contents.
+        .filter((d: any) => String(docBody(d)).trim())
+        .map((d: any) => `[ATTACHED DOC: ${docLabel(d)}]\n${docBody(d)}`)
+        .join('\n\n')
+    : '';
   const fullSystem = systemPrompt + attachedContext;
   
   logInfo('llm', `--- EXACT PROMPT SENT TO MODEL ---\n${fullSystem}\n----------------------------------`);
