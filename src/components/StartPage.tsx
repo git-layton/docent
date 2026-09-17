@@ -20,8 +20,6 @@ import { useAgentStore } from '../store/useAgentStore';
 import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import { useTaskStore, taskCoversDate } from '../store/useTaskStore';
 import { useChatStore } from '../store/useChatStore';
-import { useMessagesStore } from '../store/useMessagesStore';
-import { getUnreadTotal } from '../lib/mailUnread';
 import { type SearchDoc } from '../services/universalSearch';
 import { OmniSearch } from './OmniSearch';
 import {
@@ -170,32 +168,15 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
   const visibleApps = useMemo(() => APPS.filter((app) => app.id !== 'gallery' || hasImagesInScope), [hasImagesInScope]);
 
 
-  // Unread mail badge — cheap IMAP SEARCH per account, cached 5 min in lib/mailUnread.
-  const [unread, setUnread] = useState<number | null>(null);
-  const mailAccounts = ((integrations as any)?.mailAccounts ?? []) as Array<{ id: string; provider: string; email: string }>;
-  const mailKey = mailAccounts.map(a => a.email).join(',');
+  // No unread-mail badge. Counting someone else's unread is what an inbox does, and Docent is not
+  // an inbox — the number was never actionable here, only a standing reminder of a pile in a
+  // different app. The IMAP poll that produced it is gone with it: a network round-trip every five
+  // minutes for a figure nobody can act on.
 
   const weatherCode = useWeatherStore((s) => s.weatherCode);
   const temperature = useWeatherStore((s) => s.temperature);
   const currentCondition = weatherCondition(weatherCode);
   const isSevereWeather = weatherCode !== null && weatherCode >= 95;
-
-  useEffect(() => {
-    let alive = true;
-    if (mailAccounts.length === 0) { setUnread(null); return; }
-    getUnreadTotal(mailAccounts).then(n => { if (alive) setUnread(n); });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mailKey]);
-
-  // Unread iMessage count — shared store, kept fresh app-wide by OmniTabBar's poller. Refresh on
-  // open too so the Home card is immediate. Gated on completed Messages setup.
-  const msgUnread = useMessagesStore(s => s.unreadChats);
-  const refreshMsgUnread = useMessagesStore(s => s.refreshUnread);
-  const imessageReady = !!(integrations as any)?.imessage?.setupComplete;
-  useEffect(() => {
-    if (imessageReady) refreshMsgUnread();
-  }, [imessageReady, refreshMsgUnread]);
 
   // Live clock — ticks every 30s so the time + greeting stay current.
   const [now, setNow] = useState(() => new Date());
@@ -267,15 +248,14 @@ export function StartPage({ onAsk, tabId }: StartPageProps) {
       inbox: mailCount > 0 ? `${mailCount} account${mailCount !== 1 ? 's' : ''} connected` : undefined,
       calendar: todayEvents.length > 0 ? `Today: ${todayEvents[0].name}` : dueToday.length > 0 ? `Due: ${dueToday[0].title}` : undefined,
     };
-    if (unread !== null && unread > 0) sub.inbox = `${unread} unread`;
-    if (msgUnread > 0) sub.messages = `${msgUnread} new message${msgUnread !== 1 ? 's' : ''}`;
+    // Only Docent's OWN work earns a badge. Tasks are things you asked Docent to hold; unread mail
+    // and unread chats are Mail's and Messages' business, and surfacing them here made Docent a
+    // second notifier for counts you cannot clear from this screen.
     const badge: Record<string, { text: string; tone: 'warning' | 'accent' } | undefined> = {
       todo: dueToday.length > 0 ? { text: `${dueToday.length} due`, tone: 'warning' } : undefined,
-      inbox: unread !== null && unread > 0 ? { text: `${unread} new`, tone: 'accent' } : undefined,
-      messages: msgUnread > 0 ? { text: `${msgUnread} new`, tone: 'accent' } : undefined,
     };
     return { sub, badge };
-  }, [now, tasks, savedApps, bookmarks, integrations, recurringEvents, unread, msgUnread]);
+  }, [now, tasks, savedApps, bookmarks, integrations, recurringEvents]);
 
   // ── Pick up where you left off: most recent doc + most recent chat ──
   const recentDoc = docs[0];

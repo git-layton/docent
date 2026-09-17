@@ -4,8 +4,6 @@ import { useWeatherStore, weatherCondition } from '../store/useWeatherStore';
 import clsx from 'clsx';
 import { useSpaceStore } from '../store/useSpaceStore';
 import { useUIStore } from '../store/useUIStore';
-import { useSettingsStore } from '../store/useSettingsStore';
-import { useMessagesStore } from '../store/useMessagesStore';
 import { FeedbackModal } from './FeedbackModal';
 import { DocentMark } from './ui/DocentMark';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -143,8 +141,9 @@ interface TabPillProps {
 }
 
 function TabPill({ tab, isActive, isSplit }: TabPillProps) {
-  const unreadChats = useMessagesStore(s => s.unreadChats);
-  const showUnread = tab.type === 'tool' && tab.toolId === 'messages' && unreadChats > 0;
+  // No unread-chat badge. Docent badges its OWN output — routine results below — never another
+  // app's state: a count of unread iMessages is Messages' business, and you cannot clear it here,
+  // so it could only ever nag.
   const inboxAlerts = useUIStore(s => s.inboxAlerts);
   const showInboxAlerts = tab.type === 'tool' && tab.toolId === 'inbox' && inboxAlerts > 0;
 
@@ -230,14 +229,6 @@ function TabPill({ tab, isActive, isSplit }: TabPillProps) {
         >
           {inboxAlerts > 99 ? '99+' : inboxAlerts}
         </span>
-      )}
-      {showUnread && (
-        <div
-          className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-accent flex items-center justify-center text-[9px] font-bold text-panel border border-panel shadow-sm animate-in zoom-in"
-          title={`${unreadChats} unread conversation${unreadChats !== 1 ? 's' : ''}`}
-        >
-          {unreadChats > 99 ? '99+' : unreadChats}
-        </div>
       )}
       {/* Star — pins this tab into the sidebar FAVORITES section. Favorites stay independent of
           pinning, so this shows on pinned chips too (the hover expansion leaves room). */}
@@ -414,18 +405,10 @@ export function OmniTabBar({ copilotOpen, onToggleCopilot }: OmniTabBarProps): R
   const splitTabId = useUIStore(s => s.splitTabId);
   const [showSpaceMenu, setShowSpaceMenu] = useState(false);
 
-  // Poll the iMessage unread count so the Messages tab's activity bubble (and the Home card) stay
-  // fresh. OmniTabBar is always mounted, so this is the app-wide heartbeat for that count. Held off
-  // until the user has completed Messages setup so we don't probe (and fail) before access exists.
-  const imessageReady: boolean = useSettingsStore(s => (s.integrations as any).imessage?.setupComplete) ?? false;
-  const refreshUnread = useMessagesStore(s => s.refreshUnread);
-  useEffect(() => {
-    if (!imessageReady) return;
-    refreshUnread();
-    const t = setInterval(refreshUnread, 15_000);
-    return () => clearInterval(t);
-  }, [imessageReady, refreshUnread]);
-
+  // The iMessage unread poller is gone with the badges it fed. It queried chat.db every 15 seconds
+  // for the life of the app, forever, to keep a number current that nothing renders any more — and
+  // it was the last consumer of the count. Removing the display without removing this would have
+  // left the cost with none of the benefit, which is the usual way dead work survives a cleanup.
   // Only show tabs belonging to the active Space — this IS the Space context
   const spaceTabs = allTabs.filter(t => t.spaceId === activeSpaceId);
 
