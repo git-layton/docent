@@ -445,6 +445,9 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  // Which stage of a turn is in flight. Only read when the turn watchdog fires, so a hang reports
+  // WHERE it hung instead of just that it did — the difference between a bug report and a mystery.
+  const turnStageRef = useRef<string>('idle');
   // Per-chat generation helpers (paired with generatingChats above).
   //  • isChatGenerating — is THIS chat mid-stream? (drives that chat's composer/stop button)
   //  • setChatGenerating — flip one chat's flag without disturbing the others (stable identity)
@@ -2313,7 +2316,43 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
     // Keeping the controller local (_controller) means concurrent runs on other chats are untouched.
     const _controller = freshAbort(chatId);
     setChatGenerating(chatId, true);
+
+    // ── Generation watchdog ───────────────────────────────────────────────────────────────────
+    // A backstop over the WHOLE turn, not any one step. Every timeout added so far sits at or
+    // after the HTTP request — the stall watchdog reads the response stream, the request deadline
+    // wraps the fetch — and a hang observed live happened BEFORE either: app idle, no network
+    // connections, no Rust work, message stuck on isStreaming with nothing to abort.
+    //
+    // There are many awaits between "message added" and "request sent": routing, capability
+    // execution, memory retrieval, an engine swap, prompt assembly. Any one of them can await a
+    // Tauri invoke that never resolves, and invokes have no deadline of their own. Timing them
+    // individually is a losing game — each new step is a new way to hang forever.
+    //
+    // So this bounds the turn itself and reports what stage it died in. It aborts rather than just
+    // reporting, so the controller unwinds anything that IS abortable, and it is cleared on every
+    // exit path in the finally below.
+    const TURN_TIMEOUT_MS = 300_000;
+    const turnWatchdog = setTimeout(() => {
+      if (!abortControllersRef.current.get(chatId)) return; // already finished
+      console.error(`[turn] no completion after ${TURN_TIMEOUT_MS / 1000}s — stage: ${turnStageRef.current}`);
+      try { _controller.abort(); } catch { /* best effort */ }
+      useChatStore.getState().setMessages((prev: Record<string, any[]>) => {
+        const msgs = prev[chatId] ?? [];
+        const idx = msgs.findIndex((m: any) => m.isStreaming);
+        const text =
+          `### ⚠️ Generation Failed\nStopped after ${Math.round(TURN_TIMEOUT_MS / 60000)} minutes with no reply ` +
+          `(stalled at: ${turnStageRef.current}). Nothing was lost — try again, or pick a different model.`;
+        if (idx === -1) return { ...prev, [chatId]: [...msgs, { id: generateId('err'), role: 'bot', content: text, isPinned: false, timestamp: Date.now() }] };
+        const updated = [...msgs];
+        updated[idx] = { ...updated[idx], isStreaming: false, content: text };
+        return { ...prev, [chatId]: updated };
+      });
+      setChatGenerating(chatId, false);
+    }, TURN_TIMEOUT_MS);
+    turnStageRef.current = 'starting';
+
     try {
+      turnStageRef.current = 'routing';
       const history = [...historyToPass, userMsg];
       const inputLower = userMsg.content.toLowerCase();
       let toolUsed = null;
@@ -2433,6 +2472,7 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
         // Scoped to retrieval routes on purpose: "rewrite this paragraph" makes no claim on
         // the library, and answering it with "nothing in your library covers this" would be
         // both wrong and insulting.
+        turnStageRef.current = 'evidence check';
         if (isRetrievalRoute(primaryToolRoute)) {
           // Attached docs are live evidence: a screen read, an open page, a dropped file. They are
           // not library retrieval, so blocksFromSources never sees them — which is how the gate
@@ -2676,7 +2716,7 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
             canvasContent: _canvasContent,
             isDeepThinking: _isDeepThinking,
             agentPinnedMessages: _agentPinnedMessagesForPrompt,
-            onChunk: handleChunk,
+            onChunk: (c: string) => { turnStageRef.current = 'receiving'; handleChunk(c); },
             signal: _controller.signal,
             appSettings: _appSettings,
             integrations: _integrations,
@@ -2748,6 +2788,10 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
         return { ...prev, [chatId]: [...msgs, { id: generateId('err'), role: 'bot', content: `### ⚠️ Generation Failed\n${errMsg}`, isPinned: false, timestamp: Date.now() }] };
       });
     } finally {
+      // Cleared on EVERY exit — success, error, abort. A surviving timer would fire minutes later
+      // and overwrite a perfectly good reply with a failure notice.
+      clearTimeout(turnWatchdog);
+      turnStageRef.current = 'idle';
       // Clear + drop our controller, unless a newer send already took over this chat's slot.
       if (abortControllersRef.current.get(chatId) === _controller) {
         setChatGenerating(chatId, false);
