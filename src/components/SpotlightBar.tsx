@@ -610,6 +610,9 @@ export default function SpotlightBar() {
       const verdict = assessSufficiency({
         query: command,
         passages: blocksFromSources(relevantMem.hits as any[]),
+        // The screen read and the page being viewed ride in the prompt, not in retrieval — so the
+        // gate has to be told they exist or it will claim there is nothing to answer from.
+        liveEvidenceChars: (screenContext?.length ?? 0) + (tabContext?.length ?? 0),
       });
       const systemPromptWithEvidence =
         `${systemPrompt}\n\n[EVIDENCE CHECK — ${verdict.level.toUpperCase()}]\n${verdict.directive}`;

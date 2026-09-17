@@ -36,6 +36,20 @@ export interface SufficiencyInput {
   entitiesFound?: readonly string[];
   /** Entities the query names that the map does NOT hold — the known unknowns. */
   entitiesMissing?: readonly string[];
+  /**
+   * Live evidence in front of the model THIS TURN that did not come from the library: a screen
+   * read, the open web page, an attached file.
+   *
+   * This gate measures RETRIEVAL. Asked "what passphrase is on my screen", retrieval legitimately
+   * finds nothing — and the gate then told the model "the retrieved material does not support an
+   * answer", which the model relayed as "I cannot see your screen", while 1,276 characters of that
+   * screen sat in the same prompt. The verdict was right about the library and wrong about the
+   * world, and the model believed the verdict.
+   *
+   * Live evidence does not make an answer well-sourced. It makes "there is nothing to answer from"
+   * false, which is a different claim and the only one this gate should stop making.
+   */
+  liveEvidenceChars?: number;
 }
 
 export interface SufficiencyVerdict {
@@ -115,6 +129,29 @@ export function assessSufficiency(input: SufficiencyInput): SufficiencyVerdict {
   // with extra confidence — the exact documented failure.
   const nothingToStandOn = groundedPassages === 0;
   const missedTheSubject = termCoverage < COVERAGE_FLOOR;
+
+  // Live evidence outranks an empty library, because it answers a different question. A screen
+  // read or an open page is `observed` provenance — it grounds what the user is DOING, not what is
+  // true of the world — so it never makes an answer well-sourced. What it does do is make "there
+  // is nothing here to answer from" factually wrong, and that is the sentence this gate was
+  // putting in the model's mouth while the evidence sat beside it in the prompt.
+  //
+  // Threshold, not a boolean: a couple of stray OCR characters is not evidence of anything.
+  const LIVE_EVIDENCE_FLOOR = 40;
+  const hasLiveEvidence = (input.liveEvidenceChars ?? 0) >= LIVE_EVIDENCE_FLOOR;
+
+  if (hasLiveEvidence && (nothingToStandOn || missedTheSubject)) {
+    return {
+      level: 'thin',
+      termCoverage, groundedPassages, distinctSources, missingEntities,
+      detail: 'Answering from what is in front of you, not from your library.',
+      directive:
+        'YOUR LIBRARY HAS NOTHING ON THIS, BUT LIVE CONTEXT IS PRESENT — the screen, page or file ' +
+        'included in this message. Answer from THAT, and quote it where you can. Do NOT say you ' +
+        'cannot see it: it is in this prompt. Be clear that the answer comes from what is in front ' +
+        'of you right now rather than from anything the user has saved.',
+    };
+  }
 
   if (nothingToStandOn || missedTheSubject) {
     return {

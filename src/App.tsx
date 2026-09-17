@@ -2434,9 +2434,17 @@ export default function App({ isSpotlight = false, isPopOut = false, popOutTabId
         // the library, and answering it with "nothing in your library covers this" would be
         // both wrong and insulting.
         if (isRetrievalRoute(primaryToolRoute)) {
+          // Attached docs are live evidence: a screen read, an open page, a dropped file. They are
+          // not library retrieval, so blocksFromSources never sees them — which is how the gate
+          // came to tell the model "nothing supports an answer" with the user's screen sitting in
+          // the same prompt.
+          const liveEvidenceChars = (userMsg.attachedFiles ?? [])
+            .filter((d: any) => !d?.isImage)
+            .reduce((n: number, d: any) => n + String(d?.content ?? d?.text ?? '').length, 0);
           const verdict = assessSufficiency({
             query: String(userMsg.content ?? ''),
             passages: blocksFromSources(foundSources as any[]),
+            liveEvidenceChars,
           });
           toolData += `\n\n[SYSTEM NOTE: EVIDENCE CHECK — ${verdict.level.toUpperCase()}]\n${verdict.directive}\n[END EVIDENCE CHECK]`;
           console.info(`[sufficiency] ${verdict.level} — ${verdict.detail}`);

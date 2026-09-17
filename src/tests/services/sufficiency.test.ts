@@ -255,3 +255,44 @@ describe('blocksFromSources', () => {
     expect(() => blocksFromSources(undefined as unknown as [])).not.toThrow()
   })
 })
+
+// ─── An empty library is not an empty prompt ─────────────────────────────────
+//
+// Shipped symptom: "what passphrase is on my screen" → "No, I cannot see your screen, and there's
+// no recorded screen data to reference." The screen read had worked — Rust logged
+// `[screen-read] source=ocr, 1276 chars` — and those characters were in the same prompt.
+//
+// This gate measures RETRIEVAL. Retrieval legitimately found nothing, so it told the model "the
+// retrieved material does not support an answer", and the model relayed that as blindness. The
+// verdict was right about the library and wrong about the world, and the model believed it.
+describe('live evidence vs an empty library', () => {
+  const ask = (liveEvidenceChars?: number) =>
+    assessSufficiency({ query: 'what passphrase is on my screen', passages: [], liveEvidenceChars })
+
+  it('still says INSUFFICIENT when there is genuinely nothing anywhere', () => {
+    expect(ask().level).toBe('insufficient')
+  })
+
+  it('stops claiming nothing supports an answer when the screen IS in the prompt', () => {
+    const v = ask(1276)
+    expect(v.level).not.toBe('insufficient')
+    expect(v.directive).toMatch(/do NOT say you cannot see it/i)
+  })
+
+  it('never upgrades live evidence to well-sourced', () => {
+    // `observed` grounds what the user is DOING, never what is true of the world. A screen read
+    // must not be able to make an answer look library-backed.
+    expect(ask(100_000).level).toBe('thin')
+  })
+
+  it('ignores a couple of stray OCR characters', () => {
+    // Near-empty captures happen constantly; treating eight characters as evidence would suppress
+    // a correct "I have nothing" on almost every turn.
+    expect(ask(8).level).toBe('insufficient')
+  })
+
+  it('tells the model where the answer came from', () => {
+    // Answering from the screen is fine; passing it off as something the user saved is not.
+    expect(ask(1276).directive).toMatch(/in front of you/i)
+  })
+})
