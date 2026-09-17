@@ -146,7 +146,27 @@ export async function ensureLocalModelServing(
 /** Ask a running llama-server which model it has loaded. Null when it isn't up. */
 export async function fetchServingModel(endpoint: string): Promise<string | null> {
   const base = String(endpoint ?? '').replace(/\/+$/, '');
-  const res = await fetch(`${base}/models`);
+
+  // The TAURI http plugin, not window.fetch. A webview request to http://127.0.0.1:8080 is
+  // cross-origin and gets blocked — which is why every other localhost call in this app already
+  // goes through the plugin ("completely bypassing browser CORS", nativeFetch.js).
+  //
+  // Using plain fetch here made the probe throw on a perfectly healthy engine. The throw was
+  // caught as "nothing is serving", servingMatches then correctly refused to treat unknown as a
+  // match, and the result was that EVERY SEND decided it needed to swap engines — a multi-gigabyte
+  // unload and reload before each message, with the request never reaching the model at all.
+  //
+  // With the plugin, a throw means the server is genuinely unreachable, which is what the caller
+  // already assumes it means.
+  let doFetch: typeof fetch = fetch;
+  if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
+    try {
+      const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+      doFetch = tauriFetch as unknown as typeof fetch;
+    } catch { /* fall back to window.fetch outside Tauri (tests) */ }
+  }
+
+  const res = await doFetch(`${base}/models`);
   if (!res.ok) return null;
   const body = await res.json();
   const id = body?.data?.[0]?.id;
