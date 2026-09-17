@@ -226,7 +226,7 @@ fn attr_string(el: accessibility_sys::AXUIElementRef, name: &str) -> Option<Stri
 #[cfg(target_os = "macos")]
 fn children_of(el: accessibility_sys::AXUIElementRef) -> Vec<accessibility_sys::AXUIElementRef> {
     use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef};
-    use core_foundation::base::CFRelease;
+    use core_foundation::base::{CFRelease, CFRetain};
 
     let key = CFString::new("AXChildren");
     let mut raw: core_foundation::base::CFTypeRef = std::ptr::null();
@@ -241,10 +241,16 @@ fn children_of(el: accessibility_sys::AXUIElementRef) -> Vec<accessibility_sys::
     // type to implement core-foundation's conversion traits, and AXUIElementRef is a raw pointer
     // from a different crate, so it cannot.
     //
-    // SAFETY: a successful copy hands us a +1 CFArrayRef of AXUIElementRef (what
-    // kAXChildrenAttribute is defined to return). The child refs stay valid for the walk because
-    // the array owns them and each child is retained by its parent element; we release only the
-    // array, which is the reference we own.
+    // EACH CHILD IS RETAINED BEFORE THE ARRAY IS RELEASED. This is not defensive tidiness — the
+    // first version skipped it and crashed the app, with a comment confidently asserting the
+    // children were kept alive by their parent. They are not. CFArrayGetValueAtIndex returns a
+    // BORROWED reference, valid only while the array holds it, so releasing the array freed every
+    // child and the walk then dereferenced them:
+    //
+    //   __CF_IS_OBJC -> CFGetTypeID -> _AXUIElementValidate -> AXUIElementCopyAttributeValue
+    //
+    // Get-rule versus Create-rule is the whole of it: `Copy` in a CoreFoundation name means you
+    // own the result, `Get` means you do not. The caller releases each element when done with it.
     let mut out = Vec::new();
     unsafe {
         let arr = raw as CFArrayRef;
@@ -252,6 +258,7 @@ fn children_of(el: accessibility_sys::AXUIElementRef) -> Vec<accessibility_sys::
         for i in 0..n {
             let child = CFArrayGetValueAtIndex(arr, i) as accessibility_sys::AXUIElementRef;
             if !child.is_null() {
+                CFRetain(child as core_foundation::base::CFTypeRef);
                 out.push(child);
             }
         }
@@ -279,7 +286,13 @@ fn walk(el: accessibility_sys::AXUIElementRef, depth: usize, budget: &mut usize)
         bounds: None, // positions are a second round-trip per element; added when a caller needs them
         children: children_of(el)
             .into_iter()
-            .filter_map(|c| walk(c, depth + 1, budget))
+            .filter_map(|c| {
+                let node = walk(c, depth + 1, budget);
+                // children_of retained each element; this balances it. Without the release the
+                // fix for the crash would simply leak the whole tree instead.
+                unsafe { core_foundation::base::CFRelease(c as core_foundation::base::CFTypeRef) };
+                node
+            })
             .collect(),
     };
     Some(node)
@@ -299,7 +312,10 @@ pub fn tree_for(pid: i32) -> Vec<AxNode> {
         return Vec::new();
     }
     let mut budget = MAX_ELEMENTS;
-    walk(app, 0, &mut budget).map(prune).unwrap_or_default()
+    let out = walk(app, 0, &mut budget).map(prune).unwrap_or_default();
+    // AXUIElementCreateApplication follows the Create rule: this reference is ours to release.
+    unsafe { core_foundation::base::CFRelease(app as core_foundation::base::CFTypeRef) };
+    out
 }
 
 /// Read a running app's accessibility tree as structured JSON.
