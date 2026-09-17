@@ -310,9 +310,30 @@ export const fetchWithRetry = async (url: string, options: any, retries = 3, sig
     }
   }
 
+  let timedOut = false;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetcher(url, { ...options, signal });
+      // A deadline, because there was none. A provider that accepts the connection and never
+      // answers used to hang here forever — no throw, no catch, no error bubble, just a spinner.
+      // Generous: prompt processing on a local 32B is genuinely slow, and killing a working
+      // request is worse than waiting for a dead one.
+      //
+      // Built from AbortController rather than AbortSignal.timeout/any: those are undefined in the
+      // test environment, and the first version of this threw a TypeError that the retry loop
+      // below swallowed and retried with backoff — turning a missing API into sixteen mysterious
+      // test timeouts. A plain controller works everywhere and needs no feature detection.
+      const ctrl = new AbortController();
+      timedOut = false;
+      const deadline = setTimeout(() => { timedOut = true; ctrl.abort(); }, 180_000);
+      const relay = () => ctrl.abort();
+      signal?.addEventListener('abort', relay, { once: true });
+      let res: Response;
+      try {
+        res = await fetcher(url, { ...options, signal: ctrl.signal });
+      } finally {
+        clearTimeout(deadline);
+        signal?.removeEventListener('abort', relay);
+      }
       if (!res.ok) {
         let errMsg = `HTTP ${res.status}`;
         try {
@@ -326,6 +347,12 @@ export const fetchWithRetry = async (url: string, options: any, retries = 3, sig
       return returnRaw ? res : await res.json();
     } catch (err: any) {
       const msg: string = err?.message ?? (typeof err === 'string' ? err : JSON.stringify(err));
+      // A deadline and a user pressing stop both surface as an abort, but only one is the user.
+      // Reporting a dead provider as a cancelled request is how a real failure disappears — and
+      // retrying a deadline just spends another three minutes reaching the same silence.
+      if (timedOut) {
+        throw new Error('The model did not respond in time. It may still be loading, or the provider may have rejected the request.');
+      }
       if (err?.name === 'AbortError' || msg === 'CONTEXT_LIMIT_EXCEEDED') throw err;
       const isNetworkDown = /Failed to fetch|Load failed|Connection refused|ECONNREFUSED|error sending request|Network request failed|fetch failed/i.test(msg);
       if (isNetworkDown) {
@@ -968,6 +995,26 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
   let buffer = '';
   let isReasoning = false;
 
+  // ── Stall watchdog ────────────────────────────────────────────────────────────────────────
+  // Until now NOTHING here had a deadline. If a provider accepted the connection and then went
+  // quiet — billing declined, a model still mapping into memory, a dropped stream — `reader.read()`
+  // simply never resolved. No error was thrown, so no catch ran, so the bubble span forever. That
+  // is why failures showed up as endless loading rather than as failures.
+  //
+  // A deadline on TOTAL duration would be wrong: a 32B answering over a long prompt legitimately
+  // takes minutes, and killing that is a worse bug than the one being fixed. What is never
+  // legitimate is SILENCE — so the watchdog measures time since the last byte arrived, and a
+  // slow-but-alive stream resets it on every chunk.
+  const STALL_MS = 90_000;
+  let lastActivity = Date.now();
+  let stalled = false;
+  const watchdog = setInterval(() => {
+      if (Date.now() - lastActivity > STALL_MS) {
+          stalled = true;
+          void reader.cancel().catch(() => {});
+      }
+  }, 5_000);
+
   try {
       while (true) {
           if (signal?.aborted) {
@@ -975,7 +1022,14 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
               break;
           }
           const { done, value } = await reader.read();
+          if (stalled) {
+              throw new Error(
+                  `${modelId || 'The model'} stopped responding — nothing received for ${Math.round(STALL_MS / 1000)}s. ` +
+                  `It may still be loading, or the provider may have rejected the request.`,
+              );
+          }
           if (done) break;
+          lastActivity = Date.now();
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
@@ -1025,6 +1079,9 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
           if (onChunk) onChunk(closing);
       }
   } finally {
+      // Clear the watchdog on EVERY exit — success, stall, abort or throw. A surviving interval
+      // would keep firing against a released reader for the life of the app.
+      clearInterval(watchdog);
       reader.releaseLock();
   }
 
