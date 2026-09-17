@@ -763,13 +763,33 @@ export const generateTextResponse = async ({ messages, modelConfig, profile, use
       } catch { /* non-DOM host (tests) — never let telemetry break a send */ }
     };
     announce('docent:engine-checking');
-    const result = await ensureLocalModelServing(modelConfig, {
-      invoke: async (cmd, args) => {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return invoke(cmd, args);
-      },
-      fetchServing: fetchServingModel,
-    });
+    // BOUNDED. Swapping engines unloads one multi-gigabyte model and loads another, and
+    // `start_local_model` blocks until the new one is serving. With no deadline that await simply
+    // never returned: observed with a 34GB Qwen3-32B resident and Gemma selected — llama-server
+    // idle at 0.1% CPU, no request ever sent, and a spinner that looked exactly like a model
+    // thinking. The request deadline added earlier covers the FETCH; it never covered the swap
+    // that happens before it.
+    //
+    // On timeout we go on anyway rather than failing. Whatever is currently loaded can still
+    // answer, and a reply from the previous model beats no reply at all — the caller is told which
+    // model actually served, so the badge does not get to lie about it either.
+    const SWAP_TIMEOUT_MS = 150_000;
+    let swapTimedOut = false;
+    const result = await Promise.race([
+      ensureLocalModelServing(modelConfig, {
+        invoke: async (cmd, args) => {
+          const { invoke } = await import('@tauri-apps/api/core');
+          return invoke(cmd, args);
+        },
+        fetchServing: fetchServingModel,
+      }),
+      new Promise<{ switched: false; reason: 'unavailable' }>(resolve =>
+        setTimeout(() => { swapTimedOut = true; resolve({ switched: false, reason: 'unavailable' }); }, SWAP_TIMEOUT_MS),
+      ),
+    ]);
+    if (swapTimedOut) {
+      console.warn('[llm] engine swap timed out; sending to whatever is currently loaded');
+    }
     announce('docent:engine-ready', {
       switched: result.switched,
       reason: 'reason' in result ? result.reason : undefined,
